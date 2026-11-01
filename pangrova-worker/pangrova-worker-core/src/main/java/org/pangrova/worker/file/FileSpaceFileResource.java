@@ -27,7 +27,7 @@ import jakarta.ws.rs.core.Response;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.filesystem.api.object.FileStat;
 import org.pangrova.filesystem.api.object.MultipartUpload;

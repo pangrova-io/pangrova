@@ -3,9 +3,9 @@ package org.pangrova.coordinator.bootstrap.module;
 import org.pangrova.coordinator.query.execution.phase.CompilationPhase;
 import org.pangrova.coordinator.query.execution.phase.DistributedDispatchPhase;
 import org.pangrova.coordinator.query.execution.phase.StatementDispatchPhase;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
-import org.pangrova.scheduler.core.resource.WeightedFairScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.resource.WeightedFairScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

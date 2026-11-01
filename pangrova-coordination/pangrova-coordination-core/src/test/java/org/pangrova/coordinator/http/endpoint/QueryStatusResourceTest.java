@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.http.adapter.jetty.EmbeddedHttpServerFactory;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;

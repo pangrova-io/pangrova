@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.scheduler.resource.QueueType;
-import org.pangrova.scheduler.core.resource.WeightedFairScheduler;
+import org.pangrova.scheduler.resource.WeightedFairScheduler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 

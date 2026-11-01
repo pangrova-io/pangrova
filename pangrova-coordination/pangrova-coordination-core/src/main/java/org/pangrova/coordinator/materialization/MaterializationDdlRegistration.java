@@ -7,7 +7,7 @@ import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactor
 import org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction;
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog;
 import org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository;
 import org.pangrova.parser.ast.CreateContinuousQueryStatement;

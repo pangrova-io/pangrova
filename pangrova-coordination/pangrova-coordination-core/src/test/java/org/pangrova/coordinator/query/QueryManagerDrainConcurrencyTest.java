@@ -20,14 +20,14 @@ import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.testing.testkit.TestObservability;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -168,7 +168,7 @@ class QueryManagerDrainConcurrencyTest {
             final int idx = i;
             submissions.add(executor.submit(() -> assertThatThrownBy(() -> queryManager.submitQuery(
                     "parallel-" + idx, "SELECT " + idx, testSession()))
-                    .isInstanceOf(org.pangrova.scheduler.core.failure.NoAvailableWorkerException.class)));
+                    .isInstanceOf(org.pangrova.scheduler.failure.NoAvailableWorkerException.class)));
         }
         for (Future<?> submission : submissions) submission.get(5, TimeUnit.SECONDS);
         assertThat(queryManager.getActiveQueryCount()).isZero();

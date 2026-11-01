@@ -1,6 +1,6 @@
 package org.pangrova.client.transport.http;
 
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.client.session.RetryPolicy;
 
 /**
  * HTTP status code constants shared across the REST client.

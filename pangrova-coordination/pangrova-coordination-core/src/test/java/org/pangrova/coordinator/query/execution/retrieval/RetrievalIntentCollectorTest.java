@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.DispatchQueryContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
 import org.pangrova.planner.rerank.FullTextScoringNode;
 import org.pangrova.planner.rerank.RerankerPlanNode;
-import org.pangrova.indexing.core.planner.vector.VectorSearchNode;
+import org.pangrova.indexing.planner.vector.VectorSearchNode;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.spi.indexing.vector.DistanceMetric;
 import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy;

@@ -4,8 +4,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiEmbeddingConfig;
+import org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider;
+import org.pangrova.ai.worker.embedding.openai.OpenAiEmbeddingConfig;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
 import org.pangrova.spi.connector.data.value.ColumnValue;
 

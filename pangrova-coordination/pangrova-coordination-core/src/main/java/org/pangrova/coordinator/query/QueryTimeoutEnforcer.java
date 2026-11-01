@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

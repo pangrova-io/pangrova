@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import java.util.function.Consumer;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 
 /**
  * Callback for routing terminal task states to the DAG dispatch engine.

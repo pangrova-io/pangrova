@@ -1,10 +1,10 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
-import org.pangrova.scheduler.core.speculation.SpeculationConfig;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
-import org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters;
+import org.pangrova.scheduler.speculation.SpeculationConfig;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
+import org.pangrova.coordinator.scheduler.SpeculationAdapters;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.TaskDuration;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;

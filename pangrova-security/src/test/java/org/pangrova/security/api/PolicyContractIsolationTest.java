@@ -36,7 +36,7 @@ class PolicyContractIsolationTest {
                 return super.loadClass(name, resolve);
             }
         }) {
-            assertThatThrownBy(() -> loader.loadClass("org.pangrova.security.core.authz.SecurityStatementHandler"))
+            assertThatThrownBy(() -> loader.loadClass("org.pangrova.security.authz.SecurityStatementHandler"))
                     .isInstanceOf(ClassNotFoundException.class);
             for (String policy : List.of("rowfilter.RowPolicy", "mask.ColumnMask")) {
                 Class<?> type = loader.loadClass("org.pangrova.spi.security." + policy);

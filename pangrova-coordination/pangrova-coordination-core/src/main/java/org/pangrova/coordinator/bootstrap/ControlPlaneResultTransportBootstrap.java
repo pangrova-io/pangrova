@@ -9,8 +9,8 @@ import org.pangrova.coordinator.result.CoordinatorDataProducer;
 import org.pangrova.coordinator.result.CoordinatorResultBuffer;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.result.CoordinatorResultWriter;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.ResultProtocol;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultProtocol;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
@@ -50,7 +50,7 @@ final class ControlPlaneResultTransportBootstrap {
             CoordinatorResultBuffer buffer) {
         List<io.grpc.ServerInterceptor> interceptors = tracing == null
                 ? List.of()
-                : List.of(new org.pangrova.observability.sdk.tracing.adapter.grpc.FlightSpanInterceptor(tracing));
+                : List.of(new org.pangrova.observability.sdk.tracing.grpc.FlightSpanInterceptor(tracing));
         var tls = config.shuffleTlsConfig();
         var serverConfig = new TransportServerConfig(config.coordinatorTransportPort(),
                 tls == null ? null : tls.certificateChain().toString(),

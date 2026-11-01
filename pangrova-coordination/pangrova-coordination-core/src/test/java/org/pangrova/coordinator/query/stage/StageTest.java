@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.stage;
 
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;

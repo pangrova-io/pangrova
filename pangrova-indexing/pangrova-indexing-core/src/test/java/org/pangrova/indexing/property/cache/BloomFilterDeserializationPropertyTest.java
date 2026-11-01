@@ -8,7 +8,7 @@ import net.jqwik.api.Arbitraries;
 import net.jqwik.api.constraints.Size;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.indexing.core.storage.CachedBloomFilterIndexData;
+import org.pangrova.indexing.storage.CachedBloomFilterIndexData;
 import org.pangrova.spi.indexing.data.BloomFilterIndexData;
 
 import java.util.List;

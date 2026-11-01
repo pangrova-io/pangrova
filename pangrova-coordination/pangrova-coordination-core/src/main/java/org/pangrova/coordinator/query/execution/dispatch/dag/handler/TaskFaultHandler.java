@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -56,8 +56,10 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   `org.pangrova.testing`) MUST NOT be claimed by more than one leaf. Sibling
   leaves use non-overlapping roots such as `.runtime`, `.service`, or
   `.testkit`.
-- Domain API, Core, Store, Assembly, and Server are logical package boundaries
-  inside one owner artifact by default. They become separate artifacts only
+- Shared contracts, storage ports, and backends follow the SPI, Persistence, and
+  Filesystem ownership in `architecture.md`. Domain services, assembly, and
+  servers remain with their callers. These are responsibility boundaries, not
+  mandatory `api/core/store/adapter` directory layers. Further artifacts are justified only
   for an independently published contract, dependency/classloader isolation,
   a process/distribution boundary, or JNI/native packaging. Directory symmetry
   and a single implementation are not sufficient reasons to split.
@@ -110,6 +112,11 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   unique `Automatic-Module-Name`.
 
 ### Package structure and naming
+
+- Collapse an intermediate `core`, `impl`, `adapter`, or `provider` package that
+  has no directly owned types; place its capability packages under the owner.
+  Preserve meaningful contract/backend namespaces such as Persistence `api/jdbc`
+  and Filesystem `api/local/s3/oss`, and keep sibling artifact roots disjoint.
 
 - Under API and Core roots, organize by business capability first and technical
   role second, for example `metadata.api.catalog`,

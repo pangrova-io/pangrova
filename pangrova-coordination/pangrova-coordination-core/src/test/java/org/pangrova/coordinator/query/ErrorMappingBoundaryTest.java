@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.exception.ValidationException;
-import org.pangrova.scheduler.core.failure.CircuitBreakerOpenException;
+import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
 import org.pangrova.protocol.transport.ResultTooLargeException;
 import org.pangrova.worker.exchange.ExchangeConnectionException;
 import org.pangrova.shuffle.exchange.ExchangeEndpoint;

@@ -12,7 +12,7 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.stage.StageRetryPolicy;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.logical.LogicalValues;

@@ -4,24 +4,24 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.table.store.memory.control.InMemoryTableControlMaintenanceStore;
 import org.pangrova.table.store.memory.control.InMemoryTableControlGovernanceBindingStore;
 import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
 import org.pangrova.table.api.governancebinding.GovernanceBindingType;
 import org.pangrova.table.api.maintenance.MaintenanceOperation;
 import org.pangrova.table.api.control.OwnershipMode;
-import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.core.control.TableControlPolicyBinder;
-import org.pangrova.table.core.control.TableControlService;
-import org.pangrova.table.core.control.TableControlSettings;
+import org.pangrova.table.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.control.TableControlPolicyBinder;
+import org.pangrova.table.control.TableControlService;
+import org.pangrova.table.control.TableControlSettings;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.core.schema.SchemaChange;
+import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.metadata.service.ResolvedTable;
@@ -30,7 +30,7 @@ import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.coordinator.query.audit.TableControlAuditEmitter;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.spi.security.audit.AuditEventType;
 import org.pangrova.spi.security.audit.AuditEventWriter;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
@@ -605,8 +605,8 @@ class DdlExecutorOwnershipTest {
         private final Map<String, String> tags = new LinkedHashMap<>();
 
         RecordingMetadataService() {
-            super(registry, new org.pangrova.metadata.core.cache.TieredMetadataCache(), null,
-                    new org.pangrova.metadata.core.schema.SchemaEvolutionValidator());
+            super(registry, new org.pangrova.metadata.cache.TieredMetadataCache(), null,
+                    new org.pangrova.metadata.schema.SchemaEvolutionValidator());
         }
 
         @Override

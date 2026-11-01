@@ -1,6 +1,6 @@
 package org.pangrova.governance.core.lineage;
 
-import org.pangrova.governance.lineage.provider.log.LogLineageBackend;
+import org.pangrova.governance.lineage.log.LogLineageBackend;
 
 import org.junit.jupiter.api.Test;
 

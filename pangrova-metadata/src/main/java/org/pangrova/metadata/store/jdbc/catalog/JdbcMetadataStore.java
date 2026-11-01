@@ -9,7 +9,7 @@ import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.core.object.TableMetadataSerializer;
+import org.pangrova.metadata.object.TableMetadataSerializer;
 import org.pangrova.metadata.api.catalog.SyncResult;
 
 import javax.sql.DataSource;

@@ -11,7 +11,7 @@ import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPuller;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;

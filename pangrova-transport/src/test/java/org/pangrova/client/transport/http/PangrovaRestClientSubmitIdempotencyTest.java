@@ -1,8 +1,8 @@
 package org.pangrova.client.transport.http;
 
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.client.core.error.PangrovaConnectionException;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.client.error.PangrovaConnectionException;
+import org.pangrova.client.session.RetryPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

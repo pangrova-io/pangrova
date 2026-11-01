@@ -5,7 +5,7 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.indexing.core.eval.IndexEvalCircuitBreaker;
+import org.pangrova.indexing.eval.IndexEvalCircuitBreaker;
 
 import java.time.Duration;
 

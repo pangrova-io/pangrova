@@ -15,7 +15,7 @@ class GenerationCoreDependencyIsolationTest {
         var loader = getClass().getClassLoader();
         assertThat(Class.forName(GenerationJobStore.class.getName(), false, loader)).isSameAs(GenerationJobStore.class);
         for (String name : List.of("org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore",
-                "org.pangrova.security.core.authz.deferred.DeferredAuthorization",
+                "org.pangrova.security.authz.deferred.DeferredAuthorization",
                 "org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority",
                 "org.pangrova.coordinator.bootstrap.CoordinatorBootstrap", "org.postgresql.Driver")) {
             assertThatThrownBy(() -> Class.forName(name, false, loader)).isInstanceOf(ClassNotFoundException.class);

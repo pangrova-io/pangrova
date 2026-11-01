@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.task;
 
 import java.util.List;
 
-import org.pangrova.coordinator.adapter.indexing.ddl.IndexDdlExecutor;
+import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;

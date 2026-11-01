@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.core.failure.CircuitBreakerOpenException;
+import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
 
 import java.time.Instant;
 import java.util.List;

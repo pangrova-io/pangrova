@@ -11,7 +11,7 @@ import org.pangrova.spi.security.tenant.ResourceQuota;
 import org.pangrova.spi.security.tenant.Tenant;
 import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
-import org.pangrova.streaming.core.watermark.WatermarkTracker;
+import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;

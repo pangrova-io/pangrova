@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.core.failure.CircuitBreakerOpenException;
+import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

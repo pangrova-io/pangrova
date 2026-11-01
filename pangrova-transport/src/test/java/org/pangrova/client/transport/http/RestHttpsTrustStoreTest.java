@@ -7,7 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.testing.testkit.security.TestHttpsEndpoint;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
-import org.pangrova.client.core.session.ConnectionPoolConfig;
+import org.pangrova.client.session.ConnectionPoolConfig;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;

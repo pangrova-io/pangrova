@@ -4,8 +4,8 @@ import io.github.resilience4j.retry.Retry;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

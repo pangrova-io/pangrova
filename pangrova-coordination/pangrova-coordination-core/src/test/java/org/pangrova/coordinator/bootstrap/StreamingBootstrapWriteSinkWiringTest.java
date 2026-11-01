@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.metadata.api.catalog.MetadataStore;

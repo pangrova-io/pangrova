@@ -1,19 +1,19 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher;
+import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.planner.security.ColumnMaskApplier;

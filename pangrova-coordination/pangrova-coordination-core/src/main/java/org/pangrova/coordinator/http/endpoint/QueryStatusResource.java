@@ -13,7 +13,7 @@ import jakarta.ws.rs.core.Response;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 
 import java.time.Instant;
 import java.util.Comparator;

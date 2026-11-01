@@ -13,14 +13,14 @@
  */
 package org.pangrova.client.transport.http;
 
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.transport.FlightResultFetcher;
 import org.pangrova.transport.security.ResultTransportSecurity;
 import org.pangrova.transport.TransportConnectionException;
 import org.pangrova.transport.TransportServerException;
-import org.pangrova.client.core.api.ResultBatchConsumer;
-import org.pangrova.client.core.error.PangrovaConnectionException;
-import org.pangrova.client.core.error.PangrovaServerException;
+import org.pangrova.client.api.ResultBatchConsumer;
+import org.pangrova.client.error.PangrovaConnectionException;
+import org.pangrova.client.error.PangrovaServerException;
 
 /**
  * Wraps {@link FlightResultFetcher} for result streaming and translates

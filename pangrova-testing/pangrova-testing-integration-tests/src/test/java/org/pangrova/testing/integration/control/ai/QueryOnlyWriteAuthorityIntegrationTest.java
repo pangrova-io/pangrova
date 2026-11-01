@@ -24,8 +24,8 @@ import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier.
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;

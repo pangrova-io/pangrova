@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.spi.observability.LongCounter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

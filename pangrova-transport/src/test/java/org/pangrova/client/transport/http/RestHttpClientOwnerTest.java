@@ -1,8 +1,8 @@
 package org.pangrova.client.transport.http;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.core.session.ConnectionPoolConfig;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.client.session.ConnectionPoolConfig;
+import org.pangrova.client.session.RetryPolicy;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;

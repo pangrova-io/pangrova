@@ -13,7 +13,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGCompletionEvalua
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

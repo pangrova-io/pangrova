@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.clustering;
 
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

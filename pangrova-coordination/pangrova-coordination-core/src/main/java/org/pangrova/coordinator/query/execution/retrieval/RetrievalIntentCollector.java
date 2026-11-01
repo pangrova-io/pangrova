@@ -12,7 +12,7 @@ import org.pangrova.coordinator.query.execution.DispatchQueryContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RerankIntent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalGenerationIntent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.planner.rerank.RerankerPlanNode;
@@ -317,7 +317,7 @@ public final class RetrievalIntentCollector {
 
     private static int vectorCandidateLimit(
             DispatchQueryContext ctx,
-            org.pangrova.indexing.core.planner.vector.VectorSearchNode node) {
+            org.pangrova.indexing.planner.vector.VectorSearchNode node) {
         if (ctx.rerankerPlan().isEmpty()
                 || !ctx.rerankerPlan().orElseThrow().isHybrid()) {
             return node.hybridStrategy().effectiveK();

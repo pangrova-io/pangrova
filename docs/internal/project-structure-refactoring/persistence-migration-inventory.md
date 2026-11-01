@@ -9,6 +9,13 @@
 其他领域存储仍待实施。Security保留行过滤/掩码渲染和权限判断，数据库事实读取归JDBC。
 内存/文件/仲裁等非JDBC后端须单独确定能力与模块落位，不能混入API或伪称JDBC。
 
+Coordination JDBC 实现必须保留：原 `pangrova-coordination-jdbc` 的
+`JdbcDistributedLease`、`JdbcCoordinatorRegistry`、`JdbcWorkerRegistry` 和
+`CoordinationStorageException` 已迁入 `pangrova-persistence-jdbc` 的
+`org.pangrova.persistence.jdbc.coordination` 包，原有八个测试类一并保留。
+Coordinator 的租约、HA 注册和 Worker 注册装配仍直接使用这些实现，默认租约后端仍为
+`jdbc`。清理旧模块目录仅移除迁移后留下的空壳，不代表移除 JDBC 后端能力。
+
 后续迁移顺序：Generation领域适配 → Materialization/Table →
 Metadata/Catalog/source authority → Indexing/AI/Semantic/Governance/Streaming/Operations →
 Worker与其余运行时持久化候选。每批先消除实现反向依赖，再原样迁移SQL与事务语义；不能
@@ -53,22 +60,22 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [JdbcConnectionParams.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcConnectionParams.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcSharedHttpOwner.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcSharedHttpOwner.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcUrlParser.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcUrlParser.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [MetadataResultSets.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/MetadataResultSets.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaConnection.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaConnection.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaDatabaseMetaData.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaDatabaseMetaData.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaDriver.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaDriver.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaParameterMetaData.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaParameterMetaData.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaPreparedStatement.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaPreparedStatement.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaResultSet.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaResultSet.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaResultSetMetaData.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaResultSetMetaData.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaStatement.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaStatement.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [QueryCompletionWaiter.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/QueryCompletionWaiter.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SqlParameterSubstitutor.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/SqlParameterSubstitutor.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StaticResultSet.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/StaticResultSet.java) | `org.pangrova.client.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [VectorSqlArray.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/value/VectorSqlArray.java) | `org.pangrova.client.jdbc.value` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [JdbcConnectionParams.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcConnectionParams.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [JdbcSharedHttpOwner.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcSharedHttpOwner.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [JdbcUrlParser.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/JdbcUrlParser.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [MetadataResultSets.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/MetadataResultSets.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaConnection.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaConnection.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaDatabaseMetaData.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaDatabaseMetaData.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaDriver.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaDriver.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaParameterMetaData.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaParameterMetaData.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaPreparedStatement.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaPreparedStatement.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaResultSet.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaResultSet.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaResultSetMetaData.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaResultSetMetaData.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [PangrovaStatement.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/PangrovaStatement.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [QueryCompletionWaiter.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/QueryCompletionWaiter.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [SqlParameterSubstitutor.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/SqlParameterSubstitutor.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [StaticResultSet.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/StaticResultSet.java) | `org.pangrova.client.jdbc` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
+| [VectorSqlArray.java](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/value/VectorSqlArray.java) | `org.pangrova.client.jdbc.value` | 已识别为客户端JDBC驱动；保持Client边界，不迁入Persistence |
 
 ## pangrova-common
 
@@ -129,8 +136,6 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [MetadataBreakerStateStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/adapter/indexing/MetadataBreakerStateStore.java) | `org.pangrova.coordinator.adapter.indexing` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CoordinatorSpeculativeTaskRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/adapter/scheduler/CoordinatorSpeculativeTaskRegistry.java) | `org.pangrova.coordinator.adapter.scheduler` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [ClusteringMetadataStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/clustering/ClusteringMetadataStore.java) | `org.pangrova.coordinator.clustering` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [CoordinatorRegistryClient.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/CoordinatorRegistryClient.java) | `org.pangrova.coordinator.coordination` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InvalidationProgressRegistryAdapter.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/InvalidationProgressRegistryAdapter.java) | `org.pangrova.coordinator.coordination` | 候选；待逐文件确认职责并迁移/留调用方 |
@@ -143,13 +148,15 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcQueryResult.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcQueryResult.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcWireProtocolServlet.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcWireProtocolServlet.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [PangrovaJdbcMeta.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/PangrovaJdbcMeta.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [MetadataBreakerStateStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/MetadataBreakerStateStore.java) | `org.pangrova.coordinator.indexing` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [CoordinatorPhysicalGenerationStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/CoordinatorPhysicalGenerationStore.java) | `org.pangrova.coordinator.materialization` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [RedisL2CacheStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/cache/RedisL2CacheStore.java) | `org.pangrova.coordinator.query.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [TaskTerminalRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/TaskTerminalRegistry.java) | `org.pangrova.coordinator.query.execution.dispatch.dag.handler` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcShuffleCleanupIntentStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStore.java) | `org.pangrova.coordinator.query.execution.dispatch.shuffle` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [CoordinatorShuffleEvidenceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/CoordinatorShuffleEvidenceRegistry.java) | `org.pangrova.coordinator.query.execution.dispatch.shuffle.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryCheckpointStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/checkpoint/InMemoryCheckpointStore.java) | `org.pangrova.coordinator.resilience.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ResilienceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/provider/resilience4j/ResilienceRegistry.java) | `org.pangrova.coordinator.resilience.provider.resilience4j` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [ResilienceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/resilience4j/ResilienceRegistry.java) | `org.pangrova.coordinator.resilience.resilience4j` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [CoordinatorSpeculativeTaskRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/CoordinatorSpeculativeTaskRegistry.java) | `org.pangrova.coordinator.scheduler` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryStorageProfileRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/storage/InMemoryStorageProfileRegistry.java) | `org.pangrova.coordinator.storage` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [TaskIdentityRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/task/TaskIdentityRegistry.java) | `org.pangrova.coordinator.task` | 候选；待逐文件确认职责并迁移/留调用方 |
 
@@ -216,9 +223,9 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [BreakerStateStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/core/eval/BreakerStateStore.java) | `org.pangrova.indexing.core.eval` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexEngineRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/core/registry/IndexEngineRegistry.java) | `org.pangrova.indexing.core.registry` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TypeSerializerRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/core/serde/TypeSerializerRegistry.java) | `org.pangrova.indexing.core.serde` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [BreakerStateStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/eval/BreakerStateStore.java) | `org.pangrova.indexing.eval` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [IndexEngineRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/registry/IndexEngineRegistry.java) | `org.pangrova.indexing.registry` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [TypeSerializerRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/serde/TypeSerializerRegistry.java) | `org.pangrova.indexing.serde` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [BreakerState.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/BreakerState.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [CacheEvent.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CacheEvent.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [CommitEventRequest.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CommitEventRequest.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
@@ -288,10 +295,10 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [ObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectDependencyStore.java) | `org.pangrova.metadata.api.relation` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [GenerationStores.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/generation/GenerationStores.java) | `org.pangrova.metadata.assembly.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [ColumnMaskStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security/ColumnMaskStoreWiring.java) | `org.pangrova.metadata.assembly.security` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [DisabledL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/cache/DisabledL2CacheStore.java) | `org.pangrova.metadata.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [InMemoryL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/cache/InMemoryL2CacheStore.java) | `org.pangrova.metadata.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [CatalogRegistry.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/catalog/registry/CatalogRegistry.java) | `org.pangrova.metadata.catalog.registry` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcCheckpointStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/checkpoint/JdbcCheckpointStore.java) | `org.pangrova.metadata.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [DisabledL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/cache/DisabledL2CacheStore.java) | `org.pangrova.metadata.core.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/cache/InMemoryL2CacheStore.java) | `org.pangrova.metadata.core.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CatalogRegistry.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/catalog/registry/CatalogRegistry.java) | `org.pangrova.metadata.core.catalog.registry` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [GeneratedValueBuildMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildMetadataStore.java) | `org.pangrova.metadata.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [GeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildSubmissionStore.java) | `org.pangrova.metadata.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [GenerationPublicationJob.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationJob.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
@@ -302,7 +309,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcIndexGenerationPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcTabularExportPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcTabularExportPublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcGeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java) | `org.pangrova.metadata.generation.jdbc.submission` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/provider/memory/relation/InMemoryObjectDependencyStore.java) | `org.pangrova.metadata.provider.memory.relation` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [InMemoryObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/memory/relation/InMemoryObjectDependencyStore.java) | `org.pangrova.metadata.memory.relation` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [RegistryTablePolicyAuthority.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/service/RegistryTablePolicyAuthority.java) | `org.pangrova.metadata.service` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [TableControlRowPolicyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/service/TableControlRowPolicyStore.java) | `org.pangrova.metadata.service` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcManagedSourceCatalog.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
@@ -462,7 +469,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [SpeculativeTaskRegistry.java](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/core/speculation/SpeculativeTaskRegistry.java) | `org.pangrova.scheduler.core.speculation` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [SpeculativeTaskRegistry.java](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/speculation/SpeculativeTaskRegistry.java) | `org.pangrova.scheduler.speculation` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcClusterConcurrencySlots.java](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/store/jdbc/admission/JdbcClusterConcurrencySlots.java) | `org.pangrova.scheduler.store.jdbc.admission` | 候选；待逐文件确认职责并迁移/留调用方 |
 
 ## pangrova-security
@@ -471,14 +478,14 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [InMemoryRoleStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/core/authz/InMemoryRoleStore.java) | `org.pangrova.security.core.authz` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StaticGrantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/core/authz/StaticGrantStore.java) | `org.pangrova.security.core.authz` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmptyColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/core/mask/provider/empty/EmptyColumnMaskStore.java) | `org.pangrova.security.core.mask.provider.empty` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryEnrichedColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/core/mask/provider/memory/InMemoryEnrichedColumnMaskStore.java) | `org.pangrova.security.core.mask.provider.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmptyRowPolicyStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/core/rowfilter/EmptyRowPolicyStore.java) | `org.pangrova.security.core.rowfilter` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SecretResolverRegistry.java](../../../pangrova-security/src/main/java/org/pangrova/security/core/secret/SecretResolverRegistry.java) | `org.pangrova.security.core.secret` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryTenantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/core/tenant/InMemoryTenantStore.java) | `org.pangrova.security.core.tenant` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [InMemoryRoleStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/authz/InMemoryRoleStore.java) | `org.pangrova.security.authz` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [StaticGrantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/authz/StaticGrantStore.java) | `org.pangrova.security.authz` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [EmptyColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/mask/empty/EmptyColumnMaskStore.java) | `org.pangrova.security.mask.empty` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [InMemoryEnrichedColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/mask/memory/InMemoryEnrichedColumnMaskStore.java) | `org.pangrova.security.mask.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [EmptyRowPolicyStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/rowfilter/EmptyRowPolicyStore.java) | `org.pangrova.security.rowfilter` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [SecretResolverRegistry.java](../../../pangrova-security/src/main/java/org/pangrova/security/secret/SecretResolverRegistry.java) | `org.pangrova.security.secret` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [CurrentModelAuthority.java](../../../pangrova-security/src/main/java/org/pangrova/security/spi/jdbc/CurrentModelAuthority.java) | `org.pangrova.security.spi.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [InMemoryTenantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/tenant/InMemoryTenantStore.java) | `org.pangrova.security.tenant` | 候选；待逐文件确认职责并迁移/留调用方 |
 
 ## pangrova-semantic
 
@@ -528,8 +535,8 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [StreamStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamStateStore.java) | `org.pangrova.streaming.api.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [StreamingStoreException.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamingStoreException.java) | `org.pangrova.streaming.api.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [WatermarkStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/watermark/WatermarkStore.java) | `org.pangrova.streaming.api.watermark` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CdcRecordConverterRegistry.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/core/cdc/CdcRecordConverterRegistry.java) | `org.pangrova.streaming.core.cdc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcCdcCommitStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/core/commit/JdbcCdcCommitStateStore.java) | `org.pangrova.streaming.core.commit` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [CdcRecordConverterRegistry.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/cdc/CdcRecordConverterRegistry.java) | `org.pangrova.streaming.cdc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [JdbcCdcCommitStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/commit/JdbcCdcCommitStateStore.java) | `org.pangrova.streaming.commit` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcCdcRegistrationStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/cdc/JdbcCdcRegistrationStore.java) | `org.pangrova.streaming.store.jdbc.cdc` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcStreamStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/checkpoint/JdbcStreamStateStore.java) | `org.pangrova.streaming.store.jdbc.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcStreamOffsetStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/offset/JdbcStreamOffsetStore.java) | `org.pangrova.streaming.store.jdbc.offset` | 候选；待逐文件确认职责并迁移/留调用方 |

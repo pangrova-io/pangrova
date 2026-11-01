@@ -267,7 +267,7 @@ class HeartbeatSenderTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/worker/heartbeat", exchange -> {
             byte[] request = exchange.getRequestBody().readAllBytes();
-            availableMemory.set(org.pangrova.common.json.provider.jackson.JsonMapperFactory.shared()
+            availableMemory.set(org.pangrova.common.json.jackson.JsonMapperFactory.shared()
                     .readTree(request).path("available_memory_bytes").asLong());
             received.countDown();
             byte[] response = "{\"status\":\"ok\",\"coordinator_epoch\":42}".getBytes();

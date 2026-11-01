@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.OperatorBinding;

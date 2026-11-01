@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Validates {@link JdbcRoleStore} CRUD operations against a PostgreSQL TestContainer.
- * Mirrors the contract checks in {@link org.pangrova.security.core.authz.InMemoryRoleStoreTest}
+ * Mirrors the contract checks in {@link org.pangrova.security.authz.InMemoryRoleStoreTest}
  * so behaviour is consistent across the two {@link RoleStore} implementations.
  */
 class JdbcRoleStoreTest extends ContainerTestBase {

@@ -15,10 +15,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.spi.file.access.FileUrlClient;
-import org.pangrova.file.adapter.worker.WorkerFileClient;
+import org.pangrova.file.worker.WorkerFileClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

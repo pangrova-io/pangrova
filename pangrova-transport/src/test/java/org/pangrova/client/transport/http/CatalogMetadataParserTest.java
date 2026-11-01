@@ -1,13 +1,13 @@
 package org.pangrova.client.transport.http;
 
-import org.pangrova.client.core.api.MetadataTableIdentifier;
-import org.pangrova.client.core.api.MetadataColumnInfo;
-import org.pangrova.client.core.api.MetadataTableInfo;
+import org.pangrova.client.api.MetadataTableIdentifier;
+import org.pangrova.client.api.MetadataColumnInfo;
+import org.pangrova.client.api.MetadataTableInfo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.client.core.error.PangrovaProtocolException;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.client.error.PangrovaProtocolException;
 
 import java.util.List;
 

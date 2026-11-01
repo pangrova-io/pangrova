@@ -17,7 +17,7 @@ import java.util.function.LongConsumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.http.HttpClientFactory;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

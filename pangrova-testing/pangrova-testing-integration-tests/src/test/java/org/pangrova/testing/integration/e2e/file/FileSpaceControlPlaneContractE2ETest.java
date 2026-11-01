@@ -24,8 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.file.core.space.FileSpaceAccessService;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.file.space.FileSpaceAccessService;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
@@ -107,10 +107,10 @@ class FileSpaceControlPlaneContractE2ETest {
             grants.addGrant(org.pangrova.spi.security.policy.PrivilegeGrant.of("file_contract", privilege,
                     "STAGE", "media", "raw", "landing", null));
         }
-        var authorization = new org.pangrova.security.core.authz.DynamicRbacAccessControl(grants, roles,
-                new org.pangrova.security.core.rowfilter.RowLevelSecurityFilter(
+        var authorization = new org.pangrova.security.authz.DynamicRbacAccessControl(grants, roles,
+                new org.pangrova.security.rowfilter.RowLevelSecurityFilter(
                         new org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore(source)),
-                new org.pangrova.security.core.mask.ColumnMaskingProcessor(
+                new org.pangrova.security.mask.ColumnMaskingProcessor(
                         new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source)));
         var context = new FileSpaceAccessService.FileSpaceAccessContext("local",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://worker:8080"),

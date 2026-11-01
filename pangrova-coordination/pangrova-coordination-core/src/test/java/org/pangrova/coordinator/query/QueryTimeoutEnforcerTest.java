@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

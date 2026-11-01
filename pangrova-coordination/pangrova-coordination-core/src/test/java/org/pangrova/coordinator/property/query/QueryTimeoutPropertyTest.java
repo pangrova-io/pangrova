@@ -13,7 +13,7 @@ import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.QueryTimeoutEnforcer;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 
 import java.time.Duration;
@@ -96,8 +96,8 @@ class QueryTimeoutPropertyTest {
 
     private static QueryManager buildQueryManager() {
         var compiler = new org.pangrova.planner.SqlCompiler();
-        var scheduler = new org.pangrova.scheduler.core.placement.TaskScheduler(
-                new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer());
+        var scheduler = new org.pangrova.scheduler.placement.TaskScheduler(
+                new org.pangrova.scheduler.scoring.WorkerPerformanceScorer());
         var orchestrator = new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,

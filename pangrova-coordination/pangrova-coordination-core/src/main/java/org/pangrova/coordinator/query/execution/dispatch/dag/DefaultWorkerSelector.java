@@ -4,13 +4,13 @@ import java.util.List;
 
 import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.scheduler.core.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.failure.NoAvailableWorkerException;
 import org.pangrova.coordinator.ai.model.ExactModelResolver;
 import org.pangrova.coordinator.ai.embedding.EmbeddingModelExecutionAdmission;
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.protocol.v2.StageResourceGrant;
 

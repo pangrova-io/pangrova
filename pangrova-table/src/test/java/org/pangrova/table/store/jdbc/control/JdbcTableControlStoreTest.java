@@ -171,7 +171,7 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
         assertThatThrownBy(() -> store.saveWithObservation(updated,
                 new TableVersionObservation(record.tableId(), "next", record.versionToken(),
                         "x".repeat(33), NOW.plusSeconds(30))))
-                .isInstanceOf(org.pangrova.table.core.control.TableControlException.class);
+                .isInstanceOf(org.pangrova.table.control.TableControlException.class);
         assertThat(store.findById(record.tableId())).contains(record);
         assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(invalidations);
         assertThat(store.listVersionObservations(record.tableId(), 10)).isEmpty();
@@ -189,7 +189,7 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
                 .metadataRevision(4).version("next", NOW).build(),
                 new TableVersionObservation(record.tableId(), "next", record.versionToken(),
                         "PERIODIC", NOW)))
-                .isInstanceOf(org.pangrova.table.core.control.TableControlException.class);
+                .isInstanceOf(org.pangrova.table.control.TableControlException.class);
         assertThat(store.findById(record.tableId()).orElseThrow().state())
                 .isEqualTo(TableControlState.QUARANTINED);
         assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(invalidations);
@@ -208,7 +208,7 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
         assertThat(peer.find("cat", "db", "orders")).contains(moved);
         assertThat(peer.find("cat", "db", "renamed")).contains(moved);
         assertThatThrownBy(() -> peer.save(managed("orders")))
-                .isInstanceOf(org.pangrova.table.core.control.TableControlException.class);
+                .isInstanceOf(org.pangrova.table.control.TableControlException.class);
         assertThat(peer.find("cat", "db", "orders")).contains(moved);
         peer.save(moved.toBuilder().state(TableControlState.ACTIVE)
                 .properties(TableControlRenameIntent.complete(moved)).metadataRevision(5).build());

@@ -25,17 +25,17 @@ import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.result.CoordinatorResultWriter;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.observability.sdk.metrics.CoordinatorMetrics;
 import org.pangrova.observability.sdk.metrics.WorkerMetrics;
-import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
+import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.common.lifecycle.BootstrapPhase;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
@@ -43,9 +43,9 @@ import org.pangrova.common.lifecycle.SystemBootstrapSequence;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.SubmitQueryRequest;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.SubmitQueryRequest;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.worker.resource.ResourceManager;
@@ -287,7 +287,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static volatile int sharedResultServerPort;
     private static final SharedNativeFunctionStartup SHARED_NATIVE_FUNCTION_STARTUP =
             new SharedNativeFunctionStartup();
-    private static volatile org.pangrova.security.core.authn.AuthenticationManager
+    private static volatile org.pangrova.security.authn.AuthenticationManager
             e2eAuthenticationManager;
     private static volatile org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement.Advertisement
             e2eCapabilityAdvertisement;
@@ -866,8 +866,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 dispatcher,
                 TRACING_PROVIDER,
                 METRICS_PROVIDER,
-                new org.pangrova.security.core.tenant.TenantResolver(store),
-                new org.pangrova.security.core.tenant.QuotaChecker(),
+                new org.pangrova.security.tenant.TenantResolver(store),
+                new org.pangrova.security.tenant.QuotaChecker(),
                 null,
                 null,
                 null,
@@ -910,10 +910,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         () -> requireE2ECoordination().getCurrentEpoch()));
     }
 
-    private static synchronized org.pangrova.security.core.authn.AuthenticationManager
+    private static synchronized org.pangrova.security.authn.AuthenticationManager
             authenticationManager() {
         if (e2eAuthenticationManager == null) {
-            e2eAuthenticationManager = new org.pangrova.security.core.authn.AuthenticationManager(
+            e2eAuthenticationManager = new org.pangrova.security.authn.AuthenticationManager(
                     List.of(new E2eBearerAuthenticator()));
         }
         return e2eAuthenticationManager;
@@ -2277,7 +2277,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * backed by the E2E PostgreSQL metadata store.
      * Returns an IndexAwareSplitFetcher for query-time split pruning.
      */
-    private static org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher registerIndexHandlers(
+    private static org.pangrova.coordinator.indexing.IndexAwareSplitFetcher registerIndexHandlers(
             org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher statementDispatcher) {
         try {
             var indexMetadataStore = new org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore(stateStoreDataSource);
@@ -2311,7 +2311,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 sharedDdlExecutor.setSchemaEvolutionHandler(schemaEvolutionHandler);
             }
 
-            var indexAwareSplitFetcher = new org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher(
+            var indexAwareSplitFetcher = new org.pangrova.coordinator.indexing.IndexAwareSplitFetcher(
                     metadataBootstrap.catalogRegistry(), sharedIndexingBootstrap.getSplitFilter(), indexMetadataStore,
                     accessorResolver, sharedArtifactBuildStore);
             indexAwareSplitFetcher.bindGeneratedValueReads(
@@ -2372,7 +2372,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(stateStoreDataSource)));
         sharedDdlExecutor = ddlExecutor;
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
-        var maintenancePolicyService = new org.pangrova.table.core.maintenance.TableControlMaintenanceService(
+        var maintenancePolicyService = new org.pangrova.table.maintenance.TableControlMaintenanceService(
                 new org.pangrova.table.store.jdbc.control.JdbcTableControlMaintenanceStore(stateStoreDataSource));
         var controlledMaintenance = new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(
                 catalog, maintenancePolicyService,
@@ -2475,17 +2475,17 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var fileAudit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(null);
         org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
                 metadataFactory, fileSpaces, currentAccessControl, fileAudit);
-        var fileAccess = new org.pangrova.file.core.space.FileSpaceAccessService(fileSpaces, spRegistry,
+        var fileAccess = new org.pangrova.file.space.FileSpaceAccessService(fileSpaces, spRegistry,
                 currentAccessControl,
-                org.pangrova.file.core.space.FileSpaceAccessService.FileSpaceAccessContext.of(
+                org.pangrova.file.space.FileSpaceAccessService.FileSpaceAccessContext.of(
                         "", () -> List.of("http://" + IN_PROCESS_WORKER_HOST + ":"
                                 + sharedWorkerHttpPort), fileAudit, E2E_INTERNAL_AUTH_SECRET,
                         new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(stateStoreDataSource,
                                 new org.pangrova.metadata.tenant.JdbcTenantStore(stateStoreDataSource))));
-        var fileClient = org.pangrova.file.adapter.worker.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);
+        var fileClient = org.pangrova.file.worker.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);
         org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
                 metadataFactory, fileSpaces, currentAccessControl, fileAudit,
-                new org.pangrova.file.core.directory.StageDirectoryRefreshService(
+                new org.pangrova.file.directory.StageDirectoryRefreshService(
                         new org.pangrova.persistence.jdbc.file.directory.JdbcFileDirectoryIndex(stateStoreDataSource),
                         fileAccess, fileClient, currentAccessControl));
         metadataFactory.registerTask(org.pangrova.parser.ast.statement.ListStageStatement.class,
@@ -2695,12 +2695,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     descriptor -> java.util.Optional.of(sourceCatalogs.apply(descriptor)));
             MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
             startingBootstrap = bootstrap;
-            bootstrap.catalogRegistry().setTableControlService(new org.pangrova.table.core.control.TableControlService(
+            bootstrap.catalogRegistry().setTableControlService(new org.pangrova.table.control.TableControlService(
                     new org.pangrova.table.store.jdbc.control.JdbcTableControlStore(ds),
                     bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
-                    org.pangrova.table.core.control.TableControlSettings.fromSystemProperties()));
+                    org.pangrova.table.control.TableControlSettings.fromSystemProperties()));
             bootstrap.catalogRegistry().setTableStatisticsService(
-                    new org.pangrova.table.core.statistics.TableControlStatisticsService(
+                    new org.pangrova.table.statistics.TableControlStatisticsService(
                             bootstrap.catalogRegistry().tableControl(),
                             new org.pangrova.table.store.jdbc.control.JdbcTableControlStatisticsStore(ds)));
             bootstrap.catalogRegistry().setGovernanceBindingStore(

@@ -15,7 +15,7 @@ import org.pangrova.spi.observability.TracingProvider;
  * {@link TracingProvider#inject(org.pangrova.spi.observability.Context, Object,
  * org.pangrova.spi.observability.TextMapSetter)} to serialize the current thread's
  * trace context into the gRPC metadata, enabling the receiving server's
- * {@link org.pangrova.observability.sdk.tracing.adapter.grpc.FlightSpanInterceptor} to extract it
+ * {@link org.pangrova.observability.sdk.tracing.grpc.FlightSpanInterceptor} to extract it
  * and create a child span.
  */
 final class TracingStreamMiddleware implements FlightClientMiddleware {

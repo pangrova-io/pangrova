@@ -6,14 +6,14 @@ import org.pangrova.coordinator.worker.ClusterResourcePressureMonitor;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
 import org.pangrova.spi.query.audit.QueryAuditSink;
 import org.pangrova.spi.observability.event.QueryEventDispatcher;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.security.core.tenant.QuotaChecker;
-import org.pangrova.security.core.tenant.TenantResolver;
+import org.pangrova.security.tenant.QuotaChecker;
+import org.pangrova.security.tenant.TenantResolver;
 import org.pangrova.planner.throttle.QueryThrottlingService;
 
 import java.util.concurrent.ExecutorService;

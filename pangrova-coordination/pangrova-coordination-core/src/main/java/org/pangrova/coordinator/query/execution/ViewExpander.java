@@ -20,7 +20,7 @@ import java.util.Optional;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.slf4j.Logger;

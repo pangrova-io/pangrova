@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.http.endpoint;
 
-import org.pangrova.common.http.adapter.jetty.EmbeddedHttpServerFactory;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.http.RequestLimitConfig;
-import org.pangrova.security.core.authn.AuthenticationManager;
+import org.pangrova.security.authn.AuthenticationManager;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.glassfish.jersey.jackson.JacksonFeature;

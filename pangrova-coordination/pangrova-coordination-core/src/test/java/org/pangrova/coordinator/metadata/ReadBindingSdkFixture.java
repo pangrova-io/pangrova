@@ -16,7 +16,7 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.security.secret.SecretResolverRegistry;
 import org.pangrova.spi.connector.plugin.ConnectorFactory;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.security.UserIdentity;

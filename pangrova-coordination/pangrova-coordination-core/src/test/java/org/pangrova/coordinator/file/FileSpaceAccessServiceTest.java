@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.FileSpaceAccessControl;
@@ -29,7 +29,7 @@ import org.pangrova.spi.file.space.FileSpaceDefinition;
 import org.pangrova.spi.file.space.FileSpaceMutation;
 import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
 import org.pangrova.common.file.FileSpaceType;
-import org.pangrova.file.core.space.FileSpaceAccessService;
+import org.pangrova.file.space.FileSpaceAccessService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

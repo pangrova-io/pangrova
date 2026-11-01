@@ -1,7 +1,7 @@
 package org.pangrova.table.store.jdbc.control;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
-import org.pangrova.table.core.control.TableControlException;
+import org.pangrova.table.control.TableControlException;
 import org.pangrova.table.api.governancebinding.GovernanceBinding;
 import org.pangrova.table.api.governancebinding.GovernanceBindingType;
 import org.pangrova.table.api.governancebinding.TableControlGovernanceBindingStore;

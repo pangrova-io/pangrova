@@ -6,8 +6,8 @@ import org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFac
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
 import org.pangrova.spi.security.secret.SecretResolver;
 import org.pangrova.spi.security.secret.SecretTemplates;

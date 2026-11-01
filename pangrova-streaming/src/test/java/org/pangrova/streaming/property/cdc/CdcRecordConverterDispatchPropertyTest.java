@@ -6,7 +6,7 @@ import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcOperation;
 import org.pangrova.streaming.api.cdc.CdcRecordConverter;
 import org.pangrova.streaming.api.cdc.CdcRow;
-import org.pangrova.streaming.core.cdc.CdcRecordConverterRegistry;
+import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
 
 import java.time.Instant;
 import java.util.ArrayList;

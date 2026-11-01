@@ -29,7 +29,7 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

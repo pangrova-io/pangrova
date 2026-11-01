@@ -13,7 +13,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.coordinator.http.RequestLimitConfig;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.slf4j.Logger;

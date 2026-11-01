@@ -2,7 +2,7 @@ package org.pangrova.coordinator.materialization;
 
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.port.SourcePinning;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.connector.materialization.ChangeProof;
 import org.pangrova.spi.connector.materialization.ChangeSetMode;
 import org.pangrova.spi.connector.materialization.ChangeSetPlan;

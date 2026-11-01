@@ -147,7 +147,7 @@ final class LeafStageDispatcher {
             boolean hasArtifactBindings) {
         int workerCount = input.workerSelector().activeWorkerCount();
         if (workerCount <= 0) {
-            throw new org.pangrova.scheduler.core.failure.NoAvailableWorkerException(
+            throw new org.pangrova.scheduler.failure.NoAvailableWorkerException(
                     "No available worker for task dispatch: no schedulable capacity for this stage");
         }
         int rawParallelism = rawParallelism(input, leafStage, workerCount);

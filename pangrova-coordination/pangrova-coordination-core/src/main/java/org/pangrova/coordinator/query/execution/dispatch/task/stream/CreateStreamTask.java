@@ -6,7 +6,7 @@ import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.streaming.adapter.coordinator.StreamDdlExecutor;
+import org.pangrova.streaming.coordinator.StreamDdlExecutor;
 import org.pangrova.parser.ast.statement.stream.CreateStreamStatement;
 import org.pangrova.spi.connector.data.value.TypedRow;
 

@@ -6,7 +6,7 @@ import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.core.outbox.MetadataSyncService;
+import org.pangrova.metadata.outbox.MetadataSyncService;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.junit.jupiter.api.Test;

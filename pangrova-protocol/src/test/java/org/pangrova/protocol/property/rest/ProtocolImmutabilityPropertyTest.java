@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Exhaustive test verifying immutability of all REST DTO classes
  * in {@code org.pangrova.protocol.rest}, the shared execution identity package,
  * and the public client DTO packages
- * {@code org.pangrova.client.core.protocol} and {@code org.pangrova.client.core.api}
+ * {@code org.pangrova.client.protocol} and {@code org.pangrova.client.api}
  * and their sub-packages.
  *
  * <p>Uses reflection to discover all classes at test time, ensuring
@@ -33,8 +33,8 @@ class ProtocolImmutabilityPropertyTest {
     private static final List<String> DTO_PACKAGES = List.of(
             "org.pangrova.protocol.rest",
             "org.pangrova.protocol.execution.identity",
-            "org.pangrova.client.core.protocol",
-            "org.pangrova.client.core.api");
+            "org.pangrova.client.protocol",
+            "org.pangrova.client.api");
 
     /**
      * Packages whose record types count as immutable DTO components. The public
@@ -43,9 +43,9 @@ class ProtocolImmutabilityPropertyTest {
     private static final List<String> DTO_TYPE_ROOTS = List.of(
             "org.pangrova.protocol.rest",
             "org.pangrova.protocol.execution.identity",
-            "org.pangrova.client.core.protocol",
-            "org.pangrova.client.core.api",
-            "org.pangrova.client.core.error");
+            "org.pangrova.client.protocol",
+            "org.pangrova.client.api",
+            "org.pangrova.client.error");
 
     /**
      * Immutable types allowed as record component types.

@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.setup;
 
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;

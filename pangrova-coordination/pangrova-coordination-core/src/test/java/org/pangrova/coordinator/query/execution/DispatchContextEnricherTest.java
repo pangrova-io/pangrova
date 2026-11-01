@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher;
+import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.rerank.RerankerPlanNode;

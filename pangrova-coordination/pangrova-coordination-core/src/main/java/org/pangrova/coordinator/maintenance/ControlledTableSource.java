@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.maintenance;
 
-import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.maintenance.TableControlMaintenanceService;
 import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.core.control.TableControlService;
+import org.pangrova.table.control.TableControlService;
 import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
-import org.pangrova.streaming.core.maintenance.MaintenanceTableSource;
+import org.pangrova.streaming.maintenance.MaintenanceTableSource;
 
 import java.util.Collection;
 import java.util.List;

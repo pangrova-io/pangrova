@@ -11,7 +11,7 @@ import java.net.http.HttpResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.spi.observability.LongCounter;
 import org.pangrova.spi.observability.MetricsProvider;

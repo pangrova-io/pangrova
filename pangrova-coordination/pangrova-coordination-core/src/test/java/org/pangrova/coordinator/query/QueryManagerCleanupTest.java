@@ -132,9 +132,9 @@ class QueryManagerCleanupTest {
 
     private static QueryDispatcher buildOrchestrator() {
         org.pangrova.planner.SqlCompiler compiler = new org.pangrova.planner.SqlCompiler();
-        org.pangrova.scheduler.core.placement.TaskScheduler scheduler =
-                new org.pangrova.scheduler.core.placement.TaskScheduler(
-                        new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer());
+        org.pangrova.scheduler.placement.TaskScheduler scheduler =
+                new org.pangrova.scheduler.placement.TaskScheduler(
+                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer());
         return new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,

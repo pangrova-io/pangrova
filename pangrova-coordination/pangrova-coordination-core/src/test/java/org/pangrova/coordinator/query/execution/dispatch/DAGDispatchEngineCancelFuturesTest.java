@@ -13,7 +13,7 @@ import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
 import org.pangrova.shuffle.api.ShuffleHandle;

@@ -1,6 +1,6 @@
 package org.pangrova.indexing.engine.bitmap.provider;
 
-import org.pangrova.indexing.core.normalize.IndexValueNormalizer;
+import org.pangrova.indexing.normalize.IndexValueNormalizer;
 import org.pangrova.indexing.engine.bitmap.serializer.ContainerAccumulator;
 import org.pangrova.indexing.engine.bitmap.serializer.RoaringBitmapCodec;
 import org.pangrova.spi.connector.index.IndexEvalResult;

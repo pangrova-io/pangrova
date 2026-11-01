@@ -6,10 +6,10 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 
 import java.util.ArrayList;
 import java.util.List;

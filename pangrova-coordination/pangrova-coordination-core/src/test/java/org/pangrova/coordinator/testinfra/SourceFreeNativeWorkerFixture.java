@@ -13,7 +13,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.RuntimeInitConfig;
 import org.pangrova.common.value.MemoryPressure;

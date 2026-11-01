@@ -2,7 +2,7 @@ package org.pangrova.coordinator.ai.embedding;
 
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier.WriteAuthorityRequest;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.spi.security.AuthorizationDeniedException;

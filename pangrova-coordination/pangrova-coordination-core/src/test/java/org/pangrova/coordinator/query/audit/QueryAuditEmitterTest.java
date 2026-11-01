@@ -2,9 +2,9 @@ package org.pangrova.coordinator.query.audit;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore;
-import org.pangrova.query.core.audit.QueryAuditService;
+import org.pangrova.query.audit.QueryAuditService;
 import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.spi.security.audit.AuditEventType;
 
 import java.util.concurrent.CopyOnWriteArrayList;

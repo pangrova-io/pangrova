@@ -12,7 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
 
 class ExecutionTraceContextTest {
     @Test

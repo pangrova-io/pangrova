@@ -7,7 +7,7 @@ import java.util.UUID;
 
 import org.pangrova.spi.security.audit.AccessedObject;
 import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.spi.security.audit.AuditEventType;
 
 /**

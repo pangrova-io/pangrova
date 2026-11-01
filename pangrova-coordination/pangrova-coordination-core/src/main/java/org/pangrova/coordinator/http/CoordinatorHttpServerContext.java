@@ -9,10 +9,10 @@ import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.spi.observability.profiling.ProfilerEndpoint;
-import org.pangrova.query.core.profiling.QueryProfileService;
-import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
+import org.pangrova.query.profiling.QueryProfileService;
+import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
-import org.pangrova.security.core.authn.AuthenticationManager;
+import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 
 import java.util.function.LongSupplier;

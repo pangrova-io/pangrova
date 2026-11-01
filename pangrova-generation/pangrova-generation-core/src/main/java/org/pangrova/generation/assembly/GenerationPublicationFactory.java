@@ -1,7 +1,7 @@
 package org.pangrova.generation.assembly;
 
 import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
-import org.pangrova.generation.core.publication.GenerationPublicationRouter;
+import org.pangrova.generation.publication.GenerationPublicationRouter;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.Map;

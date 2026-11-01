@@ -3,7 +3,7 @@ package org.pangrova.coordinator.metadata.read;
 import org.pangrova.coordinator.metadata.MetadataPlanningTestSessions;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.core.schema.SchemaChange;
+import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.ResolvedTable;
 import org.pangrova.metadata.service.MetadataSessionContext;

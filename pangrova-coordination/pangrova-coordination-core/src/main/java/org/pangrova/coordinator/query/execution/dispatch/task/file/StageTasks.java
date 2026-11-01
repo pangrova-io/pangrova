@@ -50,7 +50,7 @@ public final class StageTasks {
     /** Installs directory refresh when the file plane and durable index are configured. */
     public static void register(MetadataExecutionFactory factory, FileSpaceRegistry registry,
             AccessControl accessControl, FileSpaceAuditEmitter audit,
-            org.pangrova.file.core.directory.StageDirectoryRefreshService refresh) {
+            org.pangrova.file.directory.StageDirectoryRefreshService refresh) {
         factory.registerTask(CreateStageStatement.class,
                 (statement, context) -> create(registry, audit, statement, context));
         factory.registerTask(AlterStageStatement.class,
@@ -85,7 +85,7 @@ public final class StageTasks {
     }
 
     private static StatementResult alter(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
-            org.pangrova.file.core.directory.StageDirectoryRefreshService refresh,
+            org.pangrova.file.directory.StageDirectoryRefreshService refresh,
             AlterStageStatement statement, StatementExecutionContext context) {
         CoordinatorSessionContext session = context.session();
         QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);

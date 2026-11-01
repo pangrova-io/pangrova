@@ -22,7 +22,7 @@ import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.security.secret.SecretResolverRegistry;
 import org.pangrova.spi.connector.plugin.ConnectorFactory;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
@@ -83,7 +83,7 @@ class PlannerWiringSessionIntegrationTest {
                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                 org.pangrova.testing.testkit.TestObservability.TRACING)) {
             var deps = QueryDispatcherContext.withDefaults(template, null, null, null, dispatcher,
-                    context.require(org.pangrova.scheduler.core.placement.TaskScheduler.class), workers,
+                    context.require(org.pangrova.scheduler.placement.TaskScheduler.class), workers,
                     new CoordinatorTaskTracker(), metadata.catalogRegistry(), null, null, 0L);
             assertThatCode(() -> new QueryDispatcher(deps, null, null)).doesNotThrowAnyException();
         }

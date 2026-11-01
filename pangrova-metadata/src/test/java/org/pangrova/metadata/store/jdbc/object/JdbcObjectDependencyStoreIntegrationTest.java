@@ -146,7 +146,7 @@ class JdbcObjectDependencyStoreIntegrationTest extends ContainerTestBase
                                 return invokeJdbc(connection, operation, parameters);
                             });
                 });
-        var service = new org.pangrova.metadata.core.relation.ObjectDependencyService(
+        var service = new org.pangrova.metadata.relation.ObjectDependencyService(
                 new JdbcObjectDependencyStore(failingSource));
         var notifications = new java.util.ArrayList<Set<ObjectRef>>();
         service.addMaintenanceHook(new org.pangrova.metadata.api.relation.MetadataMaintenanceHook() {

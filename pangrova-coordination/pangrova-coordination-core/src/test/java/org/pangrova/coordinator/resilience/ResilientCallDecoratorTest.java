@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.resilience;
 
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilientCallDecorator;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilientCallDecorator;
 
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;

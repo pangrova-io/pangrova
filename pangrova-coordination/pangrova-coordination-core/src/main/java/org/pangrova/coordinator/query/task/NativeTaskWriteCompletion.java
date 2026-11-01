@@ -12,8 +12,8 @@ import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJour
 import org.pangrova.governance.api.quality.WriteQualityGate;
 import org.pangrova.governance.api.quality.WriteValidationResult;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;

@@ -12,7 +12,7 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.governance.core.classification.ColumnTagService;
 import org.pangrova.table.api.governancebinding.GovernanceBindingType;
 import org.pangrova.table.store.memory.control.InMemoryTableControlGovernanceBindingStore;
-import org.pangrova.table.core.control.TableControlPolicyBinder;
+import org.pangrova.table.control.TableControlPolicyBinder;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.service.DefaultMetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;

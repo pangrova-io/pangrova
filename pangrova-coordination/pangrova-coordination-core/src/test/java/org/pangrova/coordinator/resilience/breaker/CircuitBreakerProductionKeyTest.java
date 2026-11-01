@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.resilience.breaker;
 
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;

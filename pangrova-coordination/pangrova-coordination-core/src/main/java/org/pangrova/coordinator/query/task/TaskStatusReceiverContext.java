@@ -8,11 +8,11 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.spi.connector.coordination.WriteCommitJournal;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

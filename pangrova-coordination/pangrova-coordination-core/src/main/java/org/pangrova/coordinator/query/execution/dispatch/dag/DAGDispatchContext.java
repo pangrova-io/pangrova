@@ -1,16 +1,16 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
-import org.pangrova.shuffle.provider.spool.LocalShuffleLifecycleManager;
+import org.pangrova.shuffle.spool.LocalShuffleLifecycleManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 

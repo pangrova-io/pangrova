@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.speculation;
 
-import org.pangrova.scheduler.core.speculation.SpeculationConfig;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
-import org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters;
+import org.pangrova.scheduler.speculation.SpeculationConfig;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
+import org.pangrova.coordinator.scheduler.SpeculationAdapters;
 import org.pangrova.scheduler.api.placement.TaskDuration;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
@@ -18,16 +18,16 @@ import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.scheduler.SchedulerCancelResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
@@ -126,7 +126,7 @@ class SpeculativeExecutionWiringTest {
         var stageCallback = new org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback() {
             @Override public void onTaskTerminal(
                     String queryId, String taskId, String state,
-                    org.pangrova.client.core.error.ErrorDetail error) {
+                    org.pangrova.client.error.ErrorDetail error) {
                 completedTask.set(taskId);
             }
 
@@ -442,7 +442,7 @@ class SpeculativeExecutionWiringTest {
                 .build();
         return new TaskStatusReport(
                 taskId, QID, 1, 0, "COMPUTE", workerId, "FAILED",
-                null, new org.pangrova.client.core.error.ErrorDetail(
+                null, new org.pangrova.client.error.ErrorDetail(
                         "NATIVE_TASK_FAILED", "NativeTaskFailure", "attempt failed"),
                 null, 1L, System.currentTimeMillis(), null, null,
                 org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(

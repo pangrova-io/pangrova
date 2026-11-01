@@ -1,7 +1,7 @@
 package org.pangrova.security.assembly.audit;
 
-import org.pangrova.security.core.audit.LoggingAuditEventWriter;
-import org.pangrova.security.core.audit.CompositeAuditEventWriter;
+import org.pangrova.security.audit.LoggingAuditEventWriter;
+import org.pangrova.security.audit.CompositeAuditEventWriter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

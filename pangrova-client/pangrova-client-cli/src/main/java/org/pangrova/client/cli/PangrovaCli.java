@@ -92,7 +92,7 @@ public final class PangrovaCli {
                 }
             }
             if (parsed.batch.receipt() != null) {
-                String receipt = org.pangrova.common.json.provider.jackson.JsonMapperFactory
+                String receipt = org.pangrova.common.json.jackson.JsonMapperFactory
                         .writer().writeValueAsString(
                         java.util.Map.of("queryId", queryId, "state", "FINISHED", "sqlSha256",
                                 org.pangrova.common.util.DigestUtils.sha256Hex(sql), "resultConsumed", true));

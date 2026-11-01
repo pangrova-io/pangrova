@@ -2,8 +2,8 @@ package org.pangrova.coordinator.bootstrap.module;
 
 import org.pangrova.coordinator.bootstrap.IndexingBootstrap;
 import org.pangrova.coordinator.bootstrap.IndexQueryBootstrap;
-import org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +34,7 @@ public final class IndexingModule implements CoordinatorModule {
         }
         IndexQueryBootstrap queryBootstrap = context.optional(IndexQueryBootstrap.class);
         if (queryBootstrap != null && queryBootstrap.getSplitFilter() != null) {
-            context.bind(org.pangrova.coordinator.adapter.indexing.filter.IndexSplitFilter.class,
+            context.bind(org.pangrova.coordinator.indexing.filter.IndexSplitFilter.class,
                     queryBootstrap.getSplitFilter());
             LOG.info("event=module_configured module=Indexing source=query_bootstrap");
             return;

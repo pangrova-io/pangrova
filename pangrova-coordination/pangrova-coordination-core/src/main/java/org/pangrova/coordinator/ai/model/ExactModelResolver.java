@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.ai.model;
 
-import org.pangrova.scheduler.core.failure.NoAvailableWorkerException;
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.ModelAvailability;

@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.TableResolver;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.parser.ast.statement.ShowViewsStatement;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.value.TypedRow;

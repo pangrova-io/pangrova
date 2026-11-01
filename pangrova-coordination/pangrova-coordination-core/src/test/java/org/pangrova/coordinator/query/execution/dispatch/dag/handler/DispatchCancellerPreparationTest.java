@@ -5,7 +5,7 @@ import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.protocol.v2.TaskKind;
 
 import static org.assertj.core.api.Assertions.assertThat;

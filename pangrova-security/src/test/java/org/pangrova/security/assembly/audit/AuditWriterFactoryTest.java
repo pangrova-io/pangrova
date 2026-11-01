@@ -3,8 +3,8 @@ package org.pangrova.security.assembly.audit;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
-import org.pangrova.security.core.audit.LoggingAuditEventWriter;
-import org.pangrova.security.core.audit.CompositeAuditEventWriter;
+import org.pangrova.security.audit.LoggingAuditEventWriter;
+import org.pangrova.security.audit.CompositeAuditEventWriter;
 
 import javax.sql.DataSource;
 import java.time.Instant;

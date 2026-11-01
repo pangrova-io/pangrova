@@ -18,7 +18,7 @@ import java.util.Collection;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.observability.sdk.metrics.provider.otel.OtelMetricsProvider;
+import org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider;
 
 /**
  * Verifies that metric recording methods with {@link MetricAttributes}

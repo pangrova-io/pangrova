@@ -21,7 +21,7 @@ class FileApiIsolationTest {
         var forbidden = List.of("org.pangrova.observability.sdk.noop.NoOpMetricsProvider",
                 "com.fasterxml.jackson.databind.ObjectMapper", "org.postgresql.Driver",
                 "com.zaxxer.hikari.HikariDataSource", "org.pangrova.persistence.api.security.policy.RoleStore",
-                "org.pangrova.file.core.space.FileSpaceAccessService",
+                "org.pangrova.file.space.FileSpaceAccessService",
                 "org.pangrova.protocol.execution.AiTaskLifecycle",
                 "org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry",
                 "software.amazon.awssdk.services.s3.S3Client", "com.aliyun.sdk.service.oss2.OSSClient",

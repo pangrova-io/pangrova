@@ -11,10 +11,10 @@ import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.federation.FederationCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.internal.InternalCatalogHandle;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.federation.FederationCatalogHandle;
+import org.pangrova.metadata.catalog.handle.internal.InternalCatalogHandle;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -309,9 +309,9 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
     private static QueryManager buildMinimalQueryManager() {
         org.pangrova.planner.SqlCompiler compiler = new org.pangrova.planner.SqlCompiler();
-        org.pangrova.scheduler.core.placement.TaskScheduler scheduler =
-                new org.pangrova.scheduler.core.placement.TaskScheduler(
-                        new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer());
+        org.pangrova.scheduler.placement.TaskScheduler scheduler =
+                new org.pangrova.scheduler.placement.TaskScheduler(
+                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer());
         QueryDispatcher dispatcher = new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,

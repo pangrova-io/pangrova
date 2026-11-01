@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.observability.sdk.tracing.provider.otel.OtelTracingProvider;
+import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

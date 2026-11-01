@@ -29,7 +29,7 @@ import org.pangrova.common.util.DigestUtils;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.generation.ProtectedSourceSchemaVerifier;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.generation.job.GenerationDispatchSpec;
 import org.pangrova.spi.generation.job.GenerationJob;
 import org.pangrova.spi.generation.job.GenerationJobState;

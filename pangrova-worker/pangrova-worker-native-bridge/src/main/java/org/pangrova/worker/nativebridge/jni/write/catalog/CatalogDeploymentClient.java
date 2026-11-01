@@ -1,7 +1,7 @@
 package org.pangrova.worker.nativebridge.jni.write.catalog;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 
 import java.io.IOException;

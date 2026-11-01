@@ -1,11 +1,11 @@
 package org.pangrova.client.cli;
 
-import org.pangrova.client.core.error.PangrovaClientException;
+import org.pangrova.client.error.PangrovaClientException;
 import org.pangrova.client.transport.http.PangrovaRestClient;
-import org.pangrova.client.core.api.ResultBatchConsumer;
-import org.pangrova.client.core.protocol.QueryStatusResponse;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.client.api.ResultBatchConsumer;
+import org.pangrova.client.protocol.QueryStatusResponse;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;

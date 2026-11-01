@@ -1,6 +1,6 @@
 package org.pangrova.table.store.memory.control;
 
-import org.pangrova.table.core.control.TableControlException;
+import org.pangrova.table.control.TableControlException;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.api.control.TableControlRenameIntent;
 import org.pangrova.table.api.control.TableControlState;

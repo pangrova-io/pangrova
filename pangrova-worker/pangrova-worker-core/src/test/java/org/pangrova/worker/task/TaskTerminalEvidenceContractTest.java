@@ -2,7 +2,7 @@ package org.pangrova.worker.task;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.task.WorkerTerminalTaskReports;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
 import org.pangrova.protocol.v2.ResourceUsage;

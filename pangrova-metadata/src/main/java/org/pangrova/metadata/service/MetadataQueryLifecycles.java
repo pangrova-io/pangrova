@@ -1,6 +1,6 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.connector.ConnectorQueryAuthority;
 import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
 import org.pangrova.common.concurrent.ThreadSafe;

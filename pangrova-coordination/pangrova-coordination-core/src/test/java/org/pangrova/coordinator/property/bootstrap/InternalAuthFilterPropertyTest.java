@@ -6,7 +6,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
-import org.pangrova.security.core.authn.AuthenticationManager;
+import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.spi.security.authn.AuthenticationRequest;
 import org.pangrova.spi.security.authn.AuthenticationResult;
 

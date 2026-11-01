@@ -1,28 +1,28 @@
 package org.pangrova.metadata.service;
 
 import org.pangrova.table.api.control.TableControlState;
-import org.pangrova.table.core.control.TableControlService;
-import org.pangrova.table.core.control.TableControlSettings;
+import org.pangrova.table.control.TableControlService;
+import org.pangrova.table.control.TableControlSettings;
 import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.core.classification.ColumnTagService;
 import org.pangrova.governance.api.classification.TagChangedEvent;
-import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.table.api.control.OwnershipMode;
-import org.pangrova.metadata.core.event.MetadataEventDispatcher;
+import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
+import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.spi.connector.plugin.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
@@ -125,9 +125,9 @@ class DefaultMetadataServiceControlTest {
 
     @Test
     void dropCannotDeleteARecreatedTableWithTheOldOwnership() {
-        registry.setTableControlService(new org.pangrova.table.core.control.TableControlService(
+        registry.setTableControlService(new org.pangrova.table.control.TableControlService(
                 new org.pangrova.table.store.memory.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
-                new org.pangrova.table.core.control.TableControlSettings(true, true, Set.of())));
+                new org.pangrova.table.control.TableControlSettings(true, true, Set.of())));
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         connectorMetadata.create(new SchemaTableName("db", "orders"), "replacement");
 

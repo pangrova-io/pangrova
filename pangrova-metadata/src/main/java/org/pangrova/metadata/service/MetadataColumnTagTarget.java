@@ -1,6 +1,6 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.spi.connector.data.type.PangrovaType;

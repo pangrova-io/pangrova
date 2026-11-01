@@ -2,8 +2,8 @@ package org.pangrova.client.jdbc;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.client.core.protocol.SubmitQueryRequest;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.client.protocol.SubmitQueryRequest;
 import org.pangrova.testing.testkit.result.TestResultEndpoint;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

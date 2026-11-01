@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.metadata.api.catalog.MetadataStore;

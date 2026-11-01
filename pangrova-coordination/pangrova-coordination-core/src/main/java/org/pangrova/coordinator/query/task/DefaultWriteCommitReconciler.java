@@ -4,7 +4,7 @@ import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.catalog.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 import org.pangrova.protocol.v2.WriteOutputBinding;

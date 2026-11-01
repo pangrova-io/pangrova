@@ -64,7 +64,7 @@ class TaskResourceEpochFenceTest {
             try (Response response = seal(resource, runtime, 1L)) {
                 assertThat(response.getStatus()).isEqualTo(503);
                 assertThat(
-                                ((org.pangrova.client.core.error.ErrorDetail)
+                                ((org.pangrova.client.error.ErrorDetail)
                                                 response.getEntity())
                                         .errorCode())
                         .isEqualTo("CONTROL_PLANE_NOT_READY");
@@ -84,7 +84,7 @@ class TaskResourceEpochFenceTest {
             try (Response response = seal(resource, runtime, 8L)) {
                 assertThat(response.getStatus()).isEqualTo(425);
                 assertThat(
-                                ((org.pangrova.client.core.error.ErrorDetail)
+                                ((org.pangrova.client.error.ErrorDetail)
                                                 response.getEntity())
                                         .errorCode())
                         .isEqualTo("EPOCH_AHEAD");

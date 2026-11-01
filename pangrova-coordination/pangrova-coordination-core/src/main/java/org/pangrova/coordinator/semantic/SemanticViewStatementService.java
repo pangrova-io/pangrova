@@ -27,7 +27,7 @@ import org.pangrova.semantic.api.view.SemanticViewStore;
 import org.pangrova.semantic.api.view.SemanticViewValidationState;
 import org.pangrova.semantic.api.view.SemanticViewVersion;
 import org.pangrova.semantic.api.view.SemanticViewVersionStatus;
-import org.pangrova.semantic.core.view.SemanticViewDefinitionValidator;
+import org.pangrova.semantic.view.SemanticViewDefinitionValidator;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;
 import org.pangrova.parser.ast.statement.PublishSemanticViewStatement;

@@ -4,12 +4,12 @@ import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.table.api.control.CatalogDeploymentIdentity;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
-import org.pangrova.table.core.control.TableControlService;
-import org.pangrova.table.core.control.TableControlSettings;
+import org.pangrova.table.control.TableControlService;
+import org.pangrova.table.control.TableControlSettings;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
@@ -192,7 +192,7 @@ class MetadataTagOperationsTest {
                 "email", "{column}", java.util.List.of(), java.util.List.of("reader"), true, null));
         tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
         var user = new org.pangrova.spi.security.UserIdentity("alice", Set.of(), Map.of(), java.time.Instant.now());
-        assertThat(new org.pangrova.security.core.mask.ColumnMaskingProcessor(masks)
+        assertThat(new org.pangrova.security.mask.ColumnMaskingProcessor(masks)
                 .getMask(user, Set.of("reader"), "cat", "db", "orders", "email"))
                 .hasValueSatisfying(expression -> assertThat(expression).contains("***@***"));
     }

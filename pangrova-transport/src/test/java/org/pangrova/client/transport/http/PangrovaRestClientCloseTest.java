@@ -1,7 +1,7 @@
 package org.pangrova.client.transport.http;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.core.session.ConnectionPoolConfig;
+import org.pangrova.client.session.ConnectionPoolConfig;
 
 import java.net.http.HttpClient;
 import java.util.concurrent.ExecutorService;

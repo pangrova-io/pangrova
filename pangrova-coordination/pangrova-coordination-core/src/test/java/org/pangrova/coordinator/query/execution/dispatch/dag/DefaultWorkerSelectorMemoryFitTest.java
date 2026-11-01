@@ -2,12 +2,12 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
-import org.pangrova.scheduler.core.failure.NoAvailableWorkerException;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.coordination.CacheCatalogSummary;

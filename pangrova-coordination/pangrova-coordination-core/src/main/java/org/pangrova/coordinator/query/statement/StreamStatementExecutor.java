@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.streaming.adapter.coordinator.StreamDdlExecutor;
+import org.pangrova.streaming.coordinator.StreamDdlExecutor;
 import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
 import org.pangrova.parser.ast.statement.stream.CreateStreamStatement;
 import org.pangrova.parser.ast.statement.stream.DescribeStreamStatement;

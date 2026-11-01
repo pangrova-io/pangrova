@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.spi.connector.ConnectorSession;

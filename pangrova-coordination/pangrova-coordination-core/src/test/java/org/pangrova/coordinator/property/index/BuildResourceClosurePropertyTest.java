@@ -5,8 +5,8 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.indexing.core.build.BuildClaimHandler;
-import org.pangrova.indexing.core.build.GenerationChecker;
+import org.pangrova.indexing.build.BuildClaimHandler;
+import org.pangrova.indexing.build.GenerationChecker;
 
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;

@@ -6,7 +6,7 @@ import org.pangrova.metadata.generation.jdbc.JdbcTabularExportPublicationStore;
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import org.pangrova.table.api.control.CatalogDeploymentIdentity;
-import org.pangrova.table.core.control.TableControlService;
+import org.pangrova.table.control.TableControlService;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
 import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
 import org.pangrova.spi.generation.execution.GenerationStageGraph;
@@ -81,7 +81,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                 org.pangrova.metadata.api.catalog.CatalogType.CONNECTOR, "test",
                 org.pangrova.metadata.api.catalog.CatalogState.ACTIVE, Map.of(), "", Set.of());
         metadata.saveCatalogDescriptor(descriptor);
-        var control = new org.pangrova.table.core.control.TableControlService(
+        var control = new org.pangrova.table.control.TableControlService(
                 new org.pangrova.table.store.jdbc.control.JdbcTableControlStore(dataSource), name ->
                         new org.pangrova.table.api.control.CatalogDeploymentIdentity(
                                 descriptor.incarnationId(), descriptor.revision()));

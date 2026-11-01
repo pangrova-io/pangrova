@@ -1,6 +1,6 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.table.api.governancebinding.GovernanceBinding;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.api.policy.TablePolicyAuthority;

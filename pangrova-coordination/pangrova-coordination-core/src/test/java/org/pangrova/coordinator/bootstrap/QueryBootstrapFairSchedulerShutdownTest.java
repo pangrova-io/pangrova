@@ -6,10 +6,10 @@ import ch.qos.logback.core.AppenderBase;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.bootstrap.module.DefaultModuleContext;
 import org.pangrova.coordinator.bootstrap.module.QueryExecutionModule;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase;
 import org.pangrova.scheduler.resource.QueueType;
-import org.pangrova.scheduler.core.resource.WeightedFairScheduler;
+import org.pangrova.scheduler.resource.WeightedFairScheduler;
 import org.slf4j.LoggerFactory;
 
 import java.util.Set;

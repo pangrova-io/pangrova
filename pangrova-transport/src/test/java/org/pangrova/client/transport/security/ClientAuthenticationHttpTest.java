@@ -1,6 +1,6 @@
 package org.pangrova.client.transport.security;
 
-import org.pangrova.client.core.error.PangrovaClientException;
+import org.pangrova.client.error.PangrovaClientException;
 import org.pangrova.client.transport.http.PangrovaRestClient;
 
 import com.sun.net.httpserver.HttpServer;

@@ -5,8 +5,8 @@ import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
 import org.pangrova.spi.connector.data.value.ColumnValue;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiEmbeddingConfig;
+import org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider;
+import org.pangrova.ai.worker.embedding.openai.OpenAiEmbeddingConfig;
 
 import java.util.List;
 

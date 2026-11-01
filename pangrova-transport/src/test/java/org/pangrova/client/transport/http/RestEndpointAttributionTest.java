@@ -5,12 +5,12 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.client.core.protocol.QueryStatusResponse;
-import org.pangrova.client.core.protocol.SubmitQueryRequest;
-import org.pangrova.client.core.error.PangrovaServerException;
-import org.pangrova.client.core.session.ConnectionPoolConfig;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.client.protocol.QueryStatusResponse;
+import org.pangrova.client.protocol.SubmitQueryRequest;
+import org.pangrova.client.error.PangrovaServerException;
+import org.pangrova.client.session.ConnectionPoolConfig;
+import org.pangrova.client.session.RetryPolicy;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

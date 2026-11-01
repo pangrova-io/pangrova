@@ -14,7 +14,7 @@ import org.pangrova.materialization.domain.PhysicalTableRef;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.port.CommitRecovery;
 import org.pangrova.materialization.port.PhysicalGenerationStore;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.connector.materialization.CommitEvidence;
 
 /**

@@ -1,7 +1,7 @@
 package org.pangrova.metadata.store.jdbc.object;
 
-import org.pangrova.metadata.core.relation.ObjectDependencyKey;
-import org.pangrova.metadata.core.relation.ObjectDependencyOrder;
+import org.pangrova.metadata.relation.ObjectDependencyKey;
+import org.pangrova.metadata.relation.ObjectDependencyOrder;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

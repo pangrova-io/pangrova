@@ -2,8 +2,8 @@ package org.pangrova.indexing.crosslang;
 
 import org.pangrova.indexing.assembly.serde.DefaultTypeSerializers;
 
-import org.pangrova.indexing.core.serde.IndexSerializer;
-import org.pangrova.indexing.core.serde.TypeSerializerRegistry;
+import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.serde.TypeSerializerRegistry;
 import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.pangrova.spi.indexing.data.BloomFilterIndexData;
 

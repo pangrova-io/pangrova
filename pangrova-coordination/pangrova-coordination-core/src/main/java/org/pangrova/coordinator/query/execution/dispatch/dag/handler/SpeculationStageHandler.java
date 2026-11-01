@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

@@ -3,8 +3,8 @@ package org.pangrova.indexing.engine.bitmap.serializer;
 import org.pangrova.spi.indexing.data.bitmap.BitmapIndexData;
 
 import java.util.LinkedHashMap;
-import org.pangrova.indexing.core.serde.SerdeCodec;
-import org.pangrova.indexing.core.serde.TypeSerializer;
+import org.pangrova.indexing.serde.SerdeCodec;
+import org.pangrova.indexing.serde.TypeSerializer;
 
 /**
  * Serializer for {@link BitmapIndexData}.

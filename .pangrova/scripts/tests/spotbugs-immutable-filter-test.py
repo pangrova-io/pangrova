@@ -58,7 +58,7 @@ public final class ImmutableFilterBoundary {
         command(command, runner, "run", "(Ljava/util/List;)Ljava/lang/Process;", "COMMAND_INJECTION", false);
         command(command, runner, "run", "(Ljava/util/List;)V", "OVERLY_PERMISSIVE_FILE_PERMISSION", false);
         Filter jitter = Filter.parseFilter(args[3]);
-        String policy = "org.pangrova.client.core.session.RetryPolicy";
+        String policy = "org.pangrova.client.session.RetryPolicy";
         command(jitter, policy, "delayForAttemptWithJitter", "(I)Ljava/time/Duration;", "PREDICTABLE_RANDOM", true);
         command(jitter, policy + "Other", "delayForAttemptWithJitter", "(I)Ljava/time/Duration;",
                 "PREDICTABLE_RANDOM", false);
@@ -118,28 +118,28 @@ public final class ImmutableFilterBoundary {
 
     private static void verifyIndexingBorrowed(String fullFilterPath) throws Exception {
         Filter full = Filter.parseFilter(fullFilterPath);
-        String manager = "org.pangrova.indexing.core.storage.IndexStorageManager";
-        String context = "org.pangrova.indexing.core.build.IndexBuildContext";
-        String evaluation = "org.pangrova.indexing.core.eval.IndexEvaluationService";
-        String cached = "org.pangrova.indexing.core.storage.CachedBloomFilterIndexData";
+        String manager = "org.pangrova.indexing.storage.IndexStorageManager";
+        String context = "org.pangrova.indexing.build.IndexBuildContext";
+        String evaluation = "org.pangrova.indexing.eval.IndexEvaluationService";
+        String cached = "org.pangrova.indexing.storage.CachedBloomFilterIndexData";
         String bloom = "org.pangrova.common.bloom.SplitBlockBloomFilter";
         verifyIndexingMatch(full, context, "storageManager", "", manager,
                 "storageManager", manager, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, context, "<init>",
-                "org.pangrova.indexing.core.config.IndexingConfig,org.pangrova.indexing.core.registry.IndexEngineRegistry,"
-                + manager + ",org.pangrova.indexing.core.serde.IndexSerializer,"
-                + "org.pangrova.indexing.core.build.BuildClaimHandler,"
-                + "org.pangrova.indexing.core.build.GenerationChecker,"
+                "org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.registry.IndexEngineRegistry,"
+                + manager + ",org.pangrova.indexing.serde.IndexSerializer,"
+                + "org.pangrova.indexing.build.BuildClaimHandler,"
+                + "org.pangrova.indexing.build.GenerationChecker,"
                 + "org.pangrova.spi.connector.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
                 "void", "storageManager", manager, "EI_EXPOSE_REP2");
-        String evaluationParams = "org.pangrova.indexing.core.registry.IndexEngineRegistry,"
-                + "org.pangrova.indexing.core.storage.IndexCache," + manager + ","
-                + "org.pangrova.indexing.core.serde.IndexSerializer,"
-                + "org.pangrova.indexing.core.eval.IndexEvalCircuitBreaker";
+        String evaluationParams = "org.pangrova.indexing.registry.IndexEngineRegistry,"
+                + "org.pangrova.indexing.storage.IndexCache," + manager + ","
+                + "org.pangrova.indexing.serde.IndexSerializer,"
+                + "org.pangrova.indexing.eval.IndexEvalCircuitBreaker";
         verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
                 "storageManager", manager, "EI_EXPOSE_REP2");
         verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
-                "cache", "org.pangrova.indexing.core.storage.IndexCache", "EI_EXPOSE_REP2");
+                "cache", "org.pangrova.indexing.storage.IndexCache", "EI_EXPOSE_REP2");
         verifyIndexingMatch(full, cached, "filter", "", bloom,
                 "deserializedFilter", bloom, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, cached, "<init>",
@@ -323,7 +323,7 @@ def main():
         ET.ElementTree(runner_filter).write(runner_classification, encoding='utf-8', xml_declaration=True)
         jitter_matches = [match for match in full_filter.getroot()
                           if any(child.tag.endswith('Class') and child.get('name') ==
-                                 'org.pangrova.client.core.session.RetryPolicy' for child in match)
+                                 'org.pangrova.client.session.RetryPolicy' for child in match)
                           and any(child.tag.endswith('Method') and child.get('name') ==
                                   'delayForAttemptWithJitter' for child in match)]
         if len(jitter_matches) != 1:

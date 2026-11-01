@@ -9,8 +9,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
-import org.pangrova.security.core.authn.provider.ldap.LdapAuthenticator;
-import org.pangrova.security.core.authn.provider.oauth2.OAuth2Authenticator;
+import org.pangrova.security.authn.ldap.LdapAuthenticator;
+import org.pangrova.security.authn.oauth2.OAuth2Authenticator;
 
 /**
  * Verifies authenticator behavior for OAuth2 and LDAP providers.

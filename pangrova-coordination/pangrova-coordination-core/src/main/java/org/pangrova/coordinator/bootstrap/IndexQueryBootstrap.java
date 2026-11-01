@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.coordinator.adapter.indexing.IndexDescriptorCache;
-import org.pangrova.coordinator.adapter.indexing.IndexEvalMetrics;
-import org.pangrova.coordinator.adapter.indexing.filter.IndexEvalConfig;
-import org.pangrova.coordinator.adapter.indexing.filter.IndexSplitFilter;
+import org.pangrova.coordinator.indexing.IndexDescriptorCache;
+import org.pangrova.coordinator.indexing.IndexEvalMetrics;
+import org.pangrova.coordinator.indexing.filter.IndexEvalConfig;
+import org.pangrova.coordinator.indexing.filter.IndexSplitFilter;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.slf4j.Logger;

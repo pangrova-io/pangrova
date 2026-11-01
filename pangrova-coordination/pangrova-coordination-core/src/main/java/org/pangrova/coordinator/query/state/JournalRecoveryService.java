@@ -294,7 +294,7 @@ public final class JournalRecoveryService {
         for (String queryId : failedQueries) {
             try {
                 queryManager.onTaskFailed(queryId,
-                        new org.pangrova.client.core.error.ErrorDetail(
+                        new org.pangrova.client.error.ErrorDetail(
                                 "RECOVERY_WORKER_DEAD",
                                 queryId,
                                 "Query failed during recovery: assigned worker is dead or unreachable"));

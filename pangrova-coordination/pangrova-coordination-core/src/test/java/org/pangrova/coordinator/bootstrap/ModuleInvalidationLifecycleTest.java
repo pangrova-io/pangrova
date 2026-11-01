@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.store.jdbc.cache.JdbcInvalidationPoller;
-import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 

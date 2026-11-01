@@ -1,8 +1,8 @@
 package org.pangrova.query.assembly.audit;
 
 import org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore;
-import org.pangrova.query.core.audit.QueryAuditService;
-import org.pangrova.query.core.profiling.QueryProfileService;
+import org.pangrova.query.audit.QueryAuditService;
+import org.pangrova.query.profiling.QueryProfileService;
 
 /** Composes audit admission and profile reads over the same Coordinator-owned store. */
 public final class QueryAuditServices {

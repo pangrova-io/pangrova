@@ -1,6 +1,6 @@
 package org.pangrova.governance.core.lineage;
 
-import org.pangrova.governance.lineage.provider.openlineage.MarquezTestBackend;
+import org.pangrova.governance.lineage.openlineage.MarquezTestBackend;
 
 import java.util.List;
 import java.util.Optional;
@@ -11,7 +11,7 @@ import org.pangrova.spi.observability.event.QueryCompletedEvent;
 import org.pangrova.spi.observability.event.QueryCreatedEvent;
 import org.pangrova.spi.observability.event.QueryLineageMetadata;
 import org.pangrova.spi.observability.event.QueryStatistics;
-import org.pangrova.governance.lineage.provider.openlineage.OpenLineageHttpTransport;
+import org.pangrova.governance.lineage.openlineage.OpenLineageHttpTransport;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;

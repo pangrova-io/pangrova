@@ -6,7 +6,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.split.NativeReadSplitBinding;
 import org.pangrova.spi.generation.job.GenerationSplit;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;

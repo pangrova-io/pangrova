@@ -23,7 +23,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>When FTE is enabled with a durable shuffle provider ({@code local-spill} or
  * {@code object-store}), this manager replaces
- * {@link org.pangrova.shuffle.provider.spool.LocalShuffleLifecycleManager}
+ * {@link org.pangrova.shuffle.spool.LocalShuffleLifecycleManager}
  * and ensures that committed shuffle partitions survive task failure, enabling
  * the DAG scheduler to retry failed downstream tasks by re-reading spooled data
  * rather than re-running upstream stages.

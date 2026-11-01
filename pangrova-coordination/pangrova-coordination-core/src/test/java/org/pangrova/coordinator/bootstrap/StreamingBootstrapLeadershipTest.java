@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.streaming.adapter.coordinator.StreamConfig;
-import org.pangrova.streaming.adapter.coordinator.StreamDdlContext;
-import org.pangrova.streaming.adapter.coordinator.StreamDdlExecutor;
-import org.pangrova.streaming.adapter.coordinator.StreamScheduler;
-import org.pangrova.streaming.adapter.coordinator.StreamSchedulerContext;
+import org.pangrova.streaming.coordinator.StreamConfig;
+import org.pangrova.streaming.coordinator.StreamDdlContext;
+import org.pangrova.streaming.coordinator.StreamDdlExecutor;
+import org.pangrova.streaming.coordinator.StreamScheduler;
+import org.pangrova.streaming.coordinator.StreamSchedulerContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.streaming.store.jdbc.offset.JdbcStreamOffsetStore;
 import org.pangrova.streaming.store.jdbc.checkpoint.JdbcStreamStateStore;
@@ -21,14 +21,14 @@ import org.pangrova.streaming.api.cdc.CdcWriteResult;
 import org.pangrova.streaming.api.cdc.CdcWriteSink;
 import org.pangrova.streaming.api.source.SourceRecord;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
-import org.pangrova.streaming.core.cdc.CdcRecordConverterRegistry;
-import org.pangrova.streaming.core.commit.JdbcCdcCommitStateStore;
-import org.pangrova.streaming.core.commit.TwoPhaseCommitCoordinator;
-import org.pangrova.streaming.provider.cdcformat.debezium.DebeziumJsonConverter;
-import org.pangrova.streaming.core.maintenance.MaintenanceConfig;
-import org.pangrova.streaming.core.maintenance.MaintenanceScheduler;
+import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
+import org.pangrova.streaming.commit.JdbcCdcCommitStateStore;
+import org.pangrova.streaming.commit.TwoPhaseCommitCoordinator;
+import org.pangrova.streaming.cdcformat.debezium.DebeziumJsonConverter;
+import org.pangrova.streaming.maintenance.MaintenanceConfig;
+import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
-import org.pangrova.streaming.core.watermark.WatermarkTracker;
+import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.time.Duration;

@@ -10,7 +10,7 @@ import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.generation.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.spi.generation.job.GenerationDispatchSpec;
 import org.pangrova.spi.generation.job.GenerationJob;
 import org.pangrova.spi.generation.job.GenerationPage;
@@ -96,7 +96,7 @@ public final class DurableGeneratedValueBuildService {
             SnapshotGenerationSplitPlanner splitPlanner,
             WorkerSelector workerSelector,
             String baseArtifactUri,
-            org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalogs) {
+            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs) {
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.submissions = Objects.requireNonNull(
                 submissions, "submissions must not be null");

@@ -12,10 +12,10 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.servlet.http.HttpServletRequest;
-import org.pangrova.observability.sdk.logging.provider.mdc.LogContext;
-import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.ResultProtocol;
+import org.pangrova.observability.sdk.logging.mdc.LogContext;
+import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultProtocol;
 import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
 import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -139,13 +139,13 @@ public final class TaskResource implements Closeable {
         if (request == null) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(
-                            new org.pangrova.client.core.error.ErrorDetail(
+                            new org.pangrova.client.error.ErrorDetail(
                                     "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
                     .build();
         }
         if (request.copySourceRead() != null && (transport == null || !transport.isSecure())) {
             return Response.status(Response.Status.FORBIDDEN)
-                    .entity(new org.pangrova.client.core.error.ErrorDetail(
+                    .entity(new org.pangrova.client.error.ErrorDetail(
                             "COPY_SECURE_TRANSPORT_REQUIRED", "SECURITY_ERROR",
                             "COPY private task requires mutual-TLS transport"))
                     .build();
@@ -323,7 +323,7 @@ public final class TaskResource implements Closeable {
         return Response.status(status)
                 .type(MediaType.APPLICATION_JSON)
                 .entity(
-                        new org.pangrova.client.core.error.ErrorDetail(
+                        new org.pangrova.client.error.ErrorDetail(
                                 code, "SYSTEM_ERROR", failure.getMessage()))
                 .build();
     }
@@ -346,7 +346,7 @@ public final class TaskResource implements Closeable {
         if (notification == null) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(
-                            new org.pangrova.client.core.error.ErrorDetail(
+                            new org.pangrova.client.error.ErrorDetail(
                                     "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
                     .build();
         }
@@ -367,7 +367,7 @@ public final class TaskResource implements Closeable {
         if (request == null) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(
-                            new org.pangrova.client.core.error.ErrorDetail(
+                            new org.pangrova.client.error.ErrorDetail(
                                     "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
                     .build();
         }
@@ -379,7 +379,7 @@ public final class TaskResource implements Closeable {
         if (handle.isEmpty()) {
             return Response.status(Response.Status.CONFLICT)
                     .entity(
-                            new org.pangrova.client.core.error.ErrorDetail(
+                            new org.pangrova.client.error.ErrorDetail(
                                     "CONFLICT",
                                     "USER_ERROR",
                                     "Executor not ready for task: " + taskId))
@@ -393,7 +393,7 @@ public final class TaskResource implements Closeable {
         if (executor.isEmpty()) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
                     .entity(
-                            new org.pangrova.client.core.error.ErrorDetail(
+                            new org.pangrova.client.error.ErrorDetail(
                                     "NATIVE_EXECUTOR_UNAVAILABLE",
                                     "SYSTEM_ERROR",
                                     "Native executor unavailable for task: " + taskId))

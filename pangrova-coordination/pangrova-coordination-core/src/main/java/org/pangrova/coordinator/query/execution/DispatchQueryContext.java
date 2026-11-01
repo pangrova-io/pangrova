@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
-import org.pangrova.indexing.core.planner.vector.VectorSearchNode;
+import org.pangrova.indexing.planner.vector.VectorSearchNode;
 
 import java.util.List;
 import java.util.Map;

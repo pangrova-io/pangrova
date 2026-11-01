@@ -6,7 +6,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.statement.dml.DmlExpressionEvaluator;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
@@ -82,7 +82,7 @@ public final class DdlExecutor {
 
     /** Enables {@code ADOPT WITH (...)} maintenance policy properties. */
     public void setMaintenancePolicyService(
-            org.pangrova.table.core.maintenance.TableControlMaintenanceService service) {
+            org.pangrova.table.maintenance.TableControlMaintenanceService service) {
         tableControlOperations.setMaintenancePolicyService(service);
     }
 

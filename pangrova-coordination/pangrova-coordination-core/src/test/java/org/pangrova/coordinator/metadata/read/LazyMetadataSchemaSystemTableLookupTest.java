@@ -4,10 +4,10 @@ import org.pangrova.coordinator.metadata.MetadataPlanningTestSessions;
 
 import org.apache.calcite.schema.lookup.LikePattern;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.exception.MetadataResolutionException;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.catalog.MetadataStore;

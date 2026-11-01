@@ -42,7 +42,7 @@ class FileSpaceS3MultipartIntegrationTest extends ContainerTestBase {
     @Test
     void renewedMultipartGrantSurvivesOriginCleanupOnRealS3() throws IOException {
         var now = new java.util.concurrent.atomic.AtomicLong(1_000L);
-        var mapper = org.pangrova.common.json.provider.jackson.JsonMapperFactory.create();
+        var mapper = org.pangrova.common.json.jackson.JsonMapperFactory.create();
         var credentials = StaticCredentialsProvider.create(
                 AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY));
         try (S3Client client = client();

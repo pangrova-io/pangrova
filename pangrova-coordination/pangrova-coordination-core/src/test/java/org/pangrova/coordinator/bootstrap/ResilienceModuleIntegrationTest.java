@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.resilience.degradation.DegradationManager;
 import org.pangrova.coordinator.resilience.degradation.DegradationManager.DegradationLevel;
 import org.pangrova.coordinator.resilience.retry.StageRetryManager;

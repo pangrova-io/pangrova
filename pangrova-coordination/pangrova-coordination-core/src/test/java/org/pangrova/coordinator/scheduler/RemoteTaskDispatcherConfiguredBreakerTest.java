@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.core.failure.CircuitBreakerOpenException;
-import org.pangrova.scheduler.core.failure.TaskDispatchException;
+import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
+import org.pangrova.scheduler.failure.TaskDispatchException;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -14,7 +14,7 @@ import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.resilience.config.ResilienceConfigLoader;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig;
 import org.pangrova.common.value.MemoryPressure;

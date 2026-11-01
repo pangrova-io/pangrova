@@ -11,7 +11,7 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.StagePlanAccess;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.protocol.v2.DirectExchangeInput;
@@ -108,7 +108,7 @@ final class ExchangeSourceBuilder {
      */
     static List<SplitFetcher.SplitWithPaths> fetchSplitsWithIndexFiltering(
             StageNode stage, StageDAG dag,
-            org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher fetcher,
+            org.pangrova.coordinator.indexing.IndexAwareSplitFetcher fetcher,
             java.util.Map<String, Long> snapshotOverrides,
             String queryId,
             org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {

@@ -1,10 +1,10 @@
 package org.pangrova.client.transport.http;
 
 import com.sun.net.httpserver.HttpServer;
-import org.pangrova.client.core.error.PangrovaClientException;
-import org.pangrova.client.core.error.PangrovaProtocolException;
-import org.pangrova.client.core.error.PangrovaServerException;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.client.error.PangrovaClientException;
+import org.pangrova.client.error.PangrovaProtocolException;
+import org.pangrova.client.error.PangrovaServerException;
+import org.pangrova.client.session.RetryPolicy;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 

@@ -3171,3 +3171,67 @@ HTTP授权链及SQL/JNI ActivationSmoke共14项及static通过；`gates.log`模�
 当前65 reactor＝49 Java叶子＋1 Schema资源JAR＋14聚合POM＋1 Native分类打包POM；源码、
 包、测试文件及Store候选计数与第53节相同。此批仅完成File物理层级收敛，完整目标仍继续；
 Materialization/Table的存储与契约整合及既有未完成项未被本次重排替代。
+
+## 55. 能力包中间层收敛（2026-11-01）
+
+按用户要求全面扫描主源与测试源中的空中间层，移除33处没有直属类型的core、adapter、
+provider包节点。375个生产类型、543个主源/测试文件移到实际能力包；File直接使用worker、
+space、directory，其他模块同步按能力归位。保留实际API、后端和领域子能力边界，没有
+将所有类型塞进一个根包。扫描后主源/测试源均无这四类空中间节点（含impl）。
+
+合并Scheduler resource、Coordinator scheduler、Shuffle spool三个同职责包；没有类型
+重名。当前为665包、3,427主源、2,396测试源、49 Java叶子，源文件总数不变。Maven制品和
+JPMS名称保持不变，模块packageRoots/exports按实际能力展开，Client Core没有占用JDBC或
+CLI的包根。ServiceLoader、反射引用、静态检查路径、调用方及当前架构文档均同步。
+
+用户要求保留的Coordination JDBC实现仍在Persistence JDBC，四个生产类和八个测试类均
+保留，生产租约/Coordinator注册/Worker注册仍直接装配，JDBC仍是默认租约后端。原模块
+遗留README迁入新owner的docs/coordination.md并修正验证命令；旧target及空目录清理。
+
+现有Checkstyle路径例外随迁移重定位；另删除两个早已指向不存在placement路径的评分器
+例外，给实际scoring实现的四个权重命名并补充方法说明。公开方法javap字节码逐字相同。
+Security三个组合SpotBugs正则需单独同步；411个类选择器对375个迁移类型的154,125次
+前后匹配比较一致，原过滤器边界回归通过，没有增加过滤规则。
+
+完整回归发现SecurityChainTest在异步终态审计写入前立即请求profile：日志中HTTP读取
+早于audit写入。测试改为等待实际物理清理完成，再执行原HTTP内容断言和新Coordinator
+实例隔离断言；没有重试业务提交或修改生产时序。Scheduler结构测试同步为11个明确的
+dispatch/speculation适配器文件，移除旧package-info期望，继续使用精确集合断言。
+
+除上述评分器和两个测试调整外，1,168个受影响Java文件均通过原文重写等价检查，仅有
+包名/引用改写和六处同包冗余import删除。50个当前main JAR中375个迁移类型各只有一个
+预期owner，旧定义不存在；服务描述符与源文件一致，模块名保留且无package-info.class。
+SQL迁移、Proto、Native源码与golden资源未改，使用已有匹配Native产物验证Java/JNI链。
+
+当前包台账及331个Persistence发现候选同步实际路径，清除累积重复说明，并明确Client
+JDBC是SQL驱动而非服务端存储后端。台账再次生成后内容稳定，不能将候选命中或包迁移
+当作逐文件语义审查已完成。新代码规范明确不再增加空通用中间层，保留有实际边界意义
+的API/后端命名空间。
+
+本批原始日志统一使用`/tmp/pangrova-package-layers-`前缀；全65项clean安装编译通过
+（skipTests）。32项模块/命名/源码图检查及static、模块manifest、8项manifest工具回归、
+dead-stub扫描均通过。包无环门禁仍失败，四SCC经新包名映射后成员完全相同，大小为
+29/2/5/18；接线6项仍4通过2失败，仍是四个Store和ResultExpirationScheduler，未扩大
+例外名单。完整Store/API迁移和生产资格继续开放。
+
+本批完整owner测试：Common298、SPI521、Persistence API5/Memory74/JDBC220、Generation27、
+Client Core37/JDBC242/CLI50、Shuffle122、Observability SDK227、Security327、Query20、
+Streaming287、Transport226、Planner1555、Scheduler128、Table101、Governance122、
+Metadata542、Semantic5、AI Control71/Worker215、Indexing227、Worker1257，均无测试失败
+或跳过。对应static已通过：Security和Scheduler初次静态失败分别在过滤器路径修正、
+评分常量命名后单独verify通过，原失败日志保留，不把原reactor失败改写为成功。
+
+真实文件HTTP/控制面/SQL-JNI冒烟14项及static通过；追加索引代际隔离/回滚7项通过，
+未重复运行相同Activation测试。Worker完整回归包含5 GiB LOCAL往返、跨4 GiB边界读取、
+TLS和真实Native任务生命周期。未修改Native输入，未声称重新构建或完成新的C++/ASan。
+
+Coordinator完整回归3377项，原始结果为2个测试失败、10个错误；两个失败对应上面的
+测试时序/结构清单修正。10个错误均缺少匹配的pangrova_lance_fixture_tool，涉及
+NativeDatasetControlBootstrapTest两项、WorkerNativeDatasetControlTest六项、
+DefaultWriteCommitReconcilerTest两项。既有SDK源码provenance前置条件仍未满足，不绕过
+校验或关闭测试；不能据本批其他通过项宣布整个项目生产验收完成。
+
+修正后的SecurityChain、Scheduler结构清单以及异步提交/审计/终态journal/前端所有权
+定向复验50项及static通过（coordination-fixes.log）；随后SecurityChain另一次6项通过
+（security-chain-repeat.log），验证等待真实终态处理后的HTTP内容与实例隔离。首次完整
+Coordinator结果仍保留；10项Native fixture错误尚未解决，未把定向复验表述为全套通过。

@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.pangrova.shuffle.provider.spool.LocalShuffleLifecycleManager;
+import org.pangrova.shuffle.spool.LocalShuffleLifecycleManager;
 import org.pangrova.shuffle.api.ShuffleAccess;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;

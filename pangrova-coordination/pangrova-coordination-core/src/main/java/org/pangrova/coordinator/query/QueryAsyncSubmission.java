@@ -14,8 +14,8 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,11 +58,11 @@ final class QueryAsyncSubmission {
     private Future<?> submit(Context context) {
         try {
             return executor.submit(() -> {
-                var previousLogContext = org.pangrova.observability.sdk.logging.provider.mdc.LogContext.snapshot();
+                var previousLogContext = org.pangrova.observability.sdk.logging.mdc.LogContext.snapshot();
                 try (var scope = context.session().traceContext().makeCurrent()) {
-                    org.pangrova.observability.sdk.logging.provider.mdc.LogContext.set(
+                    org.pangrova.observability.sdk.logging.mdc.LogContext.set(
                             context.session().traceContext().traceId(), context.session().traceContext().spanId());
-                    org.pangrova.observability.sdk.logging.provider.mdc.LogContext.setQueryId(context.queryId());
+                    org.pangrova.observability.sdk.logging.mdc.LogContext.setQueryId(context.queryId());
                     resultHandler.accept(context.queryId(), context.state(),
                             dispatcher.execute(context.state(), context.sql(), context.session()));
                 } catch (RuntimeException | Error failure) {
@@ -73,7 +73,7 @@ final class QueryAsyncSubmission {
                     fail(context, code, failure.getClass().getSimpleName(),
                             String.valueOf(failure.getMessage()), "async_dispatch_failed");
                 } finally {
-                    org.pangrova.observability.sdk.logging.provider.mdc.LogContext.restore(previousLogContext);
+                    org.pangrova.observability.sdk.logging.mdc.LogContext.restore(previousLogContext);
                     context.ready().countDown();
                 }
             });

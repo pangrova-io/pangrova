@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.coordination;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
 import org.pangrova.coordinator.bootstrap.CoordinatorRole;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection;
+import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;

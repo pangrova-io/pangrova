@@ -28,7 +28,7 @@ class GenerationValueIsolationTest {
                 "org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore",
                 "org.pangrova.generation.protocol.GenerationStageGraphCodec",
                 "org.pangrova.generation.assembly.GenerationStageGraphFactory",
-                "org.pangrova.security.core.authz.deferred.DeferredAuthorization")) {
+                "org.pangrova.security.authz.deferred.DeferredAuthorization")) {
             assertThatThrownBy(() -> Class.forName(name, false, loader))
                     .as("SPI must not load %s", name).isInstanceOf(ClassNotFoundException.class);
         }

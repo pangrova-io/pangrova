@@ -7,7 +7,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 
-import org.pangrova.indexing.core.storage.IndexCache;
+import org.pangrova.indexing.storage.IndexCache;
 import org.pangrova.spi.indexing.data.HashIndexData;
 import org.pangrova.spi.indexing.data.IndexData;
 

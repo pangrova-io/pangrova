@@ -18,7 +18,7 @@ import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.observability.sdk.tracing.QueryTracer;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;

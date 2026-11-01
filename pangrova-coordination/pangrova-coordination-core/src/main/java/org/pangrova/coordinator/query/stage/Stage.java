@@ -9,7 +9,7 @@ import java.util.function.Consumer;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveDecision;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskRetryCallback;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.slf4j.Logger;

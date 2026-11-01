@@ -6,7 +6,7 @@ import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.spi.connector.data.write.DataFileSink;
 import org.pangrova.spi.connector.data.write.model.WriteMode;
 import org.pangrova.spi.connector.data.write.model.WriteRecord;
-import org.pangrova.streaming.provider.writer.lake.LakeTableWriter;
+import org.pangrova.streaming.writer.lake.LakeTableWriter;
 
 import java.time.Instant;
 import java.util.ArrayList;

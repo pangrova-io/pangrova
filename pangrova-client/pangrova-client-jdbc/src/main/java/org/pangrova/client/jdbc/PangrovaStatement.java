@@ -1,12 +1,12 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.core.error.PangrovaClientException;
-import org.pangrova.client.core.error.PangrovaConnectionException;
-import org.pangrova.client.core.error.PangrovaProtocolException;
+import org.pangrova.client.error.PangrovaClientException;
+import org.pangrova.client.error.PangrovaConnectionException;
+import org.pangrova.client.error.PangrovaProtocolException;
 import org.pangrova.client.transport.http.PangrovaRestClient;
-import org.pangrova.client.core.error.PangrovaServerException;
-import org.pangrova.client.core.protocol.QueryStatusResponse;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.client.error.PangrovaServerException;
+import org.pangrova.client.protocol.QueryStatusResponse;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.pangrova.transport.ArrowBatchDecoder;
 import org.pangrova.transport.ResultBatch;
 import org.pangrova.transport.TransportException;

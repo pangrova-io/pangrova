@@ -10,13 +10,13 @@ import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore
 import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
 import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.core.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.spi.security.policy.Privilege;
 import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.spi.security.policy.Role;
 import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;

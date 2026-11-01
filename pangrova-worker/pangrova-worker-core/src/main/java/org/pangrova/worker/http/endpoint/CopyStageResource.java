@@ -8,7 +8,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceResponse;
 import org.pangrova.worker.copy.CopyStageLeases;

@@ -80,17 +80,17 @@ artifacts:
       - org.pangrova.ai.worker.config
       - org.pangrova.ai.worker.context
       - org.pangrova.ai.worker.embedding
-      - org.pangrova.ai.worker.embedding.provider.openai
+      - org.pangrova.ai.worker.embedding.openai
       - org.pangrova.ai.worker.function
       - org.pangrova.ai.worker.function.file
       - org.pangrova.ai.worker.governance
       - org.pangrova.ai.worker.governance.observer
-      - org.pangrova.ai.worker.inference.provider.openai
+      - org.pangrova.ai.worker.inference.openai
       - org.pangrova.ai.worker.invocation
       - org.pangrova.ai.worker.provider
       - org.pangrova.ai.worker.provider.env
       - org.pangrova.ai.worker.provider.governed
-      - org.pangrova.ai.worker.rerank.provider.openai
+      - org.pangrova.ai.worker.rerank.openai
       - org.pangrova.ai.worker.text
     pomDependencies:
       pangrova-common: compile
@@ -157,20 +157,20 @@ artifacts:
   pangrova-client-core:
     path: pangrova-client/pangrova-client-core
     mainPackages:
-      - org.pangrova.client.core.api
-      - org.pangrova.client.core.error
-      - org.pangrova.client.core.protocol
-      - org.pangrova.client.core.session
+      - org.pangrova.client.api
+      - org.pangrova.client.error
+      - org.pangrova.client.protocol
+      - org.pangrova.client.session
     pomDependencies:
       pangrova-common: compile
     imports:
       main: []
       test: []
     exportedPackages:
-      - org.pangrova.client.core.api
-      - org.pangrova.client.core.error
-      - org.pangrova.client.core.protocol
-      - org.pangrova.client.core.session
+      - org.pangrova.client.api
+      - org.pangrova.client.error
+      - org.pangrova.client.protocol
+      - org.pangrova.client.session
     providers:
       {}
   pangrova-client-jdbc:
@@ -211,10 +211,10 @@ artifacts:
       - org.pangrova.common.exception
       - org.pangrova.common.file
       - org.pangrova.common.http
-      - org.pangrova.common.http.adapter.jetty
+      - org.pangrova.common.http.jetty
       - org.pangrova.common.jdbc
       - org.pangrova.common.json
-      - org.pangrova.common.json.provider.jackson
+      - org.pangrova.common.json.jackson
       - org.pangrova.common.lifecycle
       - org.pangrova.common.resilience
       - org.pangrova.common.resilience.api
@@ -236,10 +236,10 @@ artifacts:
       - org.pangrova.common.exception
       - org.pangrova.common.file
       - org.pangrova.common.http
-      - org.pangrova.common.http.adapter.jetty
+      - org.pangrova.common.http.jetty
       - org.pangrova.common.jdbc
       - org.pangrova.common.json
-      - org.pangrova.common.json.provider.jackson
+      - org.pangrova.common.json.jackson
       - org.pangrova.common.lifecycle
       - org.pangrova.common.resilience
       - org.pangrova.common.resilience.api
@@ -393,13 +393,6 @@ artifacts:
     path: pangrova-coordination/pangrova-coordination-core
     mainPackages:
       - org.pangrova.coordinator
-      - org.pangrova.coordinator.adapter.indexing
-      - org.pangrova.coordinator.adapter.indexing.ai.lifecycle
-      - org.pangrova.coordinator.adapter.indexing.ddl
-      - org.pangrova.coordinator.adapter.indexing.filter
-      - org.pangrova.coordinator.adapter.indexing.lifecycle
-      - org.pangrova.coordinator.adapter.indexing.lifecycle.gc
-      - org.pangrova.coordinator.adapter.scheduler
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.ai.layout
@@ -424,6 +417,12 @@ artifacts:
       - org.pangrova.coordinator.http.endpoint.copy
       - org.pangrova.coordinator.http.endpoint.file
       - org.pangrova.coordinator.http.jdbc
+      - org.pangrova.coordinator.indexing
+      - org.pangrova.coordinator.indexing.ai.lifecycle
+      - org.pangrova.coordinator.indexing.ddl
+      - org.pangrova.coordinator.indexing.filter
+      - org.pangrova.coordinator.indexing.lifecycle
+      - org.pangrova.coordinator.indexing.lifecycle.gc
       - org.pangrova.coordinator.maintenance
       - org.pangrova.coordinator.materialization
       - org.pangrova.coordinator.metadata
@@ -477,7 +476,7 @@ artifacts:
       - org.pangrova.coordinator.resilience.degradation
       - org.pangrova.coordinator.resilience.idempotency
       - org.pangrova.coordinator.resilience.lineage
-      - org.pangrova.coordinator.resilience.provider.resilience4j
+      - org.pangrova.coordinator.resilience.resilience4j
       - org.pangrova.coordinator.resilience.retry
       - org.pangrova.coordinator.result
       - org.pangrova.coordinator.scheduler
@@ -593,9 +592,6 @@ artifacts:
         - pangrova-worker-core
         - pangrova-worker-native-bridge
     exportedPackages:
-      - org.pangrova.coordinator.adapter.indexing
-      - org.pangrova.coordinator.adapter.indexing.lifecycle
-      - org.pangrova.coordinator.adapter.scheduler
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.bootstrap
@@ -609,6 +605,8 @@ artifacts:
       - org.pangrova.coordinator.http.endpoint
       - org.pangrova.coordinator.http.endpoint.copy
       - org.pangrova.coordinator.http.endpoint.file
+      - org.pangrova.coordinator.indexing
+      - org.pangrova.coordinator.indexing.lifecycle
       - org.pangrova.coordinator.materialization
       - org.pangrova.coordinator.metadata
       - org.pangrova.coordinator.metadata.read
@@ -660,9 +658,9 @@ artifacts:
   pangrova-file:
     path: pangrova-file
     mainPackages:
-      - org.pangrova.file.adapter.worker
-      - org.pangrova.file.core.directory
-      - org.pangrova.file.core.space
+      - org.pangrova.file.directory
+      - org.pangrova.file.space
+      - org.pangrova.file.worker
     pomDependencies:
       pangrova-common: compile
       pangrova-filesystem-api: compile
@@ -676,9 +674,9 @@ artifacts:
         - pangrova-spi
       test: []
     exportedPackages:
-      - org.pangrova.file.adapter.worker
-      - org.pangrova.file.core.directory
-      - org.pangrova.file.core.space
+      - org.pangrova.file.directory
+      - org.pangrova.file.space
+      - org.pangrova.file.worker
     providers:
       {}
   pangrova-filesystem-api:
@@ -766,8 +764,8 @@ artifacts:
     path: pangrova-generation/pangrova-generation-core
     mainPackages:
       - org.pangrova.generation.assembly
-      - org.pangrova.generation.core.publication
       - org.pangrova.generation.protocol
+      - org.pangrova.generation.publication
     pomDependencies:
       pangrova-common: compile
       pangrova-persistence-api: compile
@@ -799,8 +797,8 @@ artifacts:
       - org.pangrova.governance.core.classification
       - org.pangrova.governance.core.lineage
       - org.pangrova.governance.core.quality
-      - org.pangrova.governance.lineage.provider.log
-      - org.pangrova.governance.lineage.provider.openlineage
+      - org.pangrova.governance.lineage.log
+      - org.pangrova.governance.lineage.openlineage
       - org.pangrova.governance.quality.executor.sql
       - org.pangrova.governance.quality.executor.unconfigured
       - org.pangrova.governance.store.jdbc
@@ -830,7 +828,7 @@ artifacts:
       - org.pangrova.governance.core.classification
       - org.pangrova.governance.core.lineage
       - org.pangrova.governance.core.quality
-      - org.pangrova.governance.lineage.provider.openlineage
+      - org.pangrova.governance.lineage.openlineage
       - org.pangrova.governance.quality.executor.sql
       - org.pangrova.governance.quality.executor.unconfigured
       - org.pangrova.governance.store.jdbc
@@ -839,20 +837,9 @@ artifacts:
   pangrova-indexing-core:
     path: pangrova-indexing/pangrova-indexing-core
     mainPackages:
-      - org.pangrova.indexing.adapter.fs
       - org.pangrova.indexing.assembly.serde
-      - org.pangrova.indexing.core.build
-      - org.pangrova.indexing.core.config
-      - org.pangrova.indexing.core.eval
-      - org.pangrova.indexing.core.eval.defaults
-      - org.pangrova.indexing.core.lifecycle
-      - org.pangrova.indexing.core.metrics
-      - org.pangrova.indexing.core.normalize
-      - org.pangrova.indexing.core.planner
-      - org.pangrova.indexing.core.planner.vector
-      - org.pangrova.indexing.core.registry
-      - org.pangrova.indexing.core.serde
-      - org.pangrova.indexing.core.storage
+      - org.pangrova.indexing.build
+      - org.pangrova.indexing.config
       - org.pangrova.indexing.engine.bitmap.provider
       - org.pangrova.indexing.engine.bitmap.serializer
       - org.pangrova.indexing.engine.bloom.provider
@@ -872,6 +859,17 @@ artifacts:
       - org.pangrova.indexing.engine.rtree.serializer
       - org.pangrova.indexing.engine.sparse.provider
       - org.pangrova.indexing.engine.sparse.serializer
+      - org.pangrova.indexing.eval
+      - org.pangrova.indexing.eval.defaults
+      - org.pangrova.indexing.fs
+      - org.pangrova.indexing.lifecycle
+      - org.pangrova.indexing.metrics
+      - org.pangrova.indexing.normalize
+      - org.pangrova.indexing.planner
+      - org.pangrova.indexing.planner.vector
+      - org.pangrova.indexing.registry
+      - org.pangrova.indexing.serde
+      - org.pangrova.indexing.storage
       - org.pangrova.indexing.store
       - org.pangrova.indexing.store.jdbc
     pomDependencies:
@@ -905,17 +903,17 @@ artifacts:
         - pangrova-spi
         - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.indexing.adapter.fs
       - org.pangrova.indexing.assembly.serde
-      - org.pangrova.indexing.core.build
-      - org.pangrova.indexing.core.config
-      - org.pangrova.indexing.core.eval
-      - org.pangrova.indexing.core.metrics
-      - org.pangrova.indexing.core.planner
-      - org.pangrova.indexing.core.planner.vector
-      - org.pangrova.indexing.core.registry
-      - org.pangrova.indexing.core.serde
-      - org.pangrova.indexing.core.storage
+      - org.pangrova.indexing.build
+      - org.pangrova.indexing.config
+      - org.pangrova.indexing.eval
+      - org.pangrova.indexing.fs
+      - org.pangrova.indexing.metrics
+      - org.pangrova.indexing.planner
+      - org.pangrova.indexing.planner.vector
+      - org.pangrova.indexing.registry
+      - org.pangrova.indexing.serde
+      - org.pangrova.indexing.storage
       - org.pangrova.indexing.store
       - org.pangrova.indexing.store.jdbc
     providers:
@@ -930,7 +928,7 @@ artifacts:
         - org.pangrova.indexing.engine.prefix.provider.PrefixStrategyProvider
         - org.pangrova.indexing.engine.ngram.provider.NGramBloomStrategyProvider
       "org.pangrova.spi.indexing.eval.IndexFileEvaluatorFactory":
-        - org.pangrova.indexing.core.eval.defaults.DefaultIndexFileEvaluatorFactory
+        - org.pangrova.indexing.eval.defaults.DefaultIndexFileEvaluatorFactory
   pangrova-materialization-core:
     path: pangrova-materialization/pangrova-materialization-core
     mainPackages:
@@ -993,23 +991,23 @@ artifacts:
       - org.pangrova.metadata.api.relation
       - org.pangrova.metadata.assembly.generation
       - org.pangrova.metadata.assembly.security
+      - org.pangrova.metadata.cache
+      - org.pangrova.metadata.catalog.handle.connector
+      - org.pangrova.metadata.catalog.handle.federation
+      - org.pangrova.metadata.catalog.handle.internal
+      - org.pangrova.metadata.catalog.registry
       - org.pangrova.metadata.checkpoint
-      - org.pangrova.metadata.core.cache
-      - org.pangrova.metadata.core.catalog.handle.connector
-      - org.pangrova.metadata.core.catalog.handle.federation
-      - org.pangrova.metadata.core.catalog.handle.internal
-      - org.pangrova.metadata.core.catalog.registry
-      - org.pangrova.metadata.core.event
-      - org.pangrova.metadata.core.object
-      - org.pangrova.metadata.core.outbox
-      - org.pangrova.metadata.core.relation
-      - org.pangrova.metadata.core.schema
+      - org.pangrova.metadata.event
       - org.pangrova.metadata.exception
       - org.pangrova.metadata.exception.catalog
       - org.pangrova.metadata.generation
       - org.pangrova.metadata.generation.jdbc
       - org.pangrova.metadata.generation.jdbc.submission
-      - org.pangrova.metadata.provider.memory.relation
+      - org.pangrova.metadata.memory.relation
+      - org.pangrova.metadata.object
+      - org.pangrova.metadata.outbox
+      - org.pangrova.metadata.relation
+      - org.pangrova.metadata.schema
       - org.pangrova.metadata.service
       - org.pangrova.metadata.source.jdbc
       - org.pangrova.metadata.store.jdbc.cache
@@ -1060,18 +1058,18 @@ artifacts:
       - org.pangrova.metadata.api.relation
       - org.pangrova.metadata.assembly.generation
       - org.pangrova.metadata.assembly.security
-      - org.pangrova.metadata.core.cache
-      - org.pangrova.metadata.core.catalog.handle.connector
-      - org.pangrova.metadata.core.catalog.handle.federation
-      - org.pangrova.metadata.core.catalog.handle.internal
-      - org.pangrova.metadata.core.catalog.registry
-      - org.pangrova.metadata.core.event
-      - org.pangrova.metadata.core.outbox
-      - org.pangrova.metadata.core.schema
+      - org.pangrova.metadata.cache
+      - org.pangrova.metadata.catalog.handle.connector
+      - org.pangrova.metadata.catalog.handle.federation
+      - org.pangrova.metadata.catalog.handle.internal
+      - org.pangrova.metadata.catalog.registry
+      - org.pangrova.metadata.event
       - org.pangrova.metadata.exception
       - org.pangrova.metadata.exception.catalog
       - org.pangrova.metadata.generation
       - org.pangrova.metadata.generation.jdbc
+      - org.pangrova.metadata.outbox
+      - org.pangrova.metadata.schema
       - org.pangrova.metadata.service
       - org.pangrova.metadata.source.jdbc
       - org.pangrova.metadata.store.jdbc.cache
@@ -1086,19 +1084,19 @@ artifacts:
       - org.pangrova.observability.sdk.alerting
       - org.pangrova.observability.sdk.config
       - org.pangrova.observability.sdk.logging
-      - org.pangrova.observability.sdk.logging.provider.mdc
-      - org.pangrova.observability.sdk.logging.provider.otel
+      - org.pangrova.observability.sdk.logging.mdc
+      - org.pangrova.observability.sdk.logging.otel
       - org.pangrova.observability.sdk.metrics
       - org.pangrova.observability.sdk.metrics.jvm
       - org.pangrova.observability.sdk.metrics.nativebridge
-      - org.pangrova.observability.sdk.metrics.provider.otel
+      - org.pangrova.observability.sdk.metrics.otel
       - org.pangrova.observability.sdk.noop
       - org.pangrova.observability.sdk.profiling
       - org.pangrova.observability.sdk.tracing
-      - org.pangrova.observability.sdk.tracing.adapter.grpc
-      - org.pangrova.observability.sdk.tracing.adapter.http
-      - org.pangrova.observability.sdk.tracing.adapter.nativebridge
-      - org.pangrova.observability.sdk.tracing.provider.otel
+      - org.pangrova.observability.sdk.tracing.grpc
+      - org.pangrova.observability.sdk.tracing.http
+      - org.pangrova.observability.sdk.tracing.nativebridge
+      - org.pangrova.observability.sdk.tracing.otel
     pomDependencies:
       pangrova-common: compile
       pangrova-config: compile
@@ -1113,20 +1111,20 @@ artifacts:
         - pangrova-spi
     exportedPackages:
       - org.pangrova.observability.sdk.config
-      - org.pangrova.observability.sdk.logging.provider.mdc
-      - org.pangrova.observability.sdk.logging.provider.otel
+      - org.pangrova.observability.sdk.logging.mdc
+      - org.pangrova.observability.sdk.logging.otel
       - org.pangrova.observability.sdk.metrics
       - org.pangrova.observability.sdk.metrics.nativebridge
-      - org.pangrova.observability.sdk.metrics.provider.otel
+      - org.pangrova.observability.sdk.metrics.otel
       - org.pangrova.observability.sdk.noop
       - org.pangrova.observability.sdk.tracing
-      - org.pangrova.observability.sdk.tracing.adapter.grpc
-      - org.pangrova.observability.sdk.tracing.adapter.http
-      - org.pangrova.observability.sdk.tracing.adapter.nativebridge
-      - org.pangrova.observability.sdk.tracing.provider.otel
+      - org.pangrova.observability.sdk.tracing.grpc
+      - org.pangrova.observability.sdk.tracing.http
+      - org.pangrova.observability.sdk.tracing.nativebridge
+      - org.pangrova.observability.sdk.tracing.otel
     providers:
       "org.pangrova.spi.observability.Context$TaskWrapping":
-        - org.pangrova.observability.sdk.logging.provider.mdc.MdcTaskWrapping
+        - org.pangrova.observability.sdk.logging.mdc.MdcTaskWrapping
   pangrova-operations:
     path: pangrova-operations
     mainPackages:
@@ -1525,8 +1523,8 @@ artifacts:
     mainPackages:
       - org.pangrova.query.assembly.audit
       - org.pangrova.query.assembly.state
-      - org.pangrova.query.core.audit
-      - org.pangrova.query.core.profiling
+      - org.pangrova.query.audit
+      - org.pangrova.query.profiling
     pomDependencies:
       pangrova-common: compile
       pangrova-persistence-api: compile
@@ -1550,26 +1548,25 @@ artifacts:
     exportedPackages:
       - org.pangrova.query.assembly.audit
       - org.pangrova.query.assembly.state
-      - org.pangrova.query.core.audit
-      - org.pangrova.query.core.profiling
+      - org.pangrova.query.audit
+      - org.pangrova.query.profiling
     providers:
       {}
   pangrova-scheduler:
     path: pangrova-scheduler
     mainPackages:
+      - org.pangrova.scheduler.admission
       - org.pangrova.scheduler.api.placement
       - org.pangrova.scheduler.api.quota
       - org.pangrova.scheduler.api.resource
-      - org.pangrova.scheduler.core.admission
-      - org.pangrova.scheduler.core.failure
-      - org.pangrova.scheduler.core.placement
-      - org.pangrova.scheduler.core.resource
-      - org.pangrova.scheduler.core.scoring
-      - org.pangrova.scheduler.core.speculation
-      - org.pangrova.scheduler.core.strategy.fair
-      - org.pangrova.scheduler.core.strategy.loadbalanced
+      - org.pangrova.scheduler.failure
+      - org.pangrova.scheduler.placement
       - org.pangrova.scheduler.resource
+      - org.pangrova.scheduler.scoring
+      - org.pangrova.scheduler.speculation
       - org.pangrova.scheduler.store.jdbc.admission
+      - org.pangrova.scheduler.strategy.fair
+      - org.pangrova.scheduler.strategy.loadbalanced
     pomDependencies:
       pangrova-common: compile
       pangrova-persistence-api: compile
@@ -1588,16 +1585,15 @@ artifacts:
         - pangrova-spi
         - pangrova-testing-kit
     exportedPackages:
+      - org.pangrova.scheduler.admission
       - org.pangrova.scheduler.api.placement
       - org.pangrova.scheduler.api.quota
       - org.pangrova.scheduler.api.resource
-      - org.pangrova.scheduler.core.admission
-      - org.pangrova.scheduler.core.failure
-      - org.pangrova.scheduler.core.placement
-      - org.pangrova.scheduler.core.resource
-      - org.pangrova.scheduler.core.scoring
-      - org.pangrova.scheduler.core.speculation
+      - org.pangrova.scheduler.failure
+      - org.pangrova.scheduler.placement
       - org.pangrova.scheduler.resource
+      - org.pangrova.scheduler.scoring
+      - org.pangrova.scheduler.speculation
       - org.pangrova.scheduler.store.jdbc.admission
     providers:
       {}
@@ -1614,26 +1610,26 @@ artifacts:
   pangrova-security:
     path: pangrova-security
     mainPackages:
-      - org.pangrova.security.adapter.kms
       - org.pangrova.security.assembly.audit
-      - org.pangrova.security.core.audit
-      - org.pangrova.security.core.authn
-      - org.pangrova.security.core.authn.provider.bypass
-      - org.pangrova.security.core.authn.provider.ldap
-      - org.pangrova.security.core.authn.provider.oauth2
-      - org.pangrova.security.core.authz
-      - org.pangrova.security.core.authz.deferred
-      - org.pangrova.security.core.crypto
-      - org.pangrova.security.core.mask
-      - org.pangrova.security.core.mask.provider.empty
-      - org.pangrova.security.core.mask.provider.memory
-      - org.pangrova.security.core.rowfilter
-      - org.pangrova.security.core.secret
-      - org.pangrova.security.core.secret.provider.env
-      - org.pangrova.security.core.secret.provider.file
-      - org.pangrova.security.core.session
-      - org.pangrova.security.core.tenant
+      - org.pangrova.security.audit
+      - org.pangrova.security.authn
+      - org.pangrova.security.authn.bypass
+      - org.pangrova.security.authn.ldap
+      - org.pangrova.security.authn.oauth2
+      - org.pangrova.security.authz
+      - org.pangrova.security.authz.deferred
+      - org.pangrova.security.crypto
+      - org.pangrova.security.kms
+      - org.pangrova.security.mask
+      - org.pangrova.security.mask.empty
+      - org.pangrova.security.mask.memory
+      - org.pangrova.security.rowfilter
+      - org.pangrova.security.secret
+      - org.pangrova.security.secret.env
+      - org.pangrova.security.secret.file
+      - org.pangrova.security.session
       - org.pangrova.security.spi.jdbc
+      - org.pangrova.security.tenant
     pomDependencies:
       pangrova-common: compile
       pangrova-persistence-api: compile
@@ -1654,30 +1650,30 @@ artifacts:
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.security.assembly.audit
-      - org.pangrova.security.core.audit
-      - org.pangrova.security.core.authn
-      - org.pangrova.security.core.authn.provider.bypass
-      - org.pangrova.security.core.authn.provider.ldap
-      - org.pangrova.security.core.authn.provider.oauth2
-      - org.pangrova.security.core.authz
-      - org.pangrova.security.core.authz.deferred
-      - org.pangrova.security.core.mask
-      - org.pangrova.security.core.mask.provider.empty
-      - org.pangrova.security.core.mask.provider.memory
-      - org.pangrova.security.core.rowfilter
-      - org.pangrova.security.core.secret
-      - org.pangrova.security.core.secret.provider.env
-      - org.pangrova.security.core.secret.provider.file
-      - org.pangrova.security.core.tenant
+      - org.pangrova.security.audit
+      - org.pangrova.security.authn
+      - org.pangrova.security.authn.bypass
+      - org.pangrova.security.authn.ldap
+      - org.pangrova.security.authn.oauth2
+      - org.pangrova.security.authz
+      - org.pangrova.security.authz.deferred
+      - org.pangrova.security.mask
+      - org.pangrova.security.mask.empty
+      - org.pangrova.security.mask.memory
+      - org.pangrova.security.rowfilter
+      - org.pangrova.security.secret
+      - org.pangrova.security.secret.env
+      - org.pangrova.security.secret.file
       - org.pangrova.security.spi.jdbc
+      - org.pangrova.security.tenant
     providers:
       {}
   pangrova-semantic:
     path: pangrova-semantic
     mainPackages:
       - org.pangrova.semantic.api.view
-      - org.pangrova.semantic.core.view
       - org.pangrova.semantic.store.jdbc
+      - org.pangrova.semantic.view
     pomDependencies:
       pangrova-common: compile
       pangrova-metadata: test
@@ -1690,8 +1686,8 @@ artifacts:
         - pangrova-common
     exportedPackages:
       - org.pangrova.semantic.api.view
-      - org.pangrova.semantic.core.view
       - org.pangrova.semantic.store.jdbc
+      - org.pangrova.semantic.view
     providers:
       {}
   pangrova-shuffle-core:
@@ -1700,7 +1696,6 @@ artifacts:
       - org.pangrova.shuffle.api
       - org.pangrova.shuffle.core
       - org.pangrova.shuffle.exchange
-      - org.pangrova.shuffle.provider.spool
       - org.pangrova.shuffle.scheduling
       - org.pangrova.shuffle.spool
       - org.pangrova.shuffle.spool.localfs
@@ -1717,7 +1712,6 @@ artifacts:
       - org.pangrova.shuffle.api
       - org.pangrova.shuffle.core
       - org.pangrova.shuffle.exchange
-      - org.pangrova.shuffle.provider.spool
       - org.pangrova.shuffle.scheduling
       - org.pangrova.shuffle.spool
     providers:
@@ -1947,30 +1941,30 @@ artifacts:
   pangrova-streaming:
     path: pangrova-streaming
     mainPackages:
-      - org.pangrova.streaming.adapter.coordinator
+      - org.pangrova.streaming.aggregation
       - org.pangrova.streaming.api.aggregation
       - org.pangrova.streaming.api.cdc
       - org.pangrova.streaming.api.checkpoint
       - org.pangrova.streaming.api.source
       - org.pangrova.streaming.api.watermark
-      - org.pangrova.streaming.core.aggregation
-      - org.pangrova.streaming.core.cdc
-      - org.pangrova.streaming.core.commit
-      - org.pangrova.streaming.core.maintenance
-      - org.pangrova.streaming.core.pipeline
-      - org.pangrova.streaming.core.query
-      - org.pangrova.streaming.core.watermark
-      - org.pangrova.streaming.provider.cdcformat.canal
-      - org.pangrova.streaming.provider.cdcformat.debezium
-      - org.pangrova.streaming.provider.cdcformat.maxwell
-      - org.pangrova.streaming.provider.writer.incremental
-      - org.pangrova.streaming.provider.writer.lake
-      - org.pangrova.streaming.provider.writer.mergetree
+      - org.pangrova.streaming.cdc
+      - org.pangrova.streaming.cdcformat.canal
+      - org.pangrova.streaming.cdcformat.debezium
+      - org.pangrova.streaming.cdcformat.maxwell
+      - org.pangrova.streaming.commit
+      - org.pangrova.streaming.coordinator
+      - org.pangrova.streaming.maintenance
+      - org.pangrova.streaming.pipeline
+      - org.pangrova.streaming.query
       - org.pangrova.streaming.store.jdbc.cdc
       - org.pangrova.streaming.store.jdbc.checkpoint
       - org.pangrova.streaming.store.jdbc.offset
       - org.pangrova.streaming.store.jdbc.watermark
       - org.pangrova.streaming.store.memory
+      - org.pangrova.streaming.watermark
+      - org.pangrova.streaming.writer.incremental
+      - org.pangrova.streaming.writer.lake
+      - org.pangrova.streaming.writer.mergetree
     pomDependencies:
       pangrova-common: compile
       pangrova-parser: compile
@@ -1986,25 +1980,25 @@ artifacts:
         - pangrova-spi
         - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.streaming.adapter.coordinator
       - org.pangrova.streaming.api.cdc
       - org.pangrova.streaming.api.checkpoint
       - org.pangrova.streaming.api.source
       - org.pangrova.streaming.api.watermark
-      - org.pangrova.streaming.core.cdc
-      - org.pangrova.streaming.core.commit
-      - org.pangrova.streaming.core.maintenance
-      - org.pangrova.streaming.core.pipeline
-      - org.pangrova.streaming.core.watermark
-      - org.pangrova.streaming.provider.cdcformat.canal
-      - org.pangrova.streaming.provider.cdcformat.debezium
-      - org.pangrova.streaming.provider.cdcformat.maxwell
-      - org.pangrova.streaming.provider.writer.lake
+      - org.pangrova.streaming.cdc
+      - org.pangrova.streaming.cdcformat.canal
+      - org.pangrova.streaming.cdcformat.debezium
+      - org.pangrova.streaming.cdcformat.maxwell
+      - org.pangrova.streaming.commit
+      - org.pangrova.streaming.coordinator
+      - org.pangrova.streaming.maintenance
+      - org.pangrova.streaming.pipeline
       - org.pangrova.streaming.store.jdbc.cdc
       - org.pangrova.streaming.store.jdbc.checkpoint
       - org.pangrova.streaming.store.jdbc.offset
       - org.pangrova.streaming.store.jdbc.watermark
       - org.pangrova.streaming.store.memory
+      - org.pangrova.streaming.watermark
+      - org.pangrova.streaming.writer.lake
     providers:
       {}
   pangrova-table:
@@ -2015,9 +2009,9 @@ artifacts:
       - org.pangrova.table.api.maintenance
       - org.pangrova.table.api.policy
       - org.pangrova.table.api.statistics
-      - org.pangrova.table.core.control
-      - org.pangrova.table.core.maintenance
-      - org.pangrova.table.core.statistics
+      - org.pangrova.table.control
+      - org.pangrova.table.maintenance
+      - org.pangrova.table.statistics
       - org.pangrova.table.store.jdbc.control
       - org.pangrova.table.store.memory.control
     pomDependencies:
@@ -2041,9 +2035,9 @@ artifacts:
       - org.pangrova.table.api.maintenance
       - org.pangrova.table.api.policy
       - org.pangrova.table.api.statistics
-      - org.pangrova.table.core.control
-      - org.pangrova.table.core.maintenance
-      - org.pangrova.table.core.statistics
+      - org.pangrova.table.control
+      - org.pangrova.table.maintenance
+      - org.pangrova.table.statistics
       - org.pangrova.table.store.jdbc.control
       - org.pangrova.table.store.memory.control
     providers:

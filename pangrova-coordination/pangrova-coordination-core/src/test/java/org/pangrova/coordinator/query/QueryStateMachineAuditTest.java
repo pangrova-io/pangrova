@@ -39,7 +39,7 @@ class QueryStateMachineAuditTest {
     void rejectedOwnershipStillPublishesFailureWithoutClaimingPhysicalCleanup() {
         var state = new QueryStateMachine(true);
         state.resolveOwnership(false);
-        var error = new org.pangrova.client.core.error.ErrorDetail(
+        var error = new org.pangrova.client.error.ErrorDetail(
                 "QUERY_ADMISSION_FAILED", "QueryRejectedException", "Cluster admission denied");
         assertThat(state.tryTransitionToFailed(error)).isTrue();
         assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FAILED);
@@ -57,7 +57,7 @@ class QueryStateMachineAuditTest {
                 try { sink.close(); }
                 catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
             });
-            assertThat(state.tryTransitionToFailed(new org.pangrova.client.core.error.ErrorDetail(
+            assertThat(state.tryTransitionToFailed(new org.pangrova.client.error.ErrorDetail(
                     "QUERY_FAILED", "Failure", "Actual cleanup is pending"))).isTrue();
             assertThat(sink.isOpen()).isTrue();
             assertThat(source.isOpen()).isTrue();

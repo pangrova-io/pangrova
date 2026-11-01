@@ -9,7 +9,7 @@ import java.util.regex.PatternSyntaxException;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.spi.file.access.FileListingClient;
-import org.pangrova.file.core.space.FileSpaceAccessService;
+import org.pangrova.file.space.FileSpaceAccessService;
 import org.pangrova.spi.file.access.FileAccessGrant;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;

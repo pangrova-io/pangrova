@@ -26,7 +26,7 @@ class FileSystemObjectProviderIsolationTest {
         var unavailable = List.of("software.amazon.awssdk.services.s3.S3Client",
                 "com.aliyun.sdk.service.oss2.OSSClient", "org.postgresql.Driver",
                 "org.pangrova.worker.file.ObjectStoreAccessorFactory",
-                "org.pangrova.file.core.space.FileSpaceAccessService",
+                "org.pangrova.file.space.FileSpaceAccessService",
                 "org.pangrova.filesystem.s3.object.S3ObjectStoreAccessorProvider");
         for (String name : unavailable) {
             assertThatThrownBy(() -> Class.forName(name)).isInstanceOf(ClassNotFoundException.class);

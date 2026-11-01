@@ -1,7 +1,7 @@
 package org.pangrova.metadata.service;
 
 import org.pangrova.governance.core.classification.ColumnTagService;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.table.api.governancebinding.GovernanceBinding;
 import org.pangrova.table.api.governancebinding.GovernanceBindingType;
 import org.pangrova.table.api.control.TableControlRecord;

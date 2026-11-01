@@ -152,12 +152,12 @@ class SpiWiringVerificationTest {
             "org.pangrova.coordinator.bootstrap.ModuleIntegrationBootstrap",
             "org.pangrova.coordinator.clustering.ClusteringConnectorSession",
             "org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry",
-            "org.pangrova.coordinator.adapter.indexing.lifecycle.IndexCommitHandler",
+            "org.pangrova.coordinator.indexing.lifecycle.IndexCommitHandler",
             "org.pangrova.coordinator.query.lifecycle.CoordinatorQueryLifecycle",
             "org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager",
             "org.pangrova.coordinator.result.CoordinatorDataProducer",
-            "org.pangrova.streaming.adapter.coordinator.ConnectorPageSinkCdcWriter",
-            "org.pangrova.streaming.adapter.coordinator.KafkaCdcSourceReader",
+            "org.pangrova.streaming.coordinator.ConnectorPageSinkCdcWriter",
+            "org.pangrova.streaming.coordinator.KafkaCdcSourceReader",
             // Indexing — pending index build pipeline P0
             "org.pangrova.indexing.engine.bitmap.provider.BitmapStrategyProvider",
             "org.pangrova.indexing.engine.bloom.provider.BloomFilterStrategyProvider",
@@ -168,10 +168,10 @@ class SpiWiringVerificationTest {
             "org.pangrova.indexing.engine.prefix.provider.PrefixStrategyProvider",
             "org.pangrova.indexing.engine.rtree.provider.RTreeStrategyProvider",
             "org.pangrova.indexing.engine.sparse.provider.SparseStrategyProvider",
-            "org.pangrova.indexing.core.eval.defaults.DefaultIndexFileEvaluator",
-            "org.pangrova.indexing.core.eval.defaults.DefaultIndexFileEvaluatorFactory",
-            "org.pangrova.indexing.adapter.fs.LocalFileSystemAccessor",
-            "org.pangrova.indexing.core.storage.CachedBloomFilterIndexData",
+            "org.pangrova.indexing.eval.defaults.DefaultIndexFileEvaluator",
+            "org.pangrova.indexing.eval.defaults.DefaultIndexFileEvaluatorFactory",
+            "org.pangrova.indexing.fs.LocalFileSystemAccessor",
+            "org.pangrova.indexing.storage.CachedBloomFilterIndexData",
             // Metadata — pending metadata P0 wiring
             "org.pangrova.metadata.adapter.FederationColumnHandle",
             "org.pangrova.metadata.adapter.FederationConnectorMetadata",
@@ -184,7 +184,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.metadata.service.DefaultConnectorSession",
             // Resilience — checkpoint removed per streaming positioning clarification
             // Security
-            "org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore",
+            "org.pangrova.security.mask.empty.EmptyColumnMaskStore",
             // SPI data structures (used by connectors via dynamic loading)
             "org.pangrova.spi.connector.data.block.ArrayBlock",
             "org.pangrova.spi.connector.data.block.DictionaryBlock",
@@ -206,17 +206,17 @@ class SpiWiringVerificationTest {
             "org.pangrova.spi.indexing.data.text.NGramBloomIndexData",
             "org.pangrova.spi.indexing.data.text.PrefixIndexData",
             // Streaming — pending streaming P0 wiring
-            "org.pangrova.streaming.core.cdc.CdcRegistrationHandler",
+            "org.pangrova.streaming.cdc.CdcRegistrationHandler",
             "org.pangrova.streaming.store.memory.InMemoryCdcRegistrationStore",
             "org.pangrova.streaming.store.jdbc.cdc.JdbcCdcRegistrationStore",
             "org.pangrova.streaming.store.jdbc.watermark.JdbcWatermarkPositionStore",
-            "org.pangrova.streaming.provider.cdcformat.canal.CanalJsonConverter",
-            "org.pangrova.streaming.provider.cdcformat.debezium.DebeziumJsonConverter",
-            "org.pangrova.streaming.provider.cdcformat.maxwell.MaxwellJsonConverter",
+            "org.pangrova.streaming.cdcformat.canal.CanalJsonConverter",
+            "org.pangrova.streaming.cdcformat.debezium.DebeziumJsonConverter",
+            "org.pangrova.streaming.cdcformat.maxwell.MaxwellJsonConverter",
             "org.pangrova.streaming.store.memory.InMemoryWatermarkStore",
             "org.pangrova.streaming.store.jdbc.watermark.JdbcWatermarkStore",
-            "org.pangrova.streaming.provider.writer.lake.LakeTableWriter",
-            "org.pangrova.streaming.provider.writer.mergetree.MergeTreeTableWriter",
+            "org.pangrova.streaming.writer.lake.LakeTableWriter",
+            "org.pangrova.streaming.writer.mergetree.MergeTreeTableWriter",
             // Exchange/shuffle — pending distributed correctness P0
             "org.pangrova.worker.exchange.remote.HybridExchangeManager",
             "org.pangrova.worker.exchange.remote.RemoteShuffleExchangeManager",
@@ -238,7 +238,7 @@ class SpiWiringVerificationTest {
             // Coordinator — in-memory default StorageProfileRegistry, wired in QueryExecutionBootstrap
             // (bootstrap wiring is not traversed by the arch reachability roots).
             "org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry",
-            "org.pangrova.streaming.adapter.coordinator.KafkaStreamSourceReader",
+            "org.pangrova.streaming.coordinator.KafkaStreamSourceReader",
             // Governance — pending lineage wiring
             "org.pangrova.governance.core.lineage.LineageQueryEventListener",
             // Metadata — JdbcWriteCommitJournal IS wired in production (QueryBootstrap builds it as
@@ -250,23 +250,23 @@ class SpiWiringVerificationTest {
             "org.pangrova.metadata.service.DefaultMetadataService",
             // Observability — pending event listener wiring
             "org.pangrova.persistence.jdbc.query.event.JdbcQueryEventListener",
-            "org.pangrova.observability.sdk.logging.provider.mdc.MdcTaskWrapping",
+            "org.pangrova.observability.sdk.logging.mdc.MdcTaskWrapping",
             // Resilience — pending checkpoint wiring
             "org.pangrova.coordinator.resilience.checkpoint.InMemoryCheckpointStore",
             "org.pangrova.coordinator.resilience.checkpoint.InMemoryQueryCheckpoint",
             // Resource — pending memory ledger wiring
             "org.pangrova.worker.resource.memory.UnifiedMemoryLedger",
             // Security — pending RBAC/mask/tenant wiring
-            "org.pangrova.security.core.authz.DynamicRbacAccessControl",
-            "org.pangrova.security.core.mask.provider.memory.InMemoryEnrichedColumnMaskStore",
+            "org.pangrova.security.authz.DynamicRbacAccessControl",
+            "org.pangrova.security.mask.memory.InMemoryEnrichedColumnMaskStore",
             "org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore",
             // Coordinator — no-op scheduler control loop (pending wiring)
             "org.pangrova.scheduler.api.placement.NoOpSchedulerControlLoop",
             // Coordinator — AI index lifecycle (wired via ServiceLoader)
-            "org.pangrova.coordinator.adapter.indexing.ai.lifecycle.DefaultIndexAvailabilityPublisher",
+            "org.pangrova.coordinator.indexing.ai.lifecycle.DefaultIndexAvailabilityPublisher",
             // AI Worker — optional runtime installed on the Worker classpath; its
             // ServiceLoader adapters are not reachable from the Worker bootstrap roots.
-            "org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider",
+            "org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider",
             "org.pangrova.ai.worker.function.AiClassifyFunction",
             "org.pangrova.ai.worker.function.AiCompletionFunction",
             "org.pangrova.ai.worker.function.AiEmbedFunction",
@@ -284,7 +284,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.ai.worker.function.AiTranscribeFunction",
             "org.pangrova.ai.worker.function.file.FileFromBytesFunction",
             "org.pangrova.ai.worker.function.file.FileFromUrlFunction",
-            "org.pangrova.ai.worker.inference.provider.openai.OpenAiCompatibleInferenceProvider",
+            "org.pangrova.ai.worker.inference.openai.OpenAiCompatibleInferenceProvider",
             "org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry"
     );
 

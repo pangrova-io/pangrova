@@ -1,8 +1,8 @@
 package org.pangrova.governance.core.lineage;
 
 import org.pangrova.persistence.api.query.lineage.QueryLineageOutbox;
-import org.pangrova.governance.lineage.provider.log.LogLineageBackend;
-import org.pangrova.governance.lineage.provider.openlineage.OpenLineageHttpTransport;
+import org.pangrova.governance.lineage.log.LogLineageBackend;
+import org.pangrova.governance.lineage.openlineage.OpenLineageHttpTransport;
 
 /** Explicit deployment selection; HTTP requires durable facts and never changes to log delivery. */
 public final class LineageBackendConfiguration {

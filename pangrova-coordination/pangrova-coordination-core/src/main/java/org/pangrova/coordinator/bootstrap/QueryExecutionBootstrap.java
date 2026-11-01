@@ -9,7 +9,7 @@ import java.util.function.Consumer;
 import org.pangrova.config.ShuffleMode;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher;
+import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
@@ -25,10 +25,10 @@ import org.pangrova.coordinator.bootstrap.module.DefaultModuleContext;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.parser.ast.SetSessionStatement;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.spi.security.AccessControl;
@@ -37,7 +37,7 @@ import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.streaming.core.maintenance.MaintenanceScheduler;
+import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,7 +68,7 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.feature.FeatureViewStatementService> featureViewServiceFactory;
     private final org.pangrova.ai.control.embedding.EmbeddingModelRegistry
             embeddingModelRegistry;
-    private final org.pangrova.security.core.audit.AuditEventEmitter auditEmitter;
+    private final org.pangrova.security.audit.AuditEventEmitter auditEmitter;
 
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private WorkerManager workerManager;
@@ -95,7 +95,7 @@ final class QueryExecutionBootstrap {
                                  embeddingModelRegistry,
                          org.pangrova.shuffle.api.ShuffleExecutionOwnerResolver shuffleOwnerResolver,
                          javax.sql.DataSource metadataDataSource,
-                         org.pangrova.security.core.audit.AuditEventEmitter auditEmitter,
+                         org.pangrova.security.audit.AuditEventEmitter auditEmitter,
                          CurrentModelAuthority modelAuthority) {
         this.config = config;
         this.tracingProvider = tracingProvider;
@@ -131,7 +131,7 @@ final class QueryExecutionBootstrap {
             var inventories = wm.getActiveWorkers().stream().map(
                     org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList();
             if (inventories.isEmpty()) {
-                throw new org.pangrova.scheduler.core.failure.NoAvailableWorkerException();
+                throw new org.pangrova.scheduler.failure.NoAvailableWorkerException();
             }
             return org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(inventories);
         });
@@ -251,7 +251,7 @@ final class QueryExecutionBootstrap {
         }
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenancePolicyService =
-                new org.pangrova.table.core.maintenance.TableControlMaintenanceService(
+                new org.pangrova.table.maintenance.TableControlMaintenanceService(
                         metadataDataSource != null
                                 ? new org.pangrova.table.store.jdbc.control
                                         .JdbcTableControlMaintenanceStore(metadataDataSource)
@@ -450,7 +450,7 @@ final class QueryExecutionBootstrap {
 
     private static void registerIndexTasks(
             org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
-            org.pangrova.coordinator.adapter.indexing.ddl.IndexDdlExecutor indexExecutor) {
+            org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor indexExecutor) {
         factory.registerTask(org.pangrova.parser.ast.statement.CreateIndexStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CreateIndexTask(indexExecutor));
         factory.registerTask(org.pangrova.parser.ast.statement.DropIndexStatement.class,
@@ -463,7 +463,7 @@ final class QueryExecutionBootstrap {
 
     private static void registerStreamTasks(
             org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
-            org.pangrova.streaming.adapter.coordinator.StreamDdlExecutor streamExecutor) {
+            org.pangrova.streaming.coordinator.StreamDdlExecutor streamExecutor) {
         factory.registerTask(org.pangrova.parser.ast.statement.stream.CreateStreamStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.stream.CreateStreamTask(streamExecutor));
         factory.registerTask(org.pangrova.parser.ast.statement.stream.AlterStreamStatement.class,
@@ -542,7 +542,7 @@ final class QueryExecutionBootstrap {
     private void registerFileSpaceTasks(
             org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
             AccessControl authorization, javax.sql.DataSource source,
-            org.pangrova.security.core.audit.AuditEventEmitter auditOutput) {
+            org.pangrova.security.audit.AuditEventEmitter auditOutput) {
         if (source == null) {
             return;
         }
@@ -552,10 +552,10 @@ final class QueryExecutionBootstrap {
                 factory, registry, authorization, audit);
         var access = fileSpaceAccessService(registry, authorization, source, audit);
         var client = access == null ? null
-                : org.pangrova.file.adapter.worker.WorkerFileClient
+                : org.pangrova.file.worker.WorkerFileClient
                         .create(config.internalAuthSecret());
         var refresh = access == null ? null
-                : new org.pangrova.file.core.directory.StageDirectoryRefreshService(
+                : new org.pangrova.file.directory.StageDirectoryRefreshService(
                         new org.pangrova.persistence.jdbc.file.directory.JdbcFileDirectoryIndex(source),
                         access, client, authorization);
         org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
@@ -568,7 +568,7 @@ final class QueryExecutionBootstrap {
                         access, client, client));
     }
 
-    private org.pangrova.file.core.space.FileSpaceAccessService fileSpaceAccessService(
+    private org.pangrova.file.space.FileSpaceAccessService fileSpaceAccessService(
             org.pangrova.persistence.api.file.space.FileSpaceRegistry registry, AccessControl authorization,
             javax.sql.DataSource source,
             org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter audit) {
@@ -576,7 +576,7 @@ final class QueryExecutionBootstrap {
                 || config.internalAuthSecret().isBlank()) {
             return null;
         }
-        var context = org.pangrova.file.core.space.FileSpaceAccessService.FileSpaceAccessContext
+        var context = org.pangrova.file.space.FileSpaceAccessService.FileSpaceAccessContext
                 .of(System.getProperty("pangrova.files.managed-storage-profile", ""),
                         () -> workerManager == null ? java.util.List.of()
                                 : workerManager.getActiveWorkers().stream()
@@ -586,7 +586,7 @@ final class QueryExecutionBootstrap {
                         audit, config.internalAuthSecret(),
                         new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(source,
                                 new org.pangrova.metadata.tenant.JdbcTenantStore(source)));
-        return new org.pangrova.file.core.space.FileSpaceAccessService(registry,
+        return new org.pangrova.file.space.FileSpaceAccessService(registry,
                 new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(source),
                 authorization, context);
     }

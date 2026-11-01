@@ -12,7 +12,7 @@ import org.pangrova.governance.core.quality.GovernanceStatementHandler;
 import org.pangrova.governance.core.quality.InMemoryQualityRuleStore;
 import org.pangrova.governance.core.quality.CronScheduler;
 import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.core.mask.provider.memory.InMemoryEnrichedColumnMaskStore;
+import org.pangrova.security.mask.memory.InMemoryEnrichedColumnMaskStore;
 import org.pangrova.governance.api.classification.TagChangedEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

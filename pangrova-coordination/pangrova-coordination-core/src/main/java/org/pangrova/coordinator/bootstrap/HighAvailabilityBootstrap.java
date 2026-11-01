@@ -11,7 +11,7 @@ import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry;
 import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.spi.query.coordination.ExecutionAnchor;

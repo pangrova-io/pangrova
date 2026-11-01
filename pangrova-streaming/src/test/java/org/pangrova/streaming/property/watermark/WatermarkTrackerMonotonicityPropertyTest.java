@@ -3,8 +3,8 @@ package org.pangrova.streaming.property.watermark;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
-import org.pangrova.streaming.core.watermark.WatermarkState;
-import org.pangrova.streaming.core.watermark.WatermarkTracker;
+import org.pangrova.streaming.watermark.WatermarkState;
+import org.pangrova.streaming.watermark.WatermarkTracker;
 
 import java.time.Instant;
 import java.util.List;

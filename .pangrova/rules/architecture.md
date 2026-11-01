@@ -40,9 +40,9 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-connector-*` | Data source connector providers (Iceberg / Paimon / Lance) |
 | `pangrova-standalone` | Single-node standalone deployment |
 | `pangrova-security` | Authentication and authorization |
-| `pangrova-streaming` | Streaming query support, CDC formats/writers, JDBC checkpoint/offset/watermark stores and the `adapter.coordinator` stream scheduler/DDL/Kafka adapter |
+| `pangrova-streaming` | Streaming query support, CDC formats/writers, JDBC checkpoint/offset/watermark stores and the `coordinator` stream scheduler/DDL/Kafka adapter |
 | `pangrova-governance` | Catalog/tag/classification, lineage providers, quality store/executors and the commit-blocking quality gate |
-| `pangrova-indexing/pangrova-indexing-core` | Index metadata/store, generation/publication/GC persistence, engine providers, planner extension and build orchestration; the Coordinator only adapts it under `coordinator.adapter.indexing` |
+| `pangrova-indexing/pangrova-indexing-core` | Index metadata/store, generation/publication/GC persistence, engine providers, planner extension and build orchestration; the Coordinator only adapts it under `coordinator.indexing` |
 | `pangrova-transport` | Transport layer abstraction; also hosts the client REST/HTTP and Arrow/Flight result transport (`org.pangrova.client.transport`) |
 | `pangrova-client/pangrova-client-core` | Framework-free public client contract: query/catalog DTOs, errors, session configuration, result consumer |
 | `pangrova-client/pangrova-client-cli` | Command-line client |
@@ -167,7 +167,7 @@ facts. Do not restate the matrix here — a duplicated table drifts from policy.
 
 Generation-job composition roots use `org.pangrova.generation.assembly` factories and
 pass `org.pangrova.spi.generation` values to consumers. The routing implementation
-in `org.pangrova.generation.core.publication` is not exported. Storage ports belong
+in `org.pangrova.generation.publication` is not exported. Storage ports belong
 to `org.pangrova.persistence.api.generation`, with caller-owned JDBC cooperation
 explicitly under `transaction.jdbc`. Actual PostgreSQL providers belong to
 `org.pangrova.persistence.jdbc.generation`, selected by application assembly.

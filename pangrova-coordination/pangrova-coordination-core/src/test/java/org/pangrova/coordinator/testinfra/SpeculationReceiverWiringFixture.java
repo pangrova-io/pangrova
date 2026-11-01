@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters;
+import org.pangrova.coordinator.scheduler.SpeculationAdapters;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -47,7 +47,7 @@ public final class SpeculationReceiverWiringFixture {
                     dispatcher, null, null, null, new org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback() {
                         @Override
                         public void onTaskTerminal(String query, String task, String state,
-                                org.pangrova.client.core.error.ErrorDetail error) {
+                                org.pangrova.client.error.ErrorDetail error) {
                             logicalSlot.set(task);
                         }
 

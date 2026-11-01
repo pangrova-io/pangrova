@@ -22,17 +22,17 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
-import org.pangrova.scheduler.core.resource.WeightedFairScheduler;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
-import org.pangrova.scheduler.core.speculation.SpeculationConfig;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
+import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.resource.WeightedFairScheduler;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.speculation.SpeculationConfig;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.query.assembly.audit.QueryAuditServices;
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.persistence.api.coordination.WorkerRegistry;
@@ -86,7 +86,7 @@ final class QueryBootstrap {
     private CacheAffinityAssigner cacheAffinityAssigner;
     private SpeculativeStageHandler speculativeStageHandler;
     private SpeculativeTaskLauncher speculativeTaskLauncher;
-    private org.pangrova.scheduler.core.speculation.SpeculativeExecutionScheduler speculationScheduler;
+    private org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler speculationScheduler;
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private TaskScheduler taskScheduler;
     private WeightedFairScheduler fairScheduler;
@@ -205,7 +205,7 @@ final class QueryBootstrap {
             if (request != null && isArtifactTask(request.taskRequest().getTaskKind())) {
                 return;
             }
-            queryManager.onTaskFailed(queryId, new org.pangrova.client.core.error.ErrorDetail(
+            queryManager.onTaskFailed(queryId, new org.pangrova.client.error.ErrorDetail(
                     "TASK_FAILED", taskId, "Task " + taskId + " failed"));
         });
         startTimeoutEnforcer();
@@ -262,11 +262,11 @@ final class QueryBootstrap {
         this.remoteTaskDispatcher = executionWiring.remoteTaskDispatcher();
         if (speculativeTaskLauncher != null) {
             speculativeTaskLauncher.setDispatchDependencies(
-                    org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters.dispatcher(remoteTaskDispatcher),
-                    org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters.workerInventory(workerManager),
-                    org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters.taskRegistry(taskTracker));
+                    org.pangrova.coordinator.scheduler.SpeculationAdapters.dispatcher(remoteTaskDispatcher),
+                    org.pangrova.coordinator.scheduler.SpeculationAdapters.workerInventory(workerManager),
+                    org.pangrova.coordinator.scheduler.SpeculationAdapters.taskRegistry(taskTracker));
             speculativeTaskLauncher.setCancelRetrier(
-                    org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters.canceller(
+                    org.pangrova.coordinator.scheduler.SpeculationAdapters.canceller(
                             queryDispatcher.cancelRetrier()));
             taskTracker.addExecutionDrainListener(speculativeTaskLauncher::executionDrained);
         }
@@ -482,7 +482,7 @@ final class QueryBootstrap {
         speculativeStageHandler = new SpeculativeStageHandler(
                 speculationConfig, new StragglerDetector(speculationConfig),
                 speculativeTaskLauncher,
-                org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters.taskRegistry(taskTracker));
+                org.pangrova.coordinator.scheduler.SpeculationAdapters.taskRegistry(taskTracker));
         LOG.info("event=speculation_initialized");
     }
 
@@ -490,10 +490,10 @@ final class QueryBootstrap {
         if (speculativeStageHandler == null || !speculativeStageHandler.isEnabled()) {
             return;
         }
-        speculationScheduler = new org.pangrova.scheduler.core.speculation.SpeculativeExecutionScheduler(
+        speculationScheduler = new org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler(
                 speculativeStageHandler,
-                org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters.queryInventory(queryManager),
-                org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters.taskRegistry(taskTracker),
+                org.pangrova.coordinator.scheduler.SpeculationAdapters.queryInventory(queryManager),
+                org.pangrova.coordinator.scheduler.SpeculationAdapters.taskRegistry(taskTracker),
                 SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS);
         speculationScheduler.start();
     }

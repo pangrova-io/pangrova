@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.streaming.core.maintenance.CompactionResult;
-import org.pangrova.streaming.core.maintenance.MaintenanceConfig;
-import org.pangrova.streaming.core.maintenance.MaintenanceScheduler;
-import org.pangrova.streaming.core.maintenance.MaintenanceStatus;
-import org.pangrova.streaming.core.maintenance.OrphanCleanupResult;
-import org.pangrova.streaming.core.maintenance.SnapshotExpirationResult;
-import org.pangrova.streaming.core.maintenance.TableMaintenanceSpi;
+import org.pangrova.streaming.maintenance.CompactionResult;
+import org.pangrova.streaming.maintenance.MaintenanceConfig;
+import org.pangrova.streaming.maintenance.MaintenanceScheduler;
+import org.pangrova.streaming.maintenance.MaintenanceStatus;
+import org.pangrova.streaming.maintenance.OrphanCleanupResult;
+import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
+import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;

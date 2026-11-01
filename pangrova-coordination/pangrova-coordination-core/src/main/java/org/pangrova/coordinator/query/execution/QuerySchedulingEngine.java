@@ -21,7 +21,7 @@ import java.util.concurrent.TimeoutException;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher;
+import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.security.SecurityPolicySignatureProvider;
@@ -39,7 +39,7 @@ import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.write.WriteAllocationIntent;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.protocol.rest.config.WriteConfig;
@@ -400,7 +400,7 @@ final class QuerySchedulingEngine {
     }
 
     static void onTaskReady(QueryStateMachine sm, DispatchQueryContext context,
-                            org.pangrova.client.core.protocol.ResultEndpoint endpoint) {
+                            org.pangrova.client.protocol.ResultEndpoint endpoint) {
         // A WRITE task emits commit metadata, not a Flight result. Publish its
         // bounded control-plane acknowledgement after the fenced catalog commit.
         if (context.dmlWriteContext().isEmpty()) {

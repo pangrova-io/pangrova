@@ -7,7 +7,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.RevokeTenantStatement;
-import org.pangrova.security.core.tenant.TenantLifecycleManager;
+import org.pangrova.security.tenant.TenantLifecycleManager;
 import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**

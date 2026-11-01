@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
-import org.pangrova.table.core.control.TableControlService;
+import org.pangrova.table.control.TableControlService;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 
 import javax.sql.DataSource;

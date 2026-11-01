@@ -15,7 +15,7 @@ import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.phase.PhaseResult;
 import org.pangrova.coordinator.query.execution.phase.QueryExecutionContext;
 import org.pangrova.coordinator.query.execution.phase.QueryExecutionPhase;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

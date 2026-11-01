@@ -1,9 +1,8 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.core.failure.NoAvailableWorkerException;
-import org.pangrova.scheduler.core.failure.CircuitBreakerOpenException;
-import org.pangrova.scheduler.core.failure.TaskDispatchException;
-import org.pangrova.scheduler.core.failure.ErrorCategory;
+import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
+import org.pangrova.scheduler.failure.ErrorCategory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,7 +11,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
-import org.pangrova.scheduler.core.admission.FairScheduler;
+import org.pangrova.scheduler.admission.FairScheduler;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Verifies the scheduler hierarchy:
  * <ul>
- *   <li>{@code scheduler/} — HTTP dispatch adapter and worker control client</li>
+ *   <li>{@code scheduler/} — HTTP dispatch, worker control and speculative execution adapters</li>
  *   <li>{@code scheduler/strategy/} — must stay empty; strategies live in pangrova-scheduler</li>
  * </ul>
  */
@@ -45,25 +44,30 @@ class SchedulerAbstractionLayerTest {
     // -- Package structure tests --
 
     @Test
-    void schedulerRootPackage_containsOnlyCoreFiles() throws IOException {
+    void schedulerRootPackage_containsOnlyDispatchAndSpeculationAdapters() throws IOException {
         List<String> rootFiles = listJavaFileNames(SCHEDULER_PKG);
 
-        Set<String> expectedCore = Set.of(
+        Set<String> expectedAdapters = Set.of(
                 "TaskDispatcher.java",
                 "RemoteTaskDispatcher.java",
                 "SubmitTaskRequestConverter.java",
                 "SchedulerCancelResult.java",
                 "WorkerTaskControlClient.java",
-                "package-info.java");
+                "CoordinatorSpeculativeAttemptCanceller.java",
+                "CoordinatorSpeculativeAttemptDispatcher.java",
+                "CoordinatorSpeculativeQueryInventory.java",
+                "CoordinatorSpeculativeTaskRegistry.java",
+                "CoordinatorSpeculativeWorkerInventory.java",
+                "SpeculationAdapters.java");
 
         assertThat(rootFiles)
-                .as("scheduler/ root should contain only core dispatch/scheduling files")
-                .containsExactlyInAnyOrderElementsOf(expectedCore);
+                .as("scheduler/ root should contain only dispatch and speculative execution adapters")
+                .containsExactlyInAnyOrderElementsOf(expectedAdapters);
     }
 
     @Test
     void dispatchFailureContractIsOwnedByScheduler() throws IOException {
-        assertThat(ErrorCategory.class.getPackageName()).isEqualTo("org.pangrova.scheduler.core.failure");
+        assertThat(ErrorCategory.class.getPackageName()).isEqualTo("org.pangrova.scheduler.failure");
         assertThat(listJavaFileNames(SCHEDULER_PKG.resolve("failure"))).isEmpty();
     }
 
@@ -71,7 +75,7 @@ class SchedulerAbstractionLayerTest {
     void strategySubPackage_containsOnlyStrategyFiles() throws IOException {
         List<String> strategyFiles = listJavaFileNames(STRATEGY_PKG);
 
-        // FairScheduler moved to pangrova-scheduler (core.admission); the coordinator
+        // FairScheduler moved to pangrova-scheduler (admission); the coordinator
         // no longer hosts pluggable scheduling strategies.
         assertThat(strategyFiles)
                 .as("coordinator scheduler/strategy/ should be empty after the scheduler extraction")
@@ -121,8 +125,8 @@ class SchedulerAbstractionLayerTest {
         // strategy/ should not depend on RemoteTaskDispatcher or exceptions
         List<String> violations = scanForImports(STRATEGY_PKG,
                 "import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher",
-                "import org.pangrova.scheduler.core.failure.CircuitBreakerOpenException",
-                "import org.pangrova.scheduler.core.failure.NoAvailableWorkerException",
+                "import org.pangrova.scheduler.failure.CircuitBreakerOpenException",
+                "import org.pangrova.scheduler.failure.NoAvailableWorkerException",
                 "import org.pangrova.coordinator.scheduler.SubmitTaskRequestConverter");
 
         assertThat(violations)

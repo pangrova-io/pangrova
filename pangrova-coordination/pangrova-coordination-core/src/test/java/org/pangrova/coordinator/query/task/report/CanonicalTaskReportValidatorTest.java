@@ -10,7 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.protocol.task.WorkerTerminalTaskReports;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;

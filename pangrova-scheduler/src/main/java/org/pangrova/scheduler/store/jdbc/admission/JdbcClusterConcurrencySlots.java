@@ -4,7 +4,7 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
-import org.pangrova.scheduler.core.admission.ClusterConcurrencySlots;
+import org.pangrova.scheduler.admission.ClusterConcurrencySlots;
 
 /** PostgreSQL live query reservations, serialized by the tenant row in one transaction. */
 public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlots {

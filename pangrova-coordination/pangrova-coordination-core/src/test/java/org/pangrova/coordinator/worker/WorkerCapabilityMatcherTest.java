@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.worker;
 
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.scheduler.api.placement.HealthState;
 
 import com.google.protobuf.ByteString;

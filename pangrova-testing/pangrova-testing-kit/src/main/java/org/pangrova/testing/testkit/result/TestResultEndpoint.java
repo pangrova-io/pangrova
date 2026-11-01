@@ -17,8 +17,8 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.ResultProtocol;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultProtocol;
 
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;

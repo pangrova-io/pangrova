@@ -2,15 +2,15 @@ package org.pangrova.metadata.control;
 
 import org.pangrova.table.api.control.CatalogDeploymentIdentity;
 import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.core.control.TableControlService;
-import org.pangrova.table.core.control.TableControlSettings;
+import org.pangrova.table.control.TableControlService;
+import org.pangrova.table.control.TableControlSettings;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;

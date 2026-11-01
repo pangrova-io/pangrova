@@ -15,7 +15,7 @@ package org.pangrova.coordinator.ai.embedding;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.CapabilityRef;

@@ -4,7 +4,7 @@ import org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 
 import com.google.protobuf.ByteString;

@@ -2,11 +2,11 @@ package org.pangrova.testing.integration.e2e.security;
 
 import org.pangrova.spi.security.policy.Privilege;
 import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.core.authz.StaticGrantStore;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.spi.security.rowfilter.RowPolicy;
 import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
 import org.pangrova.spi.connector.data.value.TypedRow;

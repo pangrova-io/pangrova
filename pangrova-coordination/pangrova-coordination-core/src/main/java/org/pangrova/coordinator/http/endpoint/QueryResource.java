@@ -16,12 +16,12 @@ import org.pangrova.coordinator.http.IdempotencyKeyRegistry;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.spi.observability.profiling.ProfilerEndpoint;
-import org.pangrova.query.core.profiling.QueryProfileService;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.client.core.protocol.QueryStatusResponse;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.SubmitQueryRequest;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.query.profiling.QueryProfileService;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.client.protocol.QueryStatusResponse;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.SubmitQueryRequest;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.spi.security.UserIdentity;
 

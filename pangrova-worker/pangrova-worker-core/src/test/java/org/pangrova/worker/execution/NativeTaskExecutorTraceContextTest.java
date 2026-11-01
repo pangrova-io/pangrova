@@ -6,7 +6,7 @@ import io.opentelemetry.context.Scope;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
-import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

@@ -30,7 +30,7 @@ import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.planner.SerializedPlanFragment;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +51,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     public DAGDispatchEngine(
             DAGDispatchContext dependencies,
             List<StageLifecycleHandler> handlers,
-            org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher splitFetcher) {
+            org.pangrova.coordinator.indexing.IndexAwareSplitFetcher splitFetcher) {
         this(dependencies, handlers, splitFetcher, null);
     }
 
@@ -59,7 +59,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     public DAGDispatchEngine(
             DAGDispatchContext dependencies,
             List<StageLifecycleHandler> handlers,
-            org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher splitFetcher,
+            org.pangrova.coordinator.indexing.IndexAwareSplitFetcher splitFetcher,
             org.pangrova.planner.SubPlanReoptimizer subPlanReoptimizer) {
         DispatchCanceller canceller = new DispatchCanceller(
                 dependencies.dispatcher(), dependencies.taskTracker());

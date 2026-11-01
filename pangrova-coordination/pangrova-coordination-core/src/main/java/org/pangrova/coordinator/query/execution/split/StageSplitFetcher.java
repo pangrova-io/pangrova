@@ -3,11 +3,11 @@ package org.pangrova.coordinator.query.execution.split;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher;
+import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.planner.StagePlanAccess;
 import org.pangrova.spi.connector.metadata.Constraint;

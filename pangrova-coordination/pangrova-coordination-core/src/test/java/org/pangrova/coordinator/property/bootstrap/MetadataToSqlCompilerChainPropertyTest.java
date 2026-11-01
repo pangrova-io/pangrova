@@ -20,7 +20,7 @@ import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.security.secret.SecretResolverRegistry;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.apache.calcite.jdbc.CalciteSchema;

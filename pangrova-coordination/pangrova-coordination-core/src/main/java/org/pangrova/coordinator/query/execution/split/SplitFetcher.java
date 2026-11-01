@@ -10,7 +10,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;

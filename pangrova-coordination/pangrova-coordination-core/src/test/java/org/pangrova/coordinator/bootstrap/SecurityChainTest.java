@@ -15,7 +15,7 @@ import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.security.core.authn.AuthenticationManager;
+import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.spi.security.authn.AuthenticationRequest;
 import org.pangrova.spi.security.authn.AuthenticationResult;
 import org.pangrova.spi.security.authn.Authenticator;
@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +36,7 @@ import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.with
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Acceptance test: validates the full security chain from CoordinatorBootstrap.start()
@@ -172,6 +174,10 @@ class SecurityChainTest extends ContainerTestBase {
         assertThatThrownBy(() -> bootstrap.getQueryManager().submitQuery(queryId, "SELECT 1", anonymous))
                 .isInstanceOf(AccessDeniedException.class);
 
+        // Logical failure wakes submitQuery before asynchronous terminal effects finish.
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(bootstrap.getQueryManager().getActiveQueryIds()).doesNotContain(queryId));
+
         // The real terminal-event sink and HTTP profile endpoint must share this bootstrap's store.
         var profile = sendGet(bootstrap.getHttpPort(), "/v1/query/profile/" + queryId + "/json");
         assertThat(profile.statusCode()).as(profile.body()).isEqualTo(200);
@@ -295,8 +301,8 @@ class SecurityChainTest extends ContainerTestBase {
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                         new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
-                new org.pangrova.scheduler.core.placement.TaskScheduler(
-                        new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer()),
+                new org.pangrova.scheduler.placement.TaskScheduler(
+                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer()),
                 workerManager, taskTracker, null, null, null, 0L));
         var orchestrator = new org.pangrova.coordinator.query.execution.QueryDispatcher(
                 deps, null, null);

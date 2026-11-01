@@ -24,8 +24,8 @@ import org.pangrova.spi.file.space.FileSpaceDefinition;
 import org.pangrova.common.file.FileSpaceType;
 import org.pangrova.filesystem.api.object.FileStat;
 import org.pangrova.spi.file.access.FileListingClient;
-import org.pangrova.file.core.directory.StageDirectoryRefreshService;
-import org.pangrova.file.core.space.FileSpaceAccessService;
+import org.pangrova.file.directory.StageDirectoryRefreshService;
+import org.pangrova.file.space.FileSpaceAccessService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

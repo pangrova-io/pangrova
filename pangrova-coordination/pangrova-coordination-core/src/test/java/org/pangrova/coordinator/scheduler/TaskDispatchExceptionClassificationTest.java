@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.core.failure.TaskDispatchException;
-import org.pangrova.scheduler.core.failure.ErrorCategory;
+import org.pangrova.scheduler.failure.TaskDispatchException;
+import org.pangrova.scheduler.failure.ErrorCategory;
 
 import java.io.IOException;
 import java.net.ConnectException;

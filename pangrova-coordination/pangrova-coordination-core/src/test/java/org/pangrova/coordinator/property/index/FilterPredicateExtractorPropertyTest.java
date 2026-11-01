@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.property.index;
 
-import org.pangrova.coordinator.adapter.indexing.FilterPredicateExtractor;
+import org.pangrova.coordinator.indexing.FilterPredicateExtractor;
 import org.pangrova.spi.connector.index.predicate.ContainmentMode;
 import org.pangrova.spi.connector.index.predicate.ContainsElement;
 import org.pangrova.spi.connector.index.predicate.EqualTo;

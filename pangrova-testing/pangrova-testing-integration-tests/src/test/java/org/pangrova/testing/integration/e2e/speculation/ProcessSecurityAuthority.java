@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.speculation;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.spi.security.authn.AuthenticationRequest;
-import org.pangrova.security.core.authn.provider.ldap.LdapAuthenticator;
+import org.pangrova.security.authn.ldap.LdapAuthenticator;
 import org.pangrova.spi.security.policy.Privilege;
 import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.spi.security.policy.Role;

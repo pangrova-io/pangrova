@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection;
+import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.spi.coordination.MaintenanceLeaderAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

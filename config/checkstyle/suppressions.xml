@@ -270,7 +270,7 @@
          The canonical structural limits are in checkstyle.xml. Remove each
          exception when its owning behavior is simplified; do not widen them
          solely to obtain a passing build. -->
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]adapter[\\/]coordinator[\\/]StreamConfig\.java$" checks="CyclomaticComplexity"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]coordinator[\\/]StreamConfig\.java$" checks="CyclomaticComplexity"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]task[\\/]TaskStatusReport\.java$" checks="CyclomaticComplexity"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="CyclomaticComplexity"/>
 
@@ -328,19 +328,18 @@
     <suppress files="[\\/]org[\\/]pangrova[\\/]client[\\/]jdbc[\\/]JdbcUrlParser\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]CoordinatorHealthResource\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]StreamingResource\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]adapter[\\/]indexing[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]scheduler[\\/]core[\\/]placement[\\/]WorkerPerformanceScorer\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]indexing[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]governance[\\/]core[\\/]quality[\\/]GovernanceStatementHandler\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]indexing[\\/]core[\\/]build[\\/]IndexBuildCoordinator\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]indexing[\\/]build[\\/]IndexBuildCoordinator\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]sdk[\\/]profiling[\\/]QueryFlameGraphGenerator\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]PredictiveScaling\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]config[\\/]ShuffleConfig\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]resilience[\\/]degradation[\\/]DegradationThresholds\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]common[\\/]value[\\/]MemoryPressure\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]maintenance[\\/]MaintenanceConfig\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]maintenance[\\/]CompactionPolicy\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]maintenance[\\/]SnapshotExpirationPolicy\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]pipeline[\\/]StreamingWriterConfig\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]MaintenanceConfig\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]CompactionPolicy\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]SnapshotExpirationPolicy\.java$" checks="MagicNumber"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]pipeline[\\/]StreamingWriterConfig\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]generator[\\/]ConnectorGenerators\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]generator[\\/]DataGenerators\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]integration[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="MagicNumber"/>
@@ -367,20 +366,19 @@
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]CoordinatorTaskResource\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]SplitResource\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]http[\\/]endpoint[\\/]StreamingResource\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]adapter[\\/]indexing[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]indexing[\\/]lifecycle[\\/]IndexLifecycleMetrics\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]connector[\\/]runtime[\\/]lifecycle[\\/]PluginManager\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]query[\\/]audit[\\/]QueryAuditEmitter\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]scheduler[\\/]core[\\/]admission[\\/]FairScheduler\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]scheduler[\\/]admission[\\/]FairScheduler\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]task[\\/]TaskStateMachine\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]worker[\\/]WorkerHealthScheduler\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]scheduler[\\/]core[\\/]placement[\\/]WorkerPerformanceScorer\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]governance[\\/]core[\\/]quality[\\/]GovernanceStatementHandler\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]indexing[\\/]core[\\/]serde[\\/]TypeSerializerRegistry\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]core[\\/]catalog[\\/]registry[\\/]CatalogHealthMonitor\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]core[\\/]event[\\/]MetadataEventDispatcher\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]indexing[\\/]serde[\\/]TypeSerializerRegistry\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]catalog[\\/]registry[\\/]CatalogHealthMonitor\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]event[\\/]MetadataEventDispatcher\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]exception[\\/]MetadataResolutionException\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]exception[\\/]MetadataSyncException\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]core[\\/]object[\\/]TableMetadataSerializer\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]object[\\/]TableMetadataSerializer\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]metadata[\\/]service[\\/]QueryLifecycleReport\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]observability[\\/]sdk[\\/]metrics[\\/]CacheStatsSnapshot\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]operations[\\/]scaling[\\/]EmergencyThreshold\.java$" checks="MissingJavadocMethod"/>
@@ -389,10 +387,10 @@
     <suppress files="[\\/]org[\\/]pangrova[\\/]planner[\\/]cache[\\/]SecurityPolicyChangeListener\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]common[\\/]value[\\/]MemoryPressure\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]resource[\\/]ResourceMonitor\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]maintenance[\\/]MaintenanceConfig\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]maintenance[\\/]CompactionPolicy\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]maintenance[\\/]SnapshotExpirationPolicy\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]core[\\/]watermark[\\/]WatermarkTracker\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]MaintenanceConfig\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]CompactionPolicy\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]maintenance[\\/]SnapshotExpirationPolicy\.java$" checks="MissingJavadocMethod"/>
+    <suppress files="[\\/]org[\\/]pangrova[\\/]streaming[\\/]watermark[\\/]WatermarkTracker\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]buffer[\\/]ResultExpirationScheduler\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]exchange[\\/]transport[\\/]TransportClientPool\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]result[\\/]BatchRejectedException\.java$" checks="MissingJavadocMethod"/>

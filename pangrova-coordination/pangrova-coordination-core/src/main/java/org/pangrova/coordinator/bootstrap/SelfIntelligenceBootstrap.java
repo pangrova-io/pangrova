@@ -13,8 +13,8 @@
  */
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRecommendationEngine;
-import org.pangrova.coordinator.adapter.indexing.ai.lifecycle.VectorIndexHealthAssessor;
+import org.pangrova.coordinator.indexing.ai.lifecycle.IndexRecommendationEngine;
+import org.pangrova.coordinator.indexing.ai.lifecycle.VectorIndexHealthAssessor;
 import org.pangrova.spi.indexing.state.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,8 +51,8 @@ final class SelfIntelligenceBootstrap {
     private org.pangrova.planner.advisor.QueryPatternRecorder patternRecorder;
     private org.pangrova.coordinator.ai.layout.DataLayoutAdvisor layoutAdvisor;
     private VectorIndexHealthAssessor vectorIndexHealthAssessor;
-    private org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRecommendationEngine indexRecommendationEngine;
-    private org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler indexRebuildScheduler;
+    private org.pangrova.coordinator.indexing.ai.lifecycle.IndexRecommendationEngine indexRecommendationEngine;
+    private org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler indexRebuildScheduler;
     private java.util.concurrent.ScheduledFuture<?> layoutFuture;
     private java.util.concurrent.ScheduledFuture<?> healthFuture;
     private java.util.concurrent.ScheduledFuture<?> recommendationFuture;
@@ -99,15 +99,15 @@ final class SelfIntelligenceBootstrap {
         String coordId = config.coordinatorId();
         IndexingBootstrap indexing = moduleWiring != null ? moduleWiring.getIndexingBootstrap() : null;
         java.util.function.BiFunction<org.pangrova.spi.indexing.descriptor.IndexDescriptor,
-                org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
+                org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
                 java.util.concurrent.CompletableFuture<Void>> rebuildFn = buildRebuildFunction(indexing);
-        indexRebuildScheduler = new org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler(
+        indexRebuildScheduler = new org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler(
                 schedulerExecutor, lease, coordId, vectorIndexHealthAssessor, rebuildFn);
         LOG.info("event=index_rebuild_scheduler_initialized coordinatorId={}", coordId);
     }
 
     static java.util.function.BiFunction<org.pangrova.spi.indexing.descriptor.IndexDescriptor,
-            org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
+            org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
             java.util.concurrent.CompletableFuture<Void>> buildRebuildFunction(IndexingBootstrap indexing) {
         if (indexing == null || indexing.getDdlExecutor() == null) {
             return (descriptor, action) -> java.util.concurrent.CompletableFuture.failedFuture(
@@ -209,16 +209,16 @@ final class SelfIntelligenceBootstrap {
         return result;
     }
 
-    private List<org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.IndexWithAssessment>
+    private List<org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler.IndexWithAssessment>
             identifyCriticalIndexes(List<org.pangrova.spi.indexing.descriptor.IndexDescriptor> descriptors) {
         var result = new ArrayList<
-                org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.IndexWithAssessment>();
+                org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler.IndexWithAssessment>();
         for (var descriptor : descriptors) {
             long totalFiles = Long.parseLong(descriptor.properties().getOrDefault("total_data_files", "100"));
             long indexedFiles = Long.parseLong(descriptor.properties().getOrDefault("indexed_data_files", "100"));
             var assessment = vectorIndexHealthAssessor.assess(descriptor, totalFiles, indexedFiles);
             if (assessment.level() == VectorIndexHealthAssessor.HealthLevel.CRITICAL) {
-                result.add(new org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler
+                result.add(new org.pangrova.coordinator.indexing.ai.lifecycle.IndexRebuildScheduler
                         .IndexWithAssessment(descriptor, assessment));
             }
         }

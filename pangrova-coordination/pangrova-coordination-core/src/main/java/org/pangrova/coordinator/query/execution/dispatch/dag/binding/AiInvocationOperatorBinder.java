@@ -20,7 +20,7 @@ import org.pangrova.spi.security.UserIdentity;
 import java.util.Objects;
 import java.util.List;
 
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.resource.ModelResourceEnvelopes;
 

@@ -7,7 +7,7 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.FailureAction;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.common.api.annotation.ThreadSafe;
 import org.pangrova.scheduler.api.placement.FaultTolerancePolicy;
 import org.pangrova.shuffle.spool.SpoolStore;

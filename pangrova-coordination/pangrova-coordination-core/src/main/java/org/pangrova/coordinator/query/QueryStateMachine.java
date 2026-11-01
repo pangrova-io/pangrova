@@ -18,8 +18,8 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.coordinator.task.QueryIssuanceOperation;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.spi.query.state.QueryStateEvent;
 
 /**

@@ -2,7 +2,7 @@ package org.pangrova.coordinator.property.speculation;
 
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -6,36 +6,36 @@ import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 
 import org.pangrova.indexing.assembly.serde.DefaultTypeSerializers;
 
-import org.pangrova.coordinator.adapter.indexing.ddl.IndexDdlExecutor;
-import org.pangrova.coordinator.adapter.indexing.IndexDescriptorCache;
-import org.pangrova.coordinator.adapter.indexing.IndexEvalMetrics;
-import org.pangrova.coordinator.adapter.indexing.filter.IndexEvalConfig;
-import org.pangrova.coordinator.adapter.indexing.filter.IndexSplitFilter;
-import org.pangrova.coordinator.adapter.indexing.ddl.ConnectorAccessorResolver;
-import org.pangrova.coordinator.adapter.indexing.ddl.IndexDdlContext;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.IndexCommitContext;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.IndexCommitHandler;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.IndexConsistencyChecker;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.IndexConsistencyContext;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.gc.IndexGarbageCollector;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.gc.IndexGcContext;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.IndexLifecycleMetrics;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.MetadataBackedBuildClaimHandler;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.MetadataBackedGenerationChecker;
-import org.pangrova.coordinator.adapter.indexing.lifecycle.StuckBuildRecovery;
+import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
+import org.pangrova.coordinator.indexing.IndexDescriptorCache;
+import org.pangrova.coordinator.indexing.IndexEvalMetrics;
+import org.pangrova.coordinator.indexing.filter.IndexEvalConfig;
+import org.pangrova.coordinator.indexing.filter.IndexSplitFilter;
+import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.indexing.ddl.IndexDdlContext;
+import org.pangrova.coordinator.indexing.lifecycle.IndexCommitContext;
+import org.pangrova.coordinator.indexing.lifecycle.IndexCommitHandler;
+import org.pangrova.coordinator.indexing.lifecycle.IndexConsistencyChecker;
+import org.pangrova.coordinator.indexing.lifecycle.IndexConsistencyContext;
+import org.pangrova.coordinator.indexing.lifecycle.gc.IndexGarbageCollector;
+import org.pangrova.coordinator.indexing.lifecycle.gc.IndexGcContext;
+import org.pangrova.coordinator.indexing.lifecycle.IndexLifecycleMetrics;
+import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
+import org.pangrova.coordinator.indexing.lifecycle.MetadataBackedBuildClaimHandler;
+import org.pangrova.coordinator.indexing.lifecycle.MetadataBackedGenerationChecker;
+import org.pangrova.coordinator.indexing.lifecycle.StuckBuildRecovery;
 import org.pangrova.coordinator.generation.DurableGenerationPublisher;
-import org.pangrova.indexing.core.registry.IndexEngineRegistry;
-import org.pangrova.indexing.core.build.IndexBuildCoordinator;
-import org.pangrova.indexing.core.build.IndexBuildContext;
-import org.pangrova.indexing.core.config.IndexingConfig;
-import org.pangrova.indexing.core.eval.IndexEvaluationService;
-import org.pangrova.indexing.core.metrics.IndexBuildMetrics;
-import org.pangrova.indexing.core.serde.IndexSerializer;
-import org.pangrova.indexing.core.serde.TypeSerializerRegistry;
-import org.pangrova.indexing.core.storage.IndexCache;
-import org.pangrova.indexing.core.storage.IndexStorageManager;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.indexing.registry.IndexEngineRegistry;
+import org.pangrova.indexing.build.IndexBuildCoordinator;
+import org.pangrova.indexing.build.IndexBuildContext;
+import org.pangrova.indexing.config.IndexingConfig;
+import org.pangrova.indexing.eval.IndexEvaluationService;
+import org.pangrova.indexing.metrics.IndexBuildMetrics;
+import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.serde.TypeSerializerRegistry;
+import org.pangrova.indexing.storage.IndexCache;
+import org.pangrova.indexing.storage.IndexStorageManager;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.CacheEvent;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
@@ -212,18 +212,18 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             buildMetrics = new IndexBuildMetrics(metricsProvider);
             evalMetrics = new IndexEvalMetrics(metricsProvider);
             lifecycleMetrics = new IndexLifecycleMetrics(metricsProvider);
-            new org.pangrova.indexing.core.metrics.IndexCacheMetrics(metricsProvider, indexCache);
+            new org.pangrova.indexing.metrics.IndexCacheMetrics(metricsProvider, indexCache);
         }
         return serializer;
     }
 
-    private org.pangrova.coordinator.adapter.indexing.ddl.IndexBuildServices initializeBuildServices(
+    private org.pangrova.coordinator.indexing.ddl.IndexBuildServices initializeBuildServices(
             IndexingConfig config, CatalogRegistry catalogRegistry, IndexSerializer serializer) {
         accessorResolver = new ConnectorAccessorResolver(catalogRegistry);
         var claimHandler = new MetadataBackedBuildClaimHandler(metadataStore);
         var generationChecker = new MetadataBackedGenerationChecker(metadataStore);
         org.pangrova.spi.connector.index.SnapshotPinProvider snapshotPinProvider =
-                new org.pangrova.coordinator.adapter.indexing.ddl.DeferredSnapshotPinProvider(
+                new org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider(
                         metadataStore, artifactBuildStore, accessorResolver);
         IndexBuildContext buildDeps = new IndexBuildContext(
                 config, engineRegistry, storageManager, serializer,
@@ -237,9 +237,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         int circuitFailureThreshold = config.runtime().eval().circuitFailureThreshold();
         java.time.Duration circuitOpenDuration =
                 java.time.Duration.ofSeconds(config.runtime().eval().circuitOpenDurationSeconds());
-        var breakerStateStore = new org.pangrova.coordinator.adapter.indexing.MetadataBreakerStateStore(
+        var breakerStateStore = new org.pangrova.coordinator.indexing.MetadataBreakerStateStore(
                 metadataStore, circuitFailureThreshold, circuitOpenDuration);
-        var circuitBreaker = new org.pangrova.indexing.core.eval.IndexEvalCircuitBreaker(
+        var circuitBreaker = new org.pangrova.indexing.eval.IndexEvalCircuitBreaker(
                 circuitFailureThreshold, circuitOpenDuration, breakerStateStore);
         evaluationService = new IndexEvaluationService(
                 engineRegistry, indexCache, storageManager, serializer, circuitBreaker);
@@ -251,23 +251,23 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
         // Scalar indexes use the Java builder; vector/BM25 artifacts use durable Native jobs.
         var aiNativeBuildService = artifactBuildStore == null ? null
-                : new org.pangrova.coordinator.adapter.indexing.ddl.DurableIndexBuildService(
+                : new org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService(
                         artifactBuildStore, catalogRegistry, baseIndexPath);
-        return new org.pangrova.coordinator.adapter.indexing.ddl.IndexBuildServices(
+        return new org.pangrova.coordinator.indexing.ddl.IndexBuildServices(
                 buildCoordinator, aiNativeBuildService);
     }
 
     private void startLifecycle(IndexingConfig config,
-                                org.pangrova.coordinator.adapter.indexing.ddl.IndexBuildServices buildServices) {
+                                org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices) {
         IndexCommitContext commitDeps = new IndexCommitContext(
                 metadataStore, buildServices, accessorResolver);
 
         IndexGcContext gcDeps = new IndexGcContext(
                 metadataStore, storageManager,
-                descriptor -> org.pangrova.coordinator.adapter.indexing.ddl.IndexSourceAuthority
+                descriptor -> org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority
                         .forDescriptor(metadataStore, buildServices, accessorResolver, descriptor)
                         .resolve(descriptor.catalogName()), config,
-                new org.pangrova.coordinator.adapter.indexing.ddl.DeferredSnapshotPinProvider(
+                new org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider(
                         metadataStore, artifactBuildStore, accessorResolver));
 
         String coordinatorId = configuredLeaderElection != null

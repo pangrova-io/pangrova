@@ -13,7 +13,7 @@ import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.UriInfo;
-import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
+import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.spi.observability.Context;
 import org.pangrova.spi.observability.Scope;
 import org.pangrova.spi.observability.Span;

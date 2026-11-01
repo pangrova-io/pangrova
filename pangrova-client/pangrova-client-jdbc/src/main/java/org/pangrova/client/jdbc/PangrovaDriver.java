@@ -3,8 +3,8 @@ package org.pangrova.client.jdbc;
 import org.pangrova.client.transport.http.PangrovaRestClient;
 import org.pangrova.client.transport.security.ClientAuthentication;
 import org.pangrova.transport.security.ResultTransportSecurity;
-import org.pangrova.client.core.session.ConnectionPoolConfig;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.client.session.ConnectionPoolConfig;
+import org.pangrova.client.session.RetryPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

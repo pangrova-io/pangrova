@@ -3,7 +3,7 @@ package org.pangrova.streaming.property.cdc;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
-import org.pangrova.streaming.core.cdc.CdcQuotaEnforcer;
+import org.pangrova.streaming.cdc.CdcQuotaEnforcer;
 
 import java.util.List;
 

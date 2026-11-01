@@ -236,11 +236,11 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                     fixture.bootstrap.catalogRegistry(), fixture.session);
 
             var controlStore = new org.pangrova.table.store.memory.control.InMemoryTableControlStore();
-            var control = new org.pangrova.table.core.control.TableControlService(controlStore, fixture.bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
-                    new org.pangrova.table.core.control.TableControlSettings(
+            var control = new org.pangrova.table.control.TableControlService(controlStore, fixture.bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
+                    new org.pangrova.table.control.TableControlSettings(
                             true, true, java.util.Set.of()));
             var statisticsService =
-                    new org.pangrova.table.core.statistics.TableControlStatisticsService(control,
+                    new org.pangrova.table.statistics.TableControlStatisticsService(control,
                             new org.pangrova.table.store.memory.control
                                     .InMemoryTableControlStatisticsStore());
             var record = org.pangrova.table.api.control.TableControlRecord.builder()

@@ -2,16 +2,16 @@ package org.pangrova.coordinator.metadata;
 
 import org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder;
 import org.pangrova.coordinator.metadata.read.PlanningReadBindings;
-import org.pangrova.metadata.core.cache.TieredMetadataCache;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.core.catalog.handle.federation.FederationHandleFactory;
-import org.pangrova.metadata.core.event.MetadataEventDispatcher;
-import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
+import org.pangrova.metadata.cache.TieredMetadataCache;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.federation.FederationHandleFactory;
+import org.pangrova.metadata.event.MetadataEventDispatcher;
+import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.service.DefaultMetadataService;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.core.outbox.MetadataSyncService;
+import org.pangrova.metadata.outbox.MetadataSyncService;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +31,7 @@ public final class MetadataBootstrap {
     private final TieredMetadataCache metadataCache;
     private final MetadataEventDispatcher eventDispatcher;
     private final MetadataSyncService syncService;
-    private final org.pangrova.metadata.core.outbox.TableVersionObserver versionObserver;
+    private final org.pangrova.metadata.outbox.TableVersionObserver versionObserver;
     private final DataSource dynamicTablePublicationDataSource;
 
     private MetadataBootstrap(
@@ -40,7 +40,7 @@ public final class MetadataBootstrap {
             TieredMetadataCache metadataCache,
             MetadataEventDispatcher eventDispatcher,
             MetadataSyncService syncService,
-            org.pangrova.metadata.core.outbox.TableVersionObserver versionObserver,
+            org.pangrova.metadata.outbox.TableVersionObserver versionObserver,
             DataSource dynamicTablePublicationDataSource) {
         this.catalogRegistry = catalogRegistry;
         this.metadataService = metadataService;
@@ -96,8 +96,8 @@ public final class MetadataBootstrap {
                 registry, cache, dispatcher, validator);
 
         MetadataSyncService syncService = new MetadataSyncService(store, cache, dispatcher);
-        org.pangrova.metadata.core.outbox.TableVersionObserver versionObserver =
-                new org.pangrova.metadata.core.outbox.TableVersionObserver(registry, dispatcher);
+        org.pangrova.metadata.outbox.TableVersionObserver versionObserver =
+                new org.pangrova.metadata.outbox.TableVersionObserver(registry, dispatcher);
 
         registry.initialize();
         LOG.info("event=metadata_subsystem_initialized");
@@ -121,7 +121,7 @@ public final class MetadataBootstrap {
     }
 
     /** Subscribes to metadata lifecycle events such as observed external commits. */
-    public void addMetadataListener(org.pangrova.metadata.core.event.MetadataEventListener listener) {
+    public void addMetadataListener(org.pangrova.metadata.event.MetadataEventListener listener) {
         eventDispatcher.addListener(listener);
     }
 
@@ -138,11 +138,11 @@ public final class MetadataBootstrap {
     }
 
     /** Version observation for LINKED/MANAGED tables, driven by the leader scheduler. */
-    public org.pangrova.metadata.core.outbox.TableVersionObserver versionObserver() {
+    public org.pangrova.metadata.outbox.TableVersionObserver versionObserver() {
         return versionObserver;
     }
 
-    public org.pangrova.metadata.core.cache.TieredMetadataCache metadataCache() {
+    public org.pangrova.metadata.cache.TieredMetadataCache metadataCache() {
         return metadataCache;
     }
 

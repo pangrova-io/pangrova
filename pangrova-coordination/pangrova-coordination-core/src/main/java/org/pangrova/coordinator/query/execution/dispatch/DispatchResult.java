@@ -14,7 +14,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
 import org.pangrova.coordinator.result.CoordinatorResultService;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;

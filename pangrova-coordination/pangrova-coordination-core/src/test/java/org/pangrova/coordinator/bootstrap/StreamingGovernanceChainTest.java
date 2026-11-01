@@ -24,8 +24,8 @@ import org.pangrova.spi.connector.data.write.model.*;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcOperation;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
-import org.pangrova.streaming.core.cdc.*;
-import org.pangrova.streaming.core.watermark.*;
+import org.pangrova.streaming.cdc.*;
+import org.pangrova.streaming.watermark.*;
 import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
@@ -169,7 +169,7 @@ class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.Si
     /** DebeziumJsonConverter parses a Debezium JSON message into correct CdcEnvelope fields. */
     @Test
     void debeziumConverterParsesMessage() {
-        var converter = new org.pangrova.streaming.provider.cdcformat.debezium.DebeziumJsonConverter();
+        var converter = new org.pangrova.streaming.cdcformat.debezium.DebeziumJsonConverter();
 
         CdcEnvelope envelope = converter.deserialize(
                 buildDebeziumJson().getBytes(java.nio.charset.StandardCharsets.UTF_8));

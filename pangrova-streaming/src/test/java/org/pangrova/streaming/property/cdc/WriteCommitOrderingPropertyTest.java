@@ -1,6 +1,6 @@
 package org.pangrova.streaming.property.cdc;
 
-import org.pangrova.streaming.core.commit.SourceId;
+import org.pangrova.streaming.commit.SourceId;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.common.concurrent.BackoffStrategy;
@@ -9,9 +9,9 @@ import org.pangrova.streaming.api.checkpoint.*;
 import org.pangrova.streaming.api.source.*;
 import org.pangrova.streaming.api.watermark.*;
 import org.pangrova.spi.connector.data.write.model.WriteResult;
-import org.pangrova.streaming.core.cdc.*;
-import org.pangrova.streaming.core.maintenance.*;
-import org.pangrova.streaming.core.watermark.WatermarkTracker;
+import org.pangrova.streaming.cdc.*;
+import org.pangrova.streaming.maintenance.*;
+import org.pangrova.streaming.watermark.WatermarkTracker;
 
 import java.time.Duration;
 import java.time.Instant;

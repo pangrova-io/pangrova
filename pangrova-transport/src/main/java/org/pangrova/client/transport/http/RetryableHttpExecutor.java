@@ -1,8 +1,8 @@
 package org.pangrova.client.transport.http;
 
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.client.core.error.PangrovaConnectionException;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.client.error.PangrovaConnectionException;
+import org.pangrova.client.session.RetryPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

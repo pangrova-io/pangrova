@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.task;
 import java.util.function.Consumer;
 
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

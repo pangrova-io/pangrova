@@ -1,8 +1,8 @@
 package org.pangrova.indexing.engine.bloom.provider;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.indexing.core.normalize.IndexValueNormalizer;
-import org.pangrova.indexing.core.storage.CachedBloomFilterIndexData;
+import org.pangrova.indexing.normalize.IndexValueNormalizer;
+import org.pangrova.indexing.storage.CachedBloomFilterIndexData;
 import org.pangrova.spi.connector.index.IndexEvalResult;
 import org.pangrova.spi.indexing.IndexStrategyProvider;
 import org.pangrova.spi.indexing.descriptor.IndexType;

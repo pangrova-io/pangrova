@@ -25,14 +25,14 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.coordinator.query.task.report.DurableGenerationWorkReportSink;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.spi.generation.job.GenerationDispatchSpec;
 import org.pangrova.spi.generation.job.GenerationJob;
 import org.pangrova.spi.generation.job.GenerationJobKey;
@@ -130,7 +130,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         StageCompletionCallback callback = new StageCompletionCallback() {
             @Override
             public void onTaskTerminal(String queryId, String taskId, String state,
-                    org.pangrova.client.core.error.ErrorDetail error) {
+                    org.pangrova.client.error.ErrorDetail error) {
                 terminal.onTerminal(queryId, taskId, state, error);
             }
 

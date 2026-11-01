@@ -6,7 +6,7 @@ import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.coordinator.adapter.indexing.filter.AdaptivePruningCostModel;
+import org.pangrova.coordinator.indexing.filter.AdaptivePruningCostModel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

@@ -1,6 +1,6 @@
 package org.pangrova.protocol.rest.task;
 
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 

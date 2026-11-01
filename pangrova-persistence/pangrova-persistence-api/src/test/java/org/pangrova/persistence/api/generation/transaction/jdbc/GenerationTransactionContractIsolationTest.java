@@ -32,7 +32,7 @@ class GenerationTransactionContractIsolationTest {
             for (String missing : List.of("org.postgresql.Driver", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore",
                     "org.pangrova.generation.protocol.GenerationStageGraphCodec",
-                    "org.pangrova.security.core.authz.deferred.DeferredAuthorization",
+                    "org.pangrova.security.authz.deferred.DeferredAuthorization",
                     "org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority")) {
                 assertThatThrownBy(() -> loader.loadClass(missing)).isInstanceOf(ClassNotFoundException.class);
             }

@@ -9,7 +9,7 @@ import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDel
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.core.schema.SchemaChange;
+import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.metadata.service.ResolvedTable;

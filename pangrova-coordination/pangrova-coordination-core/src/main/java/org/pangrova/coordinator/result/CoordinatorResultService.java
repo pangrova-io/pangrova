@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.result;
 
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.spi.connector.data.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

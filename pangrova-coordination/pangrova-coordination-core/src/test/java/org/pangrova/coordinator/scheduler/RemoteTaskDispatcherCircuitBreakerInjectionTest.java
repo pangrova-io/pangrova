@@ -3,7 +3,7 @@ package org.pangrova.coordinator.scheduler;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.resilience.breaker.CircuitBreaker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;

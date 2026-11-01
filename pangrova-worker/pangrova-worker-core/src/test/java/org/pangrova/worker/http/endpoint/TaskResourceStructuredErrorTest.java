@@ -1,7 +1,7 @@
 package org.pangrova.worker.http.endpoint;
 
 import jakarta.ws.rs.core.Response;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.shuffle.exchange.ExchangeTransport;

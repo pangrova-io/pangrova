@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.governance.lineage.provider.openlineage.OpenLineageHttpTransport;
+import org.pangrova.governance.lineage.openlineage.OpenLineageHttpTransport;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.query.lineage.QueryLineageFact;
 import org.pangrova.spi.observability.event.QueryLineageMetadata;

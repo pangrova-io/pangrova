@@ -14,11 +14,11 @@
 package org.pangrova.coordinator.ai.branch;
 
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.metadata.api.object.TableMetadata;

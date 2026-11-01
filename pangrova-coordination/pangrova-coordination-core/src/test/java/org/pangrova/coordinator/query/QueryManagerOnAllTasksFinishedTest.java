@@ -4,7 +4,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Logical transition contracts; physical retry/resource oracles live in the real owner suites. */

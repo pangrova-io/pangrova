@@ -21,7 +21,7 @@ import org.pangrova.coordinator.worker.WorkerManager.HeartbeatData;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.common.value.MemoryPressure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

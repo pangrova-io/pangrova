@@ -12,7 +12,7 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.query.core.profiling.QueryProfileService;
+import org.pangrova.query.profiling.QueryProfileService;
 
 import java.time.Instant;
 import java.util.List;

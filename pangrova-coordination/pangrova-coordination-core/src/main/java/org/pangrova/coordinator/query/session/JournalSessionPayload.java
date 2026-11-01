@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.session;
 
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 
 /** Minimal journal recovery context. Planning's exact session configuration remains a separate contract. */
 public record JournalSessionPayload(String queryId, String tenantId) {

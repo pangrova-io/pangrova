@@ -1,16 +1,16 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.core.event.MetadataEventDispatcher;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
+import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.spi.connector.plugin.Connector;

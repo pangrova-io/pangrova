@@ -1,6 +1,6 @@
 package org.pangrova.metadata.adapter;
 
-import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.TableMetadata;

@@ -27,8 +27,8 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherCont
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
-import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -43,16 +43,16 @@ import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.security.core.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.spi.security.policy.Privilege;
 import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.spi.security.policy.Role;
 import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.spi.security.rowfilter.RowPolicy;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.secret.SecretResolverRegistry;
 import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
@@ -174,7 +174,7 @@ class FeatureViewSqlIntegrationTest {
                         new ConnectorTableMetadata.Column("event_ts", PangrovaType.TIMESTAMP),
                         new ConnectorTableMetadata.Column("secret", PangrovaType.VARCHAR)), Map.of()));
         var registry = metadata.catalogRegistry();
-        registry.setTableControlService(new org.pangrova.table.core.control.TableControlService(
+        registry.setTableControlService(new org.pangrova.table.control.TableControlService(
                 new org.pangrova.table.store.jdbc.control.JdbcTableControlStore(dataSource),
                 registry::requireCurrentCatalogIdentity));
         registry.setGovernanceBindingStore(new org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore(

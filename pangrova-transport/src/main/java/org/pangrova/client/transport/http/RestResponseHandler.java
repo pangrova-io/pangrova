@@ -2,10 +2,10 @@ package org.pangrova.client.transport.http;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.client.core.error.PangrovaClientException;
-import org.pangrova.client.core.error.PangrovaProtocolException;
-import org.pangrova.client.core.error.PangrovaServerException;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.client.error.PangrovaClientException;
+import org.pangrova.client.error.PangrovaProtocolException;
+import org.pangrova.client.error.PangrovaServerException;
 
 import java.net.http.HttpResponse;
 

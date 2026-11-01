@@ -5,7 +5,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStats;

@@ -13,11 +13,11 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.TableWarmupExecutor;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.catalog.MetadataStore;
@@ -117,7 +117,7 @@ class CallProcedureWarmupDispatchTest {
     private static org.pangrova.coordinator.query.statement.ControlledTableMaintenance maintenance(
             CatalogRegistry registry) {
         return new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(registry,
-                new org.pangrova.table.core.maintenance.TableControlMaintenanceService(
+                new org.pangrova.table.maintenance.TableControlMaintenanceService(
                         new org.pangrova.table.store.memory.control.InMemoryTableControlMaintenanceStore()),
                 null, "test");
     }

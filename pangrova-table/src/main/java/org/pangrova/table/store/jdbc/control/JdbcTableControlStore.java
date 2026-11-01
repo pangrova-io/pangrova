@@ -2,7 +2,7 @@ package org.pangrova.table.store.jdbc.control;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.table.api.control.TableRef;
-import org.pangrova.table.core.control.TableControlException;
+import org.pangrova.table.control.TableControlException;
 import org.pangrova.table.api.control.OwnershipMode;
 import org.pangrova.table.api.control.TableControlProvenance;
 import org.pangrova.table.api.control.TableControlRecord;

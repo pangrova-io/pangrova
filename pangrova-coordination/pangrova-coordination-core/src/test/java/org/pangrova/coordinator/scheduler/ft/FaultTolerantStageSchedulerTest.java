@@ -3,7 +3,7 @@ package org.pangrova.coordinator.scheduler.ft;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.scheduler.core.admission.StageScheduler;
+import org.pangrova.scheduler.admission.StageScheduler;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.FailureAction;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.FailureActionType;
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger;

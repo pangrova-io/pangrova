@@ -9,7 +9,7 @@ import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.PhysicalTableRef;
 import org.pangrova.materialization.port.PhysicalGenerationStore;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;

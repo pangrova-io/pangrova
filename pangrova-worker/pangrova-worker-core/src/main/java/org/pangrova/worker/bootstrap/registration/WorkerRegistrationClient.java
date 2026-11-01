@@ -13,7 +13,7 @@ import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.SerializationException;
 import org.pangrova.common.http.HttpClientFactory;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.slf4j.Logger;

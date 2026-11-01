@@ -3,11 +3,11 @@ package org.pangrova.client.jdbc;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.pangrova.client.transport.http.PangrovaRestClient;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.client.session.RetryPolicy;
 import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

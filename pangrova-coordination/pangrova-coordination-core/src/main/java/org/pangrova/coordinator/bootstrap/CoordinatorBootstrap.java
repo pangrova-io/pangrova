@@ -18,9 +18,9 @@ import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.store.jdbc.catalog.PooledDataSourceFactory;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.spi.security.secret.SecretResolver;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
-import org.pangrova.security.core.secret.provider.env.EnvSecretProvider;
-import org.pangrova.security.core.secret.provider.file.FileSecretProvider;
+import org.pangrova.security.secret.SecretResolverRegistry;
+import org.pangrova.security.secret.env.EnvSecretProvider;
+import org.pangrova.security.secret.file.FileSecretProvider;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
@@ -65,7 +65,7 @@ public final class CoordinatorBootstrap {
     private QueryBootstrap query;
     private HttpBootstrap http;
     private HighAvailabilityBootstrap ha;
-    private org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection maintenanceLeaderElection;
+    private org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection maintenanceLeaderElection;
     private MaintenanceLeadershipBootstrap maintenanceLeadership;
     private BranchTtlCleanupTask branchTtlCleanupTask;
     private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
@@ -181,7 +181,7 @@ public final class CoordinatorBootstrap {
                 || config.internalAuthSecret() == null || config.internalAuthSecret().isBlank()) {
             return null;
         }
-        var context = org.pangrova.file.core.space.FileSpaceAccessService.FileSpaceAccessContext.of(
+        var context = org.pangrova.file.space.FileSpaceAccessService.FileSpaceAccessContext.of(
                 System.getProperty("pangrova.files.managed-storage-profile", ""),
                 () -> getWorkerManager() == null ? java.util.List.of()
                         : getWorkerManager().getActiveWorkers().stream()
@@ -193,14 +193,14 @@ public final class CoordinatorBootstrap {
                 config.internalAuthSecret(),
                 new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(metadataDataSource,
                         new org.pangrova.metadata.tenant.JdbcTenantStore(metadataDataSource)));
-        var access = new org.pangrova.file.core.space.FileSpaceAccessService(
+        var access = new org.pangrova.file.space.FileSpaceAccessService(
                 new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry(metadataDataSource),
                 new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(metadataDataSource),
                 security.accessControl(), context);
         return new org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource(
                 access,
-                new org.pangrova.file.core.space.FileUrlService(access,
-                        org.pangrova.file.adapter.worker.WorkerFileClient.create(
+                new org.pangrova.file.space.FileUrlService(access,
+                        org.pangrova.file.worker.WorkerFileClient.create(
                                 config.internalAuthSecret())),
                 new org.pangrova.coordinator.file.StageFileUrlService(access));
     }
@@ -313,12 +313,12 @@ public final class CoordinatorBootstrap {
             // Control records (ownership/identity/version) are durable in the metadata
             // schema; the in-memory default only serves tests and metadata-less modes.
             metadataBootstrap.catalogRegistry().setTableControlService(
-                    new org.pangrova.table.core.control.TableControlService(
+                    new org.pangrova.table.control.TableControlService(
                             new org.pangrova.table.store.jdbc.control.JdbcTableControlStore(metadataDataSource),
                             metadataBootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
-                            org.pangrova.table.core.control.TableControlSettings.fromSystemProperties()));
+                            org.pangrova.table.control.TableControlSettings.fromSystemProperties()));
             metadataBootstrap.catalogRegistry().setTableStatisticsService(
-                    new org.pangrova.table.core.statistics.TableControlStatisticsService(
+                    new org.pangrova.table.statistics.TableControlStatisticsService(
                             metadataBootstrap.catalogRegistry().tableControl(),
                             new org.pangrova.table.store.jdbc.control
                                     .JdbcTableControlStatisticsStore(metadataDataSource)));
@@ -351,7 +351,7 @@ public final class CoordinatorBootstrap {
             String processOwner = config.coordinatorId() + "/"
                     + java.util.UUID.randomUUID();
             maintenanceLeaderElection =
-                    new org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection(
+                    new org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection(
                             lease, processOwner);
         }
         if (distributedLease != null) {
@@ -431,7 +431,7 @@ public final class CoordinatorBootstrap {
         try {
             org.pangrova.indexing.store.IndexMetadataStore indexMetadataStore =
                     new org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore(metadataDataSource);
-            org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalogRegistry =
+            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry =
                     metadataBootstrap.catalogRegistry();
             org.pangrova.spi.observability.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
@@ -482,7 +482,7 @@ public final class CoordinatorBootstrap {
             return;
         }
         try {
-            org.pangrova.streaming.core.pipeline.StreamingContext streamingContext = moduleWiring.getStreamingContext();
+            org.pangrova.streaming.pipeline.StreamingContext streamingContext = moduleWiring.getStreamingContext();
             if (streamingContext == null) {
                 LOG.info("event=phase_skipped phase=streaming_bootstrap reason=streaming_wiring_unavailable");
                 return;
@@ -556,7 +556,7 @@ public final class CoordinatorBootstrap {
             return;
         }
         try {
-            org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalogRegistry =
+            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry =
                     metadataBootstrap.catalogRegistry();
             branchTtlCleanupTask = new BranchTtlCleanupTask(catalogRegistry);
             LOG.info("event=phase_initialized phase=branch_ttl_cleanup state=leader_gated");

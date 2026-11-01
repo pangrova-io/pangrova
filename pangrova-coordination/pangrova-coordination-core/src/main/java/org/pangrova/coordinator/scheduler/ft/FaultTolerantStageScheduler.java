@@ -6,7 +6,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.pangrova.scheduler.core.admission.StageScheduler;
+import org.pangrova.scheduler.admission.StageScheduler;
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger;
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger.RepartitionDecision;
 import org.pangrova.scheduler.api.placement.FaultTolerancePolicy;

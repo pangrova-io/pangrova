@@ -2,8 +2,8 @@ package org.pangrova.testing.integration.e2e.setup;
 
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.spi.connector.plugin.Connector;
 import org.pangrova.spi.connector.plugin.ConnectorContext;
 import org.pangrova.spi.connector.plugin.ConnectorFactory;

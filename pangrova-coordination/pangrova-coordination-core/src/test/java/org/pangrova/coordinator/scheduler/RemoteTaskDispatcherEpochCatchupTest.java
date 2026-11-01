@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.scheduler.core.failure.TaskDispatchException;
-import org.pangrova.scheduler.core.failure.ErrorCategory;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.scheduler.failure.TaskDispatchException;
+import org.pangrova.scheduler.failure.ErrorCategory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
@@ -91,7 +91,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
             }
             second.set(body);
             var endpoint = new ResultEndpoint("127.0.0.1", 1, "ticket",
-                    org.pangrova.client.core.protocol.ResultProtocol.GRPC.value());
+                    org.pangrova.client.protocol.ResultProtocol.GRPC.value());
             var accepted = new SubmitTaskResponse(true, null, "task-epoch", endpoint, null);
             return new Reply(200, JsonMapperFactory.shared().writeValueAsString(accepted));
         });
@@ -103,7 +103,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
             assertThat(result.taskId()).isEqualTo("task-epoch");
             assertThat(result.resultEndpoint()).isEqualTo(
                     new ResultEndpoint("127.0.0.1", 1, "ticket",
-                            org.pangrova.client.core.protocol.ResultProtocol.GRPC.value()));
+                            org.pangrova.client.protocol.ResultProtocol.GRPC.value()));
             assertThat(requests).hasValue(2);
             assertThat(Arrays.equals(first.get(), second.get())).isTrue();
             SubmitTaskRequest sent = JsonMapperFactory.shared()

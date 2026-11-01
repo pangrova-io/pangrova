@@ -2,7 +2,7 @@ package org.pangrova.metadata.testinfra;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.relation.CascadePolicy;
-import org.pangrova.metadata.core.relation.ObjectDependencyService;
+import org.pangrova.metadata.relation.ObjectDependencyService;
 import org.pangrova.metadata.api.relation.ObjectDependencyStore;
 import org.pangrova.metadata.api.relation.ObjectKind;
 import org.pangrova.metadata.api.relation.MetadataMaintenanceHook;

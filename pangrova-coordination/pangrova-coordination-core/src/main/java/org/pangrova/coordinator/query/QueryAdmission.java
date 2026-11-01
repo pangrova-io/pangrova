@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.planner.throttle.QueryThrottlingService;
 import org.pangrova.planner.throttle.ThrottlePermit;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 import org.pangrova.scheduler.api.resource.ClusterAdmissionController;
 
@@ -37,7 +37,7 @@ final class QueryAdmission {
                         concurrent++;
                         if (state.getState() == QueryStateMachine.State.QUEUED) queued++;
                     }
-                    return new org.pangrova.security.core.tenant.TenantUsage(concurrent, queued, 0L, 0L);
+                    return new org.pangrova.security.tenant.TenantUsage(concurrent, queued, 0L, 0L);
                 });
     }
 

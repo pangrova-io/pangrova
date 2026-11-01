@@ -25,9 +25,9 @@ import java.util.stream.Collectors;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.lifecycle.ReaderPinLifecycle;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.spi.observability.LongCounter;
@@ -40,8 +40,8 @@ import org.pangrova.spi.observability.TracingProvider;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.observability.sdk.logging.provider.mdc.LogContext;
-import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.sdk.logging.mdc.LogContext;
+import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
 import org.pangrova.coordinator.query.tenant.TenantQueryGuard;
 
 @ThreadSafe

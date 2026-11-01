@@ -3,7 +3,7 @@ package org.pangrova.metadata.service;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.core.schema.SchemaChange;
+import org.pangrova.metadata.schema.SchemaChange;
 
 import java.util.List;
 import java.util.Map;

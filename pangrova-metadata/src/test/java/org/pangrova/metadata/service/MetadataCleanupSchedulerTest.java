@@ -1,7 +1,7 @@
 package org.pangrova.metadata.service;
 
 import org.pangrova.metadata.store.jdbc.cache.JdbcInvalidationPoller;
-import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

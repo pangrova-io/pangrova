@@ -1,6 +1,6 @@
 package org.pangrova.security.assembly.audit;
 
-import org.pangrova.security.core.audit.LoggingAuditEventWriter;
+import org.pangrova.security.audit.LoggingAuditEventWriter;
 
 import java.util.Locale;
 import org.pangrova.spi.security.audit.AuditEventWriter;

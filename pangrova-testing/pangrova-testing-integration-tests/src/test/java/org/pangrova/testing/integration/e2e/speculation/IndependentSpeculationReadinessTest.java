@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

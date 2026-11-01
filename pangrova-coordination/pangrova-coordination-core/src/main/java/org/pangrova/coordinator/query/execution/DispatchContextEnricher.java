@@ -15,9 +15,9 @@ package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher;
-import org.pangrova.indexing.core.planner.vector.VectorSearchNode;
-import org.pangrova.indexing.core.planner.vector.VectorSearchRewriter;
+import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
+import org.pangrova.indexing.planner.vector.VectorSearchNode;
+import org.pangrova.indexing.planner.vector.VectorSearchRewriter;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.LiteralValue;

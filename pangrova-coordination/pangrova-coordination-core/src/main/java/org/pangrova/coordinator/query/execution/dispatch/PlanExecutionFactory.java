@@ -35,7 +35,7 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
     private final NativeDmlCompileFunction dmlDispatch;
     private final Consumer<String> writeCompleteCallback;
     private final BiFunction<String, CoordinatorSessionContext, String> explainCompiler;
-    private final org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalogRegistry;
+    private final org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry;
     private final org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
 

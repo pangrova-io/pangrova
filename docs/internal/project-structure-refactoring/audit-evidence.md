@@ -669,3 +669,18 @@ File四个实现直接归pangrova-file，旧core制品/目录删除，当前依�
 65项安装编译、File静态检查、Coordinator41、HTTP/SQL/JNI14、架构25及对应static通过。
 日志前缀为`/tmp/pangrova-file-flatten-`；没有新建空包或包文档占位。整体Store/API重构和
 此前未通过项继续开放，未以本次目录调整代替完整验收。
+
+## 55. 能力包中间层收敛证据
+
+见[执行记录第55节](../project-restructure-execution-plan.md#55-能力包中间层收敛2026-11-01)。
+移除33处空通用中间包节点，375个生产类型及543个主源/测试文件迁移；三个同能力包合并，
+当前665包、3,427主源和2,396测试源。Coordination JDBC四个实现及八个测试类保留在
+Persistence，旧模块说明迁至实际owner。50个当前main JAR无旧类型或重复owner，服务注册、
+模块根和调用引用一致；1,168个Java文件仅作包/引用重写和冗余import删除。评分器权重命名
+后公开方法字节码不变，两个结构/异步时序测试修正保留严格原断言。
+
+65项clean安装编译、完整owner测试、Worker1257、真实HTTP/SQL/JNI14、索引代际/回滚7、
+架构32及对应static通过；各owner精确数量和修复前后日志见执行记录。Coordinator完整
+3377项初次结果为2失败10错误：两处测试修正后定向50及static、审计链重复6通过；10项仍缺
+匹配Lance fixture工具。四SCC和四Store/一调度器未接线问题未隐藏，所有Store/API迁移和
+生产资格仍在继续。日志前缀`/tmp/pangrova-package-layers-`。

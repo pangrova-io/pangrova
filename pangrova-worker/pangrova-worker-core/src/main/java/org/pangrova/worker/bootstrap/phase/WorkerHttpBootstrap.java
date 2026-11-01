@@ -45,8 +45,8 @@ public final class WorkerHttpBootstrap {
             String workerHost = resolveAdvertisedHost(config);
             String resultProtocol =
                     config.transportSecurityConfig().enabled()
-                            ? org.pangrova.client.core.protocol.ResultProtocol.GRPC_TLS.value()
-                            : org.pangrova.client.core.protocol.ResultProtocol.GRPC.value();
+                            ? org.pangrova.client.protocol.ResultProtocol.GRPC_TLS.value()
+                            : org.pangrova.client.protocol.ResultProtocol.GRPC.value();
             WorkerHttpConfig httpConfig =
                     new WorkerHttpConfig(
                             config.httpPort(),

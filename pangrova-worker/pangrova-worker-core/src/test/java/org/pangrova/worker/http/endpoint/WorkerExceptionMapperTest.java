@@ -2,7 +2,7 @@ package org.pangrova.worker.http.endpoint;
 
 import jakarta.ws.rs.NotAllowedException;
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

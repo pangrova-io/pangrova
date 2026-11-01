@@ -9,11 +9,11 @@ import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.security.core.authn.AuthenticationManager;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.spi.security.authn.AuthenticationRequest;
 import org.pangrova.spi.security.authn.AuthenticationResult;
-import org.pangrova.security.core.authn.BruteForceGuard;
+import org.pangrova.security.authn.BruteForceGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

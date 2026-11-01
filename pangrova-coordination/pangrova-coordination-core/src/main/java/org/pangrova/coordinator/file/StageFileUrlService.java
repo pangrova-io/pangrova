@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 import jakarta.ws.rs.core.UriBuilder;
-import org.pangrova.file.core.space.FileSpaceAccessService;
+import org.pangrova.file.space.FileSpaceAccessService;
 import org.pangrova.spi.security.UserIdentity;
 
 /** Role-authorized stable Stage links; bytes are transferred by the selected Worker. */

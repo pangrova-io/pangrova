@@ -3,11 +3,11 @@ package org.pangrova.coordinator.query.audit;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
-import org.pangrova.metadata.core.event.MetadataEvent;
-import org.pangrova.metadata.core.event.MetadataEventListener;
+import org.pangrova.metadata.event.MetadataEvent;
+import org.pangrova.metadata.event.MetadataEventListener;
 import org.pangrova.spi.security.audit.AccessedObject;
 import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.spi.security.audit.AuditEventType;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 

@@ -1,22 +1,22 @@
 package org.pangrova.client.transport.http;
 
-import org.pangrova.client.core.api.MetadataTableIdentifier;
-import org.pangrova.client.core.api.MetadataTableInfo;
+import org.pangrova.client.api.MetadataTableIdentifier;
+import org.pangrova.client.api.MetadataTableInfo;
 import org.pangrova.client.transport.security.ClientAuthentication;
 import org.pangrova.transport.security.ResultTransportSecurity;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.client.core.protocol.QueryStatusResponse;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.SubmitQueryRequest;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
-import org.pangrova.client.core.api.ResultBatchConsumer;
-import org.pangrova.client.core.error.PangrovaConnectionException;
-import org.pangrova.client.core.error.PangrovaProtocolException;
-import org.pangrova.client.core.session.ConnectionPoolConfig;
-import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.client.protocol.QueryStatusResponse;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.SubmitQueryRequest;
+import org.pangrova.client.protocol.SubmitQueryResponse;
+import org.pangrova.client.api.ResultBatchConsumer;
+import org.pangrova.client.error.PangrovaConnectionException;
+import org.pangrova.client.error.PangrovaProtocolException;
+import org.pangrova.client.session.ConnectionPoolConfig;
+import org.pangrova.client.session.RetryPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

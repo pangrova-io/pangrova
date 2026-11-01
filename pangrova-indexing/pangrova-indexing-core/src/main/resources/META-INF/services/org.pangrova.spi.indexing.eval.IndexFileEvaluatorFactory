@@ -1,1 +1,1 @@
-org.pangrova.indexing.core.eval.defaults.DefaultIndexFileEvaluatorFactory
+org.pangrova.indexing.eval.defaults.DefaultIndexFileEvaluatorFactory

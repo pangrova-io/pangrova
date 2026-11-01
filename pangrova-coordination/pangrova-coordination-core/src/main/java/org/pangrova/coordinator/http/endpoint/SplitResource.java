@@ -11,7 +11,7 @@ import jakarta.ws.rs.core.Response;
 
 import org.pangrova.coordinator.query.execution.split.SplitAssignment;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SplitRequest;
 import org.pangrova.protocol.rest.task.SplitResponse;
 import org.slf4j.Logger;

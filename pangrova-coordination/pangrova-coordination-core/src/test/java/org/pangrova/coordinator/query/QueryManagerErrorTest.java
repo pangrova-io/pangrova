@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
@@ -81,9 +81,9 @@ class QueryManagerErrorTest {
 
     private static QueryDispatcher buildOrchestrator() {
         org.pangrova.planner.SqlCompiler compiler = new org.pangrova.planner.SqlCompiler();
-        org.pangrova.scheduler.core.placement.TaskScheduler scheduler =
-                new org.pangrova.scheduler.core.placement.TaskScheduler(
-                        new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer());
+        org.pangrova.scheduler.placement.TaskScheduler scheduler =
+                new org.pangrova.scheduler.placement.TaskScheduler(
+                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer());
         return new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,

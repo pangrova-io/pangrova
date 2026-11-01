@@ -25,9 +25,9 @@ public final class ResultReadTickets {
         this.key = key.clone();
     }
 
-    public org.pangrova.client.core.protocol.ResultEndpoint endpoint(
+    public org.pangrova.client.protocol.ResultEndpoint endpoint(
             TaskRequest request, String host, int port, String protocol) {
-        return new org.pangrova.client.core.protocol.ResultEndpoint(
+        return new org.pangrova.client.protocol.ResultEndpoint(
                 host, port, issue(request), protocol);
     }
 

@@ -4,8 +4,8 @@ import org.pangrova.spi.indexing.data.text.PrefixEntry;
 import org.pangrova.spi.indexing.data.text.PrefixIndexData;
 
 import java.util.ArrayList;
-import org.pangrova.indexing.core.serde.SerdeCodec;
-import org.pangrova.indexing.core.serde.TypeSerializer;
+import org.pangrova.indexing.serde.SerdeCodec;
+import org.pangrova.indexing.serde.TypeSerializer;
 
 /**
  * Serializer for {@link PrefixIndexData}.

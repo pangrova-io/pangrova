@@ -16,7 +16,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAc
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
 import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;

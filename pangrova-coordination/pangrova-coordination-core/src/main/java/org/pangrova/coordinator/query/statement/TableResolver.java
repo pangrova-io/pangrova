@@ -122,7 +122,7 @@ public final class TableResolver {
     }
 
     static ConnectorMetadata getMetadata(
-            org.pangrova.metadata.core.catalog.registry.CatalogRegistry registry,
+            org.pangrova.metadata.catalog.registry.CatalogRegistry registry,
             String catalog, ConnectorSession session) {
         CatalogHandle handle = registry.getCatalog(catalog);
         return handle.getMetadata(session);

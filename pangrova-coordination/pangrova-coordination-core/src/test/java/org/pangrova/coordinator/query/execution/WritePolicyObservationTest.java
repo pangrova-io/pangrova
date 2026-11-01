@@ -26,8 +26,8 @@ import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.spi.security.policy.Role;
 import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.spi.security.rowfilter.RowPolicy;
 import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
@@ -73,7 +73,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
         }
         rowPolicies = new JdbcRowPolicyStore(dataSource);
         masks = new JdbcColumnMaskStore(dataSource);
-        var authority = new org.pangrova.security.core.authz.DynamicRbacAccessControl(grants, roles,
+        var authority = new org.pangrova.security.authz.DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(rowPolicies), new ColumnMaskingProcessor(masks));
         compiler = compiler(dataSource);
         security = new SecurityPolicyApplier(compiler, new AccessControlEnforcer(authority),
@@ -245,7 +245,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
                 org.pangrova.metadata.api.catalog.CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()),
                 "", Set.of("tenant-a")));
         connectorFactory = new org.pangrova.coordinator.metadata.PluginConnectorHandleFactory(
-                getClass().getClassLoader(), new org.pangrova.security.core.secret.SecretResolverRegistry(),
+                getClass().getClassLoader(), new org.pangrova.security.secret.SecretResolverRegistry(),
                 ignored -> Optional.empty());
         metadata = org.pangrova.coordinator.metadata.MetadataBootstrap.initialize(directory, connectorFactory);
         var root = metadata.buildCalciteSchema(

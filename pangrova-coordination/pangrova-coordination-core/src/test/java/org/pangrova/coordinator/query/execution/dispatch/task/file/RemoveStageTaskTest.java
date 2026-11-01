@@ -15,7 +15,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.spi.file.access.FileDeletionClient;
 import org.pangrova.spi.file.access.FileListingClient;
-import org.pangrova.file.core.space.FileSpaceAccessService;
+import org.pangrova.file.space.FileSpaceAccessService;
 import org.pangrova.spi.file.access.FileAccessGrant;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;

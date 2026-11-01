@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectWriter;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.shuffle.PartitionStats;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.slf4j.Logger;

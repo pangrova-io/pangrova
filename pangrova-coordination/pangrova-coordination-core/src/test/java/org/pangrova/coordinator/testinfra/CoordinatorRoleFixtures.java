@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.testinfra;
 
 import org.pangrova.spi.security.policy.GroupRoleMapping;
-import org.pangrova.security.core.authz.InMemoryRoleStore;
+import org.pangrova.security.authz.InMemoryRoleStore;
 import org.pangrova.spi.security.policy.Role;
 import org.pangrova.persistence.api.security.policy.RoleStore;
 

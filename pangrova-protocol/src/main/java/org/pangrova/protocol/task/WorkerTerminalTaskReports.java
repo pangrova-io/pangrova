@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.v2.ArtifactFreshnessReport;
 import org.pangrova.protocol.v2.CompletionState;
 import org.pangrova.protocol.v2.CoverageReport;

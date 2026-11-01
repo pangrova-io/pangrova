@@ -1,10 +1,10 @@
 package org.pangrova.client.transport.http;
 
 import org.junit.jupiter.api.DisplayName;
-import org.pangrova.client.core.error.PangrovaClientException;
-import org.pangrova.client.core.error.PangrovaConnectionException;
-import org.pangrova.client.core.error.PangrovaProtocolException;
-import org.pangrova.client.core.error.PangrovaServerException;
+import org.pangrova.client.error.PangrovaClientException;
+import org.pangrova.client.error.PangrovaConnectionException;
+import org.pangrova.client.error.PangrovaProtocolException;
+import org.pangrova.client.error.PangrovaServerException;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 

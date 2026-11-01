@@ -1,12 +1,12 @@
 package org.pangrova.testing.integration.e2e.cancellation;
 
 import org.junit.jupiter.api.BeforeEach;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;

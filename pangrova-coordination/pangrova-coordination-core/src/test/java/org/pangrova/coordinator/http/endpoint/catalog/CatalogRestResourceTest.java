@@ -2,7 +2,7 @@ package org.pangrova.coordinator.http.endpoint.catalog;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.http.CoordinatorHttpServerContext;
 import org.pangrova.coordinator.query.QueryManager;
@@ -13,7 +13,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.core.schema.SchemaChange;
+import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.metadata.service.ResolvedTable;

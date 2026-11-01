@@ -1362,7 +1362,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 | `planner` | `org.pangrova.planner`；内部含 `.parser/.core/.substrait` |
 | `metadata` | `org.pangrova.metadata`；只 export `.api` |
 | `query-api` | `org.pangrova.query.api`；执行身份、journal/lineage、audit/recovery 契约 |
-| `query` | `org.pangrova.query.core`、`.store`、`.adapter`；不再声明 `.api` 的所有权 |
+| `query` | `org.pangrova.query.audit`、`.profiling`、`.assembly`；共享契约归 SPI，存储端口和后端归 Persistence |
 | `scheduler` | `org.pangrova.scheduler`；内部含 `.placement/.resource` |
 | `security` | `org.pangrova.security`；只 export `.api` |
 | `worker` | `org.pangrova.worker.runtime`、`.worker.resource`、`.worker.assembly`、`.worker.server`、`.worker.embedding`；仅 `.worker.runtime.spi` 可 friend-export 给可选 runtime，不得在 `org.pangrova.worker` 根包放类 |
@@ -1377,7 +1377,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 | `governance`、`operations` | `org.pangrova.governance`、`org.pangrova.operations` |
 | `coordinator` | `org.pangrova.coordinator`；只 friend-export `.embedding` 给 Standalone |
 | `standalone` | `org.pangrova.standalone` |
-| `client-core/jdbc/cli` | `org.pangrova.client.core`、`org.pangrova.client.jdbc`、`org.pangrova.client.cli` |
+| `client-core/jdbc/cli` | Core 拥有 `org.pangrova.client.api`、`.error`、`.protocol`、`.session`；JDBC/CLI 分别拥有 `org.pangrova.client.jdbc`、`org.pangrova.client.cli` |
 | `testkit/integration-tests/benchmark` | `org.pangrova.testing.testkit`、`org.pangrova.testing.integration`、`org.pangrova.testing.benchmark` |
 
 一旦要从单 owner artifact 拆出第二个 sibling，必须先通过 ADR 收窄双方 package root 并完成 import 迁移；禁止直接让新 artifact 接管现有 root 的子包。
@@ -1578,7 +1578,7 @@ connector.system
 
 Protocol 只能依赖 common 中的 wire-safe model，不能 import Connector runtime interface、Planner class 或 feature implementation。
 
-#### `org.pangrova.client.core.protocol`
+#### `org.pangrova.client.protocol`
 
 拥有 REST/JDBC/Flight SQL 对外请求响应、错误码和 public compatibility。当前 `protocol.rest.*` 与内部 TaskRequest 分开，避免客户端发布被内部执行字段牵动。
 
@@ -1627,7 +1627,7 @@ Security rewrite 是 query correctness 的必要组成，可以保留 `planner-s
 
 Control Plane 是部署和运行视角，不是代码 parent。Metadata、Query、Scheduler、Security 是独立 owner artifact；Transaction 是 Query 内部子域，Resource 是 Scheduler 内部子域，Coordination 是 Coordinator 内部子域。每个子域仍拥有明确的 package、状态和 migration owner。
 
-#### `org.pangrova.metadata.core`
+#### `org.pangrova.metadata`
 
 按照统一元数据中心蓝图，拥有 catalog control plane、object identity、resolution、query binding、DDL metadata mutation、versioned statistics、cache protocol、outbox 和 system metadata view。
 
@@ -1635,7 +1635,7 @@ Control Plane 是部署和运行视角，不是代码 parent。Metadata、Query�
 
 拥有 metadata V2 Flyway location、repository、PostgreSQL CAS/outbox 实现。Metadata Core 通过 ports 使用它。
 
-#### `org.pangrova.query.core`
+#### `org.pangrova.query`
 
 从 Coordinator 迁出 `query` 的领域逻辑：
 
@@ -1734,7 +1734,7 @@ Worker 侧 memory arbitration/spill 不属于该 module，位于 Data Plane Runt
 
 提供 ZooKeeper/Curator adapter。若保留 JDBC fallback，应放入独立 `coordination.jdbc` package，不与 Metadata Store 共用 repository；只有第二实现需要独立发布时再拆 artifact。
 
-#### `org.pangrova.security.core` 与 `org.pangrova.security.store.jdbc`
+#### `org.pangrova.security` 与 `org.pangrova.security.store.jdbc`
 
 Security Core 拥有 authentication、authorization、role/grant、row filter、column mask、secret reference resolution 和 session security context。Credential material 不进入 QueryMetadataSnapshot 或 protocol 日志。
 

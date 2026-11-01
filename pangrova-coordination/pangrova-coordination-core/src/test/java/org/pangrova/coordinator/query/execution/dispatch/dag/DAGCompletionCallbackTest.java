@@ -75,7 +75,7 @@ class DAGCompletionCallbackTest {
                 null, null, 300, null, null, null,
                 null, // speculativeStageHandler
                 PipelineConfig.DISABLED,
-                org.pangrova.shuffle.provider.spool.LocalShuffleLifecycleManager.INSTANCE,
+                org.pangrova.shuffle.spool.LocalShuffleLifecycleManager.INSTANCE,
                 new org.pangrova.coordinator.query.execution.split.SplitAssignmentManager(),
                 null, null);
         DAGDispatchEngine engine = new DAGDispatchEngine(deps, List.of(), null);

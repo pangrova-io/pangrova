@@ -3,7 +3,7 @@ package org.pangrova.testing.testkit;
 import org.pangrova.observability.sdk.noop.NoOpLoggingProvider;
 import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
+import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.spi.observability.LoggingProvider;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.pangrova.spi.observability.TracingProvider;

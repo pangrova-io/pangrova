@@ -8,12 +8,12 @@ import org.pangrova.spi.ai.error.AiInvocationException;
 import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
 import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiEmbeddingConfig;
-import org.pangrova.ai.worker.inference.provider.openai.OpenAiCompatibleInferenceProvider;
-import org.pangrova.ai.worker.inference.provider.openai.OpenAiInferenceConfig;
+import org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider;
+import org.pangrova.ai.worker.embedding.openai.OpenAiEmbeddingConfig;
+import org.pangrova.ai.worker.inference.openai.OpenAiCompatibleInferenceProvider;
+import org.pangrova.ai.worker.inference.openai.OpenAiInferenceConfig;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
-import org.pangrova.ai.worker.rerank.provider.openai.OpenAiCompatibleRerankingProvider;
+import org.pangrova.ai.worker.rerank.openai.OpenAiCompatibleRerankingProvider;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

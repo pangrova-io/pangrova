@@ -20,7 +20,7 @@ import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
 import org.pangrova.shuffle.api.ShuffleHandle;

@@ -1,6 +1,6 @@
 package org.pangrova.worker.execution;
 
-import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -22,7 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.ai.control.api.AiControlException;
 import org.pangrova.ai.control.feature.FeatureCatalogStore;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
 
 import javax.sql.DataSource;

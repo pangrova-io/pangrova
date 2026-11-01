@@ -13,7 +13,7 @@ import org.pangrova.materialization.port.Clock;
 import org.pangrova.materialization.port.PublicationVerifier;
 import org.pangrova.materialization.usecase.KernelPorts;
 import org.pangrova.materialization.usecase.MaterializationService;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog;
 import org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository;
 import org.pangrova.spi.security.AccessControl;

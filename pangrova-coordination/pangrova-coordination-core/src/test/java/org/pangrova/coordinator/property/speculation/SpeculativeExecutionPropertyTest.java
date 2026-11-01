@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.property.speculation;
 
 import net.jqwik.api.*;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
 import org.pangrova.scheduler.api.placement.TaskDuration;
 
 import java.util.ArrayList;

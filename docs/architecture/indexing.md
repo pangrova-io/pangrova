@@ -23,11 +23,11 @@ Index state and index orchestration have separate owners:
 - `pangrova-indexing` owns index persistence and evaluation:
   `org.pangrova.indexing.store` and `org.pangrova.indexing.store.jdbc` hold the
   descriptor, commit queue, generation, publication-fencing and GC persistence;
-  `org.pangrova.indexing.core.*`, `org.pangrova.indexing.engine.*` and
+  `org.pangrova.indexing.*`, `org.pangrova.indexing.engine.*` and
   `org.pangrova.indexing.eval.*` hold build/evaluation logic and the per-engine
   providers. `pangrova-metadata` does not own index storage.
 - `pangrova-coordinator` owns only the control-plane adapter under
-  `org.pangrova.coordinator.adapter.indexing` (DDL, filter, lifecycle/GC and the
+  `org.pangrova.coordinator.indexing` (DDL, filter, lifecycle/GC and the
   AI retrieval-index lifecycle). It depends on indexing contracts and store
   ports; it never owns a second index metadata store.
 - Index generation has exactly one owner: the indexing store allocates and

@@ -15,8 +15,8 @@ package org.pangrova.transport;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.client.core.protocol.ResultProtocol;
+import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.client.protocol.ResultProtocol;
 import org.pangrova.transport.security.ResultTransportSecurity;
 
 import java.nio.file.Files;

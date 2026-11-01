@@ -32,7 +32,7 @@ import org.pangrova.materialization.port.DefinitionPlanner;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PlannedDefinition;
 import org.pangrova.materialization.port.PlanningRequest;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.planner.SqlCompiler;

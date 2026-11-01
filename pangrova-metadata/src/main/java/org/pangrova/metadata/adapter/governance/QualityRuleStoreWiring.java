@@ -4,7 +4,7 @@ import java.util.Objects;
 
 import org.pangrova.governance.core.quality.IdentityQualityRuleStore;
 import org.pangrova.governance.api.quality.QualityRuleStore;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 
 /**

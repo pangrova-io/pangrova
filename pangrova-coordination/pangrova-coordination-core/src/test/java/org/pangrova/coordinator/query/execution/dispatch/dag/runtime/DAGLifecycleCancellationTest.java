@@ -7,7 +7,7 @@ import net.jqwik.api.constraints.IntRange;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
-import org.pangrova.shuffle.provider.spool.LocalShuffleLifecycleManager;
+import org.pangrova.shuffle.spool.LocalShuffleLifecycleManager;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;

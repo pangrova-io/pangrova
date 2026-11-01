@@ -2,11 +2,11 @@ package org.pangrova.coordinator.generation;
 
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.spi.generation.job.GenerationLease;
 import org.pangrova.persistence.api.generation.job.GenerationJobStore;

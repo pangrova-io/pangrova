@@ -6,8 +6,8 @@ import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore;
 import org.pangrova.spi.security.AuthorizationDeniedException;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.security.core.authz.deferred.DeferredPolicyReader;
-import org.pangrova.security.core.authz.deferred.DeferredAuthorization;
+import org.pangrova.security.authz.deferred.DeferredPolicyReader;
+import org.pangrova.security.authz.deferred.DeferredAuthorization;
 
 import java.sql.Connection;
 import java.sql.SQLException;

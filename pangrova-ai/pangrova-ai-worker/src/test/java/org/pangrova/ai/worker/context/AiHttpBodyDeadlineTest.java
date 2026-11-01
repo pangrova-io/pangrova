@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.spi.ai.error.AiInvocationException;
 import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
 import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider;
-import org.pangrova.ai.worker.embedding.provider.openai.OpenAiEmbeddingConfig;
+import org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider;
+import org.pangrova.ai.worker.embedding.openai.OpenAiEmbeddingConfig;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
 
 import java.net.InetSocketAddress;

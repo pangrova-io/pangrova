@@ -13,8 +13,8 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.planner.PlanFragment;
-import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
+import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 
 import java.util.List;
 import java.util.Map;

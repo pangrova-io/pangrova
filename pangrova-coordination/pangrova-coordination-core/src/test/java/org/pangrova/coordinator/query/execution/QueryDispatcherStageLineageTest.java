@@ -36,8 +36,8 @@ class QueryDispatcherStageLineageTest {
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                         new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
-                new org.pangrova.scheduler.core.placement.TaskScheduler(
-                        new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer()),
+                new org.pangrova.scheduler.placement.TaskScheduler(
+                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                 null, null, null, 0L);
@@ -71,8 +71,8 @@ class QueryDispatcherStageLineageTest {
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                         new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
-                new org.pangrova.scheduler.core.placement.TaskScheduler(
-                        new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer()),
+                new org.pangrova.scheduler.placement.TaskScheduler(
+                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                 null, null, emitter, 0L);

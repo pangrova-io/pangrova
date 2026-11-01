@@ -5,7 +5,7 @@ import org.pangrova.worker.task.state.TaskState;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.error.ErrorDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -304,7 +304,7 @@ public final class TaskCompletionMonitor {
             statusCollector.reportWorkerTerminalStatus(
                     info,
                     "CANCELLED",
-                    new org.pangrova.client.core.error.ErrorDetail(
+                    new org.pangrova.client.error.ErrorDetail(
                             "TASK_CANCELLED", "Cancellation", "Task cancelled by control plane"));
         }
         info.markCancellationReported();

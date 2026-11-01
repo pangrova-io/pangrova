@@ -113,8 +113,8 @@ class NamingConventionPropertyTest {
     @Test
     void frameworkRestrictionsFollowModuleBoundaries() {
         assertThatCode(() -> verifyStableLayerClassName(new ClassInfo(
-                "FlightClientTracingInterceptor", "org.pangrova.observability.sdk.tracing.adapter.grpc.FlightClientTracingInterceptor",
-                "pangrova-observability-sdk", "org.pangrova.observability.sdk.tracing.adapter.grpc")))
+                "FlightClientTracingInterceptor", "org.pangrova.observability.sdk.tracing.grpc.FlightClientTracingInterceptor",
+                "pangrova-observability-sdk", "org.pangrova.observability.sdk.tracing.grpc")))
                 .doesNotThrowAnyException();
         assertThatCode(() -> verifyStableLayerClassName(new ClassInfo(
                 "ArrowBatchCodec", "org.pangrova.protocol.ArrowBatchCodec",

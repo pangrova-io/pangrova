@@ -1,7 +1,7 @@
 package org.pangrova.worker.copy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 
 import java.io.ByteArrayOutputStream;

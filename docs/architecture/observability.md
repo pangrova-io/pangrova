@@ -664,7 +664,7 @@ public class ProfilerEndpoint {
 Query audit values and the admission sink live in `pangrova-spi` under
 `org.pangrova.spi.query.audit`; the storage port lives in `pangrova-persistence-api`
 under `org.pangrova.persistence.api.query.audit`. The runtime service remains
-`org.pangrova.query.core.audit.QueryAuditService`. Each Coordinator composes its own
+`org.pangrova.query.audit.QueryAuditService`. Each Coordinator composes its own
 `QueryAuditServices`: admission and profile lookup
 share one `org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore` instance.
 Independent Coordinators do not share a global cache.

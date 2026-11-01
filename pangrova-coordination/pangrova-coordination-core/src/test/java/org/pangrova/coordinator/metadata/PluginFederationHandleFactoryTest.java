@@ -5,7 +5,7 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.security.secret.SecretResolverRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;

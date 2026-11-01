@@ -11,7 +11,7 @@ import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.security.AccessDeniedException;

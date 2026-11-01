@@ -1,7 +1,7 @@
 package org.pangrova.indexing.assembly.serde;
 
 import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.indexing.core.serde.TypeSerializerRegistry;
+import org.pangrova.indexing.serde.TypeSerializerRegistry;
 import org.pangrova.indexing.engine.bitmap.serializer.BitmapSerializer;
 import org.pangrova.indexing.engine.bloom.serializer.BloomFilterSerializer;
 import org.pangrova.indexing.engine.btree.serializer.BTreeSerializer;

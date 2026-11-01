@@ -15,11 +15,11 @@ import org.pangrova.coordinator.feature.FeatureViewStatementService;
 import org.pangrova.coordinator.feature.FeatureSourceCompiler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.ai.control.assembly.AiInfrastructureStores;
 import org.pangrova.persistence.api.generation.job.GenerationJobStore;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,7 +66,7 @@ final class QueryMaterializationWiring {
             org.pangrova.coordinator.bootstrap.module.DefaultModuleContext moduleContext,
             CatalogRegistry catalog) {
         var indexedReads = moduleContext.optional(
-                org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher.class);
+                org.pangrova.coordinator.indexing.IndexAwareSplitFetcher.class);
         if (indexedReads != null && dependencies.artifactBuildStore() != null) {
             indexedReads.bindGeneratedValueReads(new org.pangrova.coordinator.generation.GeneratedValueReadResolver(
                     catalog, dependencies.artifactBuildStore(),

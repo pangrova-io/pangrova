@@ -1,8 +1,8 @@
 package org.pangrova.client.transport.http;
 
-import org.pangrova.client.core.api.MetadataTableIdentifier;
-import org.pangrova.client.core.api.MetadataColumnInfo;
-import org.pangrova.client.core.error.PangrovaProtocolException;
+import org.pangrova.client.api.MetadataTableIdentifier;
+import org.pangrova.client.api.MetadataColumnInfo;
+import org.pangrova.client.error.PangrovaProtocolException;
 
 import com.fasterxml.jackson.databind.JsonNode;
 

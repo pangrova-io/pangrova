@@ -2,8 +2,8 @@ package org.pangrova.testing.integration.e2e.result;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.client.core.protocol.SubmitQueryRequest;
-import org.pangrova.client.core.protocol.SubmitQueryResponse;
+import org.pangrova.client.protocol.SubmitQueryRequest;
+import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

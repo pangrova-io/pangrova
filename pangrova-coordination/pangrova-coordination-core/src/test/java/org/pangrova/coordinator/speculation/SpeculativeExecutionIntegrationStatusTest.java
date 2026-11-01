@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.speculation;
 
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
 
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
@@ -50,11 +50,11 @@ class SpeculativeExecutionIntegrationStatusTest {
     @Test
     void componentsAreInCorrectPackage() {
         assertThat(StragglerDetector.class.getPackageName())
-                .isEqualTo("org.pangrova.scheduler.core.speculation");
+                .isEqualTo("org.pangrova.scheduler.speculation");
         assertThat(SpeculativeTaskLauncher.class.getPackageName())
-                .isEqualTo("org.pangrova.scheduler.core.speculation");
+                .isEqualTo("org.pangrova.scheduler.speculation");
         assertThat(DuplicateTaskResolver.class.getPackageName())
-                .isEqualTo("org.pangrova.scheduler.core.speculation");
+                .isEqualTo("org.pangrova.scheduler.speculation");
     }
 
     // ── Integration gap documentation (confirms NOT INTEGRATED) ──

@@ -17,10 +17,10 @@ import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
@@ -36,14 +36,14 @@ import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.core.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.spi.security.policy.Privilege;
 import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.spi.security.policy.Role;
 import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.spi.security.rowfilter.RowPolicy;
 import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
@@ -109,9 +109,9 @@ final class SchedulingWriteFixture implements AutoCloseable {
     }
 
     void enforceOwnership() {
-        registry.setTableControlService(new org.pangrova.table.core.control.TableControlService(
+        registry.setTableControlService(new org.pangrova.table.control.TableControlService(
                 new org.pangrova.table.store.memory.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
-                new org.pangrova.table.core.control.TableControlSettings(true, true, Set.of())));
+                new org.pangrova.table.control.TableControlSettings(true, true, Set.of())));
     }
 
     void installOrdinaryAuthority() {

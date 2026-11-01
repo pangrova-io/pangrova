@@ -11,7 +11,7 @@ import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 import org.pangrova.spi.indexing.state.IndexState;
 import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.indexing.core.planner.IndexHint;
+import org.pangrova.indexing.planner.IndexHint;
 
 import java.time.Instant;
 import java.util.List;
