@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;

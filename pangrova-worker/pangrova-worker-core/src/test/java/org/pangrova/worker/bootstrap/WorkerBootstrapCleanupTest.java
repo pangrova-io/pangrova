@@ -1,5 +1,8 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import java.io.IOException;
 import java.nio.channels.Pipe;
 import java.util.concurrent.CountDownLatch;
@@ -38,7 +41,7 @@ class WorkerBootstrapCleanupTest {
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             Thread.currentThread().interrupt();
             try {
-                assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup(), false))
+                assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup()))
                         .isInstanceOf(IllegalStateException.class).hasMessageContaining("CDC consumer");
                 assertThat(Thread.currentThread().isInterrupted()).isTrue();
                 assertThat(scheduler.isShutdown()).isFalse();
@@ -48,7 +51,7 @@ class WorkerBootstrapCleanupTest {
             assertThat(refs.cdcConsumer()).isSameAs(cdc);
             assertThat(exited.await(5, TimeUnit.SECONDS)).isTrue();
             cdcBlocked.set(false);
-            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup(), false);
+            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup());
             assertThat(scheduler.isTerminated()).isTrue();
             assertThat(dependent.isOpen()).isFalse();
             assertThat(refs.nativeFunctionResources()).isEmpty();

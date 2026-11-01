@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.lifecycle;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

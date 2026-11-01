@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
 import org.pangrova.common.lifecycle.BootstrapFailedException;
 import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
 

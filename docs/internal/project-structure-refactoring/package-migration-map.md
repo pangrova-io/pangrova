@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-10-31，Generation 三叶及第42节 Worker codec/state/memory 所有权落位后的实施工作区。658 包 / 53 Java 叶子 / 3,574 主源文件 / 2,375 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
+当前台账：2026-11-01，第43节 Worker 启动配置、资源所有权与关闭职责落位后的实施工作区。661 包 / 53 Java 叶子 / 3,578 主源文件 / 2,375 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -12,7 +12,7 @@
 
 第35节将模型当前权限实现迁入 AI Control，由 Security 事务端口显式接入 Metadata、Artifact 和生成写入；删除静态 authority 和单纯转发工厂。领域发布与激活装配仍待闭环。
 
-第42节新增 exchange.codec 包，并归位 TaskState/TaskMemoryAccount；两组 Worker SCC 消失，剩五组成员不变。预算异常回归已取得仓库红4→绿13；完整 Worker/static/Integration 验证 pending，不将台账“保留”视为完成验收。
+第42节新增 exchange.codec 包，并归位 TaskState/TaskMemoryAccount；两组 Worker SCC 消失，剩五组成员不变。预算异常回归已取得仓库红4→绿13；第42节完整 Worker/static/Integration 验证已通过，不将台账“保留”视为完成验收。
 
 [总体计划与批次定义](../project-structure-refactoring-plan.md)。目标包中的 `{a,b}` 表示按能力分包，不是字面 Java 包名；`<能力>` 由该行现有能力后缀确定；多目标项按总体计划中的类级规则迁移，禁止整包机械复制。短包名前缀与当前 owner 对齐；跨域目标均注明制品。
 
@@ -1001,14 +1001,17 @@
 
 ## pangrova-worker-core
 
-路径：`pangrova-worker/pangrova-worker-core`。主源文件 245，主源包 38，本叶子测试源文件 240（不是测试用例数）。
+路径：`pangrova-worker/pangrova-worker-core`。主源文件 249，主源包 41，本叶子测试源文件 240（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.worker](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker) | 3 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
-| [org.pangrova.worker.bootstrap](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap) | 10 | 迁移 / P6 | `pangrova-worker-core`：`org.pangrova.worker.assembly` | phase 接受窄能力、返回 owned resources；生命周期不读整个组件袋 |
-| [org.pangrova.worker.bootstrap.lifecycle](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/lifecycle) | 5 | 迁移 / P6 | `pangrova-worker-core`：`org.pangrova.worker.assembly.lifecycle` | phase 接受窄能力、返回 owned resources；生命周期不读整个组件袋 |
-| [org.pangrova.worker.bootstrap.phase](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase) | 8 | 迁移 / P6 | `pangrova-worker-core`：`org.pangrova.worker.assembly.phase` | phase 接受窄能力、返回 owned resources；生命周期不读整个组件袋 |
+| [org.pangrova.worker.bootstrap](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap) | 5 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap` | 第43节：进程入口、启动顺序与清理准入；phase 不反向依赖编排器 |
+| [org.pangrova.worker.bootstrap.config](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/config) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.config` | 第43节：不可变部署配置，供启动阶段与部署适配器消费 |
+| [org.pangrova.worker.bootstrap.ownership](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/ownership) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.ownership` | 第43节：组件引用与部分初始化资源账本，不执行 phase；删除五组无消费者字段 |
+| [org.pangrova.worker.bootstrap.registration](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/registration) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.registration` | 第43节：注册/注销 HTTP 通信，不持有装配器或资源容器 |
+| [org.pangrova.worker.bootstrap.lifecycle](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/lifecycle) | 5 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.lifecycle` | 第43节：readiness、drain 与共享资源释放；关闭参数只保留真实 owner |
+| [org.pangrova.worker.bootstrap.phase](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase) | 7 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.phase` | 第43节：按阶段执行装配与发布资源，不引用顶层编排器 |
 | [org.pangrova.worker.buffer](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/buffer) | 9 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.buffer` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.cache](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/cache) | 3 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.cache` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.clustering](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/clustering) | 1 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.clustering` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
@@ -1016,7 +1019,7 @@
 | [org.pangrova.worker.dataset](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/dataset) | 5 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.dataset` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.embedding](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/embedding) | 1 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.embedding` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.exchange](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange) | 7 | 按类拆分 / P6 | `pangrova-worker-core`：`org.pangrova.worker.exchange.api / core / codec / adapter.nativebridge` | 第42节 CanonicalBatchChunks 已归 codec，exchange SCC 消失；其他执行/lease 职责继续按真实消费审查 |
-| [org.pangrova.worker.exchange.codec](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/codec) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.exchange.codec` | 第42节纯 canonical batch 编码能力与包说明落位；chunk/checksum/只读字节语义不变，真实远程链 pending |
+| [org.pangrova.worker.exchange.codec](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/codec) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.exchange.codec` | 第42节纯 canonical batch 编码能力与包说明落位；chunk/checksum/只读字节语义不变，第42节真实远程链已通过 |
 | [org.pangrova.worker.exchange.remote](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote) | 15 | 改依赖 / P6 | `pangrova-worker-core`：`org.pangrova.worker.exchange.remote` | remote 实现消费 exchange/execution SPI，不能反向引用聚合实现包 |
 | [org.pangrova.worker.exchange.remote.security](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/security) | 3 | 改依赖 / P6 | `pangrova-worker-core`：`org.pangrova.worker.exchange.remote.security` | remote 实现消费 exchange/execution SPI，不能反向引用聚合实现包 |
 | [org.pangrova.worker.exchange.source](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.exchange.source` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
@@ -1030,7 +1033,7 @@
 | [org.pangrova.worker.memory](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/memory) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.memory` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.resource](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/resource) | 3 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.resource` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.resource.guard](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/resource/guard) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.resource.guard` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
-| [org.pangrova.worker.resource.memory](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/resource/memory) | 25 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.resource.memory` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
+| [org.pangrova.worker.resource.memory](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/resource/memory) | 27 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.resource.memory` | 第43节：内存预算、池与 shuffle 进程租约；不依赖启动阶段 |
 | [org.pangrova.worker.resource.spill](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/resource/spill) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.resource.spill` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.resource.tenant](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/resource/tenant) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.resource.tenant` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.resource.thread](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/resource/thread) | 1 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.resource.thread` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
@@ -1039,9 +1042,9 @@
 | [org.pangrova.worker.split](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/split) | 1 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.split` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.task](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task) | 42 | 按类拆分 / P6 | `pangrova-worker-core`：`org.pangrova.worker.task.lifecycle / task.state / task.admission / task.report` | 第42节 TaskState/TaskMemoryAccount 已归位并解环；TaskInfo 保留创建/释放/重试/终态单一 owner；其余能力继续语义审查 |
 | [org.pangrova.worker.task.index](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/index) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.task.index` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
-| [org.pangrova.worker.task.memory](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/memory) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.task.memory` | 第42节每任务唯一 TaskMemoryAccount 拥有两份原子账本，requestor/allocator 不再反向依赖 TaskInfo；异常回滚红绿已验证，完整 owner pending |
+| [org.pangrova.worker.task.memory](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/memory) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.task.memory` | 第42节每任务唯一 TaskMemoryAccount 拥有两份原子账本，requestor/allocator 不再反向依赖 TaskInfo；异常回滚红绿及第42节完整 owner 已通过 |
 | [org.pangrova.worker.task.report](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/report) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.task.report` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
-| [org.pangrova.worker.task.state](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/state) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.task.state` | 第42节纯 TaskState + transition 已独立，不依赖 TaskManager；八状态映射及状态唯一性检查通过，生命周期完整回归 pending |
+| [org.pangrova.worker.task.state](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/state) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.task.state` | 第42节纯 TaskState + transition 已独立，不依赖 TaskManager；八状态映射及状态唯一性检查通过，第42节生命周期完整回归已通过 |
 | [org.pangrova.worker.transport](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/transport) | 8 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.transport` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 
 ## pangrova-worker-native-bridge

@@ -1,8 +1,11 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
-import org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient;
+import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
 import org.pangrova.worker.bootstrap.phase.WorkerObservabilitySetup;
 
 import java.net.InetSocketAddress;
@@ -16,6 +19,50 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Actual deregistration HTTP and local owner lifetime; not task or distributed E2E evidence. */
 class WorkerBootstrapDeregistrationTest {
+    @Test
+    void startupRollbackDeregistersAcknowledgedRegistrationBeforeClosingDependencies() throws Exception {
+        var registered = new AtomicBoolean();
+        var deletes = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/workers/", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            boolean registration = exchange.getRequestMethod().equals("POST");
+            registered.set(registration);
+            if (!registration) deletes.incrementAndGet();
+            String status = registration ? "registered" : "deregistered";
+            byte[] body = ("{\"status\":\"" + status + "\",\"coordinator_epoch\":1}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) { output.write(body); }
+        });
+        server.start();
+        try (var client = new WorkerRegistrationClient(
+                "http://127.0.0.1:" + server.getAddress().getPort())) {
+            String inventory = org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec.encode(
+                    org.pangrova.protocol.v2.CapabilityInventory.parseFrom(
+                            org.pangrova.testing.testkit.function.ActualNativeCatalogue.bytes()));
+            var request = new org.pangrova.protocol.rest.worker.WorkerRegistrationRequest(
+                    "startup-rollback", "127.0.0.1", 0, 0, 0, 2,
+                    null, java.util.List.of(), null, inventory,
+                    new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
+                            "00000000-0000-0000-0000-000000000001",
+                            "00000000-0000-0000-0000-000000000002"));
+            client.register(request).requireCoordinatorEpoch();
+            assertThat(registered).isTrue();
+            var refs = new WorkerComponentRefs();
+            refs.setRegistrationClient(client);
+            refs.retainNativeFunctionResource(() -> assertThat(registered).isFalse());
+
+            new WorkerBootstrapCleanup(refs).close(
+                    WorkerBootstrapConfig.withDefaults("startup-rollback"),
+                    new WorkerObservabilitySetup());
+
+            assertThat(deletes).hasValue(1);
+            assertThat(registered).isFalse();
+            assertThat(refs.registrationClient()).isNull();
+        } finally { server.stop(0); }
+    }
+
     @Test
     void failedOwnerCleanupKeepsRegistrationUntilRetryClosesOwner() throws Exception {
         var blocked = new AtomicBoolean(true);
@@ -41,13 +88,13 @@ class WorkerBootstrapDeregistrationTest {
             });
             var config = WorkerBootstrapConfig.withDefaults("ordered-deregister");
             assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config,
-                    new WorkerObservabilitySetup(), true)).hasMessageContaining("CDC consumer");
+                    new WorkerObservabilitySetup())).hasMessageContaining("CDC consumer");
             assertThat(deletes).hasValue(0);
             assertThat(refs.registrationClient()).isSameAs(client);
             assertThat(source.isOpen()).isTrue();
 
             blocked.set(false);
-            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup(), true);
+            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup());
             assertThat(source.isOpen()).isFalse();
             assertThat(deletes).hasValue(1);
             assertThat(premature).isFalse();
@@ -76,11 +123,11 @@ class WorkerBootstrapDeregistrationTest {
             refs.retainNativeFunctionResource(source);
             var config = WorkerBootstrapConfig.withDefaults("unacknowledged-deregister");
             assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config,
-                    new WorkerObservabilitySetup(), true)).hasMessageContaining("expected 'deregistered'");
+                    new WorkerObservabilitySetup())).hasMessageContaining("expected 'deregistered'");
             assertThat(refs.registrationClient()).isSameAs(client);
             assertThat(source.isOpen()).isTrue();
             accepted.set(true);
-            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup(), true);
+            new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup());
             assertThat(deletes).hasValue(2);
             assertThat(source.isOpen()).isFalse();
             assertThat(refs.registrationClient()).isNull();

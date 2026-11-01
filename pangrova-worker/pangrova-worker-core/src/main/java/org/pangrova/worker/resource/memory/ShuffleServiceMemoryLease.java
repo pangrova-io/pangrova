@@ -1,9 +1,6 @@
-package org.pangrova.worker.bootstrap.phase;
+package org.pangrova.worker.resource.memory;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import org.pangrova.worker.resource.memory.MemoryArbitrator;
-import org.pangrova.worker.resource.memory.NodeMemoryPool;
 
 /**
  * Process-lifetime memory reservation for Native Flight retention and transit. Both accounting

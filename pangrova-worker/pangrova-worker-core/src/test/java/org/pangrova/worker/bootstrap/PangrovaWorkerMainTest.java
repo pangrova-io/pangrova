@@ -1,5 +1,8 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

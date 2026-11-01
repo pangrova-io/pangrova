@@ -1,4 +1,4 @@
-package org.pangrova.worker.bootstrap.lifecycle;
+package org.pangrova.worker.bootstrap.registration;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

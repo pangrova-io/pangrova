@@ -293,7 +293,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static volatile org.pangrova.worker.memory.NativeMemoryCoordinator nativeMemoryCoordinatorRef;
     private static volatile MemoryArbitrator sharedWorkerMemoryArbitrator;
     private static volatile NodeMemoryPool sharedWorkerNodePool;
-    private static volatile org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease
+    private static volatile org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease
             sharedShuffleServiceLease;
     private static volatile org.pangrova.worker.result.ResultReadTickets sharedResultReadTickets;
     private static volatile org.pangrova.coordinator.query.statement.DdlExecutor sharedDdlExecutor;
@@ -490,7 +490,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         NodeMemoryPool nodePool = new RootMemoryPool(
                 "root-" + WORKER_ID, WORKER_MEMORY_BYTES)
                 .createNodePool("node-" + WORKER_ID, WORKER_MEMORY_BYTES);
-        var serviceLease = org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease.reserve(
+        var serviceLease = org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease.reserve(
                 WORKER_ID, 16L * 1024 * 1024, 16L * 1024 * 1024, nodePool, arbitrator);
         sharedWorkerMemoryArbitrator = arbitrator;
         sharedWorkerNodePool = nodePool;

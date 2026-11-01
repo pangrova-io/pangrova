@@ -5,7 +5,7 @@ import org.pangrova.function.api.aggregate.AggregateFunction;
 import org.pangrova.function.api.registry.FunctionFactory;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.function.api.scalar.ScalarFunction;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionBridge;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 import org.junit.jupiter.api.Test;

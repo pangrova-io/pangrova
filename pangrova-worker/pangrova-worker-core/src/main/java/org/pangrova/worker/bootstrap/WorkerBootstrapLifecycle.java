@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.pangrova.common.concurrent.GuardedBy;

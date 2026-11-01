@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
 import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
 import org.pangrova.worker.resource.memory.RootMemoryPool;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;

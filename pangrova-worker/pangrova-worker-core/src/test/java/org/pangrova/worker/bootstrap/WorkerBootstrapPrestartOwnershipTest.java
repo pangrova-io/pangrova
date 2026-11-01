@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
 import java.io.IOException;
 import java.nio.channels.Pipe;
 import java.util.concurrent.CompletableFuture;

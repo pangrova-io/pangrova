@@ -27,7 +27,7 @@ import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 /** Actual authenticated Worker control endpoints for lifecycle integration, not SQL E2E. */
 final class WorkerBootstrapControlFixture implements AutoCloseable {

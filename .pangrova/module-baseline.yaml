@@ -2303,8 +2303,11 @@ artifacts:
     mainPackages:
       - org.pangrova.worker
       - org.pangrova.worker.bootstrap
+      - org.pangrova.worker.bootstrap.config
       - org.pangrova.worker.bootstrap.lifecycle
+      - org.pangrova.worker.bootstrap.ownership
       - org.pangrova.worker.bootstrap.phase
+      - org.pangrova.worker.bootstrap.registration
       - org.pangrova.worker.buffer
       - org.pangrova.worker.cache
       - org.pangrova.worker.clustering
@@ -2395,6 +2398,8 @@ artifacts:
     exportedPackages:
       - org.pangrova.testing.nativefixture
       - org.pangrova.worker.bootstrap
+      - org.pangrova.worker.bootstrap.config
+      - org.pangrova.worker.bootstrap.ownership
       - org.pangrova.worker.bootstrap.phase
       - org.pangrova.worker.copy
       - org.pangrova.worker.dataset

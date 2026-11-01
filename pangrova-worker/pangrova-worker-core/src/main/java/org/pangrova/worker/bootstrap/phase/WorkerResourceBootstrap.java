@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap.phase;
 
+import org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease;
+
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -16,9 +18,9 @@ import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.spill.SpillManager;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
-import org.pangrova.worker.bootstrap.ShutdownContext;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.lifecycle.WorkerResourceShutdown;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.pangrova.worker.nativebridge.jni.NativeCommandBuilder;
@@ -132,14 +134,10 @@ public final class WorkerResourceBootstrap {
      * Releases all resource infrastructure (delegated to WorkerShutdownSequence).
      */
     public static void releaseResources(WorkerComponentRefs refs, WorkerObservabilitySetup observability) {
-        ShutdownContext ctx = new ShutdownContext(
-                new ShutdownContext.SchedulerRefs(
-                        null, null, refs.metricsExecutor()),
-                new ShutdownContext.ResourceRefs(
-                        refs.resourceManager(), refs.nativeMetricsPublisher(),
-                        observability.otelInitializer(), refs.nativeAvailable(),
-                        refs.shuffleServiceMemoryLease()),
-                new ShutdownContext.BufferRefs(null, refs.shuffleBufferManager()));
-        WorkerShutdownSequence.releaseResources(ctx, () -> refs.setNativeAvailable(false));
+        WorkerResourceShutdown resources = new WorkerResourceShutdown(
+                refs.metricsExecutor(), refs.resourceManager(), refs.nativeMetricsPublisher(),
+                observability.otelInitializer(), refs.nativeAvailable(),
+                refs.shuffleServiceMemoryLease(), refs.shuffleBufferManager());
+        WorkerShutdownSequence.releaseResources(resources, () -> refs.setNativeAvailable(false));
     }
 }

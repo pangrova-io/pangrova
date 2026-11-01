@@ -1,6 +1,6 @@
 # 项目结构审查证据
 
-审查日期：2026-10-31。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“42. Worker 包环和分配异常的增量证据”，不同批次检查结果不混用。
+审查日期：2026-10-31。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“43. Worker 启动职责与注册回滚的增量证据”，不同批次检查结果不混用。
 
 ## 范围和方法
 
@@ -408,3 +408,27 @@ SpotBugs 再发现 `TaskInfo.memoryAccount()` 暴露可变账本；核对调用�
 `/tmp/pangrova-worker-native-ingress.log`、`/tmp/pangrova-worker-copy-native.log`。clean 后的 Worker
 JAR/classes 中旧 codec 和嵌套 TaskState 均不存在，三个新 owner 类型存在；未留兼容类。
 B6、Catalog B0、剩余五 SCC、全文件语义审查与 R5/R6 仍未完成。
+
+
+## 43. Worker 启动职责与注册回滚的增量证据
+
+配置、资源所有权、注册通信分别归入 bootstrap.config / ownership / registration；内存租约
+归 resource.memory；关闭参数只保留真实共享资源。删除五组无消费者的组件字段及无生产消费者
+的关闭配置，未删除真实关闭/重试/失败回归。五个迁移主体代码 token 比较保持原行为。
+启动注册成功后的回滚原本跳过注销；实际 HTTP 注册/依赖关闭回归先得到红灯 1 项，统一注销
+路径后近端 15 项及后续扩展 42 项通过。完整验证以执行记录第43节终态为准。
+
+当前 67 reactor、53 Java 叶子、1 资源制品；3,578 主源、661 包、2,375 测试源。Worker 为
+249 主源、41 包、240 测试源；逐包台账集合与文件数完全匹配。结构共 13 项，12 通过，
+1 因剩余四 SCC 失败。与第42节原始 report 比较，恰好移除 Worker bootstrap 三包组，其余
+Coordinator 领域执行、bootstrap、HTTP 和 Planner 四组成员相同；未新增豁免。
+本目录 AST report 为原始生成结果副本。Worker 完整 1,297 项、static/install 已通过；
+Kit 完整 112 项仅四 SCC 断言失败，SPI 三项通过并不再忽略缺失的必需装配源码。
+67 项 clean reactor 编译单次通过（skipTests）；最终 Worker/Kit static 通过。真实启动 E2E
+5 项、Coordinator 消费者 35 项及 static 通过；SQL smoke 首次缺少必需镜像参数而中止，核对
+实际镜像后正确传参执行 3 项及 Integration static 通过，均零失败/错误/跳过。clean 后 JAR
+八个旧 owner 身份及其嵌套类型不存在，七个新 owner 存在。本批必要验证已结束，不将本批
+改进记为全仓生产验收通过。Native 使用匹配的上一批 cohort，
+本批没有 C++/ASan 输入变化或重新构建。存储 API 的 AWS 传递依赖与 LOCAL/OSS 装配缺口
+已按当前源码记录执行计划43.3，尚未修改存储实现。B6、Catalog B0、剩余四 SCC、逐文件审查
+与最终 R5/R6 继续开放。

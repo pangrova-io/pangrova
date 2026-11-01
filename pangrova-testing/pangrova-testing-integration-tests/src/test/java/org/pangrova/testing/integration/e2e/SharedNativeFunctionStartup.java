@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e;
 
 import org.pangrova.testing.integration.e2e.ai.SharedAiProvider;
 import org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;

@@ -1,6 +1,5 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.worker.bootstrap.lifecycle.GracefulShutdownConfig;
 import org.pangrova.worker.exchange.ExchangeConnectionPoolConfig;
 import org.pangrova.worker.heartbeat.WorkerHealthSnapshot;
 import org.pangrova.worker.memory.TaskMemorySpillTrigger;
@@ -104,22 +103,6 @@ class WorkerFindingsTest {
         long first = executor.recordRetryAndGetBackoff("task-1");
         long second = executor.recordRetryAndGetBackoff("task-1");
         assertThat(second).isGreaterThan(first);
-    }
-
-    // ── 13.1.2 Worker graceful shutdown ──
-
-    @Test
-    void gracefulShutdownConfig_defaults() {
-        GracefulShutdownConfig config = GracefulShutdownConfig.defaults();
-        assertThat(config.drainTimeoutSeconds()).isEqualTo(30);
-        assertThat(config.notifyCoordinator()).isTrue();
-        assertThat(config.deregisterFromDiscovery()).isTrue();
-    }
-
-    @Test
-    void gracefulShutdownConfig_rejectsInvalidTimeout() {
-        assertThatThrownBy(() -> new GracefulShutdownConfig(0, true, true))
-                .isInstanceOf(IllegalArgumentException.class);
     }
 
     // ── 13.1.3 Task memory spill trigger ──

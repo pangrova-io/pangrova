@@ -3,8 +3,8 @@ package org.pangrova.worker.bootstrap.phase;
 import java.util.Arrays;
 
 import org.pangrova.common.lifecycle.BootstrapFailedException;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,7 +68,7 @@ class WorkerTaskBootstrapTest {
     void createTaskExecutor_throwsWhenNativeUnavailable() {
         assertThatThrownBy(() -> WorkerTaskBootstrap.createTaskExecutor(
                 false, WorkerBootstrapConfig.withDefaults("worker-test"),
-                new org.pangrova.worker.bootstrap.WorkerTaskOwnership(
+                new org.pangrova.worker.bootstrap.ownership.WorkerTaskOwnership(
                         WorkerBootstrapConfig.ResourceConfig.defaults().shuffleChannelLimits())))
                 .isInstanceOf(BootstrapFailedException.class)
                 .hasMessageContaining("Native library unavailable");

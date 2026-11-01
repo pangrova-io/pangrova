@@ -2305,3 +2305,78 @@ Coordinator 领域执行 29 包、bootstrap 2 包、HTTP 5 包、Planner 18 包�
 第 41 节检查点 `243d3710` 已推送。第 42 节的源码落位与近端红绿不关闭 B6 的公共发布
 SQL/领域 writer/装配、Catalog B0 同步游标修复、上述五组 SCC、逐包语义审查及最终 R5/R6。
 本节计划内运行时、静态与全仓编译验收已结束；全项目目标仍保持进行中。
+
+## 43. Worker 启动职责与注册回滚
+
+### 43.1 已落位边界与清理
+
+Worker 配置迁入 `bootstrap.config`；组件引用、任务/函数的部分初始化账本迁入
+`bootstrap.ownership`；注册 HTTP client 归 `bootstrap.registration`。`bootstrap` 只保留入口、
+启动/清理编排和准入状态；phase/lifecycle 不再向上依赖编排包。ShuffleServiceMemoryLease
+归 `resource.memory`，实际两预算预留/归还逻辑不变。五个迁移主体（配置、任务账本、函数账本、
+注册 client、内存租约）的代码 token 在排除 package/import 和注释后与 HEAD 原文件逐一相同。
+本批不改 Native/JNI/protobuf，不新增转发类型或模块豁免。
+
+`ShutdownContext` 的三层参数袋替换为 `WorkerResourceShutdown`，只包含七个真实共享资源。
+原始调用中 expirationScheduler、resultExpirationExecutor、backpressure 均固定为空；结果过期
+调度与 transport 已由 task ownership 释放，不在共享层建立第二条关闭路径。删除无消费者的
+stopTransport 方法、WorkerComponentRefs 五组字段/getter/setter（resourceMonitor、
+cacheMetricsPublisher、activeOutputBuffer、resultExpirationScheduler、transportServer），以及
+无生产调用者的 GracefulShutdownConfig 和仅测试该废弃配置的两项断言。保留真实关闭/异常/
+重试测试；原 filters 中已删除字段的豁免同步删除，其余按新 owner/实际签名精确迁移。
+
+实际 bug：启动 register 成功后，若 heartbeat 阶段失败，rollbackStartup 传 false 会跳过注销，
+先关闭注册 client 再释放依赖。新增实际 HTTP 注册/注销边界回归在原实现得到 1 项失败：
+函数资源关闭时注册仍存在。删除 deregister 布尔开关，正常关闭与启动回滚都对已保留 client
+执行同一注销屏障；未注册时没有 client，不发送注销。失败注销继续保留 client 与后续资源，
+可重试，不能以关闭本地 client 冒充远端注销成功。该回归不是分布式故障或完整启动失败注入证据。
+
+### 43.2 当前验证与结构证据
+
+- JDK 17.0.20 / Maven 3.9.16；第一次仅选 Worker 时本地已安装 parent/provider 陈旧导致解析/
+  编译失败。随后用当前 reactor `-am -DskipTests install` 修复依赖；首次前置构建因系统 Python
+  3.9 不满足 generator 3.10+ 失败，切换现有 3.12 后 41 项前置安装通过。未改项目版本或源码规避。
+- 新回归仓库红灯 1 项；拆包和统一清理后近端 15 项通过；清理废弃字段后扩展近端 42 项通过，
+  均零错误/跳过。中途参数局部变量重名编译失败已修正；静态初查两处同包 redundant import
+  已删除。随后 Worker 完整 owner 1,297 项通过、零失败/错误/跳过，Checkstyle/SpotBugs
+  和 install 通过；近端与完整套件不累加。完整日志耗时 9 分 56 秒。
+- 结构 13 项中 12 通过、1 无环断言失败。初查还检出 observability phase 仅为父类 Javadoc
+  引入的向上 import，删除该无代码用途的 import 并改写职责说明后重新验证。最终全图由 5 组
+  SCC 降至 4 组，仅移除 Worker bootstrap 三包环；其余成员逐组相同，没有新增组或门禁豁免。
+- 当前 67 reactor / 53 Java 叶子 / 1 资源制品，3,578 主源 / 661 包 / 2,375 测试源；Worker 为
+  249 主源 / 41 包 / 240 测试源。661 行台账与实际 package 集合和每包文件数一致，无遗漏、
+  多余或重复。当前 AST 原始 report 已保存为本目录配套证据。
+- 精确 filter 正反例、stub pattern gate、module manifest 通过；架构文档 242 类引用存在。
+  复用上一批匹配 Native 库，实际 SDK cohort hash 为
+  `8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`，已重新运行现有打包脚本。
+  本批没有新做 C++/ASan 构建。
+
+SPI 装配扫描的两处 Worker 文件路径同步归位；required bootstrap source 不再静默跳过缺失/
+不可读文件。Kit 完整 owner 为 112 项、111 通过，唯一失败仍是四组包环；其中三项 SPI 属性
+实际通过，零错误/跳过。
+
+67 项 reactor clean install 单次全部通过（skipTests，只记主源/测试源编译）；clean 后 Worker
+JAR 中八个旧 owner 身份及旧嵌套 records 不存在，七个新 owner 存在。最终 Worker/Kit 静态
+检查通过，包含清理后源码与 NotThreadSafe 所有权声明。真实 Coordinator 的 WorkerBootstrap
+E2E 独立 JVM 执行 5 项通过；Coordinator 消费者 35 项及 static 通过，均零失败/错误/跳过。
+
+SQL smoke 首次缺少必需的 AI fixture image-id 参数而中止；实际 inspect 现有不可变镜像
+`sha256:ff26518e57306ab38b86e67ed50d3a57ea091a99763487d599479597a2c40651` 及版本/模型 digest
+标签后，正确传参重新执行 ActivationSmokeE2ETest：3 项通过，零失败/错误/跳过，Integration
+静态检查通过。该选择验证实际 SQL/DDL/DML/Native 链，不是完整 Integration 或全仓运行时回归。
+
+原始日志前缀 `/tmp/pangrova-worker-bootstrap-*`；本批计划内运行时、静态与全仓编译验证已结束。
+源码/JAR 无旧身份或兼容转发，未提交机器状态或 Native 二进制。公开职责说明见
+[Worker bootstrap ownership](../architecture/worker-bootstrap-lifecycle.md)。整体 B6、Catalog B0、
+Coordinator/Planner 四 SCC、全文件语义审查和最终 R5/R6 继续保持未完成。
+
+### 43.3 下一存储边界的当前源码事实
+
+`pangrova-storage` 的 BlobStorage 与两个实现仍同处 blob 包；其 POM 把 AWS s3/apache-client
+作为传递依赖，尚不满足 API-only 消费者的 SDK 隔离。FileSystemBlobStorage 当前只有测试构造者，
+不能将其当作生产 LOCAL 已接通；AI factory 只创建 S3BlobStorage，Worker COPY 的 managedStorage
+参数仍是具体 S3 类型，并使用 rootUri/backendIdentity 等该类型能力。独立 file-space accessor
+支持 LOCAL/S3，其他 StorageType 会拒绝，不代表 FILE/COPY 的多后端闭环已经实现。
+下一批需先明确内容发布、精确源版本读取与 managed staging 的不同端口和权威，再迁 API 与
+provider/assembly，覆盖真实 LOCAL/S3/OSS 适配及最小 classpath；不能仅把 BlobStorage 改包后
+宣称多存储扩展完成。本节是源码审计结论，尚未修改存储运行时或新增后端测试。

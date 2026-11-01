@@ -4,7 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;

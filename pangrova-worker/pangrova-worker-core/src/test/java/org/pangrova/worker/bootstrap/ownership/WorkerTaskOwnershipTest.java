@@ -1,4 +1,4 @@
-package org.pangrova.worker.bootstrap;
+package org.pangrova.worker.bootstrap.ownership;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;

@@ -13,14 +13,12 @@ import org.pangrova.observability.sdk.tracing.provider.otel.OtelTracingProvider;
 import org.pangrova.observability.api.LoggingProvider;
 import org.pangrova.observability.api.MetricsProvider;
 import org.pangrova.observability.api.TracingProvider;
-import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Encapsulates Worker observability initialization (NoOp or OTel).
- * Extracted from {@link WorkerBootstrap} to keep class size under 500 lines.
+ * Initializes Worker observability providers from deployment configuration.
  */
 public final class WorkerObservabilitySetup {
 

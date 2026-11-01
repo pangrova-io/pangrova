@@ -1,23 +1,19 @@
-package org.pangrova.worker.bootstrap;
+package org.pangrova.worker.bootstrap.ownership;
 
+import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.worker.resource.ResourceManager;
-import org.pangrova.worker.resource.ResourceMonitor;
 import org.pangrova.worker.resource.memory.RootMemoryPool;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.PangrovaWorker;
-import org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient;
-import org.pangrova.worker.buffer.ActiveOutputBuffer;
-import org.pangrova.worker.buffer.ResultExpirationScheduler;
+import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
 import org.pangrova.worker.buffer.ShuffleBufferManager;
 import org.pangrova.worker.heartbeat.HeartbeatSender;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver;
 import org.pangrova.worker.nativebridge.jni.write.NativeWriteExecutor;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.worker.transport.TransportServer;
-import org.pangrova.observability.sdk.metrics.CacheMetricsPublisher;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
 
 import java.util.concurrent.ScheduledExecutorService;
@@ -26,11 +22,13 @@ import java.util.concurrent.ScheduledExecutorService;
  * Mutable holder for components created during Worker bootstrap phases. Each sub-bootstrap writes
  * its outputs here; downstream phases read them.
  *
- * <p>This class is intentionally mutable and NOT thread-safe — it is only accessed sequentially
- * during the single-threaded bootstrap sequence. After bootstrap completes, the refs are read-only.
+ * <p>Assembly and cleanup writes are serialized by WorkerBootstrapLifecycle. Readiness and
+ * heartbeat callbacks read installed owners after publication. Dynamic registration belongs to
+ * the heartbeat scheduler, which must drain before cleanup mutates these references.
  *
- * <p>Package-private — not part of the public API.
+ * <p>Internal to Worker assembly; not a public extension API.
  */
+@NotThreadSafe
 public final class WorkerComponentRefs {
 
     private org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation;
@@ -42,10 +40,9 @@ public final class WorkerComponentRefs {
 
     private boolean nativeAvailable;
     private ResourceManager resourceManager;
-    private ResourceMonitor resourceMonitor;
     private RootMemoryPool rootMemoryPool;
     private NodeMemoryPool nodeMemoryPool;
-    private org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease shuffleServiceMemoryLease;
+    private org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease shuffleServiceMemoryLease;
     private TaskManager taskManager;
     private WorkerTaskOwnership taskOwnership;
     private WorkerHttpServer httpServer;
@@ -55,11 +52,7 @@ public final class WorkerComponentRefs {
     private PangrovaWorker worker;
     private WorkerRegistrationClient registrationClient;
     private NativeMetricsPublisher nativeMetricsPublisher;
-    private CacheMetricsPublisher cacheMetricsPublisher;
     private ShuffleBufferManager shuffleBufferManager;
-    private ActiveOutputBuffer activeOutputBuffer;
-    private ResultExpirationScheduler resultExpirationScheduler;
-    private TransportServer transportServer;
     private AutoCloseable cdcConsumer;
     private volatile int resultServerPort = -1;
 
@@ -81,13 +74,6 @@ public final class WorkerComponentRefs {
         this.resourceManager = v;
     }
 
-    public ResourceMonitor resourceMonitor() {
-        return resourceMonitor;
-    }
-
-    public void setResourceMonitor(ResourceMonitor v) {
-        this.resourceMonitor = v;
-    }
 
     public RootMemoryPool rootMemoryPool() {
         return rootMemoryPool;
@@ -105,13 +91,13 @@ public final class WorkerComponentRefs {
         this.nodeMemoryPool = v;
     }
 
-    public org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease
+    public org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease
             shuffleServiceMemoryLease() {
         return shuffleServiceMemoryLease;
     }
 
     public void setShuffleServiceMemoryLease(
-            org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease v) {
+            org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease v) {
         this.shuffleServiceMemoryLease = v;
     }
 
@@ -191,13 +177,6 @@ public final class WorkerComponentRefs {
         this.nativeMetricsPublisher = v;
     }
 
-    public CacheMetricsPublisher cacheMetricsPublisher() {
-        return cacheMetricsPublisher;
-    }
-
-    public void setCacheMetricsPublisher(CacheMetricsPublisher v) {
-        this.cacheMetricsPublisher = v;
-    }
 
     public ShuffleBufferManager shuffleBufferManager() {
         return shuffleBufferManager;
@@ -207,29 +186,8 @@ public final class WorkerComponentRefs {
         this.shuffleBufferManager = v;
     }
 
-    public ActiveOutputBuffer activeOutputBuffer() {
-        return activeOutputBuffer;
-    }
 
-    public void setActiveOutputBuffer(ActiveOutputBuffer v) {
-        this.activeOutputBuffer = v;
-    }
 
-    public ResultExpirationScheduler resultExpirationScheduler() {
-        return resultExpirationScheduler;
-    }
-
-    public void setResultExpirationScheduler(ResultExpirationScheduler v) {
-        this.resultExpirationScheduler = v;
-    }
-
-    public TransportServer transportServer() {
-        return transportServer;
-    }
-
-    public void setTransportServer(TransportServer v) {
-        this.transportServer = v;
-    }
 
     public AutoCloseable cdcConsumer() {
         return cdcConsumer;

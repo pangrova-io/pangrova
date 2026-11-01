@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.config.PangrovaConfiguration;
 

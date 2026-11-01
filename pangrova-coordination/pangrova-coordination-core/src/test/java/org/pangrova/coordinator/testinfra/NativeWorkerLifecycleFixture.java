@@ -2,7 +2,7 @@ package org.pangrova.coordinator.testinfra;
 
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver;
 
 import java.nio.file.Path;

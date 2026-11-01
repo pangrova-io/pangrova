@@ -1,11 +1,10 @@
-package org.pangrova.worker.bootstrap;
+package org.pangrova.worker.bootstrap.config;
 
 import org.pangrova.config.ShuffleMode;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 
 /**
- * Configuration for Worker bootstrap sequence. Groups all startup parameters into a single record
- * to keep constructor params ≤ 4.
+ * Immutable deployment configuration for the Worker bootstrap sequence.
  *
  * <p><b>coordinatorUrl</b>: In multi-coordinator deployments, this should point to the
  * load-balancer VIP (e.g. {@code http://coordinator-lb:8080}), not a single coordinator instance.

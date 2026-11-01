@@ -1,4 +1,4 @@
-package org.pangrova.worker.bootstrap;
+package org.pangrova.worker.bootstrap.ownership;
 
 import java.util.ArrayList;
 import java.util.List;

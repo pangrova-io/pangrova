@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.resource.memory.RootMemoryPool;
-import org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease;
+import org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

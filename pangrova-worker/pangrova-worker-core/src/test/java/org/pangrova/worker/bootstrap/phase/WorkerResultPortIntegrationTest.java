@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerTaskOwnership;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerTaskOwnership;
 import org.pangrova.worker.result.NativeResultTransport;
 
 import java.net.ServerSocket;

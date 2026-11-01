@@ -4,7 +4,7 @@ import org.pangrova.config.ConfigValidator;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.WorkerOptions;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 /**
  * Public entry point for running a Worker inside another JVM process.

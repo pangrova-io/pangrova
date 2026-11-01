@@ -1,5 +1,5 @@
 Main-source package dependency cycles
-Packages: 658
+Packages: 661
 
 Component: [org.pangrova.coordinator.adapter.indexing, org.pangrova.coordinator.adapter.indexing.ddl, org.pangrova.coordinator.adapter.indexing.filter, org.pangrova.coordinator.ai.embedding, org.pangrova.coordinator.clustering, org.pangrova.coordinator.generation, org.pangrova.coordinator.generation.runtime, org.pangrova.coordinator.generation.template, org.pangrova.coordinator.query, org.pangrova.coordinator.query.audit, org.pangrova.coordinator.query.execution, org.pangrova.coordinator.query.execution.dispatch, org.pangrova.coordinator.query.execution.dispatch.adaptive, org.pangrova.coordinator.query.execution.dispatch.dag, org.pangrova.coordinator.query.execution.dispatch.dag.binding, org.pangrova.coordinator.query.execution.dispatch.dag.control, org.pangrova.coordinator.query.execution.dispatch.dag.handler, org.pangrova.coordinator.query.execution.dispatch.dag.retrieval, org.pangrova.coordinator.query.execution.dispatch.dag.runtime, org.pangrova.coordinator.query.execution.dispatch.task, org.pangrova.coordinator.query.execution.phase, org.pangrova.coordinator.query.execution.retrieval, org.pangrova.coordinator.query.execution.split, org.pangrova.coordinator.query.lifecycle, org.pangrova.coordinator.query.stage, org.pangrova.coordinator.query.statement, org.pangrova.coordinator.query.statement.dml, org.pangrova.coordinator.scheduler, org.pangrova.coordinator.task]
   org.pangrova.coordinator.adapter.indexing -> org.pangrova.coordinator.adapter.indexing.ddl
@@ -364,15 +364,3 @@ Component: [org.pangrova.planner, org.pangrova.planner.cost, org.pangrova.planne
     pangrova-planner/src/main/java/org/pangrova/planner/substrait/PlanNodeConverter.java:33 -> org.pangrova.planner.validation.NativeCapabilityRegistry
   org.pangrova.planner.validation -> org.pangrova.planner.exchange
     pangrova-planner/src/main/java/org/pangrova/planner/validation/SubstraitPlanValidator.java:22 -> org.pangrova.planner.exchange.ExchangeInputLeafDetail
-
-Component: [org.pangrova.worker.bootstrap, org.pangrova.worker.bootstrap.lifecycle, org.pangrova.worker.bootstrap.phase]
-  org.pangrova.worker.bootstrap -> org.pangrova.worker.bootstrap.lifecycle
-    pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/WorkerBootstrapCleanup.java:3 -> org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence
-  org.pangrova.worker.bootstrap -> org.pangrova.worker.bootstrap.phase
-    pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/ShutdownContext.java:39 -> org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease
-  org.pangrova.worker.bootstrap.lifecycle -> org.pangrova.worker.bootstrap
-    pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/lifecycle/WorkerHealthConditions.java:4 -> org.pangrova.worker.bootstrap.WorkerComponentRefs
-  org.pangrova.worker.bootstrap.phase -> org.pangrova.worker.bootstrap
-    pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/NativeFunctionBootstrap.java:8 -> org.pangrova.worker.bootstrap.WorkerComponentRefs
-  org.pangrova.worker.bootstrap.phase -> org.pangrova.worker.bootstrap.lifecycle
-    pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerHeartbeatBootstrap.java:13 -> org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient

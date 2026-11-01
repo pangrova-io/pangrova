@@ -14,7 +14,7 @@ import org.pangrova.observability.api.noop.NoOpTracingProvider;
 import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;

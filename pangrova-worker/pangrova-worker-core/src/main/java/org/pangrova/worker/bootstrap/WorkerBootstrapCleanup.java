@@ -1,5 +1,8 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerCleanupSteps;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
@@ -19,18 +22,15 @@ final class WorkerBootstrapCleanup {
 
     void close(
             WorkerBootstrapConfig config,
-            WorkerObservabilitySetup observability,
-            boolean deregister) {
+            WorkerObservabilitySetup observability) {
         steps.attempt(this::closeCdc);
         steps.attempt(this::closeHeartbeat);
         steps.attempt(() -> WorkerHttpBootstrap.stopHttp(refs));
         steps.attempt(() -> WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager()));
         steps.attempt(this::closeTasks);
         steps.requireSuccess();
-        if (deregister) {
-            steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
-            steps.requireSuccess();
-        }
+        steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
+        steps.requireSuccess();
         steps.attempt(this::closeRegistrationClient);
         steps.requireSuccess();
         steps.attempt(this::closeWriter);

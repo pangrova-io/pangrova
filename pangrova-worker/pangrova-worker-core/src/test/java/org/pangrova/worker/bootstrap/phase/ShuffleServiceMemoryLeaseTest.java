@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap.phase;
 
+import org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

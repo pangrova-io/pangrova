@@ -14,8 +14,8 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.phase.WorkerHeartbeatBootstrap;
 
 import java.net.URI;

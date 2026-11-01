@@ -1,5 +1,8 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -105,7 +108,7 @@ public final class WorkerBootstrap {
     private void rollbackStartup(Throwable startupFailure) {
         boolean success = false;
         try {
-            new WorkerBootstrapCleanup(refs).close(config, observability, false);
+            new WorkerBootstrapCleanup(refs).close(config, observability);
             success = true;
         } catch (RuntimeException | Error cleanupFailure) {
             if (startupFailure != cleanupFailure) {
@@ -124,7 +127,7 @@ public final class WorkerBootstrap {
         boolean success = false;
         try {
             LOG.info("event=worker_shutdown_start workerId={}", config.workerId());
-            new WorkerBootstrapCleanup(refs).close(config, observability, true);
+            new WorkerBootstrapCleanup(refs).close(config, observability);
             success = true;
             LOG.info("event=worker_shutdown_completed workerId={}", config.workerId());
         } finally {

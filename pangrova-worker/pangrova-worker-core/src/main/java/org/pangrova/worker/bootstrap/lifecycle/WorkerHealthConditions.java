@@ -1,7 +1,7 @@
 package org.pangrova.worker.bootstrap.lifecycle;
 
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 

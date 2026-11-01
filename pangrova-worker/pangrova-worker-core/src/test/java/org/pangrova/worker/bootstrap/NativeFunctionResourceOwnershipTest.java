@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;

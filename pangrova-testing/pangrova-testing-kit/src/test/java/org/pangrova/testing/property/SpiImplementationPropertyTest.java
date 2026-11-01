@@ -112,7 +112,7 @@ class SpiImplementationPropertyTest {
             "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/ObservabilityBootstrap.java",
             "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/WorkerBootstrap.java",
             "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrapConfig.java",
-            "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/WorkerBootstrapConfig.java",
+            "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/config/WorkerBootstrapConfig.java",
             "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/metadata/PluginConnectorHandleFactory.java",
             "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/metadata/MetadataBootstrap.java",
             "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/PangrovaWorkerMain.java",
@@ -121,7 +121,7 @@ class SpiImplementationPropertyTest {
             "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskManager.java",
             "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java",
             "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java",
-            "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/WorkerTaskBootstrap.java"
+            "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java"
     );
 
     /** Pattern cache for implementation matching (must be initialized before SCAN_RESULTS). */
@@ -379,13 +379,11 @@ class SpiImplementationPropertyTest {
         StringBuilder sb = new StringBuilder();
         for (String bootstrapFile : BOOTSTRAP_FILES) {
             Path path = root.resolve(bootstrapFile);
-            if (Files.isRegularFile(path)) {
-                try {
-                    sb.append(Files.readString(path));
-                    sb.append('\n');
-                } catch (IOException ignored) {
-                    // skip unreadable files
-                }
+            try {
+                sb.append(Files.readString(path));
+                sb.append('\n');
+            } catch (IOException failure) {
+                throw new UncheckedIOException("Cannot read required bootstrap source " + path, failure);
             }
         }
         return sb.toString();

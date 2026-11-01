@@ -5,7 +5,7 @@ import org.pangrova.function.api.registry.FunctionFactory;
 import org.pangrova.function.api.runtime.FunctionCallbackScope;
 import org.pangrova.function.api.runtime.FunctionFailureProjector;
 import org.pangrova.function.api.scalar.ScalarFunction;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionBridge;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionDescriptor;

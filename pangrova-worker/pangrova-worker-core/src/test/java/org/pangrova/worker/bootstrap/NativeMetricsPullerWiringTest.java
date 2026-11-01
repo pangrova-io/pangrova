@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPuller;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
 import org.pangrova.observability.api.noop.NoOpMetricsProvider;

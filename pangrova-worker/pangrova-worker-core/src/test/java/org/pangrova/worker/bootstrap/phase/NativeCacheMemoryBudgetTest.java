@@ -3,7 +3,7 @@ package org.pangrova.worker.bootstrap.phase;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.pangrova.protocol.v2.RuntimeInitConfig;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.worker.cache.NativeCacheConfig;
 import org.junit.jupiter.api.Test;
 

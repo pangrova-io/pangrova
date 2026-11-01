@@ -2,7 +2,7 @@ package org.pangrova.worker.property.bootstrap;
 
 import org.pangrova.worker.bootstrap.StubCoordinatorServer;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;

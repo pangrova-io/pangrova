@@ -1,17 +1,17 @@
 package org.pangrova.worker.bootstrap.lifecycle;
 
+import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
+
 import org.pangrova.observability.sdk.config.TelemetryInitializer;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
 import org.pangrova.worker.PangrovaWorker;
-import org.pangrova.worker.bootstrap.ShutdownContext;
 import org.pangrova.worker.heartbeat.HeartbeatSender;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.worker.transport.TransportServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,8 +19,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Encapsulates the Worker shutdown sequence. Extracted from WorkerBootstrap to keep class size
- * within 500-line limit.
+ * Drains Worker execution and releases shared owners in dependency order.
  */
 public final class WorkerShutdownSequence {
 
@@ -56,12 +55,6 @@ public final class WorkerShutdownSequence {
         }
     }
 
-    public static void stopTransport(TransportServer server) {
-        if (server != null) {
-            server.stop();
-        }
-    }
-
     /** Stops the worker HTTP server. */
     public static void stopHttp(WorkerHttpServer httpServer) {
         if (httpServer == null) return;
@@ -73,28 +66,26 @@ public final class WorkerShutdownSequence {
     }
 
     /** Releases shared resources held by the shutdown context. */
-    public static void releaseResources(ShutdownContext ctx, Runnable nativeReleased) {
+    public static void releaseResources(WorkerResourceShutdown resources, Runnable nativeReleased) {
         var dependents = new WorkerCleanupSteps();
-        dependents.attempt(() -> closeShuffleBufferManager(ctx.shuffleBufferManager()));
-        dependents.attempt(
-                () -> stopResultExpiration(ctx.schedulerRefs().resultExpirationExecutor()));
+        dependents.attempt(() -> closeShuffleBufferManager(resources.shuffleBufferManager()));
         dependents.attempt(
                 () ->
                         stopMetrics(
-                                ctx.schedulerRefs().metricsExecutor(),
-                                ctx.resourceRefs().nativeMetricsPublisher()));
+                                resources.metricsExecutor(),
+                                resources.nativeMetricsPublisher()));
         dependents.requireSuccess();
-        shutdownNative(ctx.resourceRefs().nativeAvailable(), nativeReleased);
-        var resources = new WorkerCleanupSteps();
-        resources.attempt(
+        shutdownNative(resources.nativeAvailable(), nativeReleased);
+        var resourceCleanup = new WorkerCleanupSteps();
+        resourceCleanup.attempt(
                 () -> {
-                    if (ctx.resourceRefs().shuffleServiceMemoryLease() != null) {
-                        ctx.resourceRefs().shuffleServiceMemoryLease().close();
+                    if (resources.shuffleServiceMemoryLease() != null) {
+                        resources.shuffleServiceMemoryLease().close();
                     }
                 });
-        resources.attempt(() -> closeObservability(ctx.resourceRefs().otelInitializer()));
-        resources.requireSuccess();
-        closeResourceManager(ctx.resourceRefs().resourceManager());
+        resourceCleanup.attempt(() -> closeObservability(resources.otelInitializer()));
+        resourceCleanup.requireSuccess();
+        closeResourceManager(resources.resourceManager());
         LOG.info("event=resources_released");
     }
 
@@ -104,10 +95,6 @@ public final class WorkerShutdownSequence {
             manager.close();
             LOG.info("event=shuffle_buffer_manager_shutdown");
         }
-    }
-
-    private static void stopResultExpiration(ScheduledExecutorService executor) {
-        stopExecutor(executor);
     }
 
     /** Closes the resource manager and its thread pools. */

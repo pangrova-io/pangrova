@@ -1,6 +1,6 @@
 package org.pangrova.testing.nativefixture;
 
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;

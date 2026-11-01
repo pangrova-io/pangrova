@@ -10,7 +10,7 @@ import org.pangrova.common.lifecycle.BootstrapFailedException;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.v2.CapabilityInventory;
-import org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient;
+import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
 import org.pangrova.testing.testkit.function.ActualNativeCatalogue;
 import org.junit.jupiter.api.Test;
 

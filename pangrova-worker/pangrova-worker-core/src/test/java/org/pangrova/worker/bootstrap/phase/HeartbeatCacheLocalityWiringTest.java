@@ -1,7 +1,7 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.cache.RecentFileAccessTracker;
 import org.pangrova.worker.heartbeat.HeartbeatPayload;
 import org.junit.jupiter.api.Test;

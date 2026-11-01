@@ -1,7 +1,7 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.cache.NativeCacheConfig;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.slf4j.Logger;

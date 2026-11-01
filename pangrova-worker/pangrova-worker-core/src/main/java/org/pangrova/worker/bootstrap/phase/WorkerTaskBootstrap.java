@@ -2,9 +2,9 @@ package org.pangrova.worker.bootstrap.phase;
 
 import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.config.ShuffleMode;
-import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.bootstrap.WorkerComponentRefs;
-import org.pangrova.worker.bootstrap.WorkerTaskOwnership;
+import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.ownership.WorkerTaskOwnership;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
 import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;

@@ -342,10 +342,10 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     @Tag("native-required")
     void workerResourceManagerWiredAfterBootstrap() {
         workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
-                new org.pangrova.worker.bootstrap.WorkerBootstrapConfig("worker-res", 0, 0, stubCoordinatorUrl,
-                        org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
+                new org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig("worker-res", 0, 0, stubCoordinatorUrl,
+                        org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
-                        new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
+                        new org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
                         null, null, null, null, null, null, null, null,
                         org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory()), shuffleDirectory);
         workerBootstrap.start();
@@ -393,10 +393,10 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     @Tag("native-required")
     void workerBootstrapWithAllComponentsStartsSuccessfully() {
         workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
-                new org.pangrova.worker.bootstrap.WorkerBootstrapConfig("worker-full", 0, 0, stubCoordinatorUrl,
-                        org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
+                new org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig("worker-full", 0, 0, stubCoordinatorUrl,
+                        org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
-                        new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
+                        new org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
                         null, null, null, null, null, null, null, null,
                         org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory()), shuffleDirectory);
         workerBootstrap.start();
@@ -412,10 +412,10 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     @Tag("native-required")
     void workerBootstrapShutdownIsClean() {
         workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
-                new org.pangrova.worker.bootstrap.WorkerBootstrapConfig("worker-shutdown", 0, 0, stubCoordinatorUrl,
-                        org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
+                new org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig("worker-shutdown", 0, 0, stubCoordinatorUrl,
+                        org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
-                        new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
+                        new org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
                         null, null, null, null, null, null, null, null,
                         org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory()), shuffleDirectory);
         workerBootstrap.start();
