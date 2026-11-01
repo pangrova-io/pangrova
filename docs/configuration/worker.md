@@ -164,6 +164,25 @@ is in-process; the SSD cache persists across restarts.
 
 ---
 
+## FileSpace storage credentials
+
+Volume/Stage file access uses the Worker's `ObjectStoreAccessorFactory`, separately
+from the governed FILE-column settings below. FileSpace currently supports LOCAL
+and S3; governed FILE-column OSS support does not enable OSS FileSpace transfers.
+
+An empty S3 profile credential map uses the supplied AWS credential provider, or
+the SDK default chain for the process-owned factory. An explicit map must contain
+`access-key-id` and `secret-access-key`; `session-token` is optional. Incomplete
+maps and unsupported keys, including `role-arn`, fail with `FILE_STORAGE_UNAVAILABLE`.
+Configure workload roles through the supplied/default credential provider.
+Coordinator-issued descriptors remain credential-free; explicit credentials are
+accepted only inside the Worker secret boundary.
+
+The factory caches by the complete immutable storage profile, including root,
+endpoint, options and credentials. Changing a secret or session token allocates a
+distinct client and presigner. Cached resources live until the owning file endpoint
+closes; injected credential providers remain caller-owned.
+
 ## worker.ai
 
 AI execution is disabled by default. Enabling it requires both an explicit

@@ -173,10 +173,20 @@
             <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- File-owned JDBC stores are exercised here against the shared PostgreSQL fixture. -->
+        <!-- Cross-provider File authority tests use Metadata's real tenant store. -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file</artifactId>
+            <artifactId>pangrova-file-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-file-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-file-store-jdbc</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- Streaming-owned stores are exercised against the metadata migration chain. -->

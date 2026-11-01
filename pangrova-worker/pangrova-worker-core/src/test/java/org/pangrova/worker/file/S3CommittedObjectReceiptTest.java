@@ -9,7 +9,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.space.ObjectLocation;
+import org.pangrova.file.api.object.ObjectLocation;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;

@@ -11,7 +11,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.file.api.upload.ObjectStoreAccessor;
+import org.pangrova.file.api.object.ObjectStoreAccessor;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -33,15 +33,17 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 public final class ObjectStoreAccessorFactory implements AutoCloseable {
 
     private static final String DEFAULT_REGION = "us-east-1";
+    private static final java.util.Set<String> S3_CREDENTIAL_KEYS = java.util.Set.of(
+            "access-key-id", "secret-access-key", "session-token");
 
     private final AwsCredentialsProvider defaultCredentials;
     private final boolean ownsCredentials;
     private final ReentrantReadWriteLock lifecycle = new ReentrantReadWriteLock();
     private final CompletableFuture<Void> closeComplete = new CompletableFuture<>();
     private boolean closed;
-    private final Map<String, ObjectStoreAccessor> accessors = new ConcurrentHashMap<>();
-    private final Map<String, S3Client> clients = new ConcurrentHashMap<>();
-    private final Map<String, S3Presigner> presigners = new ConcurrentHashMap<>();
+    private final Map<StorageProfile, ObjectStoreAccessor> accessors = new ConcurrentHashMap<>();
+    private final Map<StorageProfile, S3Client> clients = new ConcurrentHashMap<>();
+    private final Map<StorageProfile, S3Presigner> presigners = new ConcurrentHashMap<>();
 
     /** Borrows the caller's credential provider; only this factory's clients are owned. */
     public ObjectStoreAccessorFactory(AwsCredentialsProvider defaultCredentials) {
@@ -65,8 +67,7 @@ public final class ObjectStoreAccessorFactory implements AutoCloseable {
         lock.lock();
         try {
             if (closed) throw new IllegalStateException("Object store accessor factory is closed");
-            String key = profileKey(profile);
-            return accessors.computeIfAbsent(key, ignored -> create(profile));
+            return accessors.computeIfAbsent(profile, this::create);
         } finally {
             lock.unlock();
         }
@@ -82,13 +83,11 @@ public final class ObjectStoreAccessorFactory implements AutoCloseable {
     }
 
     private S3Client s3Client(StorageProfile profile) {
-        return clients.computeIfAbsent(profileKey(profile),
-                ignored -> buildS3Client(profile));
+        return clients.computeIfAbsent(profile, this::buildS3Client);
     }
 
     private S3Presigner s3Presigner(StorageProfile profile) {
-        return presigners.computeIfAbsent(profileKey(profile),
-                ignored -> buildS3Presigner(profile));
+        return presigners.computeIfAbsent(profile, this::buildS3Presigner);
     }
 
     private S3Presigner buildS3Presigner(StorageProfile profile) {
@@ -114,10 +113,16 @@ public final class ObjectStoreAccessorFactory implements AutoCloseable {
     }
 
     private AwsCredentialsProvider credentials(StorageProfile profile) {
+        if (profile.credentials().isEmpty()) return defaultCredentials;
+        if (!S3_CREDENTIAL_KEYS.containsAll(profile.credentials().keySet())) {
+            throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
+                    "Unsupported explicit S3 credentials");
+        }
         String accessKey = profile.accessKeyId();
         String secretKey = profile.secretAccessKey();
         if (accessKey == null || accessKey.isBlank() || secretKey == null || secretKey.isBlank()) {
-            return defaultCredentials;
+            throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
+                    "Incomplete explicit S3 credentials");
         }
         String sessionToken = profile.sessionToken();
         if (sessionToken == null || sessionToken.isBlank()) {
@@ -126,13 +131,6 @@ public final class ObjectStoreAccessorFactory implements AutoCloseable {
         }
         return StaticCredentialsProvider.create(
                 AwsSessionCredentials.create(accessKey, secretKey, sessionToken));
-    }
-
-    private static String profileKey(StorageProfile profile) {
-        String credentialScope = profile.accessKeyId() == null ? "" : profile.accessKeyId();
-        return profile.name() + '|' + profile.type() + '|' + profile.bucket() + '|'
-                + profile.prefix() + '|' + profile.endpoint() + '|' + profile.region() + '|'
-                + profile.isPathStyleAccess() + '|' + credentialScope;
     }
 
     @Override
@@ -176,15 +174,25 @@ public final class ObjectStoreAccessorFactory implements AutoCloseable {
         return owned;
     }
 
-    private static RuntimeException closeOwned(java.util.List<AutoCloseable> owned) {
+    static RuntimeException closeOwned(java.util.List<AutoCloseable> owned) {
         RuntimeException failure = null;
+        Error fatal = null;
         for (var resource : owned) {
             try {
                 resource.close();
             } catch (Exception closeFailure) {
                 if (failure == null) failure = new IllegalStateException("Object store resource cleanup failed");
                 failure.addSuppressed(closeFailure);
+            } catch (Error closeFailure) {
+                if (fatal == null) fatal = closeFailure;
+                else if (fatal != closeFailure) {
+                    fatal.addSuppressed(closeFailure);
+                }
             }
+        }
+        if (fatal != null) {
+            if (failure != null) fatal.addSuppressed(failure);
+            throw fatal;
         }
         return failure;
     }

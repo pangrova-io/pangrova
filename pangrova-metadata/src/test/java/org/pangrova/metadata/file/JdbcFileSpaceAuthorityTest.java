@@ -12,7 +12,7 @@ import org.pangrova.security.api.tenant.TenantStatus;
 import org.pangrova.security.api.AccessDeniedException;
 import org.pangrova.security.api.UserIdentity;
 import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceAuthority;
+import org.pangrova.file.spi.authority.FileSpaceAuthority;
 import org.pangrova.file.store.jdbc.space.JdbcFileSpaceAuthority;
 import org.pangrova.common.file.FileSpaceType;
 

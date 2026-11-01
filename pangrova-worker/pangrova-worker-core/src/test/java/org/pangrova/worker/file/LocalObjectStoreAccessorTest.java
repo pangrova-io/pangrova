@@ -19,8 +19,8 @@ import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.file.api.directory.FileListing;
 import org.pangrova.file.api.directory.FileStat;
-import org.pangrova.file.api.space.ObjectLocation;
-import org.pangrova.file.api.upload.UploadedPart;
+import org.pangrova.file.api.object.ObjectLocation;
+import org.pangrova.file.api.object.UploadedPart;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

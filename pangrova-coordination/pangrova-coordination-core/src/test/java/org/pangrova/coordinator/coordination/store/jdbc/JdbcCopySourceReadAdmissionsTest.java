@@ -5,7 +5,7 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordination.jdbc.JdbcDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.file.core.FileStorageException;
+import org.pangrova.file.api.storage.FileStorageException;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 import org.pangrova.file.store.jdbc.copy.JdbcCopySourceReadAdmissions;
 import org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry;

@@ -4,6 +4,9 @@ Volumes and stages name non-table file namespaces. This page documents the file
 data plane that sits behind those definitions: how a client obtains access, which
 operations exist, and what the coordinator never does.
 
+Implementation ownership and provider boundaries are described in
+[File metadata and object storage ownership](../../architecture/file-storage.md).
+
 > Status: the access-ticket flow, single-request transfer, ranged reads, recursive
 > listing, version-checked delete, multipart upload, presigned URL issuance, and the
 > SQL `LIST @stage`, `REMOVE @stage`, and manual `ALTER STAGE ... REFRESH` are implemented. Local HTTP tests

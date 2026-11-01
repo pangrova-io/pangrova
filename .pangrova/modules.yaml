@@ -270,13 +270,34 @@ artifacts:
       - pangrova-scheduler
     providers: {}
 
-  pangrova-file:
-    path: pangrova-file
-    moduleName: org.pangrova.file
-    packageRoots: [org.pangrova.file]
-    exports: [org.pangrova.file]
+  pangrova-file-api:
+    path: pangrova-file/pangrova-file-api
+    moduleName: org.pangrova.file.api
+    packageRoots: [org.pangrova.file.api]
+    exports: [org.pangrova.file.api]
+    allowedImports: [pangrova-common]
+    forbiddenImports: [pangrova-file-core, pangrova-file-store-jdbc, pangrova-security,
+                       pangrova-coordination-core, pangrova-worker-core, pangrova-metadata]
+    providers: {}
+
+  pangrova-file-core:
+    path: pangrova-file/pangrova-file-core
+    moduleName: org.pangrova.file.core
+    packageRoots: [org.pangrova.file.core, org.pangrova.file.adapter.worker, org.pangrova.file.spi.authority]
+    exports: [org.pangrova.file.core, org.pangrova.file.adapter.worker, org.pangrova.file.spi.authority]
+    allowedImports: [pangrova-common, pangrova-file-api, pangrova-security]
+    forbiddenImports: [pangrova-file-store-jdbc, pangrova-coordination-core, pangrova-worker-core, pangrova-metadata]
+    providers: {}
+
+  pangrova-file-store-jdbc:
+    path: pangrova-file/pangrova-file-store-jdbc
+    moduleName: org.pangrova.file.store.jdbc
+    packageRoots: [org.pangrova.file.store.jdbc]
+    exports: [org.pangrova.file.store.jdbc]
     allowedImports:
       - pangrova-common
+      - pangrova-file-api
+      - pangrova-file-core
       - pangrova-query-api
       - pangrova-security
     forbiddenImports:
@@ -638,7 +659,9 @@ artifacts:
       - pangrova-worker-core
       - pangrova-connector-spi
       - pangrova-table
-      - pangrova-file
+      - pangrova-file-api
+      - pangrova-file-core
+      - pangrova-file-store-jdbc
       - pangrova-connector-runtime
     forbiddenImports: [pangrova-connector-iceberg, pangrova-connector-paimon]
     friendExports:
@@ -665,7 +688,7 @@ artifacts:
       - pangrova-shuffle-core
       - pangrova-connector-spi
       - pangrova-connector-runtime
-      - pangrova-file
+      - pangrova-file-api
       - pangrova-indexing-api
       - pangrova-storage-api
       - pangrova-storage-s3

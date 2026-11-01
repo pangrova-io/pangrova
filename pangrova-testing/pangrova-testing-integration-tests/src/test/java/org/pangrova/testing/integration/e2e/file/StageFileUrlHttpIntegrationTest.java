@@ -262,7 +262,7 @@ class StageFileUrlHttpIntegrationTest {
         var renewed = accessGrant("renamed_upload", "alice", "write");
         var resumed = multipartPart(endpoint, renewed, session.uploadId());
         assertThat(resumed.statusCode()).as(resumed.body()).isEqualTo(200);
-        var part = mapper.readValue(resumed.body(), org.pangrova.file.api.upload.UploadedPart.class);
+        var part = mapper.readValue(resumed.body(), org.pangrova.file.api.object.UploadedPart.class);
         spaces.drop(FileSpaceType.STAGE, "media", "raw", "renamed_upload", false);
         spaces.create(definition("external", true), false);
         for (Privilege privilege : List.of(Privilege.USAGE_STAGE, Privilege.READ_STAGE, Privilege.WRITE_STAGE)) {

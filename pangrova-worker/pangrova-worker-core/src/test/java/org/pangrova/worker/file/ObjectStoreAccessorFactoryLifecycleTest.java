@@ -71,6 +71,22 @@ class ObjectStoreAccessorFactoryLifecycleTest {
     }
 
     @Test
+    void fatalCleanupStillReleasesEveryLaterOwnerAndPreservesItsIdentity() {
+        var fatal = new AssertionError("first owner failed");
+        var later = new java.io.IOException("later owner failed");
+        var closed = new AtomicInteger();
+        assertThatThrownBy(() -> ObjectStoreAccessorFactory.closeOwned(java.util.List.of(
+                () -> { throw fatal; },
+                () -> { throw later; },
+                () -> { throw fatal; },
+                () -> { closed.incrementAndGet(); })))
+                .isSameAs(fatal);
+        assertThat(closed).hasValue(1);
+        assertThat(fatal.getSuppressed()).hasSize(1);
+        assertThat(fatal.getSuppressed()[0].getSuppressed()).containsExactly(later);
+    }
+
+    @Test
     void laterCloseWaitsForTheSameCleanupAndRetainsItsFailure() throws Exception {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);

@@ -11,7 +11,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.file.core.FileStorageException;
+import org.pangrova.file.api.storage.FileStorageException;
 import org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.Statement;

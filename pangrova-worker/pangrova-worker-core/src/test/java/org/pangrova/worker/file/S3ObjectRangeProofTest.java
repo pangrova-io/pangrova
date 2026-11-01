@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.space.ObjectLocation;
+import org.pangrova.file.api.object.ObjectLocation;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.s3.S3Client;

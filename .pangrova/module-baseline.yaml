@@ -12,6 +12,8 @@ reactor:
     path: pangrova-connector
   - artifactId: pangrova-coordination
     path: pangrova-coordination
+  - artifactId: pangrova-file
+    path: pangrova-file
   - artifactId: pangrova-generation
     path: pangrova-generation
   - artifactId: pangrova-indexing
@@ -314,7 +316,7 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-spi: compile
-      pangrova-file: test
+      pangrova-file-api: test
       pangrova-indexing-api: compile
       pangrova-protocol: compile
       pangrova-testing-kit: test
@@ -327,7 +329,7 @@ artifacts:
       test:
         - pangrova-common
         - pangrova-connector-spi
-        - pangrova-file
+        - pangrova-file-api
         - pangrova-indexing-api
         - pangrova-protocol
         - pangrova-testing-kit
@@ -611,7 +613,9 @@ artifacts:
       pangrova-coordination-api: compile
       pangrova-coordination-inmemory: compile
       pangrova-coordination-jdbc: compile
-      pangrova-file: compile
+      pangrova-file-api: compile
+      pangrova-file-core: compile
+      pangrova-file-store-jdbc: compile
       pangrova-generation-core: compile
       pangrova-generation-store-postgresql: compile
       pangrova-generation-transaction-spi: compile
@@ -651,7 +655,9 @@ artifacts:
         - pangrova-coordination-api
         - pangrova-coordination-inmemory
         - pangrova-coordination-jdbc
-        - pangrova-file
+        - pangrova-file-api
+        - pangrova-file-core
+        - pangrova-file-store-jdbc
         - pangrova-generation-core
         - pangrova-governance
         - pangrova-indexing-api
@@ -688,7 +694,9 @@ artifacts:
         - pangrova-coordination-api
         - pangrova-coordination-inmemory
         - pangrova-coordination-jdbc
-        - pangrova-file
+        - pangrova-file-api
+        - pangrova-file-core
+        - pangrova-file-store-jdbc
         - pangrova-generation-core
         - pangrova-generation-store-postgresql
         - pangrova-governance
@@ -814,21 +822,65 @@ artifacts:
     exportedPackages: []
     providers:
       {}
-  pangrova-file:
-    path: pangrova-file
+  pangrova-file-api:
+    path: pangrova-file/pangrova-file-api
     mainPackages:
-      - org.pangrova.file
-      - org.pangrova.file.adapter.worker
+      - org.pangrova.file.api
       - org.pangrova.file.api.access
       - org.pangrova.file.api.claim
       - org.pangrova.file.api.copy
       - org.pangrova.file.api.directory
+      - org.pangrova.file.api.object
       - org.pangrova.file.api.profile
       - org.pangrova.file.api.space
-      - org.pangrova.file.api.upload
+      - org.pangrova.file.api.storage
+    pomDependencies:
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.file.api.access
+      - org.pangrova.file.api.claim
+      - org.pangrova.file.api.copy
+      - org.pangrova.file.api.directory
+      - org.pangrova.file.api.object
+      - org.pangrova.file.api.profile
+      - org.pangrova.file.api.space
+      - org.pangrova.file.api.storage
+    providers:
+      {}
+  pangrova-file-core:
+    path: pangrova-file/pangrova-file-core
+    mainPackages:
+      - org.pangrova.file.adapter.worker
       - org.pangrova.file.core
       - org.pangrova.file.core.directory
       - org.pangrova.file.core.space
+      - org.pangrova.file.spi.authority
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
+      pangrova-security: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-file-api
+        - pangrova-security
+      test: []
+    exportedPackages:
+      - org.pangrova.file.adapter.worker
+      - org.pangrova.file.core.directory
+      - org.pangrova.file.core.space
+      - org.pangrova.file.spi.authority
+    providers:
+      {}
+  pangrova-file-store-jdbc:
+    path: pangrova-file/pangrova-file-store-jdbc
+    mainPackages:
+      - org.pangrova.file.store.jdbc
       - org.pangrova.file.store.jdbc.claim
       - org.pangrova.file.store.jdbc.copy
       - org.pangrova.file.store.jdbc.directory
@@ -836,27 +888,24 @@ artifacts:
       - org.pangrova.file.store.jdbc.space
     pomDependencies:
       pangrova-common: compile
+      pangrova-file-api: compile
+      pangrova-file-core: compile
       pangrova-query-api: compile
       pangrova-security: compile
+      pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
+        - pangrova-file-api
+        - pangrova-file-core
         - pangrova-query-api
         - pangrova-security
       test:
         - pangrova-common
+        - pangrova-file-api
+        - pangrova-security
+        - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.file.adapter.worker
-      - org.pangrova.file.api.access
-      - org.pangrova.file.api.claim
-      - org.pangrova.file.api.copy
-      - org.pangrova.file.api.directory
-      - org.pangrova.file.api.profile
-      - org.pangrova.file.api.space
-      - org.pangrova.file.api.upload
-      - org.pangrova.file.core
-      - org.pangrova.file.core.directory
-      - org.pangrova.file.core.space
       - org.pangrova.file.store.jdbc.claim
       - org.pangrova.file.store.jdbc.copy
       - org.pangrova.file.store.jdbc.directory
@@ -1276,7 +1325,9 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-spi: compile
-      pangrova-file: test
+      pangrova-file-api: test
+      pangrova-file-core: test
+      pangrova-file-store-jdbc: test
       pangrova-generation-core: compile
       pangrova-generation-store-postgresql: compile
       pangrova-generation-transaction-spi: compile
@@ -1307,7 +1358,9 @@ artifacts:
       test:
         - pangrova-common
         - pangrova-connector-spi
-        - pangrova-file
+        - pangrova-file-api
+        - pangrova-file-core
+        - pangrova-file-store-jdbc
         - pangrova-generation-core
         - pangrova-generation-store-postgresql
         - pangrova-generation-transaction-spi
@@ -2206,7 +2259,9 @@ artifacts:
       pangrova-coordination-core: test
       pangrova-coordination-inmemory: test
       pangrova-coordination-jdbc: test
-      pangrova-file: compile
+      pangrova-file-api: compile
+      pangrova-file-core: compile
+      pangrova-file-store-jdbc: compile
       pangrova-function: compile
       pangrova-generation-core: test
       pangrova-generation-store-postgresql: test
@@ -2258,7 +2313,9 @@ artifacts:
         - pangrova-coordination-core
         - pangrova-coordination-inmemory
         - pangrova-coordination-jdbc
-        - pangrova-file
+        - pangrova-file-api
+        - pangrova-file-core
+        - pangrova-file-store-jdbc
         - pangrova-function
         - pangrova-generation-core
         - pangrova-generation-store-postgresql
@@ -2416,7 +2473,7 @@ artifacts:
       pangrova-connector-lance: runtime
       pangrova-connector-runtime: compile
       pangrova-connector-spi: compile
-      pangrova-file: compile
+      pangrova-file-api: compile
       pangrova-function: compile
       pangrova-indexing-api: compile
       pangrova-observability-api: compile
@@ -2436,7 +2493,7 @@ artifacts:
         - pangrova-common
         - pangrova-config
         - pangrova-connector-spi
-        - pangrova-file
+        - pangrova-file-api
         - pangrova-function
         - pangrova-indexing-api
         - pangrova-observability-api
@@ -2453,7 +2510,7 @@ artifacts:
         - pangrova-common
         - pangrova-config
         - pangrova-connector-spi
-        - pangrova-file
+        - pangrova-file-api
         - pangrova-function
         - pangrova-observability-api
         - pangrova-observability-sdk

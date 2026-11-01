@@ -4,7 +4,7 @@
 
 状态：执行中，尚未完成全模块语义审查和全链验证。审计起点：2026-10-31 当前工作区（包括既有暂存和未暂存迁移）。本文是执行清单；长期蓝图中的历史数量、M 编号和“done”不能代替当前验收证据。
 
-**最新源码快照（第46节独立OSS provider与装配）**：71 个 Maven reactor 项目、56 个 Java 代码叶子、1 个纯资源 JAR、3,589 个 Java 主源文件、664 个主源包、2,384 个测试源文件。全图仍有4组 SCC；模块7项、包结构2项通过，无环项真实失败。71项 clean reactor 编译通过（skipTests）；本批验证见第46节，各历史章节保留当批事实。
+**最新源码快照（第47节File契约、核心与JDBC拆分）**：74 个 Maven reactor 项目、58 个 Java 代码叶子、1 个纯资源 JAR、15 个聚合项目、3,594 个 Java 主源文件、667 个主源包、2,386 个测试源文件。全图仍有4组 SCC；模块7项、包结构2项通过，无环项真实失败。74项 clean reactor 编译通过（skipTests）；本批验证见第47节，各历史章节保留当批事实。
 
 ## 1. 已核实的现状和设计判断
 
@@ -2592,3 +2592,85 @@ jqwik对同名类输出同一报告名，部分报告被覆盖；没有把XML少
 `8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`，未重做C++/ASan或
 Linux生产镜像。真实云端OSS SQL、RAM/KMS、多Worker资格，FileSpace/COPY的OSS adapter与
 source/managed authority，B6/Catalog B0、四SCC及R5/R6仍开放；本批不代表全存储或全仓生产验收。
+
+## 47. File契约、核心与JDBC拆分及对象访问器配置隔离
+
+第46节保存为检查点 `f1f9e0f4`。本批继续审查FileSpace的对象访问入口与存储边界，未把
+已有BlobStorage的OSS发布实现当作FileSpace传输实现。修改前缓存键由字符串拼接构成，
+两个合法LOCAL配置可碰撞并把第二次写入落到第一个根目录；S3 secret/session token轮换
+不在键中，client与presigner会继续使用旧凭据。显式不完整或role-arn配置还会悄然选择
+默认身份。最近回归先在旧实现复现9项失败，再做最小修复。
+
+### 47.1 真实制品与契约归属
+
+`pangrova-file`成为仅聚合的POM，三个非空叶子分别为：
+
+| 制品 | 实际主源/包/测试源 | 职责 |
+|---|---:|---|
+| pangrova-file-api | 28 / 9 / 4 | Common/JDK契约；Volume/Stage、profile、访问、目录、claim和对象传输，无Security/JDBC/Jackson/云SDK依赖 |
+| pangrova-file-core | 8 / 5 / 0 | 3个核心服务、Worker HTTP client、依赖Security的Internal authority SPI及包说明；不依赖store |
+| pangrova-file-store-jdbc | 7 / 6 / 4 | 6个实际PostgreSQL实现与包说明；实现端口并消费Query API/Security，canonical migration不移动 |
+
+跨制品传输类型集中到api.object：ObjectLocation、ObjectStoreAccessor、MultipartUpload、
+UploadedPart、PresignedObjectUrl。FileStorageException归api.storage，FileSpaceAuthority归
+Core的spi.authority；没有旧包转发类。Worker只声明File API；Coordinator显式装配三者。
+首次拆分编译暴露StageDirectoryRefreshService直接依赖JdbcFileDirectoryIndex，现提取
+FileDirectoryIndex端口、UUID attempt token与原路径规则，JDBC实现它；SQL、checkpoint、
+terminal publish和attempt fencing语义保持。首次缺失FileSpace import也已修复，不新增
+Core→store依赖来绕过编译。
+
+四组PostgreSQL测试从Metadata迁到JDBC owner，断言保留，直接用Kit的MigratedPostgres
+加载canonical migration；V95→latest升级仍走真实Flyway。Metadata保留使用真实JdbcTenantStore
+的跨provider authority测试。3个核心服务的跨域装配测试保留Coordinator原owner，未虚构
+Core内部单元测试数量。SPI扫描新识别出4个原有未注解公共端口，已补Experimental；sealed
+mutation及新目录契约/token也显式标注，不扩大baseline。API隔离测试遍历所有API class并
+反射公开类型结构，仅使用API/Common两个URL和platform parent，同时检查真实test classpath
+没有Security/JDBC/provider/Core/Worker。不是从大classpath中过滤掉不合意的URL。
+
+### 47.2 配置身份与资源关闭
+
+3个缓存改用不可变StorageProfile作为完整key，包括root、endpoint、options和全部credentials。
+回归通过真实LOCAL写入、官方SDK签名HEAD、presigned URL的session token与secret-only轮换
+验证。只有空credentials map才选调用方/默认AWS chain；显式配置只接受access-key-id、
+secret-access-key和可选session-token，不完整或未知key失败，不暗自采用其他权限。工作负载
+role继续通过默认或注入的provider配置。缓存生命周期仍到endpoint关闭，未新增淘汰策略。
+
+清理即使遇到Error也尝试后续所有owner，保留首个Error身份并聚合其他异常，重复close等待
+相同终态；caller注入的credential provider仍由caller关闭。新增fatal cleanup回归覆盖继续
+关闭和suppressed identity。首次完整Worker1308项通过后，Checkstyle因新增else-if缺少大括号
+失败；修正后最近17项与完整Worker static通过，没有再虚报一次完整1308回归。
+
+### 47.3 验证与实际classpath
+
+| 范围 | 实际终态 |
+|---|---|
+| 最近修复 | red 9→green 17；最终括号修正后相同17项及Worker static通过 |
+| File API / Core / JDBC | API9、JDBC38与三个制品static/install通过；Core无本地测试；clean后API9及static再次通过 |
+| Worker | full-regression 1308项零failure/error/skip，含5GiB LOCAL HTTP及Native property；最后的style错误如上保留，最终static通过 |
+| Metadata | clean verify 361项及static通过，迁出的4组旧test class不再残留 |
+| Coordinator相关消费者 | access12、URL8、directory3、Worker client7、task2，共32项及static通过；不等于完整Coordinator回归 |
+| FILE HTTP/SQL / smoke | 35项及Integration static通过，含directory snapshot8、真实Stage URL HTTP8、FileSpace control方法契约3、DDL5、profile SQL8、smoke3；不是所有35项都经过真实HTTP或Native |
+| COPY HTTP边界 / 独立Native owner | 默认full-regression实际3项及static通过；native-runtime-owner被明确排除，不把它算入3。另以excludedGroups=none和精确方法单独运行，真实私有ticket/精确版本/managed重启1项通过 |
+| 干净reactor | 最终74项clean install通过，skipTests只证明编译与装配；非全仓测试通过声明 |
+| 结构 / 其他门禁 | 模块7、包结构2通过；唯一SCC测试仍因原四组失败，成员和源码见证不变，仅包数667；manifest、SPI115零gap、Stable23、stub、truthfulness、246架构类引用与diff检查通过 |
+
+Worker console逐suite合计1308，与Surefire summary一致，不以JUnit/jqwik同名XML覆盖或
+property tries换算新案例。独立COPY用精确方法选择和none排除配置，未让共享Native owner
+进入同一进程。测试命令使用JDK17；SQL夹具沿用合格的固定AI镜像及启动前随机capability key，
+没有把secret写入日志或文档。日志前缀 `/tmp/pangrova-file-family-*`：owners-second、
+worker-owner、worker-static-final、metadata-owner、coordinator-consumers、http-sql、
+copy-postclean、copy-native-postclean、reactor-final、api-postclean、structure-final分别保留
+对应终态；初次reactor与annotation/style失败另保留。配置修复red/green日志为
+`/tmp/pangrova-file-accessor-factory-{red,green}.log`。
+
+实际未过滤runtime classpath：API2个依赖URL（Common及其传递slf4j-api）、Core53、Worker175、
+Coordinator249。API直接依赖只有Common；Core没有File JDBC，Worker只有File API，Coordinator
+包含三个File叶子。首次审计误以Common没有传递slf4j-api而断言失败，核实后修正审计预期，
+未删库伪造边界。92个reactor JAR检查无旧File包/旧nested token、无旧File JAR依赖；Metadata
+test-jar无迁出的4个test class。Docker显式清单增加三个File叶子，15个JAR均存在、RUN shell
+语法通过，未构建Linux镜像。台账667行、58叶子摘要与实际每包文件数精确一致。
+
+当前74 reactor＝58Java叶子＋1资源制品＋15聚合，3594主源/667包/2386测试源。Native/protocol
+源码及合格库未修改，没有新C++/ASan/Linux资格证据。Worker内LOCAL/S3物理访问器和SDK工厂
+仍需迁入独立provider，OSS FileSpace/COPY、真实OSS云SQL/RAM/KMS/多Worker、B6/Catalog B0、
+四SCC、逐文件语义审查与R5/R6继续开放；本批仅完成File契约/编排/JDBC边界和已复现配置根因。

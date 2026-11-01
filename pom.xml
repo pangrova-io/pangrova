@@ -530,7 +530,17 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-file</artifactId>
+                <artifactId>pangrova-file-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-file-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-file-store-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

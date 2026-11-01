@@ -73,7 +73,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file</artifactId>
+            <artifactId>pangrova-file-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

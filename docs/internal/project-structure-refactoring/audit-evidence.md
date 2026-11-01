@@ -1,6 +1,6 @@
 # 项目结构审查证据
 
-审查日期：2026-11-01。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“46. 独立OSS provider、取消与装配”，不同批次检查结果不混用。
+审查日期：2026-11-01。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“47. File契约、核心与JDBC拆分”，不同批次检查结果不混用。
 
 ## 范围和方法
 
@@ -501,3 +501,35 @@ SPI106/Stable23、manifest、stub、truthfulness、245架构类引用、Docker R
 protocol和匹配hash未变，没有新C++/ASan/Linux生产镜像证据。详细边界、失败和日志见执行
 记录46；真实OSS云端SQL/权限/KMS/多Worker、FileSpace/COPY、多后端authority、B6、Catalog
 B0、四SCC与R5/R6继续开放。
+
+## 47. File契约、核心与JDBC拆分
+
+本批把混合File JAR改为纯聚合与API/Core/JDBC三个真实叶子，分别28/8/7主源、9/5/6包、
+4/0/4测试源。ObjectLocation及multipart/URL/accessor归api.object，错误归api.storage，
+依赖Security的authority归Core.spi。首次编译暴露Core→JdbcFileDirectoryIndex依赖，现以
+FileDirectoryIndex端口注入；SQL与事务规则不改。旧包与nested token没有转发别名，4组真实
+PostgreSQL测试迁归JDBC38项；Metadata保留真实tenant provider的authority整合测试。
+
+对象访问工厂原字符串key可使不同LOCAL根碰撞，忽略S3 secret/token轮换，并把显式残缺或
+role-arn凭据转成默认身份。回归先红9，完整StorageProfile key、严格显式凭据与fatal cleanup
+后绿17；真实LOCAL写入、SDK签名HEAD和presigner token均验证。只有空map用注入/默认chain。
+关闭尝试全部owner并保留Error身份，未扩大调用方credential ownership。
+
+API9与JDBC38、三个File制品static/install通过；clean后API9与static再通过。Worker完整1308
+零failure/error/skip后有1个新增括号style错误，修正后的17项与Worker static通过，不把最近
+范围冒称又做了一次全量。Metadata clean361+static，Coordinator相关32+static，FILE相关
+HTTP/SQL/smoke35+Integration static通过。COPY默认3项仅边界验证（owner被tag排除），另精确
+方法/none配置独立运行真实Native ticket/精确版本/managed重启1项通过。74项最终clean install
+通过（skipTests），不是全仓测试结果。
+
+API真实runtime为Common与传递slf4j-api两个依赖URL；隔离loader只用API/Common，遍历所有API
+类型。Core53依赖URL没有File JDBC；Worker175只有File API；Coordinator249含三个File叶子。
+首次classpath审计漏算slf4j-api的失败保留为预期修正，未修改依赖。92个重建JAR无旧File类型，
+Metadata test-jar无迁出的4组class；Docker15个显式JAR与RUN语法通过，未构建Linux镜像。
+
+最终结构模块7、包2通过；SCC1因原四组失败，原始报告仅总包数667变化，成员/见证不变。
+manifest、SPI115零gap、Stable23、stub、truthfulness、246架构类引用通过。当前74reactor、
+58Java叶子、1资源JAR、15聚合，3594主源/667包/2386测试源，台账集合和摘要精确一致。
+Native/protocol及合格库不变；没有新C++/ASan/Linux资格。Worker物理访问器迁移、OSS
+FileSpace/COPY、真实云端OSS/权限/KMS/多Worker、B6/Catalog B0、四SCC、全文件审查及R5/R6
+继续开放。详细命令范围、失败与日志见执行记录47。

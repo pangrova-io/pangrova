@@ -21,8 +21,8 @@ import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.file.api.directory.FileListing;
 import org.pangrova.file.api.directory.FileStat;
-import org.pangrova.file.api.upload.MultipartUpload;
-import org.pangrova.file.api.upload.UploadedPart;
+import org.pangrova.file.api.object.MultipartUpload;
+import org.pangrova.file.api.object.UploadedPart;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -430,12 +430,12 @@ class FileSpaceFileResourceTest {
         var grant = descriptor("private.bin", "read");
         String url = "https://storage.invalid/key?signature=private";
         var atBoundary = FileSpaceFileResource.admitProviderUrl(grant,
-                new org.pangrova.file.api.upload.PresignedObjectUrl(url, grant.expiresAtEpochMillis()), 1_000);
+                new org.pangrova.file.api.object.PresignedObjectUrl(url, grant.expiresAtEpochMillis()), 1_000);
         assertThat(atBoundary.expiresAtEpochMillis()).isEqualTo(grant.expiresAtEpochMillis());
         assertThat(atBoundary.toString()).doesNotContain("signature", "private");
         for (long expiry : new long[]{1_000, grant.expiresAtEpochMillis() + 1}) {
             assertThatThrownBy(() -> FileSpaceFileResource.admitProviderUrl(grant,
-                    new org.pangrova.file.api.upload.PresignedObjectUrl(url, expiry), 1_000))
+                    new org.pangrova.file.api.object.PresignedObjectUrl(url, expiry), 1_000))
                     .isInstanceOfSatisfying(PangrovaException.class, failure ->
                             assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
         }

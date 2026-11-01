@@ -17,8 +17,8 @@ import org.pangrova.file.api.profile.StorageProfileRevision;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.file.api.space.FileSpace;
 import org.pangrova.common.file.FileSpaceType;
-import org.pangrova.file.api.space.ObjectLocation;
-import org.pangrova.file.api.upload.ObjectStoreAccessor;
+import org.pangrova.file.api.object.ObjectLocation;
+import org.pangrova.file.api.object.ObjectStoreAccessor;
 
 import java.nio.file.Path;
 

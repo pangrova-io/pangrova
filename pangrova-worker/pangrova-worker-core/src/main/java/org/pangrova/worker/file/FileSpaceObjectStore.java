@@ -9,8 +9,8 @@ import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.file.api.profile.StorageProfileRegistry;
 import org.pangrova.file.api.space.FileSpace;
 import org.pangrova.file.api.space.FileSpaceLayout;
-import org.pangrova.file.api.space.ObjectLocation;
-import org.pangrova.file.api.upload.ObjectStoreAccessor;
+import org.pangrova.file.api.object.ObjectLocation;
+import org.pangrova.file.api.object.ObjectStoreAccessor;
 
 /**
  * Maps a Volume or Stage to a concrete object-store root and backend.

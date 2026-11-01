@@ -34,7 +34,9 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migration sequence; preserves historical names, versions and bytes; no Java code or runtime providers |
 | `pangrova-metadata` | Metadata storage and Catalog management; adapters over the Table owner |
 | `pangrova-table` | Table control, maintenance, statistics and governance-binding owner; acyclic foundation for metadata/coordinator adapters |
-| `pangrova-file` | Volume/Stage, directory generation, upload, storage profile and COPY claim/publication owner; Worker keeps only execution adapters |
+| `pangrova-file/pangrova-file-api` | Common/JDK-only Volume/Stage, object transfer, storage profile, directory index and COPY claim contracts; no Security, JDBC, runtime or cloud SDK dependency |
+| `pangrova-file/pangrova-file-core` | File access/URL/directory orchestration, Worker HTTP client adapter and internal current-authority SPI; consumes File API and Security, never a File store implementation |
+| `pangrova-file/pangrova-file-store-jdbc` | PostgreSQL File registries, current authority, directory snapshots, COPY claims and source-read admissions; implements File contracts and consumes Query/Security transaction ports |
 | `pangrova-storage/pangrova-storage-api` | SDK-free blob identity, publication and admitted managed-storage ports shared by Worker COPY and the AI FILE layer |
 | `pangrova-storage/pangrova-storage-filesystem` | Independent filesystem content publication over Storage API; no cloud SDK dependency |
 | `pangrova-storage/pangrova-storage-s3` | S3 publication, encryption, backend identity and bounded transport over Storage API |

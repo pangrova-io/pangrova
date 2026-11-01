@@ -3,7 +3,7 @@ package org.pangrova.worker.file;
 import org.junit.jupiter.api.Test;
 import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.space.ObjectLocation;
+import org.pangrova.file.api.object.ObjectLocation;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
