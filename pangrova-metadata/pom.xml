@@ -162,7 +162,7 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-core</artifactId>
+            <artifactId>pangrova-file</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

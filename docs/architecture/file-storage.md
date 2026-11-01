@@ -10,9 +10,13 @@ The parent contains api/local/s3/oss artifacts and supplies no runtime JAR.
 | `pangrova-filesystem-s3` | S3 transfer, publication, cancellation, owned clients and presigners | Filesystem API/Common plus S3 SDK |
 | `pangrova-filesystem-oss` | OSS governed FILE publication | Filesystem API/Common plus OSS SDK; object transfer/COPY remains pending |
 | `pangrova-spi` | FileSpace definitions, authority and access descriptors, shared Security identities | Shared domain contracts; no Protocol or implementation dependency |
-| `pangrova-file-core` | Access/URL/directory orchestration and Worker HTTP client adapter | SPI, Filesystem API and Persistence API; no Security runtime/JDBC dependency |
+| `pangrova-file` | Access/URL/directory orchestration and Worker HTTP client adapter | SPI, Filesystem API and Persistence API; no Security runtime/JDBC dependency |
 | `pangrova-persistence-api` | Registry, directory index, COPY claim and query/authority persistence ports | Store contracts organized by domain/capability |
 | `pangrova-persistence-jdbc` | File/Coordination PostgreSQL implementations and Security transaction gate | Implements persistence contracts; migrations remain in `pangrova-schema-migrations` |
+
+`pangrova-file` is a single implementation JAR with sources directly under
+`pangrova-file/src/main/java`; the former core child module is retired.
+Its domain package names and service behavior are unchanged.
 
 Object transfer types live in `org.pangrova.filesystem.api.object`, profiles in
 `org.pangrova.filesystem.api.profile`, domain File control in `org.pangrova.spi.file`,

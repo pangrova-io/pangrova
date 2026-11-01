@@ -133,7 +133,7 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-core</artifactId>
+            <artifactId>pangrova-file</artifactId>
         </dependency>
 
         <dependency>

@@ -12,8 +12,6 @@ reactor:
     path: pangrova-connector
   - artifactId: pangrova-coordination
     path: pangrova-coordination
-  - artifactId: pangrova-file
-    path: pangrova-file
   - artifactId: pangrova-filesystem
     path: pangrova-filesystem
   - artifactId: pangrova-generation
@@ -498,7 +496,7 @@ artifacts:
       pangrova-connector-lance: runtime
       pangrova-connector-paimon: test
       pangrova-connector-runtime: compile
-      pangrova-file-core: compile
+      pangrova-file: compile
       pangrova-filesystem-api: compile
       pangrova-generation-core: compile
       pangrova-governance: compile
@@ -533,7 +531,7 @@ artifacts:
         - pangrova-common
         - pangrova-config
         - pangrova-connector-runtime
-        - pangrova-file-core
+        - pangrova-file
         - pangrova-filesystem-api
         - pangrova-generation-core
         - pangrova-governance
@@ -567,7 +565,7 @@ artifacts:
         - pangrova-connector-lance
         - pangrova-connector-paimon
         - pangrova-connector-runtime
-        - pangrova-file-core
+        - pangrova-file
         - pangrova-filesystem-api
         - pangrova-generation-core
         - pangrova-governance
@@ -659,8 +657,8 @@ artifacts:
     exportedPackages: []
     providers:
       {}
-  pangrova-file-core:
-    path: pangrova-file/pangrova-file-core
+  pangrova-file:
+    path: pangrova-file
     mainPackages:
       - org.pangrova.file.adapter.worker
       - org.pangrova.file.core.directory
@@ -1020,7 +1018,7 @@ artifacts:
       - org.pangrova.metadata.tenant
     pomDependencies:
       pangrova-common: compile
-      pangrova-file-core: test
+      pangrova-file: test
       pangrova-generation-core: compile
       pangrova-governance: compile
       pangrova-persistence-api: compile
@@ -2103,7 +2101,7 @@ artifacts:
       pangrova-connector-paimon: test
       pangrova-connector-runtime: test
       pangrova-coordination-core: test
-      pangrova-file-core: compile
+      pangrova-file: compile
       pangrova-filesystem-api: test
       pangrova-filesystem-local: test
       pangrova-filesystem-s3: test
@@ -2149,7 +2147,7 @@ artifacts:
         - pangrova-connector-lance
         - pangrova-connector-runtime
         - pangrova-coordination-core
-        - pangrova-file-core
+        - pangrova-file
         - pangrova-filesystem-api
         - pangrova-filesystem-local
         - pangrova-filesystem-s3

@@ -34,7 +34,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migration sequence; preserves historical names, versions and bytes; no Java code or runtime providers |
 | `pangrova-metadata` | Metadata storage and Catalog management; adapters over the Table owner |
 | `pangrova-table` | Table control, maintenance, statistics and governance-binding owner; acyclic foundation for metadata/coordinator adapters |
-| `pangrova-file/pangrova-file-core` | File access/URL/directory orchestration and Worker HTTP client adapter; consumes shared SPI, Filesystem API and Persistence API, never a JDBC implementation |
+| `pangrova-file` | File access/URL/directory orchestration and Worker HTTP client adapter; consumes shared SPI, Filesystem API and Persistence API, never a JDBC implementation |
 | `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Generation contracts without exposing this dependency through AI API |
 | `pangrova-ai/pangrova-ai-worker` | Optional Worker-side AI execution plane: governed provider invocation, AI SQL functions and ServiceLoader runtime adapters |
 | `pangrova-connector-*` | Data source connector providers (Iceberg / Paimon / Lance) |

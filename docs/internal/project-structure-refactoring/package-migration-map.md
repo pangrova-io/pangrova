@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-11-01，第53节空包与包占位文件清理工作区。668 包 / 49 Java 叶子 / 3,427 主源文件 / 2,396 测试源文件；每个当前主源包只登记一次。统计仅含当前维护的 Java 源文件，不含 `target` 生成源；已移除全部包占位文件；测试源文件数不是测试用例数。位置与编译通过不代表逐文件语义验收完成。
+当前台账：2026-11-01，第54节File父子模块合并工作区。668 包 / 49 Java 叶子 / 3,427 主源文件 / 2,396 测试源文件；每个当前主源包只登记一次。统计仅含当前维护的 Java 源文件，不含 `target` 生成源；已移除全部包占位文件；测试源文件数不是测试用例数。位置与编译通过不代表逐文件语义验收完成。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -293,15 +293,15 @@
 |---|---:|---|---|---|
 | [org.pangrova.coordination.zookeeper](../../../pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper) | 3 | 保留 / P5 | `pangrova-coordination-zookeeper`：`org.pangrova.coordination.zookeeper` | 保留包；POM 改依赖 coordination-api，lease/registry 通过公开契约 |
 
-## pangrova-file-core
+## pangrova-file
 
-路径：`pangrova-file/pangrova-file-core`。主源文件 4，主源包 3，本叶子测试源文件 0（不是测试用例数）。
+路径：`pangrova-file`。主源文件 4，主源包 3，本叶子测试源文件 0（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.file.adapter.worker](../../../pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/adapter/worker) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-core`：`org.pangrova.file.adapter.worker` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
-| [org.pangrova.file.core.directory](../../../pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/core/directory) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-core`：`org.pangrova.file.core.directory` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
-| [org.pangrova.file.core.space](../../../pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/core/space) | 2 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-core`：`org.pangrova.file.core.space` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
+| [org.pangrova.file.adapter.worker](../../../pangrova-file/src/main/java/org/pangrova/file/adapter/worker) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file`：`org.pangrova.file.adapter.worker` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
+| [org.pangrova.file.core.directory](../../../pangrova-file/src/main/java/org/pangrova/file/core/directory) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file`：`org.pangrova.file.core.directory` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
+| [org.pangrova.file.core.space](../../../pangrova-file/src/main/java/org/pangrova/file/core/space) | 2 | 已拆分 / 第47节，继续语义验收 | `pangrova-file`：`org.pangrova.file.core.space` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
 
 ## pangrova-filesystem-api
 

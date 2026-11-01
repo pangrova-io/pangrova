@@ -1,23 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <parent>
         <groupId>org.pangrova</groupId>
         <artifactId>pangrova-bom</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
-
     <artifactId>pangrova-file</artifactId>
-    <packaging>pom</packaging>
     <name>Pangrova File</name>
-    <description>Volume, Stage, directory, upload, and COPY claim/publication owner</description>
+    <description>File access, URL and directory orchestration with Worker HTTP adapters</description>
+    <properties>
+        <module.name>org.pangrova.file</module.name>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-api</artifactId>
+        </dependency>
 
-    <modules>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-filesystem-api</artifactId>
+        </dependency>
 
-        <module>pangrova-file-core</module>
-
-    </modules>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+    </dependencies>
 </project>

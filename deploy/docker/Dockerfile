@@ -62,7 +62,7 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     test ! -e /dist/lib/pangrova-testing-integration-tests-*.jar; \
     for module in pangrova-standalone pangrova-coordination/pangrova-coordination-core \
         pangrova-worker/pangrova-worker-core pangrova-ai/pangrova-ai-worker \
-        pangrova-spi pangrova-file/pangrova-file-core \
+        pangrova-spi pangrova-file \
         pangrova-persistence/pangrova-persistence-api pangrova-persistence/pangrova-persistence-jdbc \
         pangrova-persistence/pangrova-persistence-memory \
         pangrova-filesystem/pangrova-filesystem-api pangrova-filesystem/pangrova-filesystem-local \

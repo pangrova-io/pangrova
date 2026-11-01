@@ -3148,3 +3148,26 @@ clean后模块7项再通过，包无环1项仍失败（`gates-final.log`）；�
 台账为3,427主源文件、668主源包、2,396测试源文件、49 Java叶子；331个Store候选继续
 逐文件处理。完整Store/API整合、五个未接线对象、Native fixture前置条件、Worker TLS
 首次异常归因及真实云端生产资格仍开放，整体目标未完成。
+
+## 54. File 单子模块合并（2026-11-01）
+
+按用户截图指示，将pangrova-file-core的四个Java实现直接移到pangrova-file/src/main/java。
+pangrova-file从聚合POM变为实际JAR，直接继承根BOM，承接原依赖及构建配置；删除旧core
+POM和目录。Java包名与接口不变，Automatic-Module-Name改为org.pangrova.file。
+BOM、Coordinator/Metadata/Integration依赖、模块策略、Docker显式runtime路径及当前文档
+全部指向pangrova-file。File本身没有测试源，现有服务/调用链测试仍由实际调用方持有。
+
+`/tmp/pangrova-file-flatten-focused.log`最近依赖链安装编译通过；`reactor.log`全65项安装
+编译通过（skipTests）。`static.log`File静态检查通过；`coordinator.log`文件服务、Worker
+HTTP客户端、Stage刷新/list/remove等41项及static通过；`e2e.log`真实文件控制面、Stage URL
+HTTP授权链及SQL/JNI ActivationSmoke共14项及static通过；`gates.log`模块/源码引用/包图25项
+及static通过。日志均使用相同pangrova-file-flatten前缀。
+
+`artifacts.log`确认四个源文件逐字节不变，新旧JAR中13个class（含嵌套类型）字节一致，
+50个当前main JAR中这些类型均只有pangrova-file一个owner。旧子目录及当前POM对旧制品的
+引用不存在；Docker RUN语法和17个显式runtime owner JAR路径检查通过，未构建生产镜像。
+`manifest.log`确认模块事实同步；没有增加空包、package-info或空模块。
+
+当前65 reactor＝49 Java叶子＋1 Schema资源JAR＋14聚合POM＋1 Native分类打包POM；源码、
+包、测试文件及Store候选计数与第53节相同。此批仅完成File物理层级收敛，完整目标仍继续；
+Materialization/Table的存储与契约整合及既有未完成项未被本次重排替代。

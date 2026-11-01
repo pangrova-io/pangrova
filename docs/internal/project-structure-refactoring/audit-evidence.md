@@ -660,3 +660,12 @@ Coordinator55测试通过，随后长行static失败已用import修复，单独s
 8项工具回归通过。原四SCC成员不变，668包原始报告已保存；其他未完成项继续开放。
 原始日志使用`/tmp/pangrova-package-cleanup-`前缀，退役目录结果使用
 `/tmp/pangrova-retired-module-cleanup`前缀。详见执行记录，不据此宣称全项目已验收。
+
+## 54. File 父子层级收敛证据
+
+见[执行记录第54节](../project-restructure-execution-plan.md#54-file-单子模块合并2026-11-01)。
+File四个实现直接归pangrova-file，旧core制品/目录删除，当前依赖与Docker路径同步。
+四源文件和13个编译class字节不变；50个当前main JAR中仅新File制品持有这些类型。
+65项安装编译、File静态检查、Coordinator41、HTTP/SQL/JNI14、架构25及对应static通过。
+日志前缀为`/tmp/pangrova-file-flatten-`；没有新建空包或包文档占位。整体Store/API重构和
+此前未通过项继续开放，未以本次目录调整代替完整验收。

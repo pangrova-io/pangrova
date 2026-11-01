@@ -516,7 +516,7 @@
 
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-file-core</artifactId>
+                <artifactId>pangrova-file</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
