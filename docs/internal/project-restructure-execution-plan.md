@@ -4,7 +4,7 @@
 
 状态：执行中，尚未完成全模块语义审查和全链验证。审计起点：2026-10-31 当前工作区（包括既有暂存和未暂存迁移）。本文是执行清单；长期蓝图中的历史数量、M 编号和“done”不能代替当前验收证据。
 
-**最新源码快照（第 42 节 Worker 包环与内存分配回滚）**：67 个 Maven reactor 项目、53 个 Java 代码叶子、1 个纯资源 JAR、3,574 个 Java 主源文件、658 个主源包、2,375 个测试源文件。全图仍有 5 组 SCC；12 项模块/包/状态检查通过，无环项真实失败。第 42 节 Worker 1,298 项、受影响 Integration 22 项及静态检查通过，67 项 clean reactor 编译通过；各历史章节保留当批事实，不以旧结果代替本批验收。
+**最新源码快照（第45节 LOCAL FILE SQL 验证）**：70 个 Maven reactor 项目、55 个 Java 代码叶子、1 个纯资源 JAR、3,583 个 Java 主源文件、663 个主源包、2,380 个测试源文件。全图仍有4组 SCC；模块7项、包结构2项通过，无环项真实失败。70项 clean reactor 编译通过（skipTests）；本批测试与静态检查见第45节，各历史章节保留当批事实。
 
 ## 1. 已核实的现状和设计判断
 
@@ -76,7 +76,7 @@
 - 已通过：模块事实生成与 `check-module-manifest.sh`；JDK17/Python3.12 全 reactor `mvn -B -DskipTests install`（58 项，2026-10-31）；Testing Kit 的 ModuleDependency/PackageStructure/PackageDependencyAcyclicity 共 10 个测试，零失败/跳过。
 - 首轮失败原因：系统 Python3 为 3.9.6，协议生成器要求 3.10+。使用已安装的 Python3.12 后通过，未修改版本检查。默认 JDK21 不用于本次验收。
 - 待验：完整模块内部审查、无环检查修复、逐 owner 测试、静态分析、native 源码一致性编译/测试、ASan、打包、完整 Java/native 回归。本次 `skipTests` 不构成运行时证明。
-- 每次变更先最近测试，再 owner suite；共享 API/POM/跨模块改动运行完整 reactor；JNI/protocol/native/执行路径按 build-pipeline 完整链条；最后 `full-regression verify` 加四个独立 native-owner 选择，不能遗漏被共享 JVM 排除的测试。
+- 每次变更先最近测试，再 owner suite；共享 API/POM/跨模块改动运行完整 reactor；JNI/protocol/native/执行路径按 build-pipeline 完整链条；最后 `full-regression verify` 加五个独立 native-owner 选择，不能遗漏被共享 JVM 排除的测试。
 - 本次删除空制品不修改 native runtime；后续 native 验证必须核实源码/库一致性，不能仅复用历史日志。
 
 ## 5. 逐叶子包盘点（源码事实，不是完成声明）
@@ -2473,3 +2473,47 @@ protocol输入及匹配库hash `8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357
 公开边界见 [Blob publication and provider ownership](../architecture/blob-storage.md)。OSS provider、
 LOCAL SQL资格、source-version/managed authority 的多后端扩展、B6/Catalog B0、四SCC与R5/R6
 继续开放。
+
+## 45. LOCAL FILE SQL 验证与测试部署边界
+
+第44节保存为检查点 `098cfeff`。本批没有修改生产代码；补齐 LOCAL 的真实 SQL/JNI 证据，
+并将 FILE 部署夹具和 S3 FILE SQL 类从共享根/AI 测试包归入 `e2e.file`。不保留旧夹具或转发
+getter。`FileStorageDeployment` 只负责测试部署配置和关闭；S3/LOCAL 两实现分别拥有真实
+HTTPS/SSE MinIO 与临时持久文件 namespace。共享启动 owner 仍按原生命周期先部署、再注册、
+发布 Native catalogue，关闭 Native 并排空 callback 后才释放部署。
+
+LOCAL 必须显式选择 `pangrova.e2e.file.backend=local`；缺 capability key、未知 backend 或
+借用错误部署类型都会失败。默认共享 E2E 保持 S3；LOCAL 以 `native-runtime-owner` 在单独
+Maven/JVM 运行，避免进程级 Native catalogue 混用两个后端。CI 与构建规则增加第五个独立
+选择，保留原四个 suite、镜像身份和同源 Native provenance 参数；工具回归检查独立选择及
+显式 backend 参数。
+
+新增4项 LOCAL 测试走实际 parser/planner、Worker、JNI、生产 FILE callback 和 Flight：
+
+1. nullable bytes/MIME 保留三行，仅非空输入发布一份内容。
+2. CASE 未选分支不触发非法 MIME，选中非法 MIME 明确失败且对象集合不变。
+3. 两次独立调用保留 volatile 时间字段，共享相同内容 URI，仅发布一份对象。
+4. 创建 FILE 列的 Iceberg 表，经 INSERT SELECT 写入后两次扫描，原始字段一致。
+
+返回 size/SHA-256/MIME/URI 逐项断言，再以独立 filesystem provider 打开实际 object root，
+核对完整字节；不是用测试计数器或伪造结果行代替发布。表在 finally 删除。该证据只覆盖本机
+单进程 SQL 链，不证明共享磁盘复制、进程重启持久性、断电、分布式部署或 LOCAL COPY 源。
+
+| 验证 | 本批结果 |
+|---|---|
+| LOCAL 最近及 clean 后最终运行 | 两次各4项通过；最终包含 Checkstyle/SpotBugs，零 failure/error/skip；不累加为8个不同测试 |
+| S3 FILE SQL + startup smoke | 迁移夹具后6+3项及static通过；clean/最终归包后再次6+3项通过，均零failure/error/skip |
+| 完整 clean reactor | 70项全部通过，skipTests；只记主源与测试源编译 |
+| 模块 / 包结构 | 7+2项通过；无环项仍因相同四组SCC失败，原始报告逐字节一致 |
+| 工具和文档 | gate-policy 28项、manifest、E2E truthfulness、架构245类引用与CI shell语法通过 |
+
+原始日志 `/tmp/pangrova-local-file-sql-{first,final}.log`、
+`/tmp/pangrova-file-deployment-{s3-static,s3-final,reactor,structure,gate-policy,manifest,truthfulness,docrefs}.log`。
+Native/protocol输入未变，资源与原合格archive的库hash均为
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`；本批未重做C++、
+ASan或Linux生产镜像。当前70 reactor、55Java叶子、1资源制品、14聚合，3583主源、663包、
+2380测试源；本批仅增加3份测试源，主源台账和包环均未改变。
+
+OSS provider、source-version/managed authority 多后端扩展、B6/Catalog B0、四SCC、全文件语义
+审查与R5/R6继续开放。OSS SDK初审确认versioned/suspended bucket的forbid-overwrite不生效；
+后续实现必须独立验证发布、版本和加密约束，不把MinIO或S3 endpoint当作真实OSS验收。

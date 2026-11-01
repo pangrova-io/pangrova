@@ -1,6 +1,7 @@
-package org.pangrova.testing.integration.e2e;
+package org.pangrova.testing.integration.e2e.file;
 
 import org.pangrova.ai.worker.blob.TenantCapabilitySigner;
+import org.pangrova.testing.integration.e2e.SharedTestContainers;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -32,8 +33,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /** One real HTTPS/SSE MinIO deployment retained by the shared production FILE callback owner. */
-public final class SharedGovernedFileStorage implements AutoCloseable {
-    public static final String CAPABILITY_KEY_ENV = "PANGROVA_E2E_FILE_CAPABILITY_KEY";
+public final class S3FileDeployment implements FileStorageDeployment {
     public static final String CREDENTIAL_LOCK = "pangrova-shuffle-acceptance-aws-properties";
     private static final String ACCESS_KEY = "pangrova-governed-file-test";
     private static final String PREFIX = "sql-file-acceptance";
@@ -54,7 +54,8 @@ public final class SharedGovernedFileStorage implements AutoCloseable {
     private boolean bucketCreated;
 
     /** An absent FILE deployment leaves other existing shared test deployments unchanged. */
-    Map<String, String> prepareConfiguredDeployment() throws Exception {
+    @Override
+    public Map<String, String> prepareConfiguredDeployment() throws Exception {
         String encoded = System.getenv(CAPABILITY_KEY_ENV);
         if (encoded == null || encoded.isBlank()) {
             return Map.of();

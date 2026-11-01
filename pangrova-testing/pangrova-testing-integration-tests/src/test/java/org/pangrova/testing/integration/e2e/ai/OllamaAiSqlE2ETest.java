@@ -23,7 +23,7 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.connector.spi.data.value.ColumnValue;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
-import org.pangrova.testing.integration.e2e.SharedGovernedFileStorage;
+import org.pangrova.testing.integration.e2e.file.S3FileDeployment;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
 import java.net.URI;
@@ -53,7 +53,7 @@ import static org.pangrova.testing.integration.e2e.ai.SharedAiProvider.QUERY_PRE
  */
 @E2ETest
 @Tag("ai-provider")
-@ResourceLock(SharedGovernedFileStorage.CREDENTIAL_LOCK)
+@ResourceLock(S3FileDeployment.CREDENTIAL_LOCK)
 @DisplayName("Ollama AI SQL full-chain E2E")
 class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
 

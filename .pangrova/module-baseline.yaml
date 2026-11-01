@@ -2208,6 +2208,7 @@ artifacts:
       pangrova-shuffle-core: compile
       pangrova-shuffle-service: test
       pangrova-storage-api: test
+      pangrova-storage-filesystem: test
       pangrova-storage-s3: test
       pangrova-streaming: test
       pangrova-table: compile
@@ -2258,6 +2259,7 @@ artifacts:
         - pangrova-shuffle-core
         - pangrova-shuffle-service
         - pangrova-storage-api
+        - pangrova-storage-filesystem
         - pangrova-storage-s3
         - pangrova-streaming
         - pangrova-table

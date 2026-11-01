@@ -150,7 +150,7 @@ Ordering follows artifact dependencies, rather than a fixed list of repeated run
 | Same-source production image | Verified image ID, source revision, classifier and runtime manifest |
 | Complete installed Java reactor | Independent-process integration tests that resolve reactor artifacts |
 | `native-runtime,full-regression verify` | Unit/integration/E2E/activation smoke in one reactor run |
-| Four isolated `native-runtime-owner` E2E selections | Process-owning Native tests, each in its own JVM |
+| Five isolated `native-runtime-owner` E2E selections | Process-owning Native tests, each in its own JVM; LOCAL FILE selects its own deployment |
 | Selected native ASan/UBSan builds + tests | Zero findings before production correctness acceptance |
 
 ```
@@ -186,7 +186,7 @@ Ordering follows artifact dependencies, rather than a fixed list of repeated run
 │ Step 6: Java Full Test (all modules, shared E2E and smoke)       │
 │   mvn -q -Pfull-regression verify                               │
 │                                                                  │
-│ Step 7: Isolated Native owner E2E (four separate JVMs)          │
+│ Step 7: Isolated Native owner E2E (five separate JVMs)          │
 │   see commands below                                             │
 │                                                                  │
 │ ALL REQUIRED STEPS MUST PASS; report blockers accurately.                           │
@@ -204,18 +204,23 @@ stop the process-wide Native runtime and would invalidate later SQL tests.
 Complete Step 7 by running each owner selection in its own Maven invocation/JVM:
 
 ```bash
+set -e
 for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
              WorkerShuffleChannelAdmissionIntegrationTest \
-             'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes'; do
+             'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes' \
+             LocalGovernedFileSqlE2ETest; do
+  file_backend=s3
+  if [[ "$suite" == LocalGovernedFileSqlE2ETest ]]; then file_backend=local; fi
   mvn -q -Pfull-regression -pl pangrova-testing/pangrova-testing-integration-tests \
-    -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test
+    -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" \
+    -Dpangrova.e2e.file.backend="$file_backend" test
 done
 ```
 
-The Step 6 shared run, including `ActivationSmokeE2ETest`, and all four isolated
+The Step 6 shared run, including `ActivationSmokeE2ETest`, and all five isolated
 owner selections must pass; report their test counts
 separately. A single shared JVM run that excludes these selections without the
-four isolated results is incomplete.
+five isolated results is incomplete.
 It does not turn routing integration into independent-process distributed evidence.
 Record discovered test counts and FAIL/SKIPPED/BLOCKED results; a successful Maven
 command that selects no applicable tests is not validation. Use the optional

@@ -1,6 +1,6 @@
 # 项目结构审查证据
 
-审查日期：2026-10-31。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“44. 独立存储契约与本地发布的增量证据”，不同批次检查结果不混用。
+审查日期：2026-11-01。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“45. LOCAL FILE SQL 与部署夹具边界”，不同批次检查结果不混用。
 
 ## 范围和方法
 
@@ -461,3 +461,18 @@ RUN语法/11个显式JAR存在性检查通过。未增加架构豁免或SpotBugs
 Native/protocol输入及已打包hash不变，本批未重做C++/ASan/Linux生产镜像。日志前缀
 `/tmp/pangrova-storage-*`，具体过程见执行记录第44节。第43节检查点20a75cdf已提交；
 OSS provider、LOCAL SQL资格、多后端source authority、B6、Catalog B0、四SCC和R5/R6继续开放。
+
+## 45. LOCAL FILE SQL 与部署夹具边界
+
+FILE测试部署和S3 SQL类归入e2e.file，单一共享Native启动owner消费显式S3/LOCAL部署端口。
+LOCAL新增独立JVM owner选择并接入CI第五项；原四项、镜像身份和Native provenance参数保留。
+四项真实SQL/JNI测试覆盖NULL、CASE、volatile结果/内容去重、FILE列写入和后续Iceberg扫描，
+另以独立filesystem provider读回发布字节。最近与clean后各4项通过，最终Integration static
+通过；不当成8个不同案例，也不当成分布式文件系统或LOCAL COPY证明。
+
+迁移夹具后的S3 FILE SQL6+smoke3与static通过；最终归包/clean后同一选择再次9项通过，零跳过。
+70项clean reactor通过（skipTests）。结构模块7、包2通过；SCC项仍失败且四组原始报告逐字节
+相同。工具28项、manifest、truthfulness、245架构类引用、CI shell语法通过。Native/protocol
+及匹配库未变，没有新C++/ASan/Linux镜像结果。当前3583主源、663包、2380测试源，主源台账
+不变。详细日志和边界见执行记录45；OSS、多后端source authority、B6、Catalog B0、四SCC及
+R5/R6继续开放。

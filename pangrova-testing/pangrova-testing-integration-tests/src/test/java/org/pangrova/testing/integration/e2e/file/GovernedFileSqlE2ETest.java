@@ -1,4 +1,4 @@
-package org.pangrova.testing.integration.e2e.ai;
+package org.pangrova.testing.integration.e2e.file;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -9,7 +9,6 @@ import org.pangrova.connector.spi.data.value.ColumnValue;
 import org.pangrova.connector.spi.data.value.TypedRow;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
-import org.pangrova.testing.integration.e2e.SharedGovernedFileStorage;
 import org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 
@@ -26,12 +25,12 @@ import static org.awaitility.Awaitility.await;
 /** Actual SQL, shared production callbacks, JNI, Arrow results and HTTPS/SSE S3 publication. */
 @E2ETest
 @Tag("governed-file")
-@ResourceLock(SharedGovernedFileStorage.CREDENTIAL_LOCK)
+@ResourceLock(S3FileDeployment.CREDENTIAL_LOCK)
 @DisplayName("Governed FILE SQL through the actual Native and S3 deployment")
 class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
     @BeforeAll
     static void requireActualFileRegistration() {
-        sharedFileStorage().requireConfiguredDeployment();
+        sharedS3FileStorage().requireConfiguredDeployment();
         var actual = NativeCapabilityLoader.loadInventory().inventory();
         var registration = actual.getFunctionCatalog().getRegisteredFunctionsList().stream()
                 .filter(value -> value.getImplementationName().equals("file_from_bytes"))
@@ -50,8 +49,8 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
     @Test
     void nullableBytesAndMimeRetainRowsWithoutPublishingNullObjects() throws Exception {
         byte[] expected = payload();
-        var before = sharedFileStorage().publishedKeys();
-        long requestsBefore = sharedFileStorage().putRequestCount();
+        var before = sharedS3FileStorage().publishedKeys();
+        long requestsBefore = sharedS3FileStorage().putRequestCount();
         String hex = HexFormat.of().formatHex(expected);
         var rows = executeQuery("SELECT \"id\", FILE_FROM_BYTES(\"content\", \"mime\") AS \"file\" FROM ("
                 + "SELECT 1 AS \"id\", X'" + hex + "' AS \"content\", 'image/png' AS \"mime\" "
@@ -62,15 +61,15 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
         assertPublishedFile(rows.get(0).get("file"), expected, before);
         assertThat(ColumnValue.toRaw(rows.get(1).get("file"))).isNull();
         assertThat(ColumnValue.toRaw(rows.get(2).get("file"))).isNull();
-        assertThat(sharedFileStorage().publishedKeys()).hasSize(before.size() + 1);
+        assertThat(sharedS3FileStorage().publishedKeys()).hasSize(before.size() + 1);
         assertPutRequests(requestsBefore, 1);
     }
 
     @Test
     void caseAvoidsUnselectedMimeErrorAndPreservesBothPrimaryNullInputs() throws Exception {
         byte[] expected = payload();
-        var before = sharedFileStorage().publishedKeys();
-        long requestsBefore = sharedFileStorage().putRequestCount();
+        var before = sharedS3FileStorage().publishedKeys();
+        long requestsBefore = sharedS3FileStorage().putRequestCount();
         String hex = HexFormat.of().formatHex(expected);
         var rows = executeQuery("SELECT \"id\", CASE WHEN \"id\"=2 THEN NULL "
                 + "ELSE FILE_FROM_BYTES(\"content\", \"mime\") END AS \"file\" FROM ("
@@ -84,15 +83,15 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
         for (int ordinal = 1; ordinal < rows.size(); ordinal++) {
             assertThat(ColumnValue.toRaw(rows.get(ordinal).get("file"))).isNull();
         }
-        assertThat(sharedFileStorage().publishedKeys()).hasSize(before.size() + 1);
+        assertThat(sharedS3FileStorage().publishedKeys()).hasSize(before.size() + 1);
         assertPutRequests(requestsBefore, 1);
     }
 
     @Test
     void aliasReferencesShareTheSameFileProducerIncludingCreationTimestamp() throws Exception {
         byte[] expected = payload();
-        var before = sharedFileStorage().publishedKeys();
-        long requestsBefore = sharedFileStorage().putRequestCount();
+        var before = sharedS3FileStorage().publishedKeys();
+        long requestsBefore = sharedS3FileStorage().putRequestCount();
         var rows = executeQuery("SELECT \"file\" AS \"first\", \"file\" AS \"second\" FROM ("
                 + "SELECT FILE_FROM_BYTES(X'" + HexFormat.of().formatHex(expected)
                 + "', 'image/png') AS \"file\") AS source");
@@ -100,15 +99,15 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
         assertThat(ColumnValue.toRaw(rows.get(0).get("first")))
                 .isEqualTo(ColumnValue.toRaw(rows.get(0).get("second")));
         assertPublishedFile(rows.get(0).get("first"), expected, before);
-        assertThat(sharedFileStorage().publishedKeys()).hasSize(before.size() + 1);
+        assertThat(sharedS3FileStorage().publishedKeys()).hasSize(before.size() + 1);
         assertPutRequests(requestsBefore, 1);
     }
 
     @Test
     void independentIdenticalFileCallsRetainIndependentCreationTimestamps() throws Exception {
         byte[] expected = payload();
-        var before = sharedFileStorage().publishedKeys();
-        long requestsBefore = sharedFileStorage().putRequestCount();
+        var before = sharedS3FileStorage().publishedKeys();
+        long requestsBefore = sharedS3FileStorage().putRequestCount();
         String invocation = "FILE_FROM_BYTES(X'" + HexFormat.of().formatHex(expected) + "', 'image/png')";
         var rows = executeQuery("SELECT " + invocation + " AS \"first\", "
                 + invocation + " AS \"second\"");
@@ -122,7 +121,7 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
         // Each synchronous production S3 publication completes before FileFromBytesFunction calls now().
         // Reusing one Native expression would preserve the same timestamp and violates its declared volatility.
         assertThat(first.get("created_at")).isNotEqualTo(second.get("created_at"));
-        assertThat(sharedFileStorage().publishedKeys()).hasSize(before.size() + 1);
+        assertThat(sharedS3FileStorage().publishedKeys()).hasSize(before.size() + 1);
         assertPutRequests(requestsBefore, 2);
     }
 
@@ -130,26 +129,26 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
     void independentDifferentPayloadsProduceTwoSuccessfulObjects() throws Exception {
         byte[] firstPayload = payload();
         byte[] secondPayload = payload();
-        var before = sharedFileStorage().publishedKeys();
-        long requestsBefore = sharedFileStorage().putRequestCount();
+        var before = sharedS3FileStorage().publishedKeys();
+        long requestsBefore = sharedS3FileStorage().putRequestCount();
         var rows = executeQuery("SELECT FILE_FROM_BYTES(X'" + HexFormat.of().formatHex(firstPayload)
                 + "', 'image/png') AS \"first\", FILE_FROM_BYTES(X'"
                 + HexFormat.of().formatHex(secondPayload) + "', 'image/png') AS \"second\"");
         assertThat(rows).hasSize(1);
         assertPublishedFile(rows.get(0).get("first"), firstPayload, before, 2);
         assertPublishedFile(rows.get(0).get("second"), secondPayload, before, 2);
-        assertThat(sharedFileStorage().publishedKeys()).hasSize(before.size() + 2);
+        assertThat(sharedS3FileStorage().publishedKeys()).hasSize(before.size() + 2);
         assertPutRequests(requestsBefore, 2);
     }
 
     @Test
     void selectedMimeErrorFailsTheQueryWithoutAnyPublishedObject() throws Exception {
-        var before = sharedFileStorage().publishedKeys();
-        long requestsBefore = sharedFileStorage().putRequestCount();
+        var before = sharedS3FileStorage().publishedKeys();
+        long requestsBefore = sharedS3FileStorage().putRequestCount();
         String hex = HexFormat.of().formatHex(payload());
         assertThat(executeExpectingError("SELECT FILE_FROM_BYTES(X'" + hex
                 + "', 'application/not-allowed')")).containsIgnoringCase("mime");
-        assertThat(sharedFileStorage().publishedKeys()).containsExactlyElementsOf(before);
+        assertThat(sharedS3FileStorage().publishedKeys()).containsExactlyElementsOf(before);
         assertPutRequests(requestsBefore, 0);
     }
 
@@ -157,7 +156,7 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
         // One full refresh window prevents a cached sample from hiding an additional producer invocation.
         await().pollInterval(Duration.ofMillis(200)).during(Duration.ofSeconds(11))
                 .atMost(Duration.ofSeconds(25)).untilAsserted(() ->
-                        assertThat(sharedFileStorage().putRequestCount()).isEqualTo(before + expectedDelta));
+                        assertThat(sharedS3FileStorage().putRequestCount()).isEqualTo(before + expectedDelta));
     }
 
     private static void assertIds(List<TypedRow> rows) {
@@ -185,14 +184,14 @@ class GovernedFileSqlE2ETest extends PangrovaE2ETestBase {
         assertThat(fields.get("created_at")).isNotNull();
         String checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(expected));
         assertThat(fields.get("checksum").toString()).isEqualTo(checksum);
-        var keys = sharedFileStorage().publishedKeys();
+        var keys = sharedS3FileStorage().publishedKeys();
         assertThat(keys).hasSize(before.size() + expectedObjects).containsAll(before);
         var added = keys.stream().filter(key -> !before.contains(key) && key.endsWith("/" + checksum)).toList();
         assertThat(added).hasSize(1);
         String key = added.get(0);
         assertThat(key).endsWith("/" + checksum);
-        assertThat(sharedFileStorage().readPublishedObject(key)).containsExactly(expected);
-        var metadata = sharedFileStorage().publishedObjectMetadata(key);
+        assertThat(sharedS3FileStorage().readPublishedObject(key)).containsExactly(expected);
+        var metadata = sharedS3FileStorage().publishedObjectMetadata(key);
         assertThat(metadata.contentLength()).isEqualTo((long) expected.length);
         assertThat(metadata.contentType()).isEqualTo("application/octet-stream");
         assertThat(metadata.metadata()).containsEntry("sha256", checksum)

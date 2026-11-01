@@ -26,6 +26,16 @@ is selected. The local setting is `worker.ai.file.storage.local.root`; see
 [Worker configuration](../configuration/worker.md). Applications needing only the
 API or filesystem provider do not acquire the AWS SDK transitively.
 
+The real SQL/JNI acceptance has separate S3 and LOCAL deployments. S3 runs in
+the shared E2E process; LOCAL runs `LocalGovernedFileSqlE2ETest` in its own JVM
+with `-Dpangrova.e2e.file.backend=local`, because the Native callback catalogue
+has one process-wide owner. Both require the temporary FILE capability key and
+the prepared model image described in the [build pipeline](../../.pangrova/rules/build-pipeline.md).
+LOCAL checks null/conditional behavior, volatile invocations with content
+deduplication, independent reads of published bytes, and FILE column writes and
+subsequent Iceberg scans. These single-process tests do not qualify a replicated
+filesystem deployment or LOCAL COPY sources.
+
 Filesystem publication copies the completed caller draft into a private file in
 the destination filesystem. It checks exact length and SHA-256, forces the file,
 and atomically creates the public hard link without replacing an existing object.

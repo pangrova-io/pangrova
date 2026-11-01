@@ -1,6 +1,8 @@
 package org.pangrova.testing.integration.e2e;
 
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
+import org.pangrova.testing.integration.e2e.file.LocalFileDeployment;
+import org.pangrova.testing.integration.e2e.file.S3FileDeployment;
 
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
@@ -733,8 +735,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     /** Borrows the actual FILE storage deployment retained by the one shared callback owner. */
-    protected static SharedGovernedFileStorage sharedFileStorage() {
-        return SHARED_NATIVE_FUNCTION_STARTUP.fileStorage();
+    protected static S3FileDeployment sharedS3FileStorage() {
+        return SHARED_NATIVE_FUNCTION_STARTUP.s3FileStorage();
+    }
+
+    /** Borrows the persistent LOCAL deployment owned by the shared Native callback fixture. */
+    protected static LocalFileDeployment sharedLocalFileStorage() {
+        return SHARED_NATIVE_FUNCTION_STARTUP.localFileStorage();
     }
 
     /**

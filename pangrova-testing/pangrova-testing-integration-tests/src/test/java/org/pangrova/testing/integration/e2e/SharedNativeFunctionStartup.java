@@ -1,6 +1,9 @@
 package org.pangrova.testing.integration.e2e;
 
 import org.pangrova.testing.integration.e2e.ai.SharedAiProvider;
+import org.pangrova.testing.integration.e2e.file.FileStorageDeployment;
+import org.pangrova.testing.integration.e2e.file.LocalFileDeployment;
+import org.pangrova.testing.integration.e2e.file.S3FileDeployment;
 import org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
@@ -10,7 +13,7 @@ import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 /** One deployment, registration and publication owner for the shared E2E Native runtime. */
 final class SharedNativeFunctionStartup implements AutoCloseable {
     private SharedAiProvider provider;
-    private final SharedGovernedFileStorage files = new SharedGovernedFileStorage();
+    private final FileStorageDeployment files = FileStorageDeployment.configured();
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
     private NativeFunctionConfig config;
     private NativeCapabilityAdvertisement.Advertisement advertisement;
@@ -85,11 +88,22 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
         return provider;
     }
 
-    SharedGovernedFileStorage fileStorage() {
+    S3FileDeployment s3FileStorage() {
+        requireFileAdvertisement();
+        if (files instanceof S3FileDeployment s3) return s3;
+        throw new IllegalStateException("The shared FILE deployment is not S3");
+    }
+
+    LocalFileDeployment localFileStorage() {
+        requireFileAdvertisement();
+        if (files instanceof LocalFileDeployment local) return local;
+        throw new IllegalStateException("The shared FILE deployment is not LOCAL");
+    }
+
+    private void requireFileAdvertisement() {
         if (advertisement == null) {
             throw new IllegalStateException("The shared Native function catalogue has not been published");
         }
-        return files;
     }
 
     @Override

@@ -199,6 +199,18 @@ class StructuralPolicyTest(unittest.TestCase):
             # Full regression and the isolated owner suites both require this identity.
             self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 2)
 
+    def test_local_file_acceptance_runs_in_its_own_native_process(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        production = workflow.split('  production-regression:\n', 1)[1].split(
+            '\n  tpch-performance:', 1)[0]
+        owners = production.split('for suite in ', 1)[1].split('\n          done', 1)[0]
+        self.assertIn('LocalGovernedFileSqlE2ETest; do', owners)
+        self.assertIn('file_backend=s3', owners)
+        self.assertIn('if [[ "$suite" == LocalGovernedFileSqlE2ETest ]]; '
+                      'then file_backend=local; fi', owners)
+        self.assertIn('-Dpangrova.e2e.file.backend="$file_backend"', owners)
+        self.assertIn('-Dpangrova.e2e.excludedGroups=none -Dtest="$suite"', owners)
+
 
 class RuntimeScopeTest(unittest.TestCase):
     def test_native_checks_follow_native_inputs_and_java_boundary_owners(self):

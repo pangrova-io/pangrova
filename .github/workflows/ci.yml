@@ -324,10 +324,14 @@ jobs:
         run: |
           for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
                        WorkerShuffleChannelAdmissionIntegrationTest \
-                       'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes'; do
+                       'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes' \
+                       LocalGovernedFileSqlE2ETest; do
+            file_backend=s3
+            if [[ "$suite" == LocalGovernedFileSqlE2ETest ]]; then file_backend=local; fi
             mvn -B -Pnative-runtime,full-regression \
               -pl pangrova-testing/pangrova-testing-integration-tests \
               -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test \
+              -Dpangrova.e2e.file.backend="$file_backend" \
               -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
               -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
               -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
