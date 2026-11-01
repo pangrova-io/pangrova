@@ -184,6 +184,7 @@ public final class PangrovaWorkerMain {
             Map<String, String> target, PangrovaConfiguration config) {
         copyAiOption(target, config, AiFileOptions.STORAGE_BACKEND);
         copyAiOption(target, config, AiFileOptions.STORAGE_STAGING_ROOT);
+        copyAiOption(target, config, AiFileOptions.LOCAL_ROOT);
         copyAiOption(target, config, AiFileOptions.CAPABILITY_SECRET_REFERENCE);
         copyAiOption(target, config, AiFileOptions.S3_BUCKET);
         copyAiOption(target, config, AiFileOptions.S3_REGION);

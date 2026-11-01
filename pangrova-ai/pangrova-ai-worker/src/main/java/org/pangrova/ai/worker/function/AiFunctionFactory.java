@@ -32,8 +32,10 @@ import org.pangrova.ai.worker.provider.governed.GovernedInferenceProvider;
 import org.pangrova.ai.worker.provider.governed.GovernedRerankingProvider;
 import org.pangrova.ai.worker.blob.GovernedBlobStore;
 import org.pangrova.ai.worker.blob.HttpsBlobImporter;
-import org.pangrova.storage.blob.S3BlobStorage;
-import org.pangrova.storage.blob.S3BlobStorageSettingsParser;
+import org.pangrova.storage.s3.blob.S3BlobStorage;
+import org.pangrova.storage.api.blob.BlobStorage;
+import org.pangrova.storage.filesystem.blob.FileSystemBlobStorage;
+import org.pangrova.storage.s3.blob.S3BlobStorageSettingsParser;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -180,7 +182,7 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
                     : createGovernedLookups(config, configured);
             List<AutoCloseable> resources = ownedResources(configured, blobs);
             return new ProductionRuntime(lookups, blobs, resources);
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             AiFunctionCatalog.closeAfterFailure(failure, configured, blobs);
             throw failure;
         }
@@ -333,7 +335,6 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
                 "image/jpeg,image/png,image/webp,application/pdf,text/plain,"
                         + "audio/mpeg,audio/wav,video/mp4"));
         long maxBytes = positiveLong(config, "file.max-bytes", 64L * 1024 * 1024);
-        requireValue(config, "file.storage-backend", "s3");
         byte[] capabilityKey = org.pangrova.ai.worker.blob.TenantCapabilitySigner
                 .decodeBase64Secret(secretResolver.resolve(required(
                         config, "file.capability-secret-reference")));
@@ -349,14 +350,14 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
             Set<String> mimeTypes,
             long maxBytes,
             byte[] capabilityKey) {
-        S3BlobStorage storage = createS3Storage(config);
+        BlobStorage storage = createStorage(config);
         GovernedBlobStore store;
         try {
             store = new GovernedBlobStore(storage,
                     Path.of(required(config, "file.storage-staging-root")),
                     capabilityKey, maxBytes, mimeTypes);
-        } catch (RuntimeException failure) {
-            storage.close();
+        } catch (RuntimeException | Error failure) {
+            AiFunctionCatalog.closeAfterFailure(failure, storage);
             throw failure;
         }
         try {
@@ -365,8 +366,8 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
             store.cleanupStaging(
                     FILE_STAGING_CLEANUP_AGE, FILE_STAGING_CLEANUP_LIMIT);
             return new BlobRuntime(store, importer);
-        } catch (RuntimeException failure) {
-            store.close();
+        } catch (RuntimeException | Error failure) {
+            AiFunctionCatalog.closeAfterFailure(failure, store);
             throw failure;
         }
     }
@@ -397,8 +398,12 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
                 positiveLong(config, "file.url.max-decoded-bytes", maxBytes), pool));
     }
 
-    private static S3BlobStorage createS3Storage(Map<String, String> config) {
-        return new S3BlobStorage(S3BlobStorageSettingsParser.parse(config));
+    private static BlobStorage createStorage(Map<String, String> config) {
+        return switch (required(config, "file.storage-backend")) {
+            case "s3" -> new S3BlobStorage(S3BlobStorageSettingsParser.parse(config));
+            case "local" -> new FileSystemBlobStorage(Path.of(required(config, "file.storage.local.root")));
+            default -> throw new IllegalArgumentException("Unsupported FILE storage backend");
+        };
     }
 
     private static String required(Map<String, String> config, String key) {
@@ -407,15 +412,6 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
             throw new IllegalArgumentException(key + " is required");
         }
         return value.trim();
-    }
-
-    private static void requireValue(
-            Map<String, String> config, String key, String expected) {
-        String actual = required(config, key);
-        if (!expected.equals(actual)) {
-            throw new IllegalArgumentException(
-                    key + " must be explicitly set to " + expected);
-        }
     }
 
     private static Set<String> csv(String value) {

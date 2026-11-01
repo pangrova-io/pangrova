@@ -1,6 +1,6 @@
 # 项目结构审查证据
 
-审查日期：2026-10-31。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“43. Worker 启动职责与注册回滚的增量证据”，不同批次检查结果不混用。
+审查日期：2026-10-31。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“44. 独立存储契约与本地发布的增量证据”，不同批次检查结果不混用。
 
 ## 范围和方法
 
@@ -432,3 +432,32 @@ Kit 完整 112 项仅四 SCC 断言失败，SPI 三项通过并不再忽略缺�
 本批没有 C++/ASan 输入变化或重新构建。存储 API 的 AWS 传递依赖与 LOCAL/OSS 装配缺口
 已按当前源码记录执行计划43.3，尚未修改存储实现。B6、Catalog B0、剩余四 SCC、逐文件审查
 与最终 R5/R6 继续开放。
+
+## 44. 独立存储契约与本地发布的增量证据
+
+旧storage JAR改为聚合器，API / filesystem / S3三叶主源及测试源分别5/1、2/1、4/3；
+API的实际测试classpath与未过滤最小loader均无云SDK、JDBC、provider。BlobObjectId替换
+字符串参数组并拒绝损坏/路径token；managed COPY端口与abort stream不暴露AWS类型。
+旧package及旧参数没有转发兼容层，Docker显式runtime JAR清单同步三个叶子。
+
+本地发布五项回归先在旧实现得到五项断言失败，修复私有copy/校验/atomic no-replace之后
+扩展八项通过，含并发、空对象及symlink。真实授权/预算组件仍由FILE/COPY拥有；目录和祖先
+管理员控制，Local共享namespace不等于复制，未证明进程崩溃/断电或外部并发改名隔离。
+
+API3、S310、filesystem8及static/install通过。AI最终完整213及static/install通过；新LOCAL
+工厂实际FILE_FROM_BYTES与返回identity/落盘字节通过，但不是LOCAL SQL资格证明。配置入口
+候选回归另得到红1，补AiFileOptions注册/显式转发后Config166、Worker入口26及static通过。
+Worker完整1297及static/install通过；配置新增1项由入口26独立覆盖，不冒称全1298运行过。
+
+最终70项clean reactor全部通过（skipTests，只记编译），56个当前JAR无旧storage.blob类，
+聚合器无旧runtime JAR。663行逐包台账与当前55Java叶子、3583主源、2377测试源完全对齐；
+结构7模块+2包检查通过，SCC项仍因相同四组失败；除包总数外成员及源码见证逐字节一致。
+SPI106公共类型零gap、Stable23有真实实现；manifest、stub gate、架构244类引用和Docker
+RUN语法/11个显式JAR存在性检查通过。未增加架构豁免或SpotBugs过滤器。
+
+真实FILE/SQL首次缺少fixture capability key，smoke3过而FILE BeforeAll错误1，不能记作FILE
+方法已执行。补临时随机fixture key后，真实HTTPS/SSE S3 FILE SQL6+smoke3及Integration static
+通过；独立JVM COPY私有票据/精确version/managed重启读取1过，全部零失败/错误/跳过。
+Native/protocol输入及已打包hash不变，本批未重做C++/ASan/Linux生产镜像。日志前缀
+`/tmp/pangrova-storage-*`，具体过程见执行记录第44节。第43节检查点20a75cdf已提交；
+OSS provider、LOCAL SQL资格、多后端source authority、B6、Catalog B0、四SCC和R5/R6继续开放。

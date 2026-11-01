@@ -45,7 +45,15 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage</artifactId>
+            <artifactId>pangrova-storage-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-storage-s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-storage-filesystem</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

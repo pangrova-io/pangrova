@@ -77,6 +77,69 @@ class AiFunctionFactoryTest {
     }
 
     @Test
+    void productionFactorySelectsExplicitLocalStorage() throws Exception {
+        Path objects = temporaryDirectory.resolve("local-objects");
+        try (var production = new AiFunctionFactory()) {
+            var functions = production.getScalarFunctions(Map.of(
+                    "file.storage-backend", "local",
+                    "file.storage.local.root", objects.toString(),
+                    "file.storage-staging-root", temporaryDirectory.resolve("local-drafts").toString(),
+                    "file.capability-secret-reference", "test://file-capability"));
+            assertTrue(java.nio.file.Files.isDirectory(objects));
+            var fromBytes = functions.stream()
+                    .filter(function -> function.getMetadata().name().equals("file_from_bytes"))
+                    .findFirst().orElseThrow();
+            byte[] content = {1, 2, 3};
+            ColumnValue result = AiTestTaskAuthority.callWithRegisteredTask("tenant", "principal",
+                    java.time.Instant.now().plusSeconds(30).toEpochMilli(), 1024,
+                    () -> fromBytes.invoke(List.of(new ColumnValue.BytesValue(content),
+                            new ColumnValue.StringValue("text/plain"))));
+            var row = assertInstanceOf(ColumnValue.RowValue.class, result);
+            assertEquals(3L, row.fields().get(2));
+            assertEquals(java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(content)), row.fields().get(3));
+            try (var files = java.nio.file.Files.walk(objects)) {
+                var published = files.filter(java.nio.file.Files::isRegularFile).toList();
+                assertEquals(1, published.size());
+                assertArrayEquals(content, java.nio.file.Files.readAllBytes(published.get(0)));
+            }
+        }
+    }
+
+    @Test
+    void localRootIsRequiredAndUnknownBackendCannotSelectADefault() throws Exception {
+        Path drafts = temporaryDirectory.resolve("invalid-drafts");
+        try (var production = new AiFunctionFactory()) {
+            var missingRoot = assertThrows(IllegalArgumentException.class,
+                    () -> production.getScalarFunctions(Map.of(
+                            "file.storage-backend", "local",
+                            "file.storage-staging-root", drafts.toString(),
+                            "file.capability-secret-reference", "test://file-capability")));
+            assertTrue(missingRoot.getMessage().contains("file.storage.local.root is required"));
+            var unsupported = assertThrows(IllegalArgumentException.class,
+                    () -> production.getScalarFunctions(Map.of(
+                            "file.storage-backend", "oss",
+                            "file.storage-staging-root", drafts.toString(),
+                            "file.capability-secret-reference", "test://file-capability")));
+            assertTrue(unsupported.getMessage().contains("Unsupported FILE storage backend"));
+            assertFalse(java.nio.file.Files.exists(drafts));
+        }
+    }
+
+    @Test
+    void assemblyCleanupPreservesPrimaryErrorAndAttemptsEveryOwner() {
+        var primary = new AssertionError("assembly failed");
+        var cleanup = new AssertionError("cleanup failed");
+        var closed = new java.util.concurrent.atomic.AtomicInteger();
+        AiFunctionCatalog.closeAfterFailure(primary,
+                () -> { throw cleanup; },
+                () -> { throw primary; },
+                closed::incrementAndGet);
+        assertArrayEquals(new Throwable[] {cleanup}, primary.getSuppressed());
+        assertEquals(1, closed.get());
+    }
+
+    @Test
     void factoryPublishesOnlyFunctionsWithExecutableWorkerBindings() {
         List<ScalarFunction> functions = factory.getScalarFunctions(Map.of());
         assertEquals(16, functions.size());

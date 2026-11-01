@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.blob;
 
+import org.pangrova.storage.api.blob.BlobObjectId;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -33,8 +35,8 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.storage.blob.BlobStorage;
-import org.pangrova.storage.blob.FileSystemBlobStorage;
+import org.pangrova.storage.api.blob.BlobStorage;
+import org.pangrova.storage.filesystem.blob.FileSystemBlobStorage;
 
 class GovernedBlobStoreTest {
 
@@ -269,13 +271,13 @@ class GovernedBlobStoreTest {
         BlobStorage failing = new BlobStorage() {
             @Override
             public void publish(
-                    String scope, String checksum, long size, Path content)
+                    BlobObjectId object, Path content)
                     throws IOException {
                 throw new IOException("injected publication failure");
             }
 
             @Override
-            public InputStream open(String scope, String checksum, long size)
+            public InputStream open(BlobObjectId object)
                     throws IOException {
                 throw new IOException("not published");
             }

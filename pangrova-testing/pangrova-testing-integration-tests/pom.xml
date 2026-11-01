@@ -173,7 +173,12 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage</artifactId>
+            <artifactId>pangrova-storage-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-storage-s3</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

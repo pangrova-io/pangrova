@@ -11,6 +11,9 @@ public final class AiFileOptions {
     public static final ConfigOption<String> STORAGE_STAGING_ROOT = stringOption(
             "worker.ai.file.storage-staging-root", null,
             "Worker-local governed FILE staging directory");
+    public static final ConfigOption<String> LOCAL_ROOT = stringOption(
+            "worker.ai.file.storage.local.root", null,
+            "Persistent administrator-controlled governed FILE filesystem root");
     public static final ConfigOption<String> CAPABILITY_SECRET_REFERENCE = stringOption(
             "worker.ai.file.capability-secret-reference", null,
             "External reference for the shared FILE capability signing key");

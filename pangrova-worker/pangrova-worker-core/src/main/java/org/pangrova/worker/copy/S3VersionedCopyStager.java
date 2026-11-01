@@ -1,9 +1,11 @@
 package org.pangrova.worker.copy;
 
+import org.pangrova.storage.api.blob.BlobObjectId;
+
 import org.pangrova.security.api.AccessDeniedException;
 import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.storage.blob.S3BlobStorage;
+import org.pangrova.storage.api.blob.ManagedBlobStorage;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -31,8 +33,8 @@ import java.util.Objects;
 
 /**
  * Worker-local staging of one exact S3 object version into content-addressed storage.
- * This component is intentionally not connected to SQL until durable profile resolution,
- * file-read authorization, and the COPY commit claim are available.
+ * Source version checks remain in this S3 adapter; admitted managed publication and reads
+ * use the storage API supplied by process assembly.
  */
 final class S3VersionedCopyStager {
 
@@ -40,17 +42,17 @@ final class S3VersionedCopyStager {
     private static final Duration MAX_STAGE_WALL_TIME = Duration.ofMinutes(10);
 
     private final S3Client source;
-    private final S3BlobStorage managedStorage;
+    private final ManagedBlobStorage managedStorage;
     private final Path stagingRoot;
     private final long maxSourceBytes;
     private final long maxStageNanos;
 
-    S3VersionedCopyStager(S3Client source, S3BlobStorage managedStorage,
+    S3VersionedCopyStager(S3Client source, ManagedBlobStorage managedStorage,
                           Path stagingRoot, long maxSourceBytes) {
         this(source, managedStorage, stagingRoot, maxSourceBytes, MAX_STAGE_WALL_TIME);
     }
 
-    S3VersionedCopyStager(S3Client source, S3BlobStorage managedStorage,
+    S3VersionedCopyStager(S3Client source, ManagedBlobStorage managedStorage,
                           Path stagingRoot, long maxSourceBytes, Duration maxStageWallTime) {
         this.source = Objects.requireNonNull(source, "source must not be null");
         this.managedStorage = Objects.requireNonNull(managedStorage, "managedStorage must not be null");
@@ -108,11 +110,12 @@ final class S3VersionedCopyStager {
                         draft, deadlineNanos, budget);
                 requireWithinDeadline(deadlineNanos);
                 budget.checkpoint();
-                managedStorage.publish(scope, checksum, expectedSize, draft, budget::reserveWrite);
+                managedStorage.publish(new BlobObjectId(scope, checksum, expectedSize), draft, budget::reserveWrite);
                 requireWithinDeadline(deadlineNanos);
                 verifyManagedObject(scope, checksum, expectedSize, deadlineNanos, budget);
                 return new StagedSource(profile.name(), canonicalSourceUrl, version,
-                        managedStorage.objectUri(scope, checksum), scope, checksum, expectedSize);
+                        managedStorage.objectUri(new BlobObjectId(scope, checksum, expectedSize)),
+                        scope, checksum, expectedSize);
             } finally {
                 budget.cleanupDraft();
             }
@@ -162,8 +165,9 @@ final class S3VersionedCopyStager {
         try {
             ownership.publishOwner().accept(owned);
             MessageDigest digest = sha256();
-            try (InputStream input = managedStorage.open(scope, staged.contentSha256(),
-                    staged.contentSize(), ownership.budget()::reserve)) {
+            try (var input = managedStorage.open(
+                    new BlobObjectId(scope, staged.contentSha256(), staged.contentSize()),
+                    ownership.budget()::reserve)) {
                 try (FileChannel channel = FileChannel.open(local, StandardOpenOption.CREATE_NEW,
                         StandardOpenOption.WRITE);
                         OutputStream output = Channels.newOutputStream(channel)) {
@@ -206,7 +210,7 @@ final class S3VersionedCopyStager {
                 || staged.sourceVersionId().isBlank() || "null".equals(staged.sourceVersionId())
                 || staged.contentSha256() == null || !staged.contentSha256().matches("[0-9a-f]{64}")
                 || staged.contentSize() < 0 || staged.contentSize() > maxSourceBytes
-                || !managedStorage.objectUri(scope, staged.contentSha256())
+                || !managedStorage.objectUri(new BlobObjectId(scope, staged.contentSha256(), staged.contentSize()))
                         .equals(staged.managedObjectUri())) {
             throw new AccessDeniedException("S3 COPY staged proof does not match the retry scope");
         }
@@ -255,12 +259,12 @@ final class S3VersionedCopyStager {
                                      long deadlineNanos, CopyPreparation budget) throws IOException {
         budget.checkpoint();
         if (expectedSize == 0) {
-            managedStorage.verifyEmptyPublication(scope, checksum);
+            managedStorage.verifyEmptyPublication(new BlobObjectId(scope, checksum, 0));
             budget.checkpoint();
             return;
         }
         MessageDigest digest = sha256();
-        try (InputStream input = managedStorage.open(scope, checksum, expectedSize, budget::reserveRead)) {
+        try (var input = managedStorage.open(new BlobObjectId(scope, checksum, expectedSize), budget::reserveRead)) {
             try {
                 long size = transfer(input, OutputStream.nullOutputStream(), digest,
                         expectedSize, deadlineNanos, budget::checkpoint, ignored -> {});
@@ -275,13 +279,19 @@ final class S3VersionedCopyStager {
         }
     }
 
-    private static void abortOnFailure(InputStream input, Throwable failure) {
-        if (input instanceof ResponseInputStream<?> response) {
-            try {
-                response.abort();
-            } catch (RuntimeException abortFailure) {
-                failure.addSuppressed(abortFailure);
-            }
+    private static void abortOnFailure(ResponseInputStream<?> input, Throwable failure) {
+        try {
+            input.abort();
+        } catch (RuntimeException abortFailure) {
+            failure.addSuppressed(abortFailure);
+        }
+    }
+
+    private static void abortOnFailure(org.pangrova.storage.api.blob.BlobInputStream input, Throwable failure) {
+        try {
+            input.abort();
+        } catch (RuntimeException abortFailure) {
+            failure.addSuppressed(abortFailure);
         }
     }
 

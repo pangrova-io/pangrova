@@ -2314,7 +2314,8 @@ Worker 配置迁入 `bootstrap.config`；组件引用、任务/函数的部分�
 `bootstrap.ownership`；注册 HTTP client 归 `bootstrap.registration`。`bootstrap` 只保留入口、
 启动/清理编排和准入状态；phase/lifecycle 不再向上依赖编排包。ShuffleServiceMemoryLease
 归 `resource.memory`，实际两预算预留/归还逻辑不变。五个迁移主体（配置、任务账本、函数账本、
-注册 client、内存租约）的代码 token 在排除 package/import 和注释后与 HEAD 原文件逐一相同。
+注册 client、内存租约）的代码 token 在排除 package/import 和注释后与第42节检查点
+`a2910d84` 原文件逐一相同。
 本批不改 Native/JNI/protobuf，不新增转发类型或模块豁免。
 
 `ShutdownContext` 的三层参数袋替换为 `WorkerResourceShutdown`，只包含七个真实共享资源。
@@ -2380,3 +2381,95 @@ Coordinator/Planner 四 SCC、全文件语义审查和最终 R5/R6 继续保持�
 下一批需先明确内容发布、精确源版本读取与 managed staging 的不同端口和权威，再迁 API 与
 provider/assembly，覆盖真实 LOCAL/S3/OSS 适配及最小 classpath；不能仅把 BlobStorage 改包后
 宣称多存储扩展完成。本节是源码审计结论，尚未修改存储运行时或新增后端测试。
+
+## 44. Storage API、独立 provider 与本地发布修复
+
+### 44.1 已落位边界
+
+第43节已验收变更保存为独立检查点 `20a75cdf`。本批将原 storage JAR 改为聚合 POM，
+不保留旧包、旧参数转发或运行时兼容 JAR。三叶职责如下：
+
+| 制品 | 主源 / 测试源文件 | 边界 |
+|---|---:|---|
+| pangrova-storage-api | 5 / 1 | BlobObjectId、BlobStorage、ManagedBlobStorage、SDK-free abortable stream 及包说明 |
+| pangrova-storage-filesystem | 2 / 1 | 独立文件系统 provider；没有 S3 SDK 或另一个 provider 依赖 |
+| pangrova-storage-s3 | 4 / 3 | S3 provider、加密/endpoint 配置、指纹及 COPY transport policy |
+
+BlobObjectId 将 tenant-scope token、SHA-256、精确非负 size 合为一个不可变参数；两 token
+必须是64位小写十六进制摘要，构造时拒绝路径和损坏输入。该值不承担授权。GovernedBlobStore
+只依赖 BlobStorage；COPY managedStorage 字段/构造器只依赖 ManagedBlobStorage。S3 exact
+source 仍在 Worker source adapter，不能因为 managed port 变通用就接受 LOCAL/OSS 源。
+
+admitted managed read 返回 SDK-free BlobInputStream，失败时 abort 后 close 不再 drain
+远端 body。源 S3 stream 的 abort 留在源 adapter；S3 payload admission、隐藏重试禁止、加密、
+指纹编码与 protobuf 字段保持原语义。调用者、测试、依赖管理、manifest、部署 JAR 清单和
+配置文档已同步，删除旧 src 空树以免聚合器仍被结构扫描器当作代码叶子。
+
+### 44.2 五项真实文件缺陷及修复
+
+新增五项回归在原实现全部断言失败、零错误/跳过（`/tmp/pangrova-storage-local-red.log`）：
+
+1. publish 直接 hard-link 调用方 draft，发布后修改 draft 会改变已发布内容。
+2. 校验发生在创建 public link 之后，损坏 draft 留下可被 open 读取的对象。
+3. open 忽略传入 size/checksum，错误长度和等长篡改没有被后端拒绝。
+4. tenantScope 可携带 `../`，直接 API 调用能写出配置 root。
+5. tenant 目录为 symlink 时，发布会跟随它写到外部目录。
+
+修复先在目标目录创建私有 copy，以实际读取的 bytes 校验 size/SHA-256 并 force，再创建
+atomic no-replace hard link。调用方 draft 与公开对象不再共享 inode，跨文件系统 staging
+也不需要原地 link。并发 winner 必须验证；正常/异常结束都删除私有 draft。新建目录条目
+会 force，读取验证实际打开的同一 handle 后 rewind。root 及其以下 symlink 和 staging
+symlink 拒绝，路径 token 在 API 构造边界拒绝。8项真实文件测试另覆盖空对象、重复发布、
+两 provider 并发及清理，全部通过；不把这些测试当成崩溃/断电或外部管理员并发改名证明。
+
+配置 root 及祖先必须由管理员控制。共享 FILE 引用的 Worker 必须共享持久 namespace；
+local disk 不提供复制。进程 abrupt death 可能留下不被对象 API 寻址的私有 draft，治理 GC
+仍须按其 owner 处理，不能删除正在发布的文件来伪造自动清理完成。
+
+### 44.3 装配、失败语义与当前验证
+
+AI FILE factory 显式选择 s3/local，local 必须提供 `file.storage.local.root`。新增生产工厂
+测试通过公开函数列表取得 FILE_FROM_BYTES，在已注册的 canonical task/media grant 下调用，
+核对返回 size/checksum 和实际落盘字节。缺 root 与未知 oss 值均失败且不创建 staging；
+未给 OSS 注册空 provider。该组件证据不是 LOCAL SQL/JNI 全链证明。
+
+工厂初始化失败同时覆盖 RuntimeException/Error；复用关闭聚合器保留 primary 和每个 cleanup
+异常，防止 cleanup Error 或 self-suppression 遮盖原故障并跳过后续 owner。补有身份/后续关闭
+断言，删除失去最后调用者的 requireValue helper。
+
+| 验证 | 当前证据 |
+|---|---|
+| Storage API 完整 owner | 3项及 static/install通过；实际 Maven test classpath 和未过滤的最小 loader 均无 AWS/JDBC/provider |
+| S3 完整 owner | 10项及 static/install通过，包含真实 SDK 的 admitted retry HTTP 边界 |
+| Filesystem 完整 owner | 红5→绿5，扩展8项及 static/install通过；最初7项style与3项nullable parent诊断已修正，无豁免 |
+| AI 近端 / 完整 owner | 近端28项通过；增强LOCAL调用链后近端1项通过；新增配置负例与Error清理后最终完整213项及static/install通过，零失败/错误/跳过 |
+| Worker COPY 近端 | MinIO9 + timeout3通过；两处长行换行后完整 owner1297项及static/install通过，零失败/错误/跳过 |
+| 结构 | 模块7、包2通过；唯一 SCC 断言仍失败，4组所有成员与源码见证逐字节不变 |
+| manifest/SPI/stub/docs | current；106个公共类型零gap、23个Stable有真实实现；stub gate通过，架构244类引用存在 |
+| Docker JAR assembly | 列表同步三叶；11个显式runtime JAR存在、RUN shell语法通过；未构建Linux生产镜像 |
+| YAML / Worker 配置入口 | 候选新LOCAL配置丢失root的回归红1；补AiFileOptions.LOCAL_ROOT和显式转发后Config166项、Worker入口26项及static/install通过 |
+| 最终70项clean reactor | 单次全部通过，skipTests，只记主源与测试源编译；此前一次70项clean同样通过，不累加为测试证据 |
+| FILE SQL / smoke | 6项真实HTTPS/SSE S3 FILE SQL + 3项SQL smoke及Integration static通过，零失败/错误/跳过 |
+| COPY独立Native owner | privateTicketStagesExactVersionAndRestartsFromManagedBytes独立JVM实际执行1项通过，显式清空owner排除，零跳过 |
+
+类型迁移最初漏掉 MinIO admission 负例的一处链式 open，编译失败后已迁移；API 初次缺
+Stable.since、新配置测试初次缺 close 的 throws 声明均修正并保留失败日志。结构初次发现旧
+空 src 目录导致聚合器被当成叶子，删除空树后模块/包检查通过，未登记伪 artifact 或弱化 gate。
+
+最后校对发现生产入口枚举转发配置，工厂的直接Map不能证明YAML已接通；新增入口回归先
+得到缺失local.root的红灯，再补配置注册/转发，26项入口及166项Config通过。Worker完整1297项
+验证了存储迁移/行为；之后仅配置映射新增1项，独立26项验证，不将它们累加为完整1298项。
+
+首次FILE SQL选择未设置必需PANGROVA_E2E_FILE_CAPABILITY_KEY，smoke3项通过，FILE在
+BeforeAll错误1项，六个方法并未执行。按现有fixture契约设置临时随机32字节密钥后，同一选择
+9项真实执行并通过；不把前次失败重记为通过。COPY后续独立JVM1项通过。复用未变的Native/
+protocol输入及匹配库hash `8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`；
+本批没有重做C++/ASan或Linux生产镜像。
+
+当前70 reactor＝55 Java叶子＋1资源制品＋14聚合；3,583主源、663包、2,377测试源。台账
+集合与每包文件数精确一致。最终56个本轮reactor JAR均无退役storage.blob身份，聚合根没有
+残留runtime JAR。原始日志前缀 `/tmp/pangrova-storage-*`；本批计划内验证已结束，不将本表
+改进当成全部存储后端或全项目生产验收完成。
+公开边界见 [Blob publication and provider ownership](../architecture/blob-storage.md)。OSS provider、
+LOCAL SQL资格、source-version/managed authority 的多后端扩展、B6/Catalog B0、四SCC与R5/R6
+继续开放。

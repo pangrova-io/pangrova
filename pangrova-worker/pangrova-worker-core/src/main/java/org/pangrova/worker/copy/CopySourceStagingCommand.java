@@ -4,8 +4,8 @@ import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.security.api.AccessDeniedException;
 import org.pangrova.file.api.copy.CopySourceEndpointPolicy;
 import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.storage.blob.S3BlobStorage;
-import org.pangrova.storage.blob.CopyS3ClientPolicy;
+import org.pangrova.storage.api.blob.ManagedBlobStorage;
+import org.pangrova.storage.s3.blob.CopyS3ClientPolicy;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -21,14 +21,14 @@ import java.util.Objects;
 public final class CopySourceStagingCommand {
     private final CopySourceReadClient admissions;
     private final AwsCredentialsProvider sourceCredentials;
-    private final S3BlobStorage managedStorage;
+    private final ManagedBlobStorage managedStorage;
     private final Path stagingRoot;
     private final long maxSourceBytes;
     private final boolean allowLoopbackSourceTest;
 
     /** Uses the Worker default credential chain and the admitted exact profile configuration. */
     public CopySourceStagingCommand(CopySourceReadClient admissions,
-                                    S3BlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
+                                    ManagedBlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
         this(admissions, DefaultCredentialsProvider.create(), managedStorage,
                 stagingRoot, maxSourceBytes, false);
     }
@@ -36,21 +36,21 @@ public final class CopySourceStagingCommand {
     /** Uses an explicitly configured Worker-local credential provider. */
     public CopySourceStagingCommand(CopySourceReadClient admissions,
                                     AwsCredentialsProvider sourceCredentials,
-                                    S3BlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
+                                    ManagedBlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
         this(admissions, sourceCredentials, managedStorage, stagingRoot, maxSourceBytes, false);
     }
 
     /** Explicit local MinIO integration transport; cannot accept a remote HTTP source. */
     public static CopySourceStagingCommand forLoopbackTest(
             CopySourceReadClient admissions, AwsCredentialsProvider sourceCredentials,
-            S3BlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
+            ManagedBlobStorage managedStorage, Path stagingRoot, long maxSourceBytes) {
         return new CopySourceStagingCommand(admissions, sourceCredentials,
                 managedStorage, stagingRoot, maxSourceBytes, true);
     }
 
     private CopySourceStagingCommand(CopySourceReadClient admissions,
                                      AwsCredentialsProvider sourceCredentials,
-                                     S3BlobStorage managedStorage, Path stagingRoot,
+                                     ManagedBlobStorage managedStorage, Path stagingRoot,
                                      long maxSourceBytes, boolean allowLoopbackSourceTest) {
         this.admissions = Objects.requireNonNull(admissions, "admissions");
         this.sourceCredentials = Objects.requireNonNull(sourceCredentials, "sourceCredentials");

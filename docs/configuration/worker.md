@@ -229,7 +229,8 @@ as FILE configuration.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `worker.ai.file.storage-backend` | string | — | Explicit FILE enablement switch. When set it must be exactly `s3`; an unsupported value or incomplete FILE configuration fails Worker function registration |
+| `worker.ai.file.storage-backend` | string | — | Explicit FILE enablement switch: `s3` or `local`. Unsupported values or incomplete configuration fail Worker function registration |
+| `worker.ai.file.storage.local.root` | path | — | Required for `local`: persistent administrator-controlled object root. Workers resolving the same FILE references must share this filesystem namespace. The COPY stage listener still requires managed S3 |
 | `worker.ai.file.storage-staging-root` | path | — | Required Worker-local bounded staging directory; incomplete writes are never published and abandoned files are age/count scavenged |
 | `worker.ai.file.capability-secret-reference` | string | — | Required external secret reference resolved at startup. The value must be canonical base64 decoding to at least 32 bytes and must be identical across Workers; it is never persisted locally |
 | `worker.ai.file.storage.s3.bucket` | string | — | Required durable bucket shared by the Worker fleet |

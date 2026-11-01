@@ -55,15 +55,15 @@ final class AiFunctionCatalog {
     }
 
     static void closeAfterFailure(
-            RuntimeException startupFailure, AutoCloseable... resources) {
+            Throwable startupFailure, AutoCloseable... resources) {
         for (AutoCloseable resource : resources) {
             if (resource == null) {
                 continue;
             }
             try {
                 resource.close();
-            } catch (Exception closeFailure) {
-                startupFailure.addSuppressed(closeFailure);
+            } catch (Exception | Error closeFailure) {
+                if (startupFailure != closeFailure) startupFailure.addSuppressed(closeFailure);
             }
         }
     }

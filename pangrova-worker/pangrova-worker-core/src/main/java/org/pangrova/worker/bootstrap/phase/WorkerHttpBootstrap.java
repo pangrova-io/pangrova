@@ -136,8 +136,8 @@ public final class WorkerHttpBootstrap {
         if (stagingRoot == null || stagingRoot.isBlank()) {
             throw new IllegalArgumentException("COPY stage listener requires a staging root");
         }
-        var storage = org.pangrova.storage.blob.S3BlobStorage.forCopyStaging(
-                org.pangrova.storage.blob.S3BlobStorageSettingsParser.parse(file));
+        var storage = org.pangrova.storage.s3.blob.S3BlobStorage.forCopyStaging(
+                org.pangrova.storage.s3.blob.S3BlobStorageSettingsParser.parse(file));
         try {
             var command = new org.pangrova.worker.copy.CopySourceStagingCommand(
                     new org.pangrova.worker.copy.CopySourceReadClient(

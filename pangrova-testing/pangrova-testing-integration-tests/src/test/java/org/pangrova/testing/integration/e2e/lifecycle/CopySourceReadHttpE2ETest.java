@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.lifecycle;
 
+import org.pangrova.storage.api.blob.BlobObjectId;
+
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import ch.qos.logback.classic.Level;
@@ -72,7 +74,7 @@ import org.pangrova.security.api.UserIdentity;
 import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.storage.blob.S3BlobStorage;
+import org.pangrova.storage.s3.blob.S3BlobStorage;
 import org.pangrova.worker.copy.CopySourceReadClient;
 import org.pangrova.worker.copy.CopySourceStagingCommand;
 import org.pangrova.worker.http.WorkerHttpServer;
@@ -256,8 +258,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                 assertThat(nativeOwner.quota.getTenantActiveQueryCount(wireScope.tenantId())).isZero();
                                 assertThat(proof.sourceVersionId()).isEqualTo(version);
                                 assertThat(proof.managedObjectUri()).startsWith(managed.rootUri() + "/tenants/");
-                                try (var input = managed.open(proof.tenantScope(), proof.contentSha256(),
-                                        proof.contentSize())) {
+                                try (var input = managed.open(new BlobObjectId(proof.tenantScope(), proof.contentSha256(), proof.contentSize()))) {
                                     assertThat(input.readAllBytes()).isEqualTo(bytes);
                                 }
                                 assertThat(command.execute(ticket.nonce(), wireScope, preparationBudget(wireScope))).isEqualTo(proof);

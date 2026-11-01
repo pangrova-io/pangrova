@@ -414,7 +414,9 @@ artifacts:
       - pangrova-function
       - pangrova-protocol
       - pangrova-security
-      - pangrova-storage
+      - pangrova-storage-api
+      - pangrova-storage-s3
+      - pangrova-storage-filesystem
       - pangrova-worker-native-bridge
     forbiddenImports:
       - pangrova-coordination-core
@@ -433,17 +435,31 @@ artifacts:
       org.pangrova.function.api.registry.FunctionFactory:
         - org.pangrova.ai.worker.function.AiFunctionFactory
 
-  pangrova-storage:
-    path: pangrova-storage
-    moduleName: org.pangrova.storage
-    packageRoots: [org.pangrova.storage.blob]
-    exports: [org.pangrova.storage.blob]
-    allowedImports: []
-    forbiddenImports:
-      - pangrova-coordination-core
-      - pangrova-worker-core
-      - pangrova-ai-worker
-      - pangrova-ai-control
+  pangrova-storage-api:
+    path: pangrova-storage/pangrova-storage-api
+    moduleName: org.pangrova.storage.api
+    packageRoots: [org.pangrova.storage.api.blob]
+    exports: [org.pangrova.storage.api.blob]
+    allowedImports: [pangrova-common]
+    forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
+    providers: {}
+
+  pangrova-storage-filesystem:
+    path: pangrova-storage/pangrova-storage-filesystem
+    moduleName: org.pangrova.storage.filesystem
+    packageRoots: [org.pangrova.storage.filesystem.blob]
+    exports: [org.pangrova.storage.filesystem.blob]
+    allowedImports: [pangrova-storage-api]
+    forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
+    providers: {}
+
+  pangrova-storage-s3:
+    path: pangrova-storage/pangrova-storage-s3
+    moduleName: org.pangrova.storage.s3
+    packageRoots: [org.pangrova.storage.s3.blob]
+    exports: [org.pangrova.storage.s3.blob]
+    allowedImports: [pangrova-storage-api]
+    forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 
   pangrova-ai-control:
@@ -641,7 +657,8 @@ artifacts:
       - pangrova-connector-runtime
       - pangrova-file
       - pangrova-indexing-api
-      - pangrova-storage
+      - pangrova-storage-api
+      - pangrova-storage-s3
       - pangrova-worker-native-bridge
     forbiddenImports:
       - pangrova-coordination-core

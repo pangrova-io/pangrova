@@ -35,7 +35,9 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-metadata` | Metadata storage and Catalog management; adapters over the Table owner |
 | `pangrova-table` | Table control, maintenance, statistics and governance-binding owner; acyclic foundation for metadata/coordinator adapters |
 | `pangrova-file` | Volume/Stage, directory generation, upload, storage profile and COPY claim/publication owner; Worker keeps only execution adapters |
-| `pangrova-storage` | Content-addressed blob publication backends (filesystem, managed S3) shared by Worker COPY and the AI FILE layer |
+| `pangrova-storage/pangrova-storage-api` | SDK-free blob identity, publication and admitted managed-storage ports shared by Worker COPY and the AI FILE layer |
+| `pangrova-storage/pangrova-storage-filesystem` | Independent filesystem content publication over Storage API; no cloud SDK dependency |
+| `pangrova-storage/pangrova-storage-s3` | S3 publication, encryption, backend identity and bounded transport over Storage API |
 | `pangrova-ai/pangrova-ai-api` | Shared AI model, capability, invocation, embedding descriptors and the Worker↔AI runtime ports |
 | `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Generation contracts without exposing this dependency through AI API |
 | `pangrova-ai/pangrova-ai-worker` | Optional Worker-side AI execution plane: governed provider invocation, AI SQL functions and ServiceLoader runtime adapters |
@@ -126,6 +128,14 @@ pangrova-worker (Java)
 ```
 
 ## Module Dependency Policy
+
+Storage API must not depend on either provider or cloud SDKs, including on its test classpath.
+Governed FILE consumes BlobStorage; COPY preparation consumes ManagedBlobStorage. Process assembly
+selects providers explicitly. An admitted read exposes SDK-free abort semantics; source-version
+authority and caller I/O budgets remain outside the provider. The current COPY source adapter
+still requires exact S3 versions; a generic managed-storage port does not authorize LOCAL or OSS
+sources. Filesystem publication copies and verifies caller staging before an atomic no-replace
+link, and must never publish a mutable alias of caller-owned bytes.
 
 The authoritative per-artifact allow-list (`packageRoots`, `exports`,
 `allowedImports`, `forbiddenImports`, `friendExports`, declared `providers`) lives

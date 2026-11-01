@@ -42,7 +42,7 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-file` | Volume/Stage, directory generation, upload, storage profile and COPY claim/publication owner |
 | `pangrova-semantic` | Semantic View identity, immutable versions, definition validation, publication fencing and JDBC storage |
 | `pangrova-ai` | Shared AI descriptors, governed control plane, and optional Worker-side AI runtime |
-| `pangrova-storage` | Content-addressed blob storage backends shared by Worker COPY and the AI FILE layer |
+| `pangrova-storage` | SDK-free Storage API, independent filesystem and S3 blob providers for Worker COPY and the AI FILE layer |
 | `pangrova-materialization` | Dynamic-table/materialized-view domain kernel and JDBC state store |
 | `pangrova-streaming` | CDC and streaming infrastructure |
 | `pangrova-shuffle` | Exchange contracts and deployable shuffle service |

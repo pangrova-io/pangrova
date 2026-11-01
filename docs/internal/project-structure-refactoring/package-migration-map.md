@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-11-01，第43节 Worker 启动配置、资源所有权与关闭职责落位后的实施工作区。661 包 / 53 Java 叶子 / 3,578 主源文件 / 2,375 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
+当前台账：2026-11-01，第44节存储 API、filesystem、S3 三制品落位后的实施工作区。663 包 / 55 Java 叶子 / 3,583 主源文件 / 2,377 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -884,13 +884,29 @@
 |---|---:|---|---|---|
 | [org.pangrova.standalone](../../../pangrova-standalone/src/main/java/org/pangrova/standalone) | 2 | 保留 / P8 | `pangrova-standalone`：`org.pangrova.standalone` | embedding 装配、启动失败回滚、完整关闭与 SQL |
 
-## pangrova-storage
+## pangrova-storage-api
 
-路径：`pangrova-storage`。主源文件 6，主源包 1，本叶子测试源文件 3（不是测试用例数）。
+路径：`pangrova-storage/pangrova-storage-api`。主源文件 5，主源包 1，本叶子测试源文件 1（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.storage.blob](../../../pangrova-storage/src/main/java/org/pangrova/storage/blob) | 6 | 按类拆分 / P7 | `pangrova-storage`：`org.pangrova.storage.api.blob / adapter.filesystem / adapter.s3` | BlobStorage 契约不暴露 S3 SDK；实现和配置解析归 adapter |
+| [org.pangrova.storage.api.blob](../../../pangrova-storage/pangrova-storage-api/src/main/java/org/pangrova/storage/api/blob) | 5 | 保留 / P7 | `pangrova-storage-api`：`org.pangrova.storage.api.blob` | 第44节：对象身份、发布与 admitted managed I/O；实际 classpath 和最小 loader 无云 SDK/JDBC/provider |
+
+## pangrova-storage-filesystem
+
+路径：`pangrova-storage/pangrova-storage-filesystem`。主源文件 2，主源包 1，本叶子测试源文件 1（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.storage.filesystem.blob](../../../pangrova-storage/pangrova-storage-filesystem/src/main/java/org/pangrova/storage/filesystem/blob) | 2 | 保留 / P7 | `pangrova-storage-filesystem`：`org.pangrova.storage.filesystem.blob` | 第44节：独立复制、校验、原子不覆盖发布；8 项真实文件/并发回归，管理员受控 root 与共享 namespace 边界 |
+
+## pangrova-storage-s3
+
+路径：`pangrova-storage/pangrova-storage-s3`。主源文件 4，主源包 1，本叶子测试源文件 3（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.storage.s3.blob](../../../pangrova-storage/pangrova-storage-s3/src/main/java/org/pangrova/storage/s3/blob) | 4 | 保留 / P7 | `pangrova-storage-s3`：`org.pangrova.storage.s3.blob` | 第44节：AWS SDK、加密、配置与后端指纹，COPY I/O grant 与取消边界；OSS 仍待独立 provider/装配验证 |
 
 ## pangrova-streaming
 

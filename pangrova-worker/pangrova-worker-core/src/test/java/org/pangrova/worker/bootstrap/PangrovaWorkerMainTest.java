@@ -230,6 +230,17 @@ class PangrovaWorkerMainTest {
     }
 
     @Test
+    void buildBootstrapConfigForwardsExplicitLocalFileRoot(@TempDir Path directory) {
+        var source = PangrovaConfiguration.fromYaml(Map.of(
+                "worker.ai.file.storage-backend", "local",
+                "worker.ai.file.storage.local.root", directory.toString()));
+        assertThat(PangrovaWorkerMain.buildBootstrapConfig(source)
+                .nativeFunctionConfig().configForPlugin("ai-inference"))
+                .containsEntry("file.storage-backend", "local")
+                .containsEntry("file.storage.local.root", directory.toString());
+    }
+
+    @Test
     void buildBootstrapConfigWiresDistributedFileStorageWithoutSecrets() {
         PangrovaConfiguration source = PangrovaConfiguration.fromYaml(Map.ofEntries(
                 Map.entry("worker.ai.file.storage-backend", "s3"),

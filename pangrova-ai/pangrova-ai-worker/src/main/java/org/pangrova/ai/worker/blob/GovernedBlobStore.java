@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.blob;
 
+import org.pangrova.storage.api.blob.BlobObjectId;
+
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.ai.api.embedding.BlobReference;
@@ -30,7 +32,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import org.pangrova.storage.blob.BlobStorage;
+import org.pangrova.storage.api.blob.BlobStorage;
 
 /**
  * Immutable, tenant-scoped content-addressed FILE store.
@@ -110,7 +112,7 @@ public final class GovernedBlobStore implements AutoCloseable {
             Draft draft = writeDraft(content, staging, effectiveLimit,
                     scope.context().deadlineEpochMs());
             AiInvocationService.chargeGovernedFileBytes(draft.size());
-            storage.publish(scope.token(), draft.checksum(), draft.size(), staging);
+            storage.publish(new BlobObjectId(scope.token(), draft.checksum(), draft.size()), staging);
             String capability = capabilitySigner.sign(
                     scope.token(), normalizedMime, draft.size(), draft.checksum());
             return new BlobReference(
@@ -131,7 +133,7 @@ public final class GovernedBlobStore implements AutoCloseable {
         long effectiveLimit = effectiveLimit(scope.context(), reference.size());
         try {
             return new VerifyingInputStream(
-                    storage.open(scope.token(), reference.checksum(), reference.size()),
+                    storage.open(new BlobObjectId(scope.token(), reference.checksum(), reference.size())),
                     reference, effectiveLimit);
         } catch (IOException failure) {
             throw readFailure(reference, failure);

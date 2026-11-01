@@ -24,6 +24,8 @@ reactor:
     path: pangrova-observability
   - artifactId: pangrova-shuffle
     path: pangrova-shuffle
+  - artifactId: pangrova-storage
+    path: pangrova-storage
   - artifactId: pangrova-testing
     path: pangrova-testing
   - artifactId: pangrova-worker
@@ -123,7 +125,9 @@ artifacts:
       pangrova-function: compile
       pangrova-protocol: compile
       pangrova-security: compile
-      pangrova-storage: compile
+      pangrova-storage-api: compile
+      pangrova-storage-filesystem: compile
+      pangrova-storage-s3: compile
       pangrova-testing-kit: test
       pangrova-worker-native-bridge: compile
     imports:
@@ -134,7 +138,9 @@ artifacts:
         - pangrova-function
         - pangrova-protocol
         - pangrova-security
-        - pangrova-storage
+        - pangrova-storage-api
+        - pangrova-storage-filesystem
+        - pangrova-storage-s3
         - pangrova-worker-native-bridge
       test:
         - pangrova-ai-api
@@ -143,7 +149,8 @@ artifacts:
         - pangrova-function
         - pangrova-protocol
         - pangrova-security
-        - pangrova-storage
+        - pangrova-storage-api
+        - pangrova-storage-filesystem
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.ai.worker.blob
@@ -1966,16 +1973,49 @@ artifacts:
     exportedPackages: []
     providers:
       {}
-  pangrova-storage:
-    path: pangrova-storage
+  pangrova-storage-api:
+    path: pangrova-storage/pangrova-storage-api
     mainPackages:
-      - org.pangrova.storage.blob
-    pomDependencies: []
+      - org.pangrova.storage.api.blob
+    pomDependencies:
+      pangrova-common: compile
     imports:
-      main: []
-      test: []
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
     exportedPackages:
-      - org.pangrova.storage.blob
+      - org.pangrova.storage.api.blob
+    providers:
+      {}
+  pangrova-storage-filesystem:
+    path: pangrova-storage/pangrova-storage-filesystem
+    mainPackages:
+      - org.pangrova.storage.filesystem.blob
+    pomDependencies:
+      pangrova-storage-api: compile
+    imports:
+      main:
+        - pangrova-storage-api
+      test:
+        - pangrova-storage-api
+    exportedPackages:
+      - org.pangrova.storage.filesystem.blob
+    providers:
+      {}
+  pangrova-storage-s3:
+    path: pangrova-storage/pangrova-storage-s3
+    mainPackages:
+      - org.pangrova.storage.s3.blob
+    pomDependencies:
+      pangrova-storage-api: compile
+    imports:
+      main:
+        - pangrova-storage-api
+      test:
+        - pangrova-storage-api
+    exportedPackages:
+      - org.pangrova.storage.s3.blob
     providers:
       {}
   pangrova-streaming:
@@ -2167,7 +2207,8 @@ artifacts:
       pangrova-security: test
       pangrova-shuffle-core: compile
       pangrova-shuffle-service: test
-      pangrova-storage: test
+      pangrova-storage-api: test
+      pangrova-storage-s3: test
       pangrova-streaming: test
       pangrova-table: compile
       pangrova-testing-kit: compile
@@ -2216,7 +2257,8 @@ artifacts:
         - pangrova-security
         - pangrova-shuffle-core
         - pangrova-shuffle-service
-        - pangrova-storage
+        - pangrova-storage-api
+        - pangrova-storage-s3
         - pangrova-streaming
         - pangrova-table
         - pangrova-testing-kit
@@ -2359,7 +2401,8 @@ artifacts:
       pangrova-protocol: compile
       pangrova-security: compile
       pangrova-shuffle-core: compile
-      pangrova-storage: compile
+      pangrova-storage-api: compile
+      pangrova-storage-s3: compile
       pangrova-testing-kit: test
       pangrova-worker-native-bridge: compile
     imports:
@@ -2377,7 +2420,8 @@ artifacts:
         - pangrova-protocol
         - pangrova-security
         - pangrova-shuffle-core
-        - pangrova-storage
+        - pangrova-storage-api
+        - pangrova-storage-s3
         - pangrova-worker-native-bridge
       test:
         - pangrova-ai-api
@@ -2392,7 +2436,8 @@ artifacts:
         - pangrova-protocol
         - pangrova-security
         - pangrova-shuffle-core
-        - pangrova-storage
+        - pangrova-storage-api
+        - pangrova-storage-s3
         - pangrova-testing-kit
         - pangrova-worker-native-bridge
     exportedPackages:

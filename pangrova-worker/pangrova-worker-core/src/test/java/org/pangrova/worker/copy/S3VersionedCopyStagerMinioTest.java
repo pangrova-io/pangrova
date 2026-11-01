@@ -1,5 +1,7 @@
 package org.pangrova.worker.copy;
 
+import org.pangrova.storage.api.blob.BlobObjectId;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
@@ -8,7 +10,7 @@ import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.security.api.AccessDeniedException;
 import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.storage.blob.S3BlobStorage;
+import org.pangrova.storage.s3.blob.S3BlobStorage;
 import org.testcontainers.containers.GenericContainer;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -98,8 +100,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
 
                 assertThat(replaced.get()).isTrue();
                 assertThat(result.sourceVersionId()).isEqualTo(firstVersion);
-                try (var input = managed.open(result.tenantScope(),
-                        result.contentSha256(), result.contentSize())) {
+                try (var input = managed.open(new BlobObjectId(result.tenantScope(), result.contentSha256(), result.contentSize()))) {
                     assertThat(input.readAllBytes()).isEqualTo(oldContent);
                 }
                 assertThat(objects.getObjectAsBytes(request -> request.bucket(bucket)
@@ -146,7 +147,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
 
             assertThat(first).isEqualTo(second);
             assertThat(first.sourceVersionId()).isEqualTo(version);
-            try (var input = managed.open(first.tenantScope(), first.contentSha256(), first.contentSize())) {
+            try (var input = managed.open(new BlobObjectId(first.tenantScope(), first.contentSha256(), first.contentSize()))) {
                 assertThat(input.readAllBytes()).isEqualTo(bytes);
             }
         }
@@ -303,8 +304,8 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                         .isInstanceOf(IllegalStateException.class).hasMessageContaining("grant exhausted");
                 assertThat(gets.get()).isZero();
                 assertThat(denied.requestedBytes()).isZero();
-                assertThatThrownBy(() -> managed(counted, managedBucket).open(staged.tenantScope(),
-                        staged.contentSha256(), 0, denied::reserve))
+                assertThatThrownBy(() -> managed(counted, managedBucket).open(new BlobObjectId(staged.tenantScope(),
+                        staged.contentSha256(), 0), denied::reserve))
                         .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("positive byte range");
                 assertThat(gets.get()).isZero();
                 var accepted = new CopyTaskReadBudget(bytes.length);
