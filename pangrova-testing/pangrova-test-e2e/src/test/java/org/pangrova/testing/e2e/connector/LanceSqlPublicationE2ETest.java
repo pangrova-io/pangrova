@@ -2,7 +2,7 @@ package org.pangrova.testing.e2e.connector;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
-import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
+import org.pangrova.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
@@ -151,10 +151,11 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
 
     private static org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot(LanceTableHandle table) {
         var descriptor = metadataBootstrap.catalogRegistry().getCatalog(CATALOG).getDescriptor();
-        var authority = new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(stateStoreDataSource(),
+        var authority = new org.pangrova.metadata.store.jdbc.source.JdbcManagedSourceCatalog(stateStoreDataSource(),
                 new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
-                execution -> e2eCoordinationForTest().requireExecutionAnchor(execution));
+                execution -> e2eCoordinationForTest().requireExecutionAnchor(execution),
+                new org.pangrova.query.transaction.JdbcSourcePublicationTransaction());
         var key = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableKey(table.tenantId(), table.table());
         var actual = authority.load(key).orElseThrow();
         assertThat(actual.tableId()).isEqualTo(table.tableId());

@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.streaming.StreamDdlExecutor;
-import org.pangrova.metadata.streaming.StreamState;
+import org.pangrova.spi.streaming.store.StreamState;
 import org.pangrova.parser.ast.statement.stream.DescribeStreamStatement;
 import org.pangrova.spi.connector.data.TypedRow;
 

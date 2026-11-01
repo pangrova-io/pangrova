@@ -15,11 +15,27 @@ class MaterializationArchitectureTest {
             .importPackages("org.pangrova.materialization");
 
     @Test
-    void kernelDependsOnlyOnJdkCommonAndSpi() {
+    void domainPortsAndExtensionsDependOnlyOnJdkCommonAndSpi() {
         classes()
-                .that().resideInAPackage("org.pangrova.materialization..")
+                .that().resideInAPackage("org.pangrova.materialization.domain..")
+                .or().resideInAPackage("org.pangrova.materialization.port..")
+                .or().resideInAPackage("org.pangrova.materialization.extension..")
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
                         "java..",
+                        "org.pangrova.materialization..",
+                        "org.pangrova.spi..",
+                        "org.pangrova.common..")
+                .check(KERNEL);
+    }
+
+    @Test
+    void jdbcStoreDependsOnlyOnJdkJacksonCommonSpiAndKernel() {
+        classes()
+                .that().resideInAPackage("org.pangrova.materialization.store.jdbc..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "java..",
+                        "javax.sql..",
+                        "com.fasterxml.jackson..",
                         "org.pangrova.materialization..",
                         "org.pangrova.spi..",
                         "org.pangrova.common..")
@@ -32,8 +48,6 @@ class MaterializationArchitectureTest {
                 .that().resideInAPackage("org.pangrova.materialization..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         "org.apache.calcite..",
-                        "java.sql..",
-                        "javax.sql..",
                         "com.google.protobuf..",
                         "org.pangrova.coordinator..",
                         "org.pangrova.planner..",
@@ -42,6 +56,18 @@ class MaterializationArchitectureTest {
                         "org.pangrova.worker..",
                         "org.pangrova.runtime..",
                         "org.pangrova.protocol..")
+                .check(KERNEL);
+    }
+
+    @Test
+    void nonStoreLayersNeverUseJdbc() {
+        noClasses()
+                .that().resideInAPackage("org.pangrova.materialization.domain..")
+                .or().resideInAPackage("org.pangrova.materialization.port..")
+                .or().resideInAPackage("org.pangrova.materialization.extension..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "java.sql..",
+                        "javax.sql..")
                 .check(KERNEL);
     }
 

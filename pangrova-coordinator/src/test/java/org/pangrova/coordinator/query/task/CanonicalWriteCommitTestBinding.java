@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
-import org.pangrova.metadata.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
 import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;

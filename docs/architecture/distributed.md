@@ -249,7 +249,7 @@ pangrova-coordinator/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Note: On the write path, the Worker-side Java `TableWriter` is responsible for flushing data files to storage and producing statistics; the Coordinator only handles transaction orchestration and metadata commit, and does not write data files directly.
+Note: On the write path, the Worker-side `ConnectorPageSink` is responsible for flushing data files to storage and producing statistics; the Coordinator only handles transaction orchestration and metadata commit, and does not write data files directly.
 
 ### 2.3 Worker Module Structure
 

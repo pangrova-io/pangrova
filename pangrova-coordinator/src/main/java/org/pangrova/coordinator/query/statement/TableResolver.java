@@ -4,7 +4,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
@@ -122,7 +122,7 @@ public final class TableResolver {
     }
 
     static ConnectorMetadata getMetadata(
-            org.pangrova.metadata.catalog.CatalogRegistry registry,
+            org.pangrova.metadata.core.catalog.CatalogRegistry registry,
             String catalog, ConnectorSession session) {
         CatalogHandle handle = registry.getCatalog(catalog);
         return handle.getMetadata(session);

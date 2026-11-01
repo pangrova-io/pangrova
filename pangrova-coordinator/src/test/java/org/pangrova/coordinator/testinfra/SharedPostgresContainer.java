@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.metadata.store.SchemaMigrationRunner;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -48,10 +48,11 @@ public final class SharedPostgresContainer {
         return dataSource(schema);
     }
 
-    /** Creates an isolated schema and applies the complete production Flyway chain. */
+    /** Creates an isolated schema and applies the per-owner production baselines
+     *  (bundled security schema first, then all owners in dependency order). */
     public static DataSource migratedDataSource(String prefix) throws SQLException {
         DataSource dataSource = isolatedDataSource(prefix);
-        SchemaMigrationRunner.migrate(dataSource);
+        SchemaMigrationRunner.migrateAll(dataSource);
         return dataSource;
     }
 

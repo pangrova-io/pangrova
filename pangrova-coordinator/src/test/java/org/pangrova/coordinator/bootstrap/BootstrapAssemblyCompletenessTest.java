@@ -298,11 +298,10 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     // ========================================================================
 
     @Test
-    void streamingCdcRegistrationHandlerWiredWhenEnabled() {
+    void streamingMaintenanceSchedulerWiredWhenEnabled() {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             wiring.startStreaming(buildAllModulesEnabled(), null);
 
-            assertThat(wiring.getCdcLifecycleManager()).isNotNull();
             assertThat(wiring.getMaintenanceScheduler()).isNotNull();
         }
     }

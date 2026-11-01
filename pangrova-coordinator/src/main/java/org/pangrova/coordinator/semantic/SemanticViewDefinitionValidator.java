@@ -24,7 +24,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.metadata.store.MetadataJsonMapper;
+import org.pangrova.metadata.store.jdbc.MetadataJsonMapper;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.nio.charset.StandardCharsets;

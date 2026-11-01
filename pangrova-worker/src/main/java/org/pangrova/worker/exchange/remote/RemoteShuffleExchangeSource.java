@@ -10,8 +10,8 @@ import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionTerminal;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
-import org.pangrova.shuffle.exchange.ExchangeChannelContext;
-import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeChannelContext;
+import org.pangrova.shuffle.api.exchange.ExternalShuffleTransport;
 
 import java.security.MessageDigest;
 import java.util.concurrent.atomic.AtomicBoolean;

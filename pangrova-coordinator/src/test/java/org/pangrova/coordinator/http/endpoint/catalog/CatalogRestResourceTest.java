@@ -10,13 +10,18 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.service.ResolvedTable;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.api.schema.SchemaChange;
+import org.pangrova.metadata.api.MetadataGateway;
+import org.pangrova.metadata.api.binding.QueryMetadataLifecyclePort;
+import org.pangrova.metadata.api.binding.TableResolutionPort;
+import org.pangrova.metadata.api.catalog.CatalogLifecyclePort;
+import org.pangrova.metadata.api.control.ColumnTagPort;
+import org.pangrova.metadata.api.mutation.TableDdlPort;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.metadata.api.binding.ResolvedTable;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -28,6 +33,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,7 +55,8 @@ class CatalogRestResourceTest {
 
     @BeforeAll
     void setUp() throws Exception {
-        MetadataService stubService = new StubMetadataService();
+        var stub = new StubMetadataService();
+        MetadataGateway stubService = new MetadataGateway(stub, stub, stub, stub, stub);
 
         var taskTracker = new CoordinatorTaskTracker();
         var workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
@@ -61,7 +68,7 @@ class CatalogRestResourceTest {
         var receiver = new TaskStatusReceiver(receiverContext);
 
         var serverContext = new CoordinatorHttpServerContext(
-                receiver, null, null, null, null, null, null, null, null, null, stubService);
+                receiver, null, null, null, null, null, null, null, null, stubService);
 
         httpServer = new CoordinatorHttpServer(0, serverContext);
         httpServer.start();
@@ -169,7 +176,43 @@ class CatalogRestResourceTest {
 
     // ── Stub MetadataService ──
 
-    private static final class StubMetadataService implements MetadataService {
+    private static final class StubMetadataService implements CatalogLifecyclePort, TableDdlPort, TableResolutionPort, QueryMetadataLifecyclePort, ColumnTagPort {
+    @Override
+    public void setTag(MetadataSessionContext session, QualifiedTableRef tableRef,
+            String columnName, String tagKey, String value) {}
+
+    @Override
+    public void unsetTag(MetadataSessionContext session, QualifiedTableRef tableRef,
+            String columnName, String tagKey) {}
+
+    @Override
+    public java.util.Map<String, String> listTags(
+            MetadataSessionContext session, QualifiedTableRef tableRef, String columnName) {
+        return java.util.Map.of();
+    }
+
+    @Override
+    public int clearTableTags(MetadataSessionContext session, java.util.UUID tableId) {
+        return 0;
+    }
+
+    @Override
+    public int renameTableTags(MetadataSessionContext session,
+            QualifiedTableRef from, QualifiedTableRef to) {
+        return 0;
+    }
+
+    @Override
+    public Optional<CatalogDescriptor> getCatalogDescriptor(String catalogName) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String catalogName, String incarnationId, long revision) {
+        return Optional.empty();
+    }
+
 
         @Override
         public List<String> listCatalogs(MetadataSessionContext session) {
@@ -202,7 +245,7 @@ class CatalogRestResourceTest {
         public void alterTable(MetadataSessionContext session, QualifiedTableRef tableRef, List<SchemaChange> changes) {}
 
         @Override
-        public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) {}
+        public void beginQuery(org.pangrova.metadata.api.session.MetadataSessionContext context) {}
 
         @Override
         public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {}

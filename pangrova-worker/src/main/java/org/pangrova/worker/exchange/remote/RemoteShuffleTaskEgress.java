@@ -13,9 +13,9 @@ import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptResponse;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
-import org.pangrova.shuffle.ShuffleServiceAddress;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 
 /** Actual streams, partition statistics and commit lifecycle for one admitted producer. */
 final class RemoteShuffleTaskEgress {

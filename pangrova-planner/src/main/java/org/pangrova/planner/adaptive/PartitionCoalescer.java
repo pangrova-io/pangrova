@@ -5,7 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
 
 /**
  * Merges small shuffle partitions using greedy bin-packing.

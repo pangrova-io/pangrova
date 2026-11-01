@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.file;
 
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.file.JdbcFileSpaceAuthority;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.security.storage.store.JdbcFileSpaceAuthority;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.security.tenant.model.ResourceQuota;
 import org.pangrova.security.tenant.model.Tenant;
 import org.pangrova.security.tenant.model.TenantRole;
@@ -23,7 +23,6 @@ public final class FileAuthorityTestFixture {
 
     public static JdbcFileSpaceAuthority provision(DataSource source) {
         var tenants = new JdbcTenantStore(source);
-        tenants.initSchema();
         tenants.createTenant(new Tenant("tenant-a", "File issuer tests", TenantStatus.ACTIVE,
                 new ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0), List.of(), List.of(), "", Map.of(),
                 Instant.EPOCH, "fixture"));

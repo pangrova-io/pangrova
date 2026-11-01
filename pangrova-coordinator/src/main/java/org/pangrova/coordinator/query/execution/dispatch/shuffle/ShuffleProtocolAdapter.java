@@ -12,14 +12,14 @@ import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleResponse;
-import org.pangrova.shuffle.ShuffleAccess;
-import org.pangrova.shuffle.ShuffleCommitResult;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShufflePartitionStats;
-import org.pangrova.shuffle.ShuffleRegistration;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
-import org.pangrova.shuffle.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.capability.ShuffleAccess;
+import org.pangrova.shuffle.api.commit.ShuffleCommitResult;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
 
 /** Converts and validates the canonical remote-shuffle control protocol. */
 final class ShuffleProtocolAdapter {

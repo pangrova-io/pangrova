@@ -132,6 +132,13 @@ public final class CoordinatorOptions {
             .withDescription("Enable the streaming module")
             .build();
 
+    public static final ConfigOption<Duration> STREAM_COMMIT_STATE_RETENTION =
+            ConfigOptions.key("streaming.commit-state-retention")
+                    .durationType()
+                    .defaultValue(Duration.ofDays(7))
+                    .withDescription("How long terminal CDC commit-state rows are kept before pruning")
+                    .build();
+
     public static final ConfigOption<Boolean> TENANT_ENABLED = ConfigOptions.key("tenant.enabled")
             .booleanType()
             .defaultValue(false)

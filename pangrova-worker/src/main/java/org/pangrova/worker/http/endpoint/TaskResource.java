@@ -23,7 +23,7 @@ import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
 import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.spi.execution.TaskDescriptor;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;

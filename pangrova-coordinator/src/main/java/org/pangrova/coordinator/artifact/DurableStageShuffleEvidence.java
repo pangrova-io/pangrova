@@ -2,20 +2,20 @@ package org.pangrova.coordinator.artifact;
 
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.artifact.ShuffleLifecycleEvidence;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
-import org.pangrova.metadata.artifact.build.ArtifactExchangeFinalization;
-import org.pangrova.metadata.artifact.build.ArtifactExchangeRegistration;
-import org.pangrova.metadata.artifact.build.ArtifactExecutionOwner;
-import org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactExchangeFinalization;
+import org.pangrova.indexing.control.ArtifactExchangeRegistration;
+import org.pangrova.indexing.control.ArtifactExecutionOwner;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExchangeStore;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleProducerSetChecksum;
-import org.pangrova.shuffle.ShuffleRegistration;
-import org.pangrova.shuffle.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.commit.ShuffleProducerSetChecksum;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
 
 import java.util.Base64;
 import java.util.HexFormat;
@@ -103,7 +103,7 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         store.finalizeExchange(job, owner, proof);
     }
 
-    private org.pangrova.metadata.artifact.build.ArtifactStageGraph.Exchange requireStage(
+    private org.pangrova.indexing.control.ArtifactStageGraph.Exchange requireStage(
             ShuffleRegistration registration) {
         var edges = spec.stageGraph().exchanges().stream().filter(edge ->
                 edge.upstreamStageId() == registration.stageId()).toList();

@@ -42,10 +42,9 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
     // -- 1. Streaming module wiring --
 
     @Test
-    void startStreamingInitializesCdcAndMaintenanceComponents() {
+    void startStreamingInitializesMaintenanceComponents() {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             wiring.startStreaming(buildAllModulesEnabled(), null);
-            assertThat(wiring.getCdcLifecycleManager()).isNotNull();
             assertThat(wiring.getMaintenanceScheduler()).isNotNull();
         }
     }
@@ -54,7 +53,6 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
     void startStreamingSkippedWhenDisabled() {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             wiring.startStreaming(CoordinatorBootstrapConfig.withDefaults("coord-test", 0), null);
-            assertThat(wiring.getCdcLifecycleManager()).isNull();
             assertThat(wiring.getMaintenanceScheduler()).isNull();
         }
     }

@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.state;
 
 import javax.sql.DataSource;
 
-import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
+import org.pangrova.query.core.JdbcQueryStateJournal;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal;
 import org.pangrova.spi.coordination.QueryStateJournal;
 import org.pangrova.spi.coordination.StateJournalConfig;

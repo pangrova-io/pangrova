@@ -6,13 +6,13 @@ import java.util.Optional;
 import org.pangrova.coordinator.scheduler.StageScheduler;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.FailureAction;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.FailureActionType;
-import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger;
-import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger.RepartitionDecision;
+import org.pangrova.shuffle.api.adaptive.AdaptiveRepartitionTrigger;
+import org.pangrova.shuffle.api.adaptive.AdaptiveRepartitionTrigger.RepartitionDecision;
 import org.pangrova.spi.execution.scheduling.FaultTolerancePolicy;
 import org.pangrova.spi.execution.scheduling.RetryBudget;
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleDurability;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.capability.ShuffleDurability;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

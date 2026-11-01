@@ -13,7 +13,7 @@ import org.pangrova.protocol.v2.shuffle.PartitionWriteAck;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.protocol.v2.shuffle.WriteBatchResponse;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 import org.pangrova.worker.exchange.CanonicalBatchChunks;
 
 import io.grpc.Status;

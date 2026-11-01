@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
 import org.pangrova.protocol.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 import org.pangrova.protocol.v2.WriteOutputBinding;

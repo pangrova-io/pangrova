@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import com.google.protobuf.CodedOutputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,24 +30,24 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.build.ArtifactExchangeRegistration;
-import org.pangrova.metadata.artifact.build.ArtifactExecutionOwner;
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
-import org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.contract.ArtifactDependencySet;
-import org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy;
-import org.pangrova.metadata.artifact.contract.ArtifactExecutionKind;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.control.ArtifactExchangeRegistration;
+import org.pangrova.indexing.control.ArtifactExecutionOwner;
+import org.pangrova.indexing.control.ArtifactStageGraph;
+import org.pangrova.indexing.control.ArtifactStageTemplate;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.api.ArtifactDependencySet;
+import org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy;
+import org.pangrova.indexing.api.ArtifactExecutionKind;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExchangeStore;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
@@ -96,8 +99,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("durable_native_report");
-        builds = new JdbcArtifactBuildStore(dataSource);
-        stages = new JdbcArtifactStageExecutionStore(dataSource);
+        builds = new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
+        stages = new JdbcArtifactStageExecutionStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         executions = new CoordinatorArtifactExecutionFixtures(dataSource);
         spec = specification();
         CoordinatorArtifactAuthorityFixtures.provision(dataSource, KEY.tenantId(), spec.principal(), spec.authorizationScope());
@@ -262,7 +265,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 stages, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new TaskScheduler(new WorkerPerformanceScorer()), () -> 9, Duration.ofMinutes(2),
                 (task, acknowledgement) -> { throw new AssertionError("Winner replay must not dispatch a Worker"); },
-                new JdbcArtifactStageExchangeStore(dataSource)));
+                new JdbcArtifactStageExchangeStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent))));
     }
 
     private void registerTask(SubmitTaskRequest submitted) {
@@ -318,7 +321,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
 
     private void registerExchange() {
         var address = new ArtifactExchangeRegistration.Address("shuffle.internal", 9080, "shuffle.internal");
-        new JdbcArtifactStageExchangeStore(dataSource).register(KEY, ArtifactExecutionOwner.from(anchor),
+        new JdbcArtifactStageExchangeStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)).register(KEY, ArtifactExecutionOwner.from(anchor),
                 new ArtifactExchangeRegistration("exchange-1-0", KEY.executionId(), "allocation-1", 1, 7,
                         spec.stageGraph().sha256(), spec.stageGraph().requireStage(1).planSha256(), "41", 1,
                         "c".repeat(64), 1, List.of(new ArtifactExchangeRegistration.Endpoint(address, 0, 1)), address,
@@ -346,7 +349,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         return new ArtifactBuildJob(KEY.tenantId(), KEY.jobId(), "feature-view/output", ArtifactTypeIds.TABULAR_EXPORT,
                 "generation", "lake.raw.items", "41", ArtifactExecutionKind.EXPORT,
                 ArtifactDependencySet.sourceSnapshot("lake.raw.items", "41"), ArtifactEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
-                "s3://warehouse/report-job", "pangrova.tabular-export.arrow-stream", 1, 0, "a".repeat(64),
+                "s3://warehouse/report-job", "pangrova.tabular-export.columnar-stream", 1, 0, "a".repeat(64),
                 "native", "", KEY.jobId(), 2, 0, ArtifactBuildJobState.QUEUED, 0, now, now, now);
     }
 

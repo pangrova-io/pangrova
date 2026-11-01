@@ -3,8 +3,8 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleDurability;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.capability.ShuffleDurability;
 import org.junit.jupiter.api.Test;
 
 /**

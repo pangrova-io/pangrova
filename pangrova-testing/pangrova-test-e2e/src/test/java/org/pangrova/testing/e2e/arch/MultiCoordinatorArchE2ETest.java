@@ -4,7 +4,7 @@ import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
 import org.pangrova.coordinator.bootstrap.CoordinatorRole;
 import org.pangrova.coordinator.index.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
+import org.pangrova.query.core.JdbcQueryStateJournal;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.QueryStateEvent;

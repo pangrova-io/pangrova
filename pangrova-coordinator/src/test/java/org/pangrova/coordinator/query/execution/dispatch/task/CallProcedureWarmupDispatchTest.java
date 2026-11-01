@@ -12,16 +12,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.TableWarmupExecutor;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.ConnectorHandleFactory;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.ConnectorHandleFactory;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.statement.maintenance.CallStatement;
@@ -117,8 +117,8 @@ class CallProcedureWarmupDispatchTest {
     private static org.pangrova.coordinator.query.statement.ControlledTableMaintenance maintenance(
             CatalogRegistry registry) {
         return new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(registry,
-                new org.pangrova.metadata.control.TableControlMaintenanceService(
-                        new org.pangrova.metadata.control.InMemoryTableControlMaintenanceStore()),
+                new org.pangrova.metadata.core.control.TableControlMaintenanceService(
+                        new org.pangrova.metadata.core.control.InMemoryTableControlMaintenanceStore()),
                 null, "test");
     }
 

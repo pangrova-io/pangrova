@@ -80,12 +80,12 @@ final class ArtifactTaskReportValidator {
             throw invalid("artifact target has incomplete dependency or empty-partition policy");
         }
         var dependencies = output.getDependenciesList().stream()
-                .map(dependency -> new org.pangrova.metadata.artifact.contract.ArtifactDependency(
+                .map(dependency -> new org.pangrova.indexing.api.ArtifactDependency(
                         dependency.getKind(), dependency.getId(), dependency.getVersion()))
                 .toList();
         String checksum = java.util.HexFormat.of().formatHex(
                 output.getDependencySetChecksum().getDigest().toByteArray());
-        new org.pangrova.metadata.artifact.contract.ArtifactDependencySet(dependencies, checksum);
+        new org.pangrova.indexing.api.ArtifactDependencySet(dependencies, checksum);
     }
 
     private static ArtifactWriteBinding outputBinding(List<OperatorBinding> bindings) {
@@ -191,7 +191,7 @@ final class ArtifactTaskReportValidator {
                     && !target.getWorkUnitId().isBlank()
                     && !target.hasRowLocator()
                     && target.getArtifactType().equals("TABULAR_EXPORT")
-                    && target.getFormat().getFormatId().equals("pangrova.tabular-export.arrow-stream")
+                    && target.getFormat().getFormatId().equals("pangrova.tabular-export.columnar-stream")
                     && target.getExecutionKind() == org.pangrova.protocol.v2.ArtifactExecutionKind
                             .ARTIFACT_EXECUTION_KIND_EXPORT;
             case ARTIFACT_WORK_KIND_UNSPECIFIED, UNRECOGNIZED -> false;

@@ -12,7 +12,7 @@ import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
-import org.pangrova.shuffle.exchange.ExchangeInput;
+import org.pangrova.shuffle.api.exchange.ExchangeInput;
 import org.pangrova.testing.ContainerTestBase;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
@@ -187,7 +187,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         });
     }
 
-    private static ExchangeInput input(org.pangrova.shuffle.exchange.ExternalShuffleTransport binding) {
+    private static ExchangeInput input(org.pangrova.shuffle.api.exchange.ExternalShuffleTransport binding) {
         return new ExchangeInput(ActualExternalShuffleTask.PLAN_NODE, ActualExternalShuffleTask.EXCHANGE_ID, 1, binding);
     }
 }

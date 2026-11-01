@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.authz.PrivilegeGrant;
 import org.pangrova.security.authz.Role;
@@ -28,7 +28,6 @@ public final class CoordinatorArtifactAuthorityFixtures {
         roles.createRole(Role.of("artifact_builder"));
         roles.grantRoleToUser(UserRoleAssignment.of(principal, "artifact_builder"));
         var tenants = new JdbcTenantStore(dataSource);
-        tenants.initSchema();
         tenants.createTenant(new Tenant(tenantId, tenantId, TenantStatus.ACTIVE,
                 null, List.of(), List.of(), null, Map.of(), Instant.EPOCH, principal));
         tenants.addUserToTenant(tenantId, principal, TenantRole.MEMBER);

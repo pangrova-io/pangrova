@@ -11,7 +11,7 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.api.exchange.ExchangeReadMode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

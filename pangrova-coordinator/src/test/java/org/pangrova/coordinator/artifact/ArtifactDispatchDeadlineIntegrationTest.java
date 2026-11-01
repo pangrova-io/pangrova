@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.artifact;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -7,18 +10,18 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.coordinator.testinfra.CoordinatorArtifactAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.contract.ArtifactDependencySet;
-import org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy;
-import org.pangrova.metadata.artifact.contract.ArtifactExecutionKind;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.api.ArtifactDependencySet;
+import org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy;
+import org.pangrova.indexing.api.ArtifactExecutionKind;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
 import org.pangrova.planner.artifact.ArtifactBuildPlan;
 import org.pangrova.planner.artifact.VectorArtifactBuildPlanBuilder;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
@@ -72,10 +75,10 @@ class ArtifactDispatchDeadlineIntegrationTest extends ContainerTestBase {
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("artifact_dispatch_deadline");
         CoordinatorArtifactAuthorityFixtures.provision(dataSource, TENANT, "alice", SCOPE);
-        builds = new JdbcArtifactBuildStore(dataSource);
+        builds = new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         executions = new org.pangrova.coordinator.testinfra.CoordinatorArtifactExecutionFixtures(dataSource);
         factory = new ArtifactDispatchRequestFactory(
-                new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(dataSource));
+                new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)));
     }
 
     @ParameterizedTest
@@ -169,7 +172,7 @@ class ArtifactDispatchDeadlineIntegrationTest extends ContainerTestBase {
         var pages = List.of(new ArtifactBuildPage(job.jobId(), "page-1", 0, 0, 0,
                 ArtifactBuildPageKind.SOURCE_MAP, List.of(split()), List.of(), 3));
         var spec = ArtifactBuildDispatchSpec.of(job.jobId(),
-                org.pangrova.metadata.artifact.build.ArtifactStageGraph.forArtifactPages(plan.planBytes(), bindings(plan, dependencies), pages, java.util.List.of()),
+                org.pangrova.indexing.control.ArtifactStageGraph.forArtifactPages(plan.planBytes(), bindings(plan, dependencies), pages, java.util.List.of()),
                 TENANT, "alice", SCOPE, new ArtifactBuildDispatchSpec.ResourceGrant(4096, 1, 4096, timeoutMillis));
         builds.createJob(job, spec, pages);
         return builds.claimNextPage(TENANT, job.jobId(), executions.takeOwnership(TENANT, job.jobId(), "coordinator-1", 1), 1, INITIAL_LEASE, NOW).orElseThrow();

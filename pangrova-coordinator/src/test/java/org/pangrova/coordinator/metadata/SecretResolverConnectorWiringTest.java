@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.security.secret.EnvSecretProvider;
 import org.pangrova.security.secret.FileSecretProvider;
 import org.pangrova.security.secret.SecretResolver;

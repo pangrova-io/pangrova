@@ -3,7 +3,7 @@ package org.pangrova.coordinator.file;
 import java.util.Objects;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.metadata.file.JdbcFileDirectoryIndex;
+import org.pangrova.security.storage.store.JdbcFileDirectoryIndex;
 import org.pangrova.spi.security.FileSpaceAccessControl;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.storage.file.FileSpace;

@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.metadata.adapter.FederatedCatalog;
-import org.pangrova.metadata.adapter.FederatedCatalogFactory;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.FederationCatalogHandle;
-import org.pangrova.metadata.catalog.FederationHandleFactory;
-import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
+import org.pangrova.metadata.core.federation.FederatedCatalog;
+import org.pangrova.metadata.core.federation.FederatedCatalogFactory;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.FederationCatalogHandle;
+import org.pangrova.metadata.core.catalog.FederationHandleFactory;
+import org.pangrova.metadata.api.error.catalog.CatalogProviderNotFoundException;
 import org.pangrova.security.secret.SecretResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

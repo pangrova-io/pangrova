@@ -8,8 +8,8 @@ import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.coordination.JdbcCoordinatorRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.coordinator.coordination.JdbcCoordinatorRegistry;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.pangrova.spi.coordination.CoordinatorRegistry;
@@ -63,7 +63,7 @@ final class HighAvailabilityBootstrap {
     private CatalogRegistry catalogRegistry;
     private CoordinatorRegistry quorumRegistry;
     private boolean durableExecutionAnchors;
-    private org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactExecutions;
+    private org.pangrova.indexing.control.ArtifactBuildStore artifactExecutions;
     private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
     private final AtomicBoolean executionRecoveryRunning = new AtomicBoolean();
     private volatile boolean querySchedulingStopped;
@@ -170,7 +170,10 @@ final class HighAvailabilityBootstrap {
             }
             haService.bindExecutionAuthority(executionAuthority);
             durableExecutionAnchors = true;
-            artifactExecutions = new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore(dataSource);
+            artifactExecutions = new org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore(
+                    dataSource,
+                    new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                            org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent));
         }
         if (quorumRegistry != null) {
             haService.setCoordinatorRegistry(quorumRegistry,
@@ -295,9 +298,9 @@ final class HighAvailabilityBootstrap {
                 var key = artifact.orElseThrow();
                 var job = artifactExecutions.findJob(key.tenantId(), key.jobId()).orElseThrow(() ->
                         new IllegalStateException("artifact recovery association lost its exact job"));
-                if (job.state() == org.pangrova.metadata.artifact.build.ArtifactBuildJobState.PUBLISHED
-                        || job.state() == org.pangrova.metadata.artifact.build.ArtifactBuildJobState.FAILED
-                        || job.state() == org.pangrova.metadata.artifact.build.ArtifactBuildJobState.CANCELLED) {
+                if (job.state() == org.pangrova.indexing.control.ArtifactBuildJobState.PUBLISHED
+                        || job.state() == org.pangrova.indexing.control.ArtifactBuildJobState.FAILED
+                        || job.state() == org.pangrova.indexing.control.ArtifactBuildJobState.CANCELLED) {
                     haService.releaseQueryOwnership(anchor.executionId(), config.coordinatorId());
                 }
                 continue;
@@ -310,7 +313,7 @@ final class HighAvailabilityBootstrap {
         }
     }
 
-    private java.util.Optional<org.pangrova.metadata.artifact.build.ArtifactBuildJobKey> artifactJob(
+    private java.util.Optional<org.pangrova.indexing.control.ArtifactBuildJobKey> artifactJob(
             ExecutionAnchor anchor) {
         if (!anchor.executionId().startsWith("artifact:")) {
             return java.util.Optional.empty();

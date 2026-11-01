@@ -7,16 +7,16 @@ import org.pangrova.coordinator.artifact.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
 import org.pangrova.coordinator.worker.WorkerCapabilityMatcher;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
-import org.pangrova.metadata.artifact.GeneratedValueArtifactDescriptor;
-import org.pangrova.metadata.artifact.GeneratedValueArtifactMetadataStore;
-import org.pangrova.metadata.artifact.GeneratedValueBuildSubmission;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactStageGraph;
+import org.pangrova.indexing.api.GeneratedValueArtifactDescriptor;
+import org.pangrova.indexing.control.GeneratedValueArtifactMetadataStore;
+import org.pangrova.indexing.api.GeneratedValueBuildSubmission;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
 import org.pangrova.planner.artifact.ArtifactBuildPlan;
@@ -93,7 +93,7 @@ public final class DurableGeneratedValueBuildService {
             SnapshotArtifactSplitPlanner splitPlanner,
             WorkerSelector workerSelector,
             String baseArtifactUri,
-            org.pangrova.metadata.catalog.CatalogRegistry catalogs) {
+            org.pangrova.metadata.core.catalog.CatalogRegistry catalogs) {
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.metadataStore = Objects.requireNonNull(
                 metadataStore, "metadataStore must not be null");

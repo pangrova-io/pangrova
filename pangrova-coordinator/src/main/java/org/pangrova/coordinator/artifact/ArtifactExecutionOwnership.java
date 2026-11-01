@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.artifact;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 
 import java.util.Objects;

@@ -22,7 +22,7 @@ failures propagate instead of being represented as a successful empty catalog. A
 tenant is rejected; connectors receive only the authoritative `tenant_id`, never an alias
 or a client property substituted for authenticated tenancy.
 
-`MetadataService` resolution caching separates tenant, user and the SHA-256 digest of
+`CatalogRegistry` resolution caching separates tenant, user and the SHA-256 digest of
 security context plus canonical connector properties. Secrets are not retained in cache
 keys. Table/catalog DDL invalidates all affected authenticated scopes; ALTER validation
 and readback use the connector rather than the unscoped tiered inventory cache.

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactBuildLease;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;

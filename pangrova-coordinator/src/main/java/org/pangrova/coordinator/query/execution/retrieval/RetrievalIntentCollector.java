@@ -14,7 +14,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.Retrieval
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
 import org.pangrova.coordinator.worker.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
+import org.pangrova.indexing.api.ArtifactTypeIds;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.retrieval.RetrievalMergeBinding;

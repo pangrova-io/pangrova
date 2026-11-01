@@ -14,9 +14,9 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
-import org.pangrova.metadata.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.coordinator.coordination.JdbcDistributedLease;
+import org.pangrova.query.transaction.JdbcExecutionAnchorStore;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;

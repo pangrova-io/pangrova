@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.artifact;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.ArtifactGenerationManifest;
-import org.pangrova.metadata.artifact.ArtifactPublicationStore;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.api.ArtifactGenerationManifest;
+import org.pangrova.indexing.control.ArtifactPublicationStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,7 +102,7 @@ public final class DurableArtifactPublisher implements AutoCloseable {
     }
 
     private void publishOne(String tenantId, String jobId, Instant now) {
-        var key = new org.pangrova.metadata.artifact.build.ArtifactBuildJobKey(tenantId, jobId);
+        var key = new org.pangrova.indexing.control.ArtifactBuildJobKey(tenantId, jobId);
         var anchor = executionOwnership.acquire(key);
         if (anchor.isEmpty()) {
             return;
@@ -131,7 +131,7 @@ public final class DurableArtifactPublisher implements AutoCloseable {
             executionOwnership.release(key);
             LOG.warn("event=artifact_publication_revoked jobId={} tenantId={} reason={}",
                     jobId, tenantId, revoked.getMessage());
-        } catch (org.pangrova.metadata.artifact.jdbc.ArtifactExecutionFence.LostOwnerException staleOwner) {
+        } catch (org.pangrova.indexing.store.jdbc.ArtifactExecutionFence.LostOwnerException staleOwner) {
             LOG.warn("event=artifact_publication_owner_lost jobId={} tenantId={}", jobId, tenantId);
         } catch (RuntimeException failure) {
             if (claim == null) throw failure;

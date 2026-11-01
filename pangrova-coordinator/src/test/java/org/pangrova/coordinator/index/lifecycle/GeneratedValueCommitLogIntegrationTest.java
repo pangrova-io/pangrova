@@ -12,8 +12,8 @@ import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.serde.IndexSerializer;
 import org.pangrova.indexing.serde.TypeSerializerRegistry;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
-import org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore;
+import org.pangrova.coordinator.coordination.JdbcDistributedLease;
+import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.spi.connector.index.CommitEvent;
 import org.pangrova.spi.connector.index.CommitEventType;
 

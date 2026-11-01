@@ -5,7 +5,7 @@ import org.pangrova.testing.ContainerTestBase;
 import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.security.tenant.model.Tenant;
 import org.pangrova.security.tenant.model.TenantRole;
 import org.pangrova.security.tenant.model.TenantStatus;

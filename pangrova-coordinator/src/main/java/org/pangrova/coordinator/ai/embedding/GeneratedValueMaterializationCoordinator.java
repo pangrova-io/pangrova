@@ -2,8 +2,8 @@ package org.pangrova.coordinator.ai.embedding;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnSet;

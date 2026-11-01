@@ -3,12 +3,12 @@ package org.pangrova.testing.e2e.write;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.metadata.control.JdbcTableControlStore;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.control.TableControlSettings;
-import org.pangrova.metadata.service.TableControlColumnMaskStore;
-import org.pangrova.metadata.service.TableControlRowPolicyStore;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
+import org.pangrova.metadata.core.control.JdbcTableControlStore;
+import org.pangrova.metadata.core.control.TableControlService;
+import org.pangrova.metadata.core.control.TableControlSettings;
+import org.pangrova.metadata.core.TableControlColumnMaskStore;
+import org.pangrova.metadata.core.TableControlRowPolicyStore;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
@@ -154,7 +154,6 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
         var session = authenticatedCatalogSession(CATALOG);
         String tenant = session.getProperties().get("tenant_id");
         var tenants = new JdbcTenantStore(stateStoreDataSource());
-        tenants.initSchema();
         assertThat(tenants.getTenant(tenant)).hasValueSatisfying(current ->
                 assertThat(current.status()).isEqualTo(TenantStatus.ACTIVE));
         assertThat(tenants.getTenantForUser(session.getUser())).hasValueSatisfying(membership ->

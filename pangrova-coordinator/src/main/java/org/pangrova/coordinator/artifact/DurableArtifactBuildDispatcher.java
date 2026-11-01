@@ -8,8 +8,8 @@ import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactBuildStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +43,7 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
     private final String coordinatorId;
     private final LongSupplier epochSupplier;
     private final ArtifactExecutionOwnership executionOwnership;
-    private final ConcurrentHashMap<org.pangrova.metadata.artifact.build.ArtifactBuildJobKey,
+    private final ConcurrentHashMap<org.pangrova.indexing.control.ArtifactBuildJobKey,
             org.pangrova.spi.coordination.ExecutionAnchor> ownedJobs = new ConcurrentHashMap<>();
     private final Duration leaseDuration;
     private final Duration retryBackoff;
@@ -65,8 +65,8 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
             String coordinatorId,
             LongSupplier epochSupplier,
             ArtifactExecutionOwnership executionOwnership,
-            org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore stages,
-            org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore exchanges,
+            org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore stages,
+            org.pangrova.indexing.store.jdbc.JdbcArtifactStageExchangeStore exchanges,
             org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine) {}
 
     /** Bounded lease and concurrency settings for durable artifact dispatch. */
@@ -150,7 +150,7 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
             return 0;
         }
         int dispatched = 0;
-        Map<org.pangrova.metadata.artifact.build.ArtifactBuildJobKey, Long> memoryGrants =
+        Map<org.pangrova.indexing.control.ArtifactBuildJobKey, Long> memoryGrants =
                 new java.util.HashMap<>();
         boolean madeProgress;
         do {
@@ -190,7 +190,7 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
     }
 
     private java.util.Optional<ArtifactBuildLease> claimAuthorizedPage(
-            org.pangrova.metadata.artifact.build.ArtifactBuildJobKey job, long epoch, Instant now) {
+            org.pangrova.indexing.control.ArtifactBuildJobKey job, long epoch, Instant now) {
         try {
             var anchor = executionOwnership.acquire(job);
             if (anchor.isEmpty()) {
@@ -215,7 +215,7 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         }
     }
 
-    private void settleOwnedJob(org.pangrova.metadata.artifact.build.ArtifactBuildJobKey key,
+    private void settleOwnedJob(org.pangrova.indexing.control.ArtifactBuildJobKey key,
             org.pangrova.spi.coordination.ExecutionAnchor anchor) {
         boolean activePage = active.values().stream().anyMatch(attempt ->
                 attempt.lease.tenantId().equals(key.tenantId()) && attempt.lease.jobId().equals(key.jobId()));

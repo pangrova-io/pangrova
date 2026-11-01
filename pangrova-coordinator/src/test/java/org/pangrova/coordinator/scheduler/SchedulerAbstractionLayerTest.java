@@ -62,8 +62,7 @@ class SchedulerAbstractionLayerTest {
                 "LoadBalancedStrategy.java",
                 "FairShareStrategy.java",
                 "SchedulerEventLoop.java",
-                "WorkerTaskControlClient.java",
-                "package-info.java");
+                "WorkerTaskControlClient.java");
 
         assertThat(rootFiles)
                 .as("scheduler/ root should contain only core dispatch/scheduling files")
@@ -74,7 +73,7 @@ class SchedulerAbstractionLayerTest {
     void failureSubPackageOwnsTheDispatchFailureContract() throws IOException {
         assertThat(listJavaFileNames(SCHEDULER_PKG.resolve("failure")))
                 .containsExactlyInAnyOrder("CircuitBreakerOpenException.java", "NoAvailableWorkerException.java",
-                        "ErrorCategory.java", "TaskDispatchException.java", "package-info.java");
+                        "ErrorCategory.java", "TaskDispatchException.java");
         assertThat(ErrorCategory.class.getPackageName()).isEqualTo("org.pangrova.coordinator.scheduler.failure");
     }
 

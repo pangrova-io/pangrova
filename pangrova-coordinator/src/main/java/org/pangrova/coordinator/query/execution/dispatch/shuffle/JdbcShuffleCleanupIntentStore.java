@@ -9,8 +9,8 @@ import java.util.List;
 
 import javax.sql.DataSource;
 
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleExecutionOwnerResolver;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwnerResolver;
 
 /** Durable terminal cleanup intent in the same PostgreSQL authority as execution anchors. */
 public final class JdbcShuffleCleanupIntentStore {

@@ -326,7 +326,7 @@ public class PluginManager {
 
 > **Authoritative definition**: The full `CatalogRegistry` implementation (PostgreSQL persistence, ZooKeeper synchronization, health monitoring, dynamic catalog lifecycle management) is defined in [metadata.md §3.2](./metadata.md). This section describes only the Connector-side integration points.
 
-Note: Catalog registration and lifecycle management are handled uniformly by `MetadataService`/`CatalogRegistry` (see [metadata.md §3.2](./metadata.md)). This section describes the target-state implementation of the Connector-side Catalog registration, table-reference resolution, and plugin loading.
+Note: Catalog registration and lifecycle management are handled uniformly by `CatalogRegistry` (see [metadata.md §3.2](./metadata.md)). This section describes the target-state implementation of the Connector-side Catalog registration, table-reference resolution, and plugin loading.
 
 Iceberg table-handle lookup reads the current catalog state for each resolution. A
 process-wide time-based table cache cannot make `DROP TABLE` followed immediately by
@@ -354,7 +354,7 @@ still pins its own immutable metadata and source identity through the query life
  */
 // See metadata.md §3.2 for the full CatalogRegistry implementation.
 // The config-file-based loadCatalogs() below is the bootstrap path;
-// runtime CREATE/DROP CATALOG goes through MetadataService (07 §3.1).
+// runtime CREATE/DROP CATALOG goes through CatalogRegistry (07 §3.1).
 ```
 
 ---
@@ -702,38 +702,29 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 |--------|------|------|----------|
 | Storage Adapter (Java) | pangrova-connector-{format}/ | Maps storage-specific metadata to PangrovaReadExtension | Implement the StorageAdapter interface |
 
-| Table Writer (Java) | pangrova-connector-{format}/ | Unified write interface (CDC + SQL writes share) | Implement TableWriter interface, see [streaming.md §2.6](./streaming.md) (authoritative) |
+| CDC Write Sink (Java) | pangrova-connector-{format}/ | Record-oriented CDC ingestion | Implemented by the coordinator adapter `ConnectorPageSinkCdcWriter` over `ConnectorPageSinkProvider`; see [streaming.md §2.3](./streaming.md) |
 
 
 
-**TableWriter ↔ ConnectorPageSinkProvider Delegation Model:**
+**CDC and SQL write paths:**
 
-`TableWriter` ([10 §2.6](./streaming.md)) is the upper-layer unified entry point for all write operations (both CDC and SQL paths). Internally, `TableWriter` delegates to `ConnectorPageSinkProvider` (defined above in §1.2) for format-specific data file persistence. This avoids duplicate write logic and unifies transaction management.
+```text
+CDC: CdcPipelineLoop → CdcWriteSink → ConnectorPageSinkCdcWriter
+     → ConnectorPageSinkProvider.createPageSink()
+     → ConnectorPageSink.appendPage() + commit()
 
-```
-CDC Consumer / SQL Write Task
-        │
-        ▼
-    TableWriter (unified entry — 10 §2.6)
-        │
-        ├── SELF_MANAGED (CDC): TableWriter manages transaction internally
-        │     └── ConnectorPageSinkProvider.createPageSink()
-        │           └── ConnectorPageSink.appendPage() + commit()
-        │
-        └── COORDINATOR_MANAGED (SQL): Coordinator manages transaction
-              └── ConnectorPageSinkProvider.createPageSink()
-                    └── ConnectorPageSink.appendPage() (no commit)
-                    └── Coordinator calls Connector.commit() atomically
+SQL: Native Worker → ConnectorPageSinkProvider.createPageSink()
+     → ConnectorPageSink.appendPage() (no commit)
+     → Coordinator fenced atomic commit
 ```
 
-| Responsibility | ConnectorPageSinkProvider (§1.2) | TableWriter ([10 §2.6](./streaming.md)) |
-|----------------|----------------------------------|---------------------------------------------|
-| Layer | Connector SPI factory — creates format-specific PageSink instances | Upper-layer unified write interface — entry point for CDC and SQL |
-| Acquisition | `Connector.getPageSinkProvider()` | Constructed by write task or CDC consumer |
-| Transaction | External — managed by `Connector.beginTransaction()` / `commit()` / `rollback()` | Via `WriteContext.transactionMode` (COORDINATOR_MANAGED or SELF_MANAGED) |
-| Input format | `ConnectorPageSink.appendPage(Page)` — Pangrova internal Page format | `write(List<WriteRecord>)` for CDC, `writeBatch(VectorSchemaRoot)` for SQL |
-| CDC support | Not directly — no CDC-specific API | Explicit CDC support with UPSERT mode |
-| Relationship | **Internal implementation detail** of TableWriter | **Delegates to** ConnectorPageSinkProvider internally |
+| Responsibility | ConnectorPageSinkProvider (§1.2) | CdcWriteSink |
+|----------------|----------------------------------|--------------|
+| Layer | Connector SPI factory — creates format-specific PageSink instances | CDC ingestion adapter owned by the coordinator |
+| Acquisition | `Connector.getPageSinkProvider()` | Constructed by `StreamingBootstrap` from catalog metadata |
+| Transaction | External — managed by `Connector.beginTransaction()` / `commit()` / `rollback()` | Coordinator-owned staged publish / discard |
+| Input format | `ConnectorPageSink.appendPage(Page)` — Pangrova internal Page format | `writeBatch(List<CdcEnvelope>)` |
+| Relationship | Underlying connector write SPI | **Delegates to** ConnectorPageSinkProvider |
 | File Format Reader (C++) | pangrova-worker-native/src/connector/ | Reads specific file formats (Parquet/ORC/Avro) | Implement the DataSourceFactory interface |
 | Delete Handler (C++) | pangrova-worker-native/src/connector/delete/ | Handles different types of delete files | Implement the DeleteHandler interface |
 | TableMaintenanceSpi (Java) | pangrova-connector-{format}/ | Async compaction, orphan cleanup, snapshot expiration | Implement TableMaintenanceSpi interface, see [streaming.md §2.9](./streaming.md) (authoritative) |

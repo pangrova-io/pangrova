@@ -10,7 +10,7 @@ import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.ShuffleStageStats;
 import org.pangrova.protocol.rest.shuffle.PartitionStats;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.RelNode;

@@ -58,8 +58,8 @@ class FileSpaceControlPlaneContractE2ETest {
     Path root;
 
     private final ObjectMapper mapper = JsonMapperFactory.create();
-    private org.pangrova.metadata.file.JdbcFileSpaceRegistry spaces;
-    private org.pangrova.metadata.storage.JdbcStorageProfileRegistry profiles;
+    private org.pangrova.security.storage.store.JdbcFileSpaceRegistry spaces;
+    private org.pangrova.security.storage.store.JdbcStorageProfileRegistry profiles;
     private FileSpaceAccessService coordinator;
     private FileSpaceFileResource worker;
 
@@ -74,16 +74,15 @@ class FileSpaceControlPlaneContractE2ETest {
             statement.execute("CREATE SCHEMA " + schema);
         }
         source.setCurrentSchema(schema);
-        org.pangrova.metadata.store.SchemaMigrationRunner.migrate(source);
-        var tenants = new org.pangrova.metadata.tenant.JdbcTenantStore(source);
-        tenants.initSchema();
+        org.pangrova.metadata.store.jdbc.SchemaMigrationRunner.migrateAll(source);
+        var tenants = new org.pangrova.security.tenant.store.JdbcTenantStore(source);
         tenants.createTenant(new org.pangrova.security.tenant.model.Tenant("tenant-a", "File contract tests",
                 org.pangrova.security.tenant.model.TenantStatus.ACTIVE,
                 new org.pangrova.security.tenant.model.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
                 List.of(), List.of(), "", Map.of(), Instant.EPOCH, "fixture"));
         tenants.addUserToTenant("tenant-a", "alice", org.pangrova.security.tenant.model.TenantRole.MEMBER);
-        spaces = new org.pangrova.metadata.file.JdbcFileSpaceRegistry(source);
-        profiles = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(source);
+        spaces = new org.pangrova.security.storage.store.JdbcFileSpaceRegistry(source);
+        profiles = new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(source);
         assertThat(profiles.createIfAbsent(new StorageProfile("local", StorageType.LOCAL, root.toString(), "",
                 "", "", Map.of(), Map.of()))).isTrue();
         for (FileSpaceType type : List.of(FileSpaceType.VOLUME, FileSpaceType.STAGE)) {
@@ -112,7 +111,7 @@ class FileSpaceControlPlaneContractE2ETest {
                         new org.pangrova.security.store.PersistentColumnMaskStore(source)));
         var context = new FileSpaceAccessService.FileSpaceAccessContext("local",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://worker:8080"),
-                new FileSpaceAuditEmitter(null), SECRET, new org.pangrova.metadata.file.JdbcFileSpaceAuthority(source));
+                new FileSpaceAuditEmitter(null), SECRET, new org.pangrova.security.storage.store.JdbcFileSpaceAuthority(source));
         coordinator = new FileSpaceAccessService(spaces, profiles, authorization, context);
         worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, mapper,
                 () -> NOW);

@@ -19,6 +19,6 @@ public record PlanExecutionFactoryContext(
         NativeDmlCompileFunction dmlDispatch,
         Consumer<String> writeCompleteCallback,
         BiFunction<String, CoordinatorSessionContext, String> explainCompiler,
-        org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+        org.pangrova.metadata.core.catalog.CatalogRegistry catalogRegistry,
         org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
                 generatedValueMaterialization) {}

@@ -127,7 +127,7 @@ class StorageProfileE2ETest extends PangrovaE2ETestBase {
     @Test
     @DisplayName("Profile definitions survive dispatcher rebuild and retain exact historical identity")
     void durableProfileRevisionSurvivesDispatcherRebuildAndRecreation() {
-        var registry = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(stateStoreDataSource());
+        var registry = new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(stateStoreDataSource());
         try {
             executeDdl("CREATE STORAGE PROFILE " + profileName
                     + " WITH ('type'='S3', 'bucket'='old-bucket', 'prefix'='data/')");

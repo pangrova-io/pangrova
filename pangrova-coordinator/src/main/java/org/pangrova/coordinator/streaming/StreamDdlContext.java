@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
-import org.pangrova.metadata.streaming.StreamOffsetStore;
-import org.pangrova.metadata.streaming.StreamStateStore;
+import org.pangrova.spi.streaming.store.StreamOffsetStore;
+import org.pangrova.spi.streaming.store.StreamStateStore;
 
 import java.util.Objects;
 

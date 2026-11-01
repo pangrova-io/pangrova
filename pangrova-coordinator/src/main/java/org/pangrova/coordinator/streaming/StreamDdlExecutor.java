@@ -5,9 +5,9 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.StreamAlreadyExistsException;
 import org.pangrova.common.exception.StreamNotFoundException;
 import org.pangrova.common.exception.StreamQuotaExceededException;
-import org.pangrova.metadata.streaming.StreamLifecycleState;
-import org.pangrova.metadata.streaming.StreamState;
-import org.pangrova.metadata.streaming.StreamStateStore;
+import org.pangrova.spi.streaming.store.StreamLifecycleState;
+import org.pangrova.spi.streaming.store.StreamState;
+import org.pangrova.spi.streaming.store.StreamStateStore;
 import org.pangrova.parser.ast.statement.stream.CreateStreamStatement;
 import org.pangrova.parser.ast.statement.stream.AlterStreamAction;
 import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
@@ -124,7 +124,7 @@ public final class StreamDdlExecutor {
 
         // Register with scheduler and transition to RUNNING
         StreamState running = creating.withLifecycleState(StreamLifecycleState.RUNNING);
-        stateStore().saveState(running);
+        stateStore().saveStateIfEpoch(running, creating.epoch());
         deps.scheduler().start(running);
 
         LOG.info("event=stream_created stream={} tenant={} target={} creator={}",

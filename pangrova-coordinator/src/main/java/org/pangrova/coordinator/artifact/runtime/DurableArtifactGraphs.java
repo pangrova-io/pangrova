@@ -3,9 +3,9 @@ package org.pangrova.coordinator.artifact.runtime;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactStageGraph;
 import org.pangrova.spi.annotation.Internal;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 

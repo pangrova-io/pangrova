@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.exception.MetastoreException;
+import org.pangrova.metadata.api.error.MetastoreException;
 import org.pangrova.testing.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 

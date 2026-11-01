@@ -11,8 +11,8 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.exception.MetastoreException;
-import org.pangrova.metadata.file.JdbcFileSpaceRegistry;
+import org.pangrova.metadata.api.error.MetastoreException;
+import org.pangrova.security.storage.store.JdbcFileSpaceRegistry;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.security.audit.AuditEvent;

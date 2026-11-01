@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.materialization.domain.InternalNamespace;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.control.TableControlService;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.control.TableControlRecord;
+import org.pangrova.metadata.core.control.TableControlService;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.ShowSchemasStatement;
 import org.pangrova.parser.ast.statement.DescribeTableStatement;
@@ -236,7 +236,7 @@ public final class ShowDescribeExecutor {
                 .putString("updated_at", record.updatedAt() == null
                         ? null : record.updatedAt().toString())
                 .putLong("stats_version", statistics
-                        .map(org.pangrova.metadata.control.TableControlStatistics::statsVersion)
+                        .map(org.pangrova.metadata.core.control.TableControlStatistics::statsVersion)
                         .orElse(-1L))
                 .putLong("stats_row_count", statistics
                         .map(stats -> stats.statistics().rowCount()).orElse(-1L))

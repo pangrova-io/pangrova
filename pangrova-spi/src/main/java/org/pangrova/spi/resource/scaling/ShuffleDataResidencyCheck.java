@@ -21,12 +21,12 @@ import org.pangrova.spi.annotation.Experimental;
  * </ul>
  *
  * <p>The default in-tree implementation bridges to
- * {@link org.pangrova.shuffle.ShuffleDataInventory#assessDecommission(String)},
- * translating {@link org.pangrova.shuffle.DecommissionAssessment} into
+ * {@link org.pangrova.shuffle.api.inventory.ShuffleDataInventory#assessDecommission(String)},
+ * translating {@link org.pangrova.shuffle.api.inventory.DecommissionAssessment} into
  * scale-down advice.
  *
- * @see org.pangrova.shuffle.ShuffleDataInventory
- * @see org.pangrova.shuffle.DecommissionAssessment
+ * @see org.pangrova.shuffle.api.inventory.ShuffleDataInventory
+ * @see org.pangrova.shuffle.api.inventory.DecommissionAssessment
  */
 @Experimental(reason = "G-RES-08: shuffle data residency check for safe scale-down")
 public interface ShuffleDataResidencyCheck {

@@ -14,9 +14,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.metadata.file.JdbcFileDirectoryIndex;
-import org.pangrova.metadata.file.JdbcFileSpaceRegistry;
-import org.pangrova.metadata.store.SchemaMigrationRunner;
+import org.pangrova.security.storage.store.JdbcFileDirectoryIndex;
+import org.pangrova.security.storage.store.JdbcFileSpaceRegistry;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
 import org.pangrova.spi.storage.file.FileDirectoryReference;
 import org.pangrova.spi.storage.file.FileListing;
 import org.pangrova.spi.storage.file.FileSpace;
@@ -56,7 +56,7 @@ class FileDirectorySnapshotIntegrationTest {
             statement.execute("CREATE SCHEMA " + schema);
         }
         authority.setCurrentSchema(schema);
-        SchemaMigrationRunner.migrate(authority);
+        SchemaMigrationRunner.migrateAll(authority);
         worker = source(schema);
         application = "reader_" + schema;
         worker.setApplicationName(application);

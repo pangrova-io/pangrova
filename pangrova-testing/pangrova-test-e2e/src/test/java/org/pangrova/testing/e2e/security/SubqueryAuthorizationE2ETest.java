@@ -22,11 +22,11 @@ import org.pangrova.security.store.PersistentColumnMaskStore;
 import org.pangrova.security.store.PersistentGrantStore;
 import org.pangrova.security.store.PersistentRoleStore;
 import org.pangrova.security.store.PersistentRowPolicyStore;
-import org.pangrova.metadata.control.JdbcTableControlStore;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.control.TableControlSettings;
-import org.pangrova.metadata.service.TableControlColumnMaskStore;
-import org.pangrova.metadata.service.TableControlRowPolicyStore;
+import org.pangrova.metadata.core.control.JdbcTableControlStore;
+import org.pangrova.metadata.core.control.TableControlService;
+import org.pangrova.metadata.core.control.TableControlSettings;
+import org.pangrova.metadata.core.TableControlColumnMaskStore;
+import org.pangrova.metadata.core.TableControlRowPolicyStore;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 

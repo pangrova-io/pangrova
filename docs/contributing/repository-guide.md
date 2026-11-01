@@ -36,7 +36,7 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-connector` | Iceberg, Paimon and Lance connector modules |
 | `pangrova-metadata` | Durable metadata, catalog and coordination persistence |
 | `pangrova-materialization` | Shared dynamic-table/materialized-view domain kernel |
-| `pangrova-streaming` | CDC and streaming infrastructure |
+| `pangrova-streaming` | Streaming family aggregator: CDC pipeline runtime (`pangrova-streaming-runtime`), format adapters, maintenance, JDBC store adapter |
 | `pangrova-shuffle` | Exchange contracts and deployable shuffle service |
 | `pangrova-operations` | DDL/DML operation infrastructure |
 | `pangrova-resource` / `pangrova-resilience` | Resource admission, scheduling and fault handling |

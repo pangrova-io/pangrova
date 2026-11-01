@@ -8,7 +8,7 @@ import org.apache.iceberg.TableProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
-import org.pangrova.metadata.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.protocol.v2.TaskExecutionOptions;

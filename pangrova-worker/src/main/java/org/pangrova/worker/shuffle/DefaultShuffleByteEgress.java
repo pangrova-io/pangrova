@@ -5,9 +5,9 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import org.pangrova.shuffle.ShuffleByteEgress;
-import org.pangrova.shuffle.spool.SpoolStore;
-import org.pangrova.shuffle.spool.SpoolWriter;
+import org.pangrova.shuffle.api.transport.ShuffleByteEgress;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

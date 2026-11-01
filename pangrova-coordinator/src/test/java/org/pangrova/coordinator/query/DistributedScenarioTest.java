@@ -94,7 +94,7 @@ class DistributedScenarioTest {
                 orchestrator.dagEngine(), null, null));
         coordinatorServer = new CoordinatorHttpServer(new java.net.InetSocketAddress("127.0.0.1", 0),
                 new org.pangrova.coordinator.http.CoordinatorHttpServerContext(
-                        receiver, queryManager, null, null, null, null, null, null));
+                        receiver, queryManager, null, null, null, null, null));
         coordinatorServer.start();
         statusReporter = new RemoteTaskStatusReporter(
                 "http://127.0.0.1:" + coordinatorServer.getPort(), TestObservability.TRACING, null);

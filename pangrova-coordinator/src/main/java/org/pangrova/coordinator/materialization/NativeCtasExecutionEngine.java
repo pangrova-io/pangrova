@@ -21,7 +21,7 @@ import org.pangrova.materialization.domain.RefreshPlan;
 import org.pangrova.materialization.port.ExecutionEngine;
 import org.pangrova.materialization.port.ExecutionRequest;
 import org.pangrova.materialization.port.ExecutionResult;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Query;
 import org.pangrova.parser.ast.Statement;

@@ -10,7 +10,7 @@ import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.Failure
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.spi.annotation.ThreadSafe;
 import org.pangrova.spi.execution.scheduling.FaultTolerancePolicy;
-import org.pangrova.shuffle.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

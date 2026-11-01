@@ -4,10 +4,10 @@ import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryWriteCommitJournal;
 
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
@@ -258,7 +258,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
                 directory.resolve("reconciler-database.properties")))) { properties.load(input); }
         var dataSource = new org.postgresql.ds.PGSimpleDataSource(); dataSource.setURL(properties.getProperty("url"));
         dataSource.setUser(properties.getProperty("user")); dataSource.setPassword(properties.getProperty("password"));
-        var descriptor = new org.pangrova.metadata.store.JdbcMetadataStore(dataSource)
+        var descriptor = new org.pangrova.metadata.store.jdbc.JdbcMetadataStore(dataSource)
                 .getCatalogDescriptor(execution.catalog().getCatalogName()).orElseThrow();
         return new ConnectorCatalogHandle(descriptor, execution.connector());
     }

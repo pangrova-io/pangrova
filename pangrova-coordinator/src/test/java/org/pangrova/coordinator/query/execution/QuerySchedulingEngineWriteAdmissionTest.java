@@ -20,7 +20,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
@@ -137,8 +137,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
             assertNoAllocation(fixture, "recreated-write");
             assertThat(fixture.registry.tableControl().find("catalog", "schema", "documents")).get()
-                    .extracting(org.pangrova.metadata.control.TableControlRecord::state)
-                    .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+                    .extracting(org.pangrova.metadata.core.control.TableControlRecord::state)
+                    .isEqualTo(org.pangrova.metadata.core.control.TableControlState.QUARANTINED);
         }
     }
 

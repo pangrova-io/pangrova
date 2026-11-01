@@ -12,10 +12,10 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DefaultWorkerSelect
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.ai.AiInfrastructureStores;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.ai.control.AiInfrastructureStores;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.store.jdbc.JdbcGeneratedValueArtifactPublicationStore;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,13 +43,15 @@ final class QueryMaterializationWiring {
             return null;
         }
         var metadataStore = new JdbcGeneratedValueArtifactPublicationStore(
-                dependencies.metadataDataSource());
+                dependencies.metadataDataSource(),
+                new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                        org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent));
         var service = new DurableGeneratedValueBuildService(
                 dependencies.artifactBuildStore(), metadataStore,
                 new SnapshotArtifactSplitPlanner(catalog), workerSelector(),
                 dependencies.config().baseIndexPath(), catalog);
         var coordinator = new GeneratedValueMaterializationCoordinator(catalog, service,
-                dependencies.metadataDataSource(), new org.pangrova.metadata.coordination.JdbcWriteCommitJournal(
+                dependencies.metadataDataSource(), new org.pangrova.query.transaction.JdbcWriteCommitJournal(
                         dependencies.metadataDataSource()));
         var registeredCatalogs = indexing.registerDurableCommitProcessor(coordinator);
         coordinator.activateCatalogs(registeredCatalogs);
@@ -63,7 +65,10 @@ final class QueryMaterializationWiring {
         if (indexedReads != null && dependencies.artifactBuildStore() != null) {
             indexedReads.bindGeneratedValueReads(new org.pangrova.coordinator.artifact.GeneratedValueReadResolver(
                     catalog, dependencies.artifactBuildStore(),
-                    new JdbcGeneratedValueArtifactPublicationStore(dependencies.metadataDataSource())));
+                    new JdbcGeneratedValueArtifactPublicationStore(
+                            dependencies.metadataDataSource(),
+                            new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                                    org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent))));
         }
     }
 

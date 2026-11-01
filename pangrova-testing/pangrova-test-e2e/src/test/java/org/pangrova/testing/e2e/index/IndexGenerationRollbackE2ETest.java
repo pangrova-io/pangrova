@@ -1,7 +1,7 @@
 package org.pangrova.testing.e2e.index;
 
-import org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.metadata.index.model.IndexFileMapping;
+import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
+import org.pangrova.indexing.api.IndexFileMapping;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.index.SnapshotPinProvider;
 import org.pangrova.spi.index.IndexDescriptor;

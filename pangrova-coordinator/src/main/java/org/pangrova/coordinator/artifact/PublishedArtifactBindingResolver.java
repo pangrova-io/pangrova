@@ -2,14 +2,14 @@ package org.pangrova.coordinator.artifact;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalArtifactIntent;
-import org.pangrova.metadata.artifact.contract.ArtifactFormatContracts.FormatContract;
-import org.pangrova.metadata.artifact.ArtifactGenerationManifest;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate.PublicationRead;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PublishedInput;
+import org.pangrova.indexing.api.ArtifactFormatContracts.FormatContract;
+import org.pangrova.indexing.api.ArtifactGenerationManifest;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.api.ArtifactBuildOutputScope;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactStageTemplate.PublicationRead;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore.PublishedInput;
 import org.pangrova.protocol.ArtifactBindingChecksum;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
@@ -295,7 +295,7 @@ public final class PublishedArtifactBindingResolver {
                         "published artifact has no immutable dispatch specification"))
                 .stageGraph().stages().stream()
                 .filter(stage -> stage.pageKind()
-                        == org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind.SOURCE_MAP)
+                        == org.pangrova.indexing.api.ArtifactBuildPageKind.SOURCE_MAP)
                 .findFirst().orElseThrow(() ->
                         new IllegalStateException("published source artifact has no source stage"))
                 .bindingSetBytes();

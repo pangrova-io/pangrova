@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
-import org.pangrova.shuffle.DecommissionAssessment;
-import org.pangrova.shuffle.ShuffleDataRef;
-import org.pangrova.shuffle.ShuffleRetentionPolicy;
+import org.pangrova.shuffle.api.inventory.DecommissionAssessment;
+import org.pangrova.shuffle.api.inventory.ShuffleDataRef;
+import org.pangrova.shuffle.api.capability.ShuffleRetentionPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

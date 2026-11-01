@@ -87,6 +87,20 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-query</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-semantic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-planner</artifactId>
             <scope>test</scope>
         </dependency>
@@ -144,7 +158,22 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming</artifactId>
+            <artifactId>pangrova-streaming-runtime</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-format</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-maintenance</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-jdbc</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

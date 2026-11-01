@@ -1,15 +1,15 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleContext;
-import org.pangrova.shuffle.ShuffleDurability;
-import org.pangrova.shuffle.ShuffleManagerFactory;
-import org.pangrova.shuffle.ShuffleProvider;
-import org.pangrova.shuffle.ShuffleRetentionPolicy;
-import org.pangrova.shuffle.exchange.SpoolBackedExchangeManager;
-import org.pangrova.shuffle.spool.SpoolStore;
-import org.pangrova.shuffle.spool.SpoolStoreContext;
-import org.pangrova.shuffle.spool.SpoolStoreFactory;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.contract.ShuffleContext;
+import org.pangrova.shuffle.api.capability.ShuffleDurability;
+import org.pangrova.shuffle.api.contract.ShuffleManagerFactory;
+import org.pangrova.shuffle.api.contract.ShuffleProvider;
+import org.pangrova.shuffle.api.capability.ShuffleRetentionPolicy;
+import org.pangrova.shuffle.core.exchange.SpoolBackedExchangeManager;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolStoreContext;
+import org.pangrova.shuffle.api.spool.SpoolStoreFactory;
 
 import java.util.ServiceLoader;
 

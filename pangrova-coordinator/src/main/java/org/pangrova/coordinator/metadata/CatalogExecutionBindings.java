@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.metadata.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.protocol.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;

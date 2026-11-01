@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.artifact;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import io.substrait.proto.Plan;
 import io.substrait.proto.PlanRel;
 import io.substrait.proto.ReadRel;
@@ -21,14 +24,14 @@ import org.pangrova.connector.iceberg.IcebergConnector;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.indexing.store.jdbc.JdbcGeneratedValueArtifactPublicationStore;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.GeneratedColumnMetadataCodec;
@@ -156,8 +159,8 @@ class GeneratedValueReadResolverIntegrationTest {
                 descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
         registry.register(new CatalogDescriptor("lake", CatalogType.CONNECTOR, "iceberg", CatalogState.ACTIVE,
                 Map.of(), "", Set.of("tenant")));
-        var resolver = new GeneratedValueReadResolver(registry, new JdbcArtifactBuildStore(dataSource),
-                new JdbcGeneratedValueArtifactPublicationStore(dataSource));
+        var resolver = new GeneratedValueReadResolver(registry, new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)),
+                new JdbcGeneratedValueArtifactPublicationStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)));
         return new Fixture(catalog, table, registry, resolver);
     }
 

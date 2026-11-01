@@ -23,7 +23,27 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-shuffle-core</artifactId>
+        </dependency>
+        <!-- Shuffle spool backends are discovered via ServiceLoader at runtime. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-storage-local</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-storage-s3</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-storage-oss</artifactId>
+            <scope>runtime</scope>
         </dependency>        <!-- Internal modules -->
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -60,6 +80,19 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-metadata</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-query</artifactId>
+        </dependency>
+        <!-- AI/semantic governance wiring (evaluation, feature catalog, semantic views). -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-semantic</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -120,7 +153,19 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming</artifactId>
+            <artifactId>pangrova-streaming-runtime</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-format</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-maintenance</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-jdbc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -302,6 +347,14 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- ZooKeeper 3.8 declares metrics-core as provided (non-transitive); the embedded
+             ZooKeeperServer used in the coordination tests needs it on the test classpath. -->
+        <dependency>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+            <version>${dropwizard.metrics.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

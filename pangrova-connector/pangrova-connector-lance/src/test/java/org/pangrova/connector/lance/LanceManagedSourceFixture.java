@@ -1,15 +1,16 @@
 package org.pangrova.connector.lance;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
-import org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog;
-import org.pangrova.metadata.store.JdbcMetadataStore;
-import org.pangrova.metadata.store.SchemaMigrationRunner;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.query.transaction.JdbcExecutionAnchorStore;
+import org.pangrova.query.transaction.JdbcWriteCommitJournal;
+import org.pangrova.query.transaction.JdbcSourcePublicationTransaction;
+import org.pangrova.metadata.store.jdbc.source.JdbcManagedSourceCatalog;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.protocol.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.NativeWriteBindings;
 import org.pangrova.protocol.SourceSnapshotBindings;
@@ -100,7 +101,7 @@ public final class LanceManagedSourceFixture {
         dataSource.setURL(postgres.getJdbcUrl());
         dataSource.setUser(postgres.getUsername());
         dataSource.setPassword(postgres.getPassword());
-        SchemaMigrationRunner.migrate(dataSource);
+        SchemaMigrationRunner.migrateAll(dataSource);
         var metadata = new JdbcMetadataStore(dataSource);
         var descriptor = metadata.getCatalogDescriptor(catalogName).orElseGet(() -> {
             var created = new CatalogDescriptor(catalogName, CatalogType.CONNECTOR, "lance", CatalogState.ACTIVE,
@@ -118,7 +119,8 @@ public final class LanceManagedSourceFixture {
         journal = new JdbcWriteCommitJournal(dataSource);
         authority = new JdbcManagedSourceCatalog(dataSource, new ManagedSourceCatalog.Deployment(descriptor.name(),
                 descriptor.incarnationId(), descriptor.revision()), execution -> Optional.ofNullable(owned.get(execution))
-                        .orElseThrow(() -> new IllegalStateException("Fixture does not own this real PG execution")));
+                        .orElseThrow(() -> new IllegalStateException("Fixture does not own this real PG execution")),
+                new JdbcSourcePublicationTransaction());
         store = new LanceCatalogStore(authority);
         provisionSubject();
     }
@@ -511,7 +513,6 @@ public final class LanceManagedSourceFixture {
         if (roles.findRole("lance_sdk_writer").isEmpty()) roles.createRole(Role.of("lance_sdk_writer"));
         roles.grantRoleToUser(UserRoleAssignment.of(PRINCIPAL, "lance_sdk_writer"));
         var tenants = new JdbcTenantStore(dataSource);
-        tenants.initSchema();
         if (tenants.getTenant(TENANT).isEmpty()) tenants.createTenant(new Tenant(TENANT, TENANT, TenantStatus.ACTIVE,
                 null, List.of(), List.of(), null, Map.of(), Instant.EPOCH, PRINCIPAL));
         tenants.addUserToTenant(TENANT, PRINCIPAL, TenantRole.MEMBER);

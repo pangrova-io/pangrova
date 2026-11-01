@@ -1,6 +1,6 @@
 package org.pangrova.testing.e2e.setup;
 
-import org.pangrova.metadata.store.SchemaMigrationRunner;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
 
 import javax.sql.DataSource;
 import java.io.PrintWriter;
@@ -25,13 +25,13 @@ public final class MetadataSchemaInitializer {
 
     /** Applies every pending production schema migration; safe to call again. */
     public static void createSchema(DataSource dataSource) throws SQLException {
-        SchemaMigrationRunner.migrate(dataSource);
+        SchemaMigrationRunner.migrateAll(dataSource);
     }
 
     /**
      * Compatibility entry point for E2E callers that initialize only the state
-     * stores. The production migration chain creates these and metadata tables
-     * together, and Flyway skips already applied versions.
+     * stores. The per-owner production baselines create these and metadata tables
+     * together, and Flyway skips already applied owners.
      */
     public static void createStateStoreTables(DataSource dataSource) throws SQLException {
         createSchema(dataSource);

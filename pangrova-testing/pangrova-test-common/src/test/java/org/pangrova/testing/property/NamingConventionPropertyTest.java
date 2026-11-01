@@ -45,7 +45,7 @@ class NamingConventionPropertyTest {
     /** Stable-layer modules where framework names are banned in class names. */
     private static final List<String> STABLE_MODULES = List.of(
             "pangrova-spi", "pangrova-common", "pangrova-protocol",
-            "pangrova-resource", "pangrova-observability", "pangrova-streaming"
+            "pangrova-resource", "pangrova-observability", "pangrova-streaming-runtime"
     );
 
     /** Framework substrings banned in stable-layer class names. */

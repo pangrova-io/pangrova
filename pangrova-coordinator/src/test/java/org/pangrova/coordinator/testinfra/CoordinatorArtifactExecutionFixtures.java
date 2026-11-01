@@ -3,9 +3,9 @@ package org.pangrova.coordinator.testinfra;
 import org.pangrova.coordinator.artifact.ArtifactExecutionOwnership;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
-import org.pangrova.metadata.artifact.build.ArtifactExecutionOwner;
-import org.pangrova.metadata.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactExecutionOwner;
+import org.pangrova.query.transaction.JdbcExecutionAnchorStore;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 
 import javax.sql.DataSource;

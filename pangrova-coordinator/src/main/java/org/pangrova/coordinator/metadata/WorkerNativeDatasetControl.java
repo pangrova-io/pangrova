@@ -6,7 +6,7 @@ import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;

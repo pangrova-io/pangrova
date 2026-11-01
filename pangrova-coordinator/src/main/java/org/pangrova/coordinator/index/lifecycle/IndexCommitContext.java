@@ -2,7 +2,7 @@ package org.pangrova.coordinator.index.lifecycle;
 
 import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
 import org.pangrova.coordinator.index.ddl.IndexBuildServices;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 
 /**
  * Aggregated dependencies for commit-driven index maintenance (≤4 params).

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.index.lifecycle;
 
 import org.pangrova.indexing.build.IndexBuildResult;
-import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.metadata.index.model.IndexFileMapping;
+import org.pangrova.indexing.control.IndexMetadataStore;
+import org.pangrova.indexing.api.IndexFileMapping;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.index.IndexType;
@@ -140,9 +140,9 @@ class IndexCommitHandlerSnapshotBindingTest {
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
                 Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
-        @Override public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.metadata.index.model.IndexPublicationRequest request) { throw new AssertionError(); }
-        @Override public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+        @Override public org.pangrova.indexing.api.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.indexing.api.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.indexing.api.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(

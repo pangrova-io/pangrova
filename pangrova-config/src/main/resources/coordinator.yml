@@ -82,6 +82,8 @@ resilience:
 
 streaming:
   enabled: true
+  # How long terminal CDC commit-state rows are kept before pruning.
+  commit-state-retention: "7d"
 
 tenant:
   enabled: false

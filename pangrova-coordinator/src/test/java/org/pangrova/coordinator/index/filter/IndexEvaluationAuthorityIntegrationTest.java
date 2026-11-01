@@ -14,7 +14,7 @@ import org.pangrova.indexing.serde.IndexSerializer;
 import org.pangrova.indexing.serde.TypeSerializerRegistry;
 import org.pangrova.indexing.storage.IndexCache;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore;
+import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;

@@ -14,10 +14,10 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.spi.streaming.CdcOperation;
-import org.pangrova.spi.streaming.CdcRow;
-import org.pangrova.spi.streaming.CdcWriteResult;
+import org.pangrova.spi.streaming.record.CdcEnvelope;
+import org.pangrova.spi.streaming.record.CdcOperation;
+import org.pangrova.spi.streaming.record.CdcRow;
+import org.pangrova.spi.streaming.sink.CdcWriteResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

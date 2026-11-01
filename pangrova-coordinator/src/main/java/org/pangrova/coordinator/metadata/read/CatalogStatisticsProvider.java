@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.metadata.control.TableControlStatisticsService;
+import org.pangrova.metadata.core.control.TableControlStatisticsService;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import org.pangrova.planner.stats.StatisticsCollector.ConnectorStatisticsProvider;

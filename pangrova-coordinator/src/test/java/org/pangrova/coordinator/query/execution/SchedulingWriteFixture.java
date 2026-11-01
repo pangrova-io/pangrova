@@ -15,13 +15,13 @@ import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
@@ -109,9 +109,9 @@ final class SchedulingWriteFixture implements AutoCloseable {
     }
 
     void enforceOwnership() {
-        registry.setTableControlService(new org.pangrova.metadata.control.TableControlService(
-                new org.pangrova.metadata.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
-                new org.pangrova.metadata.control.TableControlSettings(true, true, Set.of())));
+        registry.setTableControlService(new org.pangrova.metadata.core.control.TableControlService(
+                new org.pangrova.metadata.core.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
+                new org.pangrova.metadata.core.control.TableControlSettings(true, true, Set.of())));
     }
 
     void installOrdinaryAuthority() {
@@ -274,9 +274,9 @@ final class SchedulingWriteFixture implements AutoCloseable {
         @Override public CatalogHandle getCatalog(String name) {
             return name.equals("catalog") ? handle : null;
         }
-        @Override public org.pangrova.metadata.control.CatalogDeploymentIdentity requireCurrentCatalogIdentity(String name) {
+        @Override public org.pangrova.metadata.core.control.CatalogDeploymentIdentity requireCurrentCatalogIdentity(String name) {
             var deployment = getCatalog(name).getDescriptor();
-            return new org.pangrova.metadata.control.CatalogDeploymentIdentity(
+            return new org.pangrova.metadata.core.control.CatalogDeploymentIdentity(
                     deployment.incarnationId(), deployment.revision());
         }
     }

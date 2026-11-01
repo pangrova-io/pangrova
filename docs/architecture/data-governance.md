@@ -144,13 +144,13 @@ SELECT * FROM iceberg.db.orders$snapshots;
 
 ### 2.3 Schema Compatibility Check
 
-> **Authoritative implementation**: The sole implementation of Schema change compatibility validation is `SchemaEvolutionValidator` in [metadata.md §3.7](./metadata.md). This validator acts as a pre-interceptor for `MetadataService.alterTable()`, supporting compatibility checks for five change types: AddColumn / DropColumn / RenameColumn / ChangeType / ChangeNullability.
+> **Authoritative implementation**: The sole implementation of Schema change compatibility validation is `SchemaEvolutionValidator` in [metadata.md §3.7](./metadata.md). This validator acts as a pre-interceptor for `CatalogRegistry` table mutation, supporting compatibility checks for five change types: AddColumn / DropColumn / RenameColumn / ChangeType / ChangeNullability.
 >
 > Validation rule summary:
 > - **Safe changes (allowed)**: int → bigint, float → double, increasing decimal precision, increasing varchar length, non-nullable → nullable
 > - **Unsafe changes (rejected)**: bigint → int, double → float, nullable → non-nullable, any narrowing type change
 >
-> This module (Data Governance) does not redefine validation logic; it invokes it through the unified `MetadataService` entry point.
+> This module (Data Governance) does not redefine validation logic; it invokes it through the unified `CatalogRegistry` entry point.
 
 ---
 

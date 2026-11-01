@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 
 /** Task-local capability rotation at complete-batch boundaries. */
 final class RenewableShuffleAccess {

@@ -2,11 +2,11 @@ package org.pangrova.coordinator.artifact;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.pangrova.metadata.artifact.contract.ArtifactFormatContracts;
-import org.pangrova.metadata.artifact.contract.ArtifactFormatContracts.FormatContract;
-import org.pangrova.metadata.artifact.ArtifactGenerationManifest;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
+import org.pangrova.indexing.api.ArtifactFormatContracts;
+import org.pangrova.indexing.api.ArtifactFormatContracts.FormatContract;
+import org.pangrova.indexing.api.ArtifactGenerationManifest;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.api.ArtifactBuildOutputScope;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;

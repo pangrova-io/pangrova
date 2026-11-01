@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
 import org.pangrova.spi.annotation.Internal;
 
 import java.util.concurrent.CancellationException;

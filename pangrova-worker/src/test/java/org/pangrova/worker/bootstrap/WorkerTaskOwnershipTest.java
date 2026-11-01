@@ -1,7 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
 import org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission;
 import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
 

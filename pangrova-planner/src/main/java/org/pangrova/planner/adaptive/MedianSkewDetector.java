@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
-import org.pangrova.shuffle.SkewDetector;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
+import org.pangrova.shuffle.api.adaptive.SkewDetector;
 
 /**
  * Default {@link SkewDetector} implementation using median-based detection.

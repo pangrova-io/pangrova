@@ -6,13 +6,13 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.governance.lineage.LineageEventEmitter;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.resilience.ResilienceRegistry;
 import org.pangrova.spi.coordination.QueryStateJournal;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

@@ -38,7 +38,7 @@ Shared Primitives（逻辑层，无物理 aggregator）
 5. 按已经定义的元数据中心方案重构 `pangrova-metadata`，并把 query journal、index、streaming、artifact、dynamic table、tenant quota 等状态迁回各自领域。
 6. 每个 owner artifact 必须拥有明确的 API、状态、事件、依赖和测试边界；内部子域优先用 package、migration location 和架构测试隔离，只有目录结构没有意义。
 
-最终确定为 **24 个 root reactor entry、36 个叶子 Maven module、2 个主要引擎进程、1 个可选基础设施进程**。其中 7 个 root entry 是无代码的产品 family aggregator，17 个是直接 root leaf；33 个叶子属于生产/客户端/打包制品，3 个属于测试制品。`type`、通用 event envelope 和 resilience primitive 合入 `pangrova-common`；Metadata、Semantic、Query、Security、Index、Streaming、Materialization、Governance 等分别使用一个 owner artifact，在内部以 package/migration 隔离 API、Core、Store 和子域。只有 Observability、Worker、Shuffle、Connector、AI、Client、Testing 因存在真实独立交付物而保留 aggregator。模块数量由事实所有权、发布、依赖冲突、插件、进程和 JNI 边界驱动，不代表要部署 36 个服务；Shuffle Service 是按部署模式启用的基础设施，不是第三个查询引擎角色。
+最终确定为 **24 个 root reactor entry、35 个叶子 Maven module、2 个主要引擎进程、1 个可选基础设施进程**。其中 7 个 root entry 是无代码的产品 family aggregator，17 个是直接 root leaf；32 个叶子属于生产/客户端/打包制品，3 个属于测试制品。`type`、通用 event envelope 和 resilience primitive 合入 `pangrova-common`；Metadata、Semantic、Query、Security、Index、Streaming、Materialization、Governance 等分别使用一个 owner artifact，在内部以 package/migration 隔离 API、Core、Store 和子域。只有 Observability、Worker、Shuffle、Connector、Streaming、Client、Testing 因存在真实独立交付物而保留 aggregator；AI 在出现独立 provider SDK/部署边界前保持单一 root leaf（`.control`/`.worker` 为内部 package）。模块数量由事实所有权、发布、依赖冲突、插件、进程和 JNI 边界驱动，不代表要部署 35 个服务；Shuffle Service 是按部署模式启用的基础设施，不是第三个查询引擎角色。
 
 ## 研究范围与证据边界
 
@@ -553,7 +553,7 @@ public interface ConnectorCommitter {
 | 将 Metadata 远程服务化 | 新 metadata-client/server adapters、app wiring | Query/Coordinator binding adapter；Planner 仍只接收不可变 binding value |
 | 新增 shuffle provider | 新 shuffle adapter、app wiring | `query.core`、Worker task state machine |
 | 新增 index 类型 | Index API package extension、control/runtime/native capability | Metadata/Query core package |
-| 新增 AI provider | 新 ai-worker provider plugin、descriptor | Worker runtime、execution core |
+| 新增 AI provider | 新的 `ai` 内部 `.worker` provider plugin、descriptor | Worker runtime、execution core |
 | 新增 OIDC provider | security provider adapter、config | query/planner/metadata core |
 | 新增 lineage backend | governance exporter/projection adapter | query execution 主路径 |
 | 新增 Worker protocol 字段 | execution、两端 mapper、compat tests | Connector plugin |
@@ -720,7 +720,7 @@ pangrova-semantic（业务含义）
   ├── physical-object binding / validation / deterministic compiler
   └── immutable publication / change event / JDBC store
 
-pangrova-ai-control（智能使用）
+pangrova-ai（智能使用）
   └── retrieval / grounding / prompt-model version / evaluation / action approval
 ```
 
@@ -748,7 +748,7 @@ Snowflake 文档把 Semantic View 称为 metadata，是**逻辑分类**；本文
 | Metadata | “物理/逻辑数据对象现在是什么版本？” | ObjectId、FieldId、SchemaVersion、TableBinding、VersionToken、statistics envelope | KPI 含义、同义词、本体、agent prompt、lineage 推断 |
 | Semantic | “这个对象在业务上表示什么，如何被安全组合与计算？” | Concept、Entity、Dimension、Fact、Metric、Relationship、Ontology、SemanticBinding、PublishedSemanticSnapshot | 物理 snapshot commit、query journal、模型调用、审批执行 |
 | Governance | “谁负责、是否合规、数据如何流动、质量是否达标？” | steward、classification、policy workflow、lineage observation、quality assertion、audit | 复制 Concept/Metric 定义、成为查询规划器、保存 LLM prompt |
-| AI Control | “针对一个用户意图，使用哪些已授权事实和工具，结果是否可发布/执行？” | GroundingSnapshot、RetrievalTrace、Prompt/ModelVersion、EvaluationRun、ActionPlan/Approval | 创造未发布业务定义、绕过 Security、直接修改 Metadata/Semantic store |
+| AI | “针对一个用户意图，使用哪些已授权事实和工具，结果是否可发布/执行？” | GroundingSnapshot、RetrievalTrace、Prompt/ModelVersion、EvaluationRun、ActionPlan/Approval | 创造未发布业务定义、绕过 Security、直接修改 Metadata/Semantic store |
 
 语义层可以被称为“元数据之上的核心层”，但依赖方向必须固定为 `AI/Governance/Materialization → Semantic API → Metadata API`。Metadata Core 不得 import Semantic；Semantic 不得 import AI、Governance 或 Coordinator。需要治理审批时，由 Semantic 定义 consumer-owned `PublicationPolicy` port，在 Coordinator assembly 中接 Governance adapter，避免 `semantic ↔ governance` 环。
 
@@ -876,14 +876,14 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 ### AI 安全、租户隔离与不可信内容边界
 
 - 检索前先按 tenant、principal、semantic object privilege、source-object privilege 和 classification 过滤；不能先召回未授权内容再让 LLM “忽略”。Vector/graph index 必须带 policy/tenant partition 或 post-filter proof，并以 Security 的 PolicyVersion 进入 cache key。
-- Semantic description、synonym、verified example、table comment、lineage attribute 和外部 RDF/OWL 文本都是**不可信数据**，不得拼接为 system/developer instruction。AI Control 必须结构化区分 instructions、evidence 和 tool output，并记录来源。
+- Semantic description、synonym、verified example、table comment、lineage attribute 和外部 RDF/OWL 文本都是**不可信数据**，不得拼接为 system/developer instruction。AI 必须结构化区分 instructions、evidence 和 tool output，并记录来源。
 - Prompt/tool/model provider 获得最小化上下文；secret、masked column、row-filtered value 和跨租户 neighbor 不得进入 prompt。远程 provider 的 data residency、retention、logging 与 egress policy 由 Security/AI policy 显式决定。
 - Tool schema 与 Action Registry 都必须版本化、签名/校验、allowlist；模型不能动态发明 tool name、SQL privilege 或 arbitrary URL。外部内容只能作为参数，经 SSRF、path、MIME、size 与 malware policy 校验。
 - 读查询也必须在执行前重新授权 underlying ObjectId/FieldId；RLS/masking 在 Planner/Execution 正常安全链路注入，Semantic 层不能通过预聚合、join 或 citation 泄露受限数据。
 - 所有缓存按 tenant/principal-or-policy-equivalence/PolicyVersion/SemanticVersion/MetadataVersion 隔离；权限撤销和 semantic deprecation 通过事件主动失效，TTL 只能作为兜底。
-- feedback、conversation、retrieval trace 和 grounding snapshot 本身可能含敏感信息，归 AI Control 的受治理 durable state，执行 retention、redaction、encryption、audit 和删除策略。
+- feedback、conversation、retrieval trace 和 grounding snapshot 本身可能含敏感信息，归 AI 的受治理 durable state，执行 retention、redaction、encryption、audit 和删除策略。
 
-### 36 个叶子与智能语义能力的完整覆盖
+### 35 个叶子与智能语义能力的完整覆盖
 
 | # | Module | 对 Semantic/Graph/Ontology/AI 的职责 | 明确禁止 |
 |---:|---|---|---|
@@ -911,18 +911,17 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 | 22 | materialization | 消费 published metric/model，规划语义 aggregate/materialized view | 修改 metric 定义或 semantic publication pointer |
 | 23 | table | 根据 semantic workload signal 建议 maintenance | 理解/保存 ontology、决定 KPI |
 | 24 | semantic | Concept/Model/Metric/Relationship/Ontology/Binding/Compiler/Publication 的唯一 owner | provider invocation、query journal、lineage observation authority |
-| 25 | ai-control | grounding/retrieval orchestration、prompt/model registry、evaluation、release gate、action approval | 绕过 Semantic Compiler/Security，拥有 metric/ontology authority |
-| 26 | ai-worker | provider invocation、embedding/rerank/inference/function runtime | 持久 semantic state、审批或策略决定 |
-| 27 | governance | steward/classification/approval、lineage/quality/audit；消费 semantic events | 再造 glossary/term ID、同步反写 Semantic store |
-| 28 | operations | semantic/index/reasoner 的 backup、upgrade、repair、diagnostics action | 越权修改定义或绕过 owner API |
-| 29 | coordinator | 装配 Semantic、Governance、AI、Security adapter 和 SQL endpoint | 承载 semantic service/core/store 实现 |
-| 30 | standalone | 复用相同 embedding API 组合全部能力 | 建第二套 in-memory semantic authority |
-| 31 | client-core | semantic catalog/query/action/public DTO 与 version negotiation | 暴露 internal core/store/RDF library type |
-| 32 | client-jdbc | Semantic View INFORMATION_SCHEMA/JDBC metadata 与结果呈现 | client-side metric 编译 |
-| 33 | client-cli | author/validate/publish/explain/query 命令与审批交互 | 绕过服务端校验/授权 |
-| 34 | testkit | semantic fixtures、connector identity、ontology/AI contract harness | 生产依赖 |
-| 35 | integration-tests | version/schema drift、security、grounding、action、recovery E2E/chaos | 用 mock 代替关键跨域链路验收 |
-| 36 | benchmark | semantic compile、graph traversal、retrieval、token、query latency regression | 只测 LLM 主观答案、不测确定性部分 |
+| 25 | ai | grounding/retrieval orchestration、prompt/model registry、evaluation、release gate、action approval；内部 `.worker` 提供 provider invocation、embedding/rerank/inference、function runtime | 绕过 Semantic Compiler/Security，拥有 metric/ontology authority、持久 semantic state、审批或策略决定 |
+| 26 | governance | steward/classification/approval、lineage/quality/audit；消费 semantic events | 再造 glossary/term ID、同步反写 Semantic store |
+| 27 | operations | semantic/index/reasoner 的 backup、upgrade、repair、diagnostics action | 越权修改定义或绕过 owner API |
+| 28 | coordinator | 装配 Semantic、Governance、AI、Security adapter 和 SQL endpoint | 承载 semantic service/core/store 实现 |
+| 29 | standalone | 复用相同 embedding API 组合全部能力 | 建第二套 in-memory semantic authority |
+| 30 | client-core | semantic catalog/query/action/public DTO 与 version negotiation | 暴露 internal core/store/RDF library type |
+| 31 | client-jdbc | Semantic View INFORMATION_SCHEMA/JDBC metadata 与结果呈现 | client-side metric 编译 |
+| 32 | client-cli | author/validate/publish/explain/query 命令与审批交互 | 绕过服务端校验/授权 |
+| 33 | testkit | semantic fixtures、connector identity、ontology/AI contract harness | 生产依赖 |
+| 34 | integration-tests | version/schema drift、security、grounding、action、recovery E2E/chaos | 用 mock 代替关键跨域链路验收 |
+| 35 | benchmark | semantic compile、graph traversal、retrieval、token、query latency regression | 只测 LLM 主观答案、不测确定性部分 |
 
 ### 数据归属与迁移纠正
 
@@ -931,7 +930,7 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 | 当前状态 | 目标 owner/location | 迁移要求 |
 |---|---|---|
 | `semantic_view_versions` / `semantic_view_active_versions` | Semantic，`db/semantic/migration` | backfill typed model/version；保留 definition hash；authority flip 后 Metadata 只留 object binding/projection |
-| `evaluation_dataset_versions` / `evaluation_runs` / `evaluation_metrics` / `evaluation_release_decisions` | AI Control，`db/ai/evaluation/migration` | pin Semantic/Metadata/Policy/Model/Prompt/Index version；支持 baseline 和 release gate |
+| `evaluation_dataset_versions` / `evaluation_runs` / `evaluation_metrics` / `evaluation_release_decisions` | AI（内部 `.control`），`db/ai/evaluation/migration` | pin Semantic/Metadata/Policy/Model/Prompt/Index version；支持 baseline 和 release gate |
 | `metadata.semantic.*` | `semantic.api/core/store.jdbc` | 旧 repository façade 临时委托；禁止机械改 package 后保留 JSON-only model |
 | `coordinator.semantic.*` 与 semantic SQL tasks | Semantic use case + Coordinator endpoint adapter | validator/compiler/use case 迁入 Semantic；Coordinator 只做 AST/wire/session mapping 与装配 |
 | Governance glossary/term | Semantic Concept/Taxonomy authority + Governance steward workflow | 分配唯一 ConceptId；去重双写；治理只保存审批、owner、classification 和 audit projection |
@@ -989,7 +988,7 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 | 当前 artifact | 主代码文件/依赖证据 | 说明 |
 |---|---:|---|
 | `pangrova-indexing` | 63 个主代码 Java 文件，包含 build/lifecycle/storage/多种 engine | 已是完整 Index bounded context，不是通用 capability 的一个 package |
-| `pangrova-streaming` | 86 个 Java 文件，包含 CDC/commit/watermark/writer/maintenance | 有独立状态机和恢复语义，但只有一个交付物，因此保留为 root leaf，不创建 family |
+| `pangrova-streaming` | streaming family aggregator + `pangrova-streaming-runtime` 核心运行时 | CDC/commit/watermark 是独立状态机；格式适配、维护调度、PostgreSQL 状态存储分别隔离 Jackson、维护消费者和 JDBC 依赖 |
 | `pangrova-governance` | 56 个 Java 文件，存在 classification/lineage/quality/audit 四组职责 | 需要内部 package/migration owner，不足以证明必须拆四个 artifact |
 | `pangrova-operations` | 52 个 Java 文件；diagnostics 与变更操作同属运维产品 | 需要授权和资源预算隔离，但 Maven JAR 本身不是安全边界，保留一个 artifact |
 | `pangrova-observability` | 63 个 Java 文件，并直接引入 OTel SDK/exporter | API 与重量级 SDK 必须分 artifact，但由同一 Observability family 管理 |
@@ -1026,7 +1025,7 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 | `pangrova-security` | security-api、security-core、security-store | `.api → .core → .store.jdbc`；quota 归 Scheduler Resource |
 | `pangrova-worker` | worker-runtime、worker-resource、worker-assembly、worker-server | `.runtime/.resource/.assembly/.embedding/.server`；Native Bridge 与 Bundle 仍为真实边界 |
 | `pangrova-indexing` | index-api、index-control、index-runtime/store | `.api/.control/.runtime/.store.jdbc`；关闭能力不影响基础 SQL |
-| `pangrova-streaming` | streaming-api、streaming-control、streaming-store | `.api/.control/.store.jdbc`；CDC/checkpoint migration 独占 |
+| `pangrova-streaming` | family aggregator（runtime/format/maintenance/jdbc 叶子）+ `pangrova-streaming-runtime` | `.runtime/.cdc/.watermark`、`.format`、`.maintenance`、`.jdbc`；标准存储 API 由 `pangrova-spi` 拥有 |
 | `pangrova-materialization` | materialization-api、control、store | `.api/.control/.store.jdbc`；不接管基础 Metadata authority |
 | `pangrova-governance` | governance-api、catalog、lineage projection、data quality | `.api/.catalog/.lineage/.quality/.audit`；各自 migration owner，不同步阻塞查询主链 |
 | `pangrova-operations` | operations-core、diagnostics | `.core/.diagnostics`；以授权和资源预算隔离副作用 |
@@ -1037,9 +1036,9 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 
 特别地，仓库中**不得创建** `pangrova-event-api/` 目录或同名 GAV。`org.pangrova.common.event` 只允许承载 `EventEnvelope`、`EventId`、`OccurredAt`、schema/version 标识和最小发布 port；`QueryCompleted`、`TableVersionCommitted`、`PolicyChanged` 等 payload 必须分别留在 Query、Metadata、Security 等生产者 owner 内，避免形成新的通用事件垃圾场。
 
-#### 第三轮反证审核：36 个叶子成立的前置条件
+#### 第三轮反证审核：35 个叶子成立的前置条件
 
-再次从依赖传播、运行时装配、状态所有权和变更证据反向审核后，最终新增且只新增 `pangrova-semantic` 一个物理叶子，**不再为 Graph/Ontology 创建同级叶子**，但 36 不是无条件结论。Iceberg/Paimon 将真正公共 API、Core、格式和运行时适配器拆成 artifact，是因为存在外部消费者、独立兼容和依赖冲突；Pangrova 的 Metadata/Semantic/Query/Security API 当前是仓库内部、同版本发布的契约，可以先留在 owner artifact。若下面任一门槛不能满足，就必须只拆出造成问题的 API 或 adapter，而不是恢复整套机械对称目录：
+再次从依赖传播、运行时装配、状态所有权和变更证据反向审核后，最终新增且只新增 `pangrova-semantic` 一个物理叶子，**不再为 Graph/Ontology 创建同级叶子**，但 35 不是无条件结论。Iceberg/Paimon 将真正公共 API、Core、格式和运行时适配器拆成 artifact，是因为存在外部消费者、独立兼容和依赖冲突；Pangrova 的 Metadata/Semantic/Query/Security API 当前是仓库内部、同版本发布的契约，可以先留在 owner artifact。若下面任一门槛不能满足，就必须只拆出造成问题的 API 或 adapter，而不是恢复整套机械对称目录：
 
 | 严重度 | 反证问题 | 审核结论与必须执行的门槛 |
 |---|---|---|
@@ -1047,7 +1046,7 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 | P0 | 合并 Security API/Core/Store 后，Planner/Query 可能传递获得 KMS、JWT implementation、JDBC driver | exported Security API 的 `jdeps` 闭包只能包含 JDK、Common 和允许的 annotations；KMS/JWT/JDBC adapter 依赖不得传递；失败则拆具体 provider/store adapter，不先拆空壳 Core |
 | P0 | Common 当前 POM 仍直接携带 Jetty、Jackson 和 YAML 相关依赖，继续合入 type/event/resilience 会放大依赖污染 | 目标 `pangrova-common` 仅允许 JDK、annotation 和必要 logging façade；Jetty 迁入 app server，Jackson 迁入所属 serde/wire adapter，YAML 只留 Config；Common dependency convergence 测试必须单独执行 |
 | P0 | package exports 目前只是规划，`.pangrova/modules.yaml` 尚未落地；同一 JAR 内的 `public` Core/Store 仍可被任意消费者引用 | owner artifact 合并必须与 manifest + ArchUnit default-deny 同一里程碑交付；在 gate 生效前不得宣称完成模块合并 |
-| P0 | `ai-worker` 依赖完整 Worker app artifact 会形成 capability → process implementation 反向依赖 | 只允许 `provided`/friend 方式引用窄 `worker.runtime.spi`；不得 import `.assembly/.server/.resource`。若第二种 Worker capability 也需要该 port，立即提升为独立 `worker-spi`，这是兼容边界而非目录对称 |
+| P0 | `ai` 内部 `.worker` 依赖完整 Worker app artifact 会形成 capability → process implementation 反向依赖 | 只允许 `provided`/friend 方式引用窄 `worker.runtime.spi`；不得 import `.assembly/.server/.resource`。若第二种 Worker capability 也需要该 port，立即提升为独立 `worker-spi`，这是兼容边界而非目录对称 |
 | P1 | `common.event` 可能再次长成 broker、schema registry、outbox 和 payload 总仓库 | Common 只留无 payload 知识的 envelope/identity/version；serializer、broker offset、retry、outbox repository 和 subscription runtime 均归生产者或 app adapter |
 | P1 | Metadata 当前 35 个 migration 跨越 catalog、query audit、CDC、index/artifact、Semantic、AI evaluation、coordination 与 write commit | 每个 record 先登记目标 owner 和新 Flyway location，再迁代码；共享数据库不等于共享 migration owner |
 | P1 | Semantic 同时覆盖模型、图谱、本体，可能重新长成大包 | 三者必须共享 ConceptId、publication/version 与 binding 才可同 artifact；package DAG、migration 子域、LOC/依赖预算分别验收；若独立 reasoner/graph backend 形成重量依赖或进程边界，只拆 adapter/runtime，不拆第二套 authority |
@@ -1069,13 +1068,13 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 | 对象 | 最终数量 | 说明 |
 |---|---:|---|
 | Root reactor entry | 24 | 7 个无代码 product aggregator + 17 个 root-level 独立叶子 |
-| 叶子 Maven module | 36 | 33 个生产/客户端/打包制品，3 个测试制品 |
+| 叶子 Maven module | 35 | 32 个生产/客户端/打包制品，3 个测试制品 |
 | C++ 内部 library target | 8 | 最终链接进一个 native shared library |
 | 主要引擎进程 | 2 | Coordinator、Worker |
 | 可选基础设施进程 | 1 | Shuffle Service；仅 remote/external shuffle 部署启用 |
 | 本地组合进程 | 1 | Standalone，同时装配 Coordinator 与 Worker |
 
-因此“36 个 module”仍不等于 36 个服务。默认部署是：
+因此“35 个 module”仍不等于 35 个服务。默认部署是：
 
 ```text
 pangrova-coordinator distribution
@@ -1093,7 +1092,7 @@ pangrova-standalone distribution
 
 ### 最终目录树
 
-根 `pom.xml` 最终直接聚合 24 个 entry。只对确有多个独立交付物的 Observability、Worker、Shuffle、Connector、AI、Client、Testing 保留 aggregator；不能为了 API/Core/Store 对称再造假层级。目录树固定如下：
+根 `pom.xml` 最终直接聚合 24 个 entry。只对确有多个独立交付物的 Observability、Worker、Shuffle、Connector、Streaming、Client、Testing 保留 aggregator；AI 在出现独立 provider SDK/部署边界前保持单一 root leaf（`.control`/`.worker` 为内部 package）。不能为了 API/Core/Store 对称再造假层级。目录树固定如下：
 
 ```text
 pangrova/
@@ -1122,25 +1121,27 @@ pangrova/
 │   ├── pangrova-connector-iceberg/              # 18
 │   └── pangrova-connector-paimon/               # 19
 ├── pangrova-indexing/                           # 20, root leaf
-├── pangrova-streaming/                          # 21, root leaf
+├── pangrova-streaming/                          # 21, family aggregator
+│   ├── pangrova-streaming-runtime/              # CDC pipeline runtime
+│   ├── pangrova-streaming-format/               # CDC format adapters
+│   ├── pangrova-streaming-maintenance/          # table maintenance
+│   └── pangrova-streaming-jdbc/                 # PostgreSQL commit-state adapter
 ├── pangrova-materialization/                    # 22, root leaf
 ├── pangrova-table/                              # 23, root leaf
 ├── pangrova-semantic/                           # 24, root leaf; semantic + graph + ontology
-├── pangrova-ai/                                 # aggregator, no code
-│   ├── pangrova-ai-control/                     # 25, API + control
-│   └── pangrova-ai-worker/                      # 26, optional Worker runtime
-├── pangrova-governance/                         # 27, root leaf
-├── pangrova-operations/                         # 28, root leaf
-├── pangrova-coordinator/                        # 29, root leaf; coordination + assembly + server
-├── pangrova-standalone/                         # 30, root leaf
+├── pangrova-ai/                                 # 25, root leaf; .control/.worker 内部 package
+├── pangrova-governance/                         # 26, root leaf
+├── pangrova-operations/                         # 27, root leaf
+├── pangrova-coordinator/                        # 28, root leaf; coordination + assembly + server
+├── pangrova-standalone/                         # 29, root leaf
 ├── pangrova-client/                             # independent aggregator, no code
-│   ├── pangrova-client-core/                    # 31, protocol + REST client
-│   ├── pangrova-client-jdbc/                    # 32
-│   └── pangrova-client-cli/                     # 33
+│   ├── pangrova-client-core/                    # 30, protocol + REST client
+│   ├── pangrova-client-jdbc/                    # 31
+│   └── pangrova-client-cli/                     # 32
 └── pangrova-testing/                            # independent aggregator, no code
-    ├── pangrova-testkit/                        # 34, common + connector contracts
-    ├── pangrova-integration-tests/              # 35, e2e + smoke + chaos + fuzzer
-    └── pangrova-benchmark/                      # 36
+    ├── pangrova-testkit/                        # 33, common + connector contracts
+    ├── pangrova-integration-tests/              # 34, e2e + smoke + chaos + fuzzer
+    └── pangrova-benchmark/                      # 35
 
 pangrova-worker-native/                          # CMake project, not a Maven leaf
 ├── common
@@ -1155,9 +1156,9 @@ pangrova-worker-native/                          # CMake project, not a Maven le
 
 #### 同名目录与 artifact 的约束
 
-`pangrova-worker/` 是 aggregator 目录，其内部仍可使用 `pangrova-worker` 作为主运行时 artifactId，但 aggregator 自身必须使用不同且不发布的 GAV（`pangrova-worker-parent`），避免 Maven 坐标冲突。AI 使用无歧义的 `pangrova-ai-control`/`pangrova-ai-worker`。`pangrova-coordinator`、`pangrova-governance`、`pangrova-metadata` 等保持 code-bearing root leaf，不再接管为 aggregator。
+`pangrova-worker/` 是 aggregator 目录，其内部仍可使用 `pangrova-worker` 作为主运行时 artifactId，但 aggregator 自身必须使用不同且不发布的 GAV（`pangrova-worker-parent`），避免 Maven 坐标冲突。AI 使用单一 root leaf `pangrova-ai`（`.control`/`.worker` 为内部 package），出现独立 provider SDK 或部署边界时才拆子 module。`pangrova-coordinator`、`pangrova-governance`、`pangrova-metadata` 等保持 code-bearing root leaf，不再接管为 aggregator。
 
-### 为什么是 36 个，而不是 69 个
+### 为什么是 35 个，而不是 69 个
 
 必须独立成物理 Maven module 的情况：
 
@@ -1194,7 +1195,7 @@ pangrova-worker-native/                          # CMake project, not a Maven le
 
 `.pangrova/modules.yaml` 和 ArchUnit 必须按上述 package/forbidden responsibility 校验。禁止以后因为 artifact 名称较宽，把 `execution runtime`、通用资源工具或任意 table 逻辑继续放入这些 module。
 
-### 36 个叶子模块职责和允许依赖
+### 35 个叶子模块职责和允许依赖
 
 下表的“允许依赖”只列 Pangrova 内部直接依赖；第三方依赖还要受 module manifest 约束。Coordinator、Worker、集成测试允许高 fan-out；其它 module 超过依赖预算必须通过 ADR。
 
@@ -1233,7 +1234,7 @@ pangrova-worker-native/                          # CMake project, not a Maven le
 
 Connector 不直接依赖 `execution`。Connector handle 到 wire message 的映射由 Coordinator/Worker 边界 adapter 完成，避免插件随内部 protocol 变化重编译。
 
-#### Independent capabilities、semantic、governance 与 operations（20–28）
+#### Independent capabilities、semantic、governance 与 operations（20–27）
 
 | # | Module | 类型 | 唯一职责 | 允许的内部依赖 |
 |---:|---|---|---|---|
@@ -1242,25 +1243,24 @@ Connector 不直接依赖 `execution`。Connector handle 到 wire message 的映
 | 22 | materialization | capability | exported API、Dynamic Table/MV graph/schedule/refresh/recovery/store、published metric aggregate | common、config、metadata、semantic、query、streaming、observability-api |
 | 23 | table | capability | clustering、compaction、expiration、orphan cleanup job/store | common、config、metadata、connector-spi、observability-api |
 | 24 | semantic | domain owner | exported concept/model/metric/relationship/ontology/query API、binding/compiler/publication/JDBC store | common、config、metadata（仅 `.api`）、security（仅 `.api`）、observability-api |
-| 25 | ai-control | capability | grounding/retrieval orchestration、model/prompt registry、evaluation/release gate、action policy/store | common、config、semantic、metadata、query、indexing、security、observability-api |
-| 26 | ai-worker | optional runtime | provider invocation、blob、embedding/rerank/inference/function execution | common、config、ai-control、execution、observability-api；worker 仅 `provided` friend port |
-| 27 | governance | capability | steward/classification/approval + lineage projection + quality/audit | common、config、semantic、metadata、query、security、observability-api |
-| 28 | operations | operations product | upgrade/scaling/DR journal，以及授权/脱敏/限流后的 diagnostics | common、config、execution、security、observability-api |
+| 25 | ai | capability | grounding/retrieval orchestration、model/prompt registry、evaluation/release gate、action policy/store；内部 `.worker` 提供 provider invocation、blob、embedding/rerank/inference、function execution | common、config、semantic、metadata、query、indexing、security、observability-api；`.worker` 对 execution 的依赖不导出 |
+| 26 | governance | capability | steward/classification/approval + lineage projection + quality/audit | common、config、semantic、metadata、query、security、observability-api |
+| 27 | operations | operations product | upgrade/scaling/DR journal，以及授权/脱敏/限流后的 diagnostics | common、config、execution、security、observability-api |
 
 这些 artifact 内部仍按 `.api/.control/.runtime/.store.jdbc` 或 `catalog/lineage/quality/diagnostics` 分包并拥有独立 migration owner。Maven 合并不允许互写数据库表，也不允许基础 Query/Metadata/Worker 反向依赖可选 capability 实现。
 
-#### Coordinator、Standalone、Client 与 Testing（29–36）
+#### Coordinator、Standalone、Client 与 Testing（28–35）
 
 | # | Module | 类型 | 唯一职责 | 允许的内部依赖 |
 |---:|---|---|---|---|
-| 29 | coordinator | app+composition | coordination/lease/ZooKeeper、all control-plane wiring、endpoint、server/distribution、embedding API | 所有 Coordinator 所需实现；禁止领域 module 反向依赖 |
-| 30 | standalone | app | 同 JVM 组合 Coordinator/Worker embedding API | coordinator、worker；禁止 import其 `server/main` package |
-| 31 | client-core | public client | public protocol DTO/version/error + REST/Flight transport client | common |
-| 32 | client-jdbc | public client | JDBC driver、metadata/result mapping | common、client-core |
-| 33 | client-cli | distribution | CLI shell、formatting、session | common、client-core、client-jdbc |
-| 34 | testkit | test API | fixture/fake/property helper + Connector/Semantic/Ontology contract suite | public APIs、connector-spi；test scope |
-| 35 | integration-tests | test | e2e/smoke/chaos/fuzzer，以 Maven profile/tag 选择 | 所有生产 module；test scope |
-| 36 | benchmark | test/perf | planner/execution/memory/metadata/semantic/retrieval regression | selected core/runtime、testkit；test scope |
+| 28 | coordinator | app+composition | coordination/lease/ZooKeeper、all control-plane wiring、endpoint、server/distribution、embedding API | 所有 Coordinator 所需实现；禁止领域 module 反向依赖 |
+| 29 | standalone | app | 同 JVM 组合 Coordinator/Worker embedding API | coordinator、worker；禁止 import其 `server/main` package |
+| 30 | client-core | public client | public protocol DTO/version/error + REST/Flight transport client | common |
+| 31 | client-jdbc | public client | JDBC driver、metadata/result mapping | common、client-core |
+| 32 | client-cli | distribution | CLI shell、formatting、session | common、client-core、client-jdbc |
+| 33 | testkit | test API | fixture/fake/property helper + Connector/Semantic/Ontology contract suite | public APIs、connector-spi；test scope |
+| 34 | integration-tests | test | e2e/smoke/chaos/fuzzer，以 Maven profile/tag 选择 | 所有生产 module；test scope |
+| 35 | benchmark | test/perf | planner/execution/memory/metadata/semantic/retrieval regression | selected core/runtime、testkit；test scope |
 
 Coordinator 和 Worker 只向 Standalone friend-export `embedding` façade；不重新拆 Assembly/Server artifact。Testing family 只能被 test scope、CI profile 或 benchmark launcher 使用。
 
@@ -1280,7 +1280,7 @@ query ──> metadata.api + security.api + connector-spi
 scheduler ──> query.api + execution
 
 semantic ──> metadata.api + security.api
-ai-control ──> semantic.api + indexing.api + query.api
+ai ──> semantic.api + indexing.api + query.api
 governance ──> semantic.api + metadata.api + query.api events
 
 coordinator wiring:
@@ -1290,7 +1290,7 @@ coordinator wiring:
   CommitFencePort         ──adapter──> coordinator.coordination
 
 worker ──> execution + connector-spi + shuffle-core + native-bridge
-ai-worker ──provided/friend──> worker.runtime.spi
+ai（内部 .worker） ──provided/friend──> worker.runtime.spi
 standalone ──friend──> coordinator.embedding + worker.embedding
 ```
 
@@ -1322,7 +1322,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 7. **package root 与 artifact 主语同构。** `pangrova-query` 对应 `org.pangrova.query`，`pangrova-worker-native-bridge` 对应 `org.pangrova.worker.nativebridge`；一个 artifact 内的 `.api/.core/.store` 是逻辑分区，不是新坐标。
 8. **禁止 split package。** main/test 输出、shaded JAR、plugin bundle 和 generated source 都要检查；同一 fully-qualified package 不能由两个运行时 artifact 提供。
 
-#### 36 个叶子的 package ownership
+#### 35 个叶子的 package ownership
 
 下表是完整映射；同一单元格用斜杠列出的 artifact 与右侧 package root 按顺序一一对应，任何分组都不表示 family root 所有权。Packaging-only artifact 不声明 Java package。
 
@@ -1345,7 +1345,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 | `connector-spi/runtime/iceberg/paimon` | `org.pangrova.connector.spi`、`org.pangrova.connector.runtime`、`org.pangrova.connector.iceberg`、`org.pangrova.connector.paimon` |
 | `indexing`、`streaming`、`materialization`、`table` | `org.pangrova.indexing`、`org.pangrova.streaming`、`org.pangrova.materialization`、`org.pangrova.table` |
 | `semantic` | `org.pangrova.semantic`；只 export `.api`，内部含 `.core/.projection/.adapter/.store.jdbc` |
-| `ai-control`、`ai-worker` | `org.pangrova.ai.control`（并 export `.api`）、`org.pangrova.ai.worker` |
+| `ai` | `org.pangrova.ai`；只 export `.api`，内部 `.control`/`.worker` 默认不 export |
 | `governance`、`operations` | `org.pangrova.governance`、`org.pangrova.operations` |
 | `coordinator` | `org.pangrova.coordinator`；只 friend-export `.embedding` 给 Standalone |
 | `standalone` | `org.pangrova.standalone` |
@@ -1363,7 +1363,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 | P0 | 原 69 叶子规划把内部 API/Core/Store 机械提升为独立 artifact | GAV、POM、发布和迁移成本大于隔离收益 | 合并为 owner artifact，使用 `.api/.core/.store.jdbc` package + exports/ArchUnit 隔离 |
 | P0 | `pangrova-common` 当前 POM 仍包含 Jetty、Jackson、SnakeYAML，主代码也直接引用 Jetty/Jackson | 所有高 fan-in 消费者被迫获得 server/serde 技术依赖，Common 会重新成为基础设施垃圾场 | Jetty 迁 app server、Jackson 迁所属 serde/wire adapter、YAML 只留 Config；Common 建禁止依赖 gate |
 | P0 | `pangrova-metadata` 当前包含 Hikari/Flyway/Curator/JDBC，`pangrova-security` 包含 KMS/JWT implementation；目标又让 Planner/Query 依赖其 exported API | 合并 artifact 后产生传递依赖污染，API/Core/Store 的 package 隔离名存实亡 | adapter-only dependency non-transitive + exported API minimal-classpath test；失败时只拆具体 store/provider adapter |
-| P0 | `shuffle-core` 有 31 个类直接位于 `org.pangrova.shuffle`，Service 类型散落在 `shuffle.checksum/deployment/security/server/transport` | Core 与 Service 的 prefix ownership 模糊，服务实现看似属于公共 contract | Core 迁入 `.shuffle.api`/`.shuffle.core`，Service 整体迁入 `.shuffle.service`；调度策略迁入 Scheduler |
+| P0 | `shuffle-core` 有 31 个类直接位于 `org.pangrova.shuffle`，Service 类型散落在 `shuffle.checksum/deployment/security/server/transport` | Core 与 Service 的 prefix ownership 模糊，服务实现看似属于公共 contract | Core 迁入 `.shuffle.api`/`.shuffle.core`，Service 整体迁入 `.shuffle.service`；调度策略迁入 Scheduler（2026-11-01 已落地：双 root 与 `.shuffle.service` 前缀完成，`AdaptiveRepartitionTrigger` 暂居 `.shuffle.api.adaptive`，待 `pangrova-scheduler` 成立后迁出） |
 | P0 | Coordinator 直接 import `metadata.store.*`，Metadata/Security 互相穿透 store，Coordinator/Worker import `operations.bootstrap.*` | 运行时装配、持久化实现和领域逻辑形成反向依赖 | 以 API + consumer-owned port 替换；Store/Bootstrap 跨 owner import 清零 |
 | P1 | Metadata 仍有 `metadata.model`、`metadata.service`、`metadata.store` 等横向大包；Security 也有 `security.store`/`security.*.model` | 按技术层堆放多领域事实，继续形成新的 mini-monolith | 按 catalog/binding/snapshot/policy/tenant 等能力迁入 API/Core/JDBC Store，再在能力末端标注 role |
 | P1 | `pangrova-testkit` 直接拥有 `org.pangrova.testing` | 与其它测试形态的 root 前缀重叠 | 合并公共 fixture/Connector contracts 为 `testkit`，root 收窄到 `org.pangrova.testing.testkit` |
@@ -1385,7 +1385,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 
 普通领域 owner artifact 只 export `.api.<capability>..`；SPI 只 export `.spi.<capability>..`；wire contract 只 export `.protocol..`。同 artifact 的 Core/domain/store 也默认不 export，ArchUnit 必须阻止其它领域 package 穿透。`internal` 只是命名提示，CI 才是实际边界。
 
-暂不要求一次性给 36 个叶子加入 `module-info.java`。第三方 automatic module、反射框架、ServiceLoader、JNI 和 shaded plugin 在全面 JPMS 化前必须逐项验证；现在先消除 split package、固定 `Automatic-Module-Name` 并收紧 exports。
+暂不要求一次性给 35 个叶子加入 `module-info.java`。第三方 automatic module、反射框架、ServiceLoader、JNI 和 shaded plugin 在全面 JPMS 化前必须逐项验证；现在先消除 split package、固定 `Automatic-Module-Name` 并收紧 exports。
 
 ### 每类模块的内部目录模板
 
@@ -1819,11 +1819,11 @@ Semantic 是 Metadata 上层的业务知识 owner，拥有 Concept/Term、Semant
 
 Semantic View、Knowledge Graph 与 Ontology 在同一 artifact 内分别位于 `.core.model/.core.relationship/.core.ontology`，共享 ConceptId、版本、发布事务和 store；这保证高内聚，也避免三套 ID/发布指针相互引用。RDF/SKOS/OWL/SHACL 与图数据库只存在于 `.adapter`，不能进入 exported API。完整边界、AI grounding 和迁移策略见“Metadata 之上的智能语义、关系图谱与本体架构”。
 
-#### `pangrova-ai-control` / `pangrova-ai-worker`
+#### `pangrova-ai`（内部 `.control` / `.worker`）
 
-AI API 拥有 model/function/provider/action descriptor；AI Control 拥有 model/prompt registry、grounding/retrieval orchestration、evaluation dataset/run/release gate、training data job、feature transform、budget 与 approval policy；AI Worker 提供 provider invocation、blob、embedding/rerank/inference 和 worker function execution。AI Control 必须消费 published Semantic snapshot，不能自己定义 Metric、Concept、Relationship 或 Ontology。
+AI API 拥有 model/function/provider/action descriptor；AI 内部 `.control` 拥有 model/prompt registry、grounding/retrieval orchestration、evaluation dataset/run/release gate、training data job、feature transform、budget 与 approval policy；内部 `.worker` 提供 provider invocation、blob、embedding/rerank/inference 和 worker function execution。AI 必须消费 published Semantic snapshot，不能自己定义 Metric、Concept、Relationship 或 Ontology。
 
-Planner 只通过 AI planner extension 注册 embedding/rerank/vector rule；基础 Worker Runtime 不直接依赖 provider SDK，也不 compile-depend `ai-worker` implementation。AI Worker 只能以 `provided`/friend 方式使用 `worker.runtime.spi`，由 distribution profile 或外置插件 classpath 激活；若该 host port 出现第二个独立 provider family 或需要外部兼容承诺，则再晋升为 `pangrova-worker-spi` artifact。
+Planner 只通过 AI planner extension 注册 embedding/rerank/vector rule；基础 Worker Runtime 不直接依赖 provider SDK，也不 compile-depend `ai` 的内部 `.worker` implementation。AI 内部 `.worker` 只能以 `provided`/friend 方式使用 `worker.runtime.spi`，由 distribution profile 或外置插件 classpath 激活；若该 host port 出现第二个独立 provider family 或需要外部兼容承诺，则再晋升为 `pangrova-worker-spi` artifact。
 
 ### Governance owner artifact
 
@@ -1938,7 +1938,7 @@ Testing family 收敛为 testkit/integration-tests/benchmark 三叶；architectu
 | operations | 保留一个 artifact，迁出 bootstrap/DDL | `.core/.diagnostics` packages |
 | resource | 按控制面/数据面归并 | scheduler.resource、worker.resource |
 | coordinator | 抽出领域逻辑但保留 artifact | coordination/assembly/server/embedding 留在 Coordinator |
-| worker | 保留 kernel artifact；JNI 与 AI runtime 独立 | worker + native-bridge/native-bundle + ai-worker |
+| worker | 保留 kernel artifact；JNI 与 AI runtime 独立 | worker + native-bridge/native-bundle + ai（内部 `.worker`） |
 | metadata | 保留一个纯粹 owner artifact并迁出杂项 | `.api/.core/.store.jdbc` packages |
 | metadata/coordinator 中的 semantic | 新建独立 owner artifact | `pangrova-semantic` 的 `.api/.core/.projection/.adapter/.store.jdbc` packages |
 | connector | 与 SPI/runtime 形成 Connector 产品线 | connector family |
@@ -2025,8 +2025,8 @@ Testing family 收敛为 testkit/integration-tests/benchmark 三叶；architectu
 | `coordinator.dynamictable*` | materialization.control | REWRITE | definition/refresh/lock/recovery 全部归 Materialization |
 | `coordinator.clustering*` | table | REWRITE | recluster job、schedule、status 统一维护域 |
 | `coordinator.streaming*` | streaming.control | SPLIT | CDC/streaming orchestration 归 Streaming；query adapter 走 port |
-| `coordinator.ai.embedding` | ai.control | MOVE/REWRITE | registry/store/version 属于 AI Control |
-| `coordinator.ai.training` | ai.control | SPLIT | job/control 进 AI Control，实际 scan 通过 Query API |
+| `coordinator.ai.embedding` | ai.control | MOVE/REWRITE | registry/store/version 属于 AI 内部 `.control` |
+| `coordinator.ai.training` | ai.control | SPLIT | job/control 进 AI 内部 `.control`，实际 scan 通过 Query API |
 | `coordinator.ai.vector/index/layout/feature` | ai.control + indexing.control | SPLIT | 模型/feature 决策归 AI，index generation 归 Index |
 | `coordinator.semantic` | semantic.core + coordinator.assembly | SPLIT/REWRITE | validator/compiler/use case 归 Semantic；AST/session/endpoint mapping 留 Assembly |
 | `coordinator.query.execution.dispatch.task.semantic` | semantic API + coordinator.assembly | SPLIT | SQL task 是 endpoint adapter，不得拥有 semantic 规则或 store |
@@ -2083,7 +2083,7 @@ Testing family 收敛为 testkit/integration-tests/benchmark 三叶；architectu
 | `worker.http*` | worker.server | ADAPTER | task/health endpoints，不含 task 状态决策 |
 | `worker.bootstrap*` | worker.server | REWRITE | composition root |
 | `worker.transport*` | worker.server + execution | SPLIT | wire contract 与实现分开；Coordinator 不再依赖 worker artifact |
-| `worker.ai*` | ai-worker | REWRITE | provider invocation、budget、blob、function runtime 迁出 kernel |
+| `worker.ai*` | ai（内部 `.worker`） | REWRITE | provider invocation、budget、blob、function runtime 迁出 kernel |
 | `worker.cache*` | worker.runtime 或 capability runtime | SPLIT | 按缓存对象 owner 迁移 |
 | `worker.clustering` | table/worker.runtime adapter | SPLIT | maintenance task 类型归维护域，执行 adapter 在 Worker |
 | `worker.split` | worker.runtime | MOVE | 只消费 versioned split/task descriptor |
@@ -2163,7 +2163,7 @@ Testing family 收敛为 testkit/integration-tests/benchmark 三叶；architectu
 | pangrova-operations | 保留一个 artifact | bootstrap/degradation/DDL 迁出；`.core/.diagnostics` 依赖和权限隔离 |
 | pangrova-transport | 删除 | transport 实现回到对应 client/server adapter |
 | pangrova-indexing | 保留一个 artifact | Coordinator/Metadata index 包迁入；内部 API/control/runtime 分包 |
-| pangrova-streaming | 保留一个 artifact | CDC store 和 query adapter 以 package 分离 |
+| pangrova-streaming | family aggregator（runtime/format/maintenance/jdbc）| 标准存储 API 在 SPI；JDBC 适配器隔离 PostgreSQL 与 Testcontainers |
 | pangrova-governance | 保留一个 artifact | Metadata 反向依赖清零；catalog/lineage/quality migration owner 分离 |
 | pangrova-connector | 保留 aggregator 名称并重建子模块 | connector-spi/runtime/Iceberg/Paimon 完成迁移，旧 parent 无隐式依赖 |
 
@@ -2587,7 +2587,7 @@ families:
 - Streaming 在单 artifact 内拆 API/control/store package；
 - 新建 Semantic owner artifact，先迁 Semantic View，再建立 Concept/Metric/Relationship/Ontology typed model 与 compiler；
 - AI 拆 control/worker/planner extension；
-- AI evaluation 表从 Metadata 迁入 AI Control；Governance 在单 artifact 内拆 Catalog、Lineage、Quality package/migration owner，并引用 Semantic ConceptId；
+- AI evaluation 表从 Metadata 迁入 AI（内部 `.control`）；Governance 在单 artifact 内拆 Catalog、Lineage、Quality package/migration owner，并引用 Semantic ConceptId；
 - Connector loader 迁入 connector-runtime，不建立通用 extension host。
 
 验收：关闭任一可选 capability 后，基础 SELECT/DDL/DML、query recovery 和 Worker 执行仍可构建运行。
@@ -2620,7 +2620,7 @@ Wave 描述时间范围，下面的里程碑描述真正的代码落地顺序。
 
 | 顺序 | 新建/调整 artifact/package | 从哪里拆 | 当期兼容方式 | 完成和删除条件 |
 |---:|---|---|---|---|
-| M0 | 24 个 root reactor entry、7 个 product aggregator、36 个叶子、modules manifest | root POM/rules | 旧模块仍全部参与 reactor | module/package DAG gate 生效；family POM 只有 modules |
+| M0 | 24 个 root reactor entry、7 个 product aggregator、35 个叶子、modules manifest | root POM/rules | 旧模块仍全部参与 reactor | module/package DAG gate 生效；family POM 只有 modules |
 | M1 | common.type/event/resilience、config、observability-api | common、SPI types、observability | 旧 SPI type mapper | exported common package 无实现依赖；类型 round-trip 通过 |
 | M2 | metadata/security/query 的 `.api` package | SPI、metadata model、security SPI、execution SPI | legacy API façade 委托新 ports | API package 不依赖同 artifact core/store；公开模型稳定 |
 | M3 | client/execution protocol | protocol、transport、SPI execution DTO | 双版本 codec、receiver-first rollout | N/N-1 与 Java/C++ golden test 通过 |
@@ -2775,7 +2775,7 @@ Lineage、quality、recommendation、historical inventory 和大部分 audit exp
 
 ## 优先执行的二十二项工作
 
-1. 通过 ADR 确认“2 个主要引擎进程 + 1 个可选 Shuffle Service、24 个 root reactor entry、36 个叶子 module、领域状态唯一 owner”。
+1. 通过 ADR 确认“2 个主要引擎进程 + 1 个可选 Shuffle Service、24 个 root reactor entry、35 个叶子 module、领域状态唯一 owner”。
 2. 建 `.pangrova/modules.yaml` 并生成完整依赖 DAG。
 3. 把 Coordinator/Planner/Metadata/Parser 纳入依赖 gate。
 4. 冻结 legacy SPI 新增类型。
@@ -2794,7 +2794,7 @@ Lineage、quality、recommendation、historical inventory 和大部分 audit exp
 17. 合并散落的 index/artifact lifecycle 到 Indexing 内部 Control package。
 18. 新建 Materialization 和 Table Maintenance domain。
 19. 新建 `pangrova-semantic`，迁出 Metadata/Coordinator Semantic View，并建立 typed Concept/Metric/Relationship/Ontology/Binding/Compiler/Publication。
-20. 将 V26 evaluation durable state 迁入 AI Control，建立 GroundingSnapshot、evaluation/release gate 与 governed action contract。
+20. 将 V26 evaluation durable state 迁入 AI（内部 `.control`），建立 GroundingSnapshot、evaluation/release gate 与 governed action contract。
 21. 将 AI runtime 从 Worker kernel 抽离。
 22. 将 C++ 单 object target 拆成依赖可见的内部 targets。
 

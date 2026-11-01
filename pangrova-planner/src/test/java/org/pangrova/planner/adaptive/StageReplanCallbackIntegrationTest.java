@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.PlanResult;
 import org.pangrova.planner.stats.StatisticsCollector;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
 import org.apache.calcite.rel.RelNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

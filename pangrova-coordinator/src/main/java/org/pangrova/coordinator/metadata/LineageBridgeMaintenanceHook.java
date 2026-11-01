@@ -2,8 +2,8 @@ package org.pangrova.coordinator.metadata;
 
 import org.pangrova.governance.lineage.DatasetRef;
 import org.pangrova.governance.lineage.LineageEventEmitter;
-import org.pangrova.metadata.dependency.MetadataMaintenanceHook;
-import org.pangrova.metadata.dependency.ObjectRef;
+import org.pangrova.metadata.core.dependency.MetadataMaintenanceHook;
+import org.pangrova.metadata.core.dependency.ObjectRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +17,7 @@ import java.util.UUID;
  * by emitting OpenLineage-compatible events through {@link LineageEventEmitter}
  * whenever the dependency graph mutates.
  *
- * <p>This hook is registered on the {@link org.pangrova.metadata.dependency.ObjectDependencyService}
+ * <p>This hook is registered on the {@link org.pangrova.metadata.core.dependency.ObjectDependencyService}
  * during coordinator bootstrap. It emits:
  * <ul>
  *   <li>{@code onObjectDropped} — a COMPLETE event with the dropped object as

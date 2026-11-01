@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.index.ddl;
 
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.index.ColumnValueReader;
 import org.pangrova.spi.connector.index.ConnectorIndexSupport;

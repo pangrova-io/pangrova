@@ -11,9 +11,9 @@ import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 import org.pangrova.coordinator.query.task.write.WriteCommitQuarantineStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.spi.coordination.WriteCommitJournal;
 
 /**

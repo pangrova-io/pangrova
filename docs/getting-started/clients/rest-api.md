@@ -28,8 +28,6 @@ http://<coordinator-host>:<port>/v1
 | `GET` | `/v1/health` | Health check (`503` when not ready) |
 | `POST` | `/v1/workers/register` | Worker registration (internal) |
 | `POST` | `/v1/worker/heartbeat` | Worker heartbeat (internal) |
-| `POST` | `/v1/streaming/cdc/register` | Register a CDC stream consumer (internal) |
-| `POST` | `/v1/streaming/cdc/heartbeat` | CDC stream heartbeat (internal) |
 
 ### Submit a Query
 

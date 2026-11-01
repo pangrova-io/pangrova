@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.ai.branch;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.SnapshotReference;

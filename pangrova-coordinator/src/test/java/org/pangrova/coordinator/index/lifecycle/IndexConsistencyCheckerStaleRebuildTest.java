@@ -9,14 +9,14 @@ import org.pangrova.indexing.config.ConsistencyConfig;
 import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.config.LifecycleConfig;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.metadata.index.model.IndexFileMapping;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.indexing.control.IndexMetadataStore;
+import org.pangrova.indexing.api.IndexFileMapping;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.index.IndexType;
@@ -191,13 +191,13 @@ class IndexConsistencyCheckerStaleRebuildTest {
         }
 
         @Override
-        public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.metadata.index.model.IndexPublicationRequest request) {
+        public org.pangrova.indexing.api.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.indexing.api.IndexPublicationRequest request) {
             throw new AssertionError("unexpected publication");
         }
 
         @Override
-        public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+        public Optional<org.pangrova.indexing.api.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) {
             return Optional.empty();
         }

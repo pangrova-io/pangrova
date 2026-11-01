@@ -15,8 +15,8 @@ import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
-import org.pangrova.shuffle.exchange.ExchangeChannelContext;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.exchange.ExchangeChannelContext;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 
 import io.grpc.ManagedChannel;
 

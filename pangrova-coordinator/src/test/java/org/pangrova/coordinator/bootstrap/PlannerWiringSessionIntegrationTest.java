@@ -15,10 +15,10 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.secret.SecretResolver;
 import org.pangrova.spi.connector.ConnectorFactory;
@@ -48,10 +48,11 @@ class PlannerWiringSessionIntegrationTest {
                 "lance", CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "", Set.of()));
         var factory = new PluginConnectorHandleFactory(ConnectorFactory.class.getClassLoader(),
                 new SecretResolver(), ignored -> Optional.empty(), descriptor -> Optional.of(
-                        new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(dataSource,
+                        new org.pangrova.metadata.store.jdbc.source.JdbcManagedSourceCatalog(dataSource,
                                 new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
-                                ignored -> { throw new IllegalStateException("No write execution in this read fixture"); })));
+                                ignored -> { throw new IllegalStateException("No write execution in this read fixture"); },
+                                new org.pangrova.query.transaction.JdbcSourcePublicationTransaction())));
         MetadataBootstrap metadata = MetadataBootstrap.initialize(store, factory);
         try {
             var context = new QueryModuleLoader(CoordinatorBootstrapConfig.withDefaults("scope-test", 0),
@@ -142,7 +143,7 @@ class PlannerWiringSessionIntegrationTest {
                                 new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
                                         metadata.catalogRegistry(), session)));
                 assertThatThrownBy(() -> collector.getStatistics(new QualifiedTableName("scoped_lance", "alpha_only", "items")))
-                        .isInstanceOf(org.pangrova.metadata.exception.MetadataResolutionException.class)
+                        .isInstanceOf(org.pangrova.metadata.api.error.MetadataResolutionException.class)
                         .hasRootCauseInstanceOf(java.sql.SQLException.class);
             } finally {
                 statement.execute("ALTER TABLE temporarily_unavailable_tables RENAME TO managed_source_heads");

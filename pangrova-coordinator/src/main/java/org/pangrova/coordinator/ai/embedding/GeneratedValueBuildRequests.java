@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.contract.ArtifactDependencySet;
-import org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy;
-import org.pangrova.metadata.artifact.contract.ArtifactExecutionKind;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.api.ArtifactDependencySet;
+import org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy;
+import org.pangrova.indexing.api.ArtifactExecutionKind;
+import org.pangrova.indexing.api.ArtifactTypeIds;
 import org.pangrova.planner.artifact.ArtifactBuildPlan;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.NamedValue;

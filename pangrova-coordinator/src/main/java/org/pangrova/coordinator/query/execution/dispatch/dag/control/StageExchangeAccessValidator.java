@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.metadata.artifact.build.ArtifactExchangeRegistration;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PreparedPartition;
+import org.pangrova.indexing.control.ArtifactExchangeRegistration;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.Checksum;
@@ -89,7 +89,7 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireOutput(PreparedPartition prepared, DurablePartitionRequest.ExchangeAccess access,
-            List<org.pangrova.metadata.artifact.build.ArtifactStageGraph.Exchange> outgoing) {
+            List<org.pangrova.indexing.control.ArtifactStageGraph.Exchange> outgoing) {
         if (outgoing.isEmpty()) {
             if (access.output() != null || access.allocation() != null) {
                 throw new IllegalArgumentException("Terminal partition cannot bind an unregistered output exchange");
@@ -104,7 +104,7 @@ final class StageExchangeAccessValidator {
 
     private static void requireProducerAllocation(PreparedPartition prepared,
             DurablePartitionRequest.ExchangeAccess access,
-            org.pangrova.metadata.artifact.build.ArtifactStageGraph.Exchange edge) {
+            org.pangrova.indexing.control.ArtifactStageGraph.Exchange edge) {
         var registration = prepared.exchanges().stream().map(value -> value.registration())
                 .filter(value -> value.exchangeId().equals(edge.exchangeId())).findFirst().orElseThrow();
         if (!access.allocation().shuffleId().equals(registration.shuffleId())
@@ -117,7 +117,7 @@ final class StageExchangeAccessValidator {
         requireProducerTransport(access.allocation(), registration);
     }
 
-    private static void requireProducerTransport(org.pangrova.shuffle.ShuffleHandle handle,
+    private static void requireProducerTransport(org.pangrova.shuffle.api.registration.ShuffleHandle handle,
             ArtifactExchangeRegistration registration) {
         var endpoints = handle.endpoints().stream().map(endpoint -> new ArtifactExchangeRegistration.Endpoint(
                 new ArtifactExchangeRegistration.Address(endpoint.host(), endpoint.port(), endpoint.tlsIdentity()),

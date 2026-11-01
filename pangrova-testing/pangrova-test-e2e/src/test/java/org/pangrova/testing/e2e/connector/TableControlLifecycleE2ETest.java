@@ -14,11 +14,11 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.control.JdbcTableControlStore;
-import org.pangrova.metadata.control.OwnershipMode;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.control.TableControlSettings;
-import org.pangrova.metadata.control.TableControlState;
+import org.pangrova.metadata.core.control.JdbcTableControlStore;
+import org.pangrova.metadata.api.control.OwnershipMode;
+import org.pangrova.metadata.core.control.TableControlService;
+import org.pangrova.metadata.core.control.TableControlSettings;
+import org.pangrova.metadata.core.control.TableControlState;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 
@@ -66,24 +66,24 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
     void metadataApiCreationPreservesScalarParametersForActualNativeSql() {
         String table = "controlled_metadata_created";
         String source = PAIMON + "." + SCHEMA + "." + table;
-        var service = metadataBootstrap.metadataService();
+        var gateway = metadataBootstrap.metadataGateway();
         // The trusted engine API receives the configured test actor's metadata-only context.
         // Writes and result reads below traverse authenticated HTTP SQL and actual Native execution.
-        var actor = new org.pangrova.metadata.service.MetadataSessionContext("e2e-user", PAIMON, SCHEMA,
+        var actor = new org.pangrova.metadata.api.session.MetadataSessionContext("e2e-user", PAIMON, SCHEMA,
                 "UTC", "en", java.util.Map.of(), "default", null, null);
-        var ref = new org.pangrova.metadata.model.QualifiedTableRef(PAIMON, SCHEMA, table);
+        var ref = new org.pangrova.metadata.api.object.QualifiedTableRef(PAIMON, SCHEMA, table);
         var columns = List.of(
-                new org.pangrova.metadata.model.ColumnMetadata("id",
-                        org.pangrova.metadata.model.ColumnType.of("BIGINT"), true, "", java.util.Map.of()),
-                new org.pangrova.metadata.model.ColumnMetadata("email",
-                        org.pangrova.metadata.model.ColumnType.varchar(128), true, "", java.util.Map.of()),
-                new org.pangrova.metadata.model.ColumnMetadata("amount",
-                        org.pangrova.metadata.model.ColumnType.decimal(12, 2), true, "", java.util.Map.of()));
-        service.createTable(actor, ref, new org.pangrova.metadata.model.TableMetadata(PAIMON, SCHEMA, table,
+                new org.pangrova.metadata.api.schema.ColumnMetadata("id",
+                        org.pangrova.metadata.api.schema.ColumnType.of("BIGINT"), true, "", java.util.Map.of()),
+                new org.pangrova.metadata.api.schema.ColumnMetadata("email",
+                        org.pangrova.metadata.api.schema.ColumnType.varchar(128), true, "", java.util.Map.of()),
+                new org.pangrova.metadata.api.schema.ColumnMetadata("amount",
+                        org.pangrova.metadata.api.schema.ColumnType.decimal(12, 2), true, "", java.util.Map.of()));
+        gateway.tables().createTable(actor, ref, new org.pangrova.metadata.api.schema.TableMetadata(PAIMON, SCHEMA, table,
                 columns, java.util.Map.of(), List.of(), java.util.Map.of(), null, null));
         assertThat(store.find(PAIMON, SCHEMA, table).orElseThrow().ownershipMode()).isEqualTo(OwnershipMode.MANAGED);
         sqlRunner.execute("INSERT INTO " + source + " VALUES (7, 'typed@example.com', 12.34)");
-        service.setTag(actor, ref, "EMAIL", "pii_type", "PII_EMAIL");
+        gateway.tags().setTag(actor, ref, "EMAIL", "pii_type", "PII_EMAIL");
         assertThat(sqlRunner.execute("SELECT id,email,CAST(amount AS VARCHAR) AS amount_text FROM " + source))
                 .singleElement().satisfies(row -> {
                     assertThat(row.getLong("id")).isEqualTo(7L);
@@ -144,7 +144,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         String renamed = PAIMON + "." + SCHEMA + "." + renamedTable;
         sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + source + " VALUES (1),(2)");
-        var policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
+        var policies = new org.pangrova.metadata.core.TableControlRowPolicyStore(
                 metadataBootstrap.catalogRegistry(),
                 new org.pangrova.security.store.PersistentRowPolicyStore(stateStoreDataSource()));
         policies.savePolicy(new org.pangrova.security.rowfilter.RowPolicy(0, "private_rows", PAIMON,
@@ -194,7 +194,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         String alias = "control_recreated_catalog";
         String table = "control_catalog_identity";
         String qualified = alias + "." + SCHEMA + "." + table;
-        registry.register(new org.pangrova.metadata.catalog.CatalogDescriptor(alias, source.type(),
+        registry.register(new org.pangrova.metadata.api.catalog.CatalogDescriptor(alias, source.type(),
                 source.provider(), source.state(), source.properties(), source.comment(), source.allowedTenants()));
         try {
             sqlRunner.executeDdl("CREATE TABLE " + qualified + " (id BIGINT)");
@@ -202,7 +202,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("SELECT id FROM " + qualified);
             var original = store.find(alias, SCHEMA, table).orElseThrow();
             registry.unregister(alias);
-            registry.register(new org.pangrova.metadata.catalog.CatalogDescriptor(alias, source.type(),
+            registry.register(new org.pangrova.metadata.api.catalog.CatalogDescriptor(alias, source.type(),
                     source.provider(), source.state(), source.properties(), source.comment(), source.allowedTenants()));
 
             assertThat(registry.getCatalog(alias).getDescriptor().incarnationId())
@@ -233,14 +233,14 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         String alias = "control_shadow_recreated_catalog";
         String table = "control_shadow_catalog_identity";
         String qualified = alias + "." + SCHEMA + "." + table;
-        registry.register(new org.pangrova.metadata.catalog.CatalogDescriptor(alias, source.type(),
+        registry.register(new org.pangrova.metadata.api.catalog.CatalogDescriptor(alias, source.type(),
                 source.provider(), source.state(), source.properties(), source.comment(), source.allowedTenants()));
         try {
             sqlRunner.executeDdl("CREATE TABLE " + qualified + " (id BIGINT)");
             sqlRunner.execute("INSERT INTO " + qualified + " VALUES (7)");
             var original = store.find(alias, SCHEMA, table).orElseThrow();
             registry.unregister(alias);
-            registry.register(new org.pangrova.metadata.catalog.CatalogDescriptor(alias, source.type(),
+            registry.register(new org.pangrova.metadata.api.catalog.CatalogDescriptor(alias, source.type(),
                     source.provider(), source.state(), source.properties(), source.comment(), source.allowedTenants()));
 
             assertThat(sqlRunner.executeExpectingError("DROP TABLE " + qualified).message())
@@ -322,8 +322,8 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + source + " VALUES (1)");
         var owner = store.find(PAIMON, SCHEMA, table).orElseThrow();
-        var persisted = new org.pangrova.metadata.governance.JdbcQualityRuleStore(stateStoreDataSource());
-        var rules = new org.pangrova.metadata.service.TableControlQualityRuleStore(
+        var persisted = new org.pangrova.governance.quality.store.JdbcQualityRuleStore(stateStoreDataSource());
+        var rules = new org.pangrova.metadata.core.TableControlQualityRuleStore(
                 metadataBootstrap.catalogRegistry(), persisted);
         long ruleId = java.util.UUID.randomUUID().getLeastSignificantBits() & Long.MAX_VALUE;
         var now = java.time.Instant.now();

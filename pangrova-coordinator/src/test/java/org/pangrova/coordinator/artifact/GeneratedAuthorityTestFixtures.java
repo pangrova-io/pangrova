@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.artifact;
 
 import org.pangrova.coordinator.ai.embedding.JdbcEmbeddingModelRegistry;
-import org.pangrova.metadata.artifact.jdbc.GeneratedModelCurrentAuthority;
+import org.pangrova.ai.store.jdbc.GeneratedModelCurrentAuthority;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;

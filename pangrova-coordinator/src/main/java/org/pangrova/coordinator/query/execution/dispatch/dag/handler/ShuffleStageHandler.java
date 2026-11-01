@@ -8,10 +8,10 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.protocol.rest.shuffle.PartitionStats;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
-import org.pangrova.shuffle.ShuffleCommitResult;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleProducerSetChecksum;
-import org.pangrova.shuffle.ShuffleRegistration;
+import org.pangrova.shuffle.api.commit.ShuffleCommitResult;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.commit.ShuffleProducerSetChecksum;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -3,8 +3,8 @@ package org.pangrova.coordinator.bootstrap;
 import org.junit.jupiter.api.Test;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.store.PooledDataSourceFactory;
-import org.pangrova.metadata.store.SchemaMigrationRunner;
+import org.pangrova.metadata.store.jdbc.PooledDataSourceFactory;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
 import org.pangrova.testing.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 
@@ -21,13 +21,13 @@ class MetadataJdbcConfigurationIntegrationTest extends ContainerTestBase {
         var jdbc = configured(source.getURL(), source.getUser(), source.getPassword());
         assertThat(jdbc.jdbcUrl()).doesNotContain("password=", "user=");
         try (var pool = PooledDataSourceFactory.create(jdbc.jdbcUrl(), jdbc.username(), jdbc.password())) {
-            SchemaMigrationRunner.migrate(pool);
+            SchemaMigrationRunner.migrateAll(pool);
             try (var connection = pool.getConnection(); var statement = connection.createStatement()) {
                 try (var identity = statement.executeQuery("SELECT CURRENT_USER")) {
                     assertThat(identity.next()).isTrue();
                     assertThat(identity.getString(1)).isEqualTo(source.getUser());
                 }
-                try (var migration = statement.executeQuery("SELECT to_regclass('flyway_schema_history')")) {
+                try (var migration = statement.executeQuery("SELECT to_regclass('flyway_schema_history_metadata')")) {
                     assertThat(migration.next()).isTrue();
                     assertThat(migration.getString(1)).isNotNull();
                 }

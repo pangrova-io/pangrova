@@ -18,9 +18,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * Verifies ModuleIntegrationWiring correctly assembles all 8 cross-cutting
- * modules: observability, security, resilience, governance, operations,
- * resource, tenant, streaming.
+ * Verifies ModuleIntegrationWiring correctly assembles the remaining
+ * cross-cutting modules: observability, security, resilience, governance,
+ * operations, resource, tenant. Streaming is owned by
+ * {@link ModuleIntegrationBootstrap} and is not part of this legacy variant.
  *
  * <p>Validates: Requirements 4.2</p>
  */
@@ -39,27 +40,7 @@ class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.Sig
         }
     }
 
-    // -- 1. Streaming module wiring --
-
-    @Test
-    void startStreamingInitializesCdcAndMaintenanceComponents() {
-        try (ModuleIntegrationWiring wiring = new ModuleIntegrationWiring()) {
-            wiring.startStreaming(buildAllModulesEnabled(), null);
-            assertThat(wiring.getCdcLifecycleManager()).isNotNull();
-            assertThat(wiring.getMaintenanceScheduler()).isNotNull();
-        }
-    }
-
-    @Test
-    void startStreamingSkippedWhenDisabled() {
-        try (ModuleIntegrationWiring wiring = new ModuleIntegrationWiring()) {
-            wiring.startStreaming(CoordinatorBootstrapConfig.withDefaults("coord-test", 0), null);
-            assertThat(wiring.getCdcLifecycleManager()).isNull();
-            assertThat(wiring.getMaintenanceScheduler()).isNull();
-        }
-    }
-
-    // -- 2. Governance module wiring --
+    // -- 1. Governance module wiring --
 
     @Test
     void startGovernanceInitializesLineageAndQualityComponents() throws Exception {
@@ -273,7 +254,6 @@ class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.Sig
         // Verifies close() completes without error when all modules are active.
         ModuleIntegrationWiring wiring = new ModuleIntegrationWiring();
         CoordinatorBootstrapConfig config = buildAllModulesEnabled();
-        wiring.startStreaming(config, null);
         wiring.startGovernance(config,
                 GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_close")));
         wiring.startResilience(config);

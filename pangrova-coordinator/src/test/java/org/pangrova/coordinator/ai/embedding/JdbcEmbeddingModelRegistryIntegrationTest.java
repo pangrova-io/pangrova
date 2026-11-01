@@ -85,43 +85,6 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
     }
 
     @Test
-    void canonicalMigrationRetainsHistoricalRowsWithoutInventingRoleAuthority() throws Exception {
-        dataSource = SharedPostgresContainer.isolatedDataSource("historical_model_authority");
-        org.flywaydb.core.Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
-                .target("10").load().migrate();
-        var unmigrated = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_GROUP, USAGE_GROUP);
-        assertThrows(IllegalStateException.class, unmigrated::initSchema);
-        try (var connection = dataSource.getConnection();
-             var statement = connection.createStatement()) {
-            statement.execute("INSERT INTO pangrova_embedding_models VALUES ("
-                    + "'existing-model', 'openai-compatible', 'https://model.example/v1', "
-                    + "768, 'existing-secret-ref', 8, 32, '', '', 3, FALSE)");
-        }
-
-        org.pangrova.metadata.store.SchemaMigrationRunner.migrate(dataSource);
-        roles = new PersistentRoleStore(dataSource);
-        roles.initSchema();
-        roles.createRole(Role.of(ADMIN_GROUP));
-        roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));
-        registry = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_GROUP, USAGE_GROUP);
-        registry.initSchema();
-        assertThrows(EmbeddingRegistryAccessDeniedException.class, () -> registry.find("existing-model", ADMIN));
-        try (var connection = dataSource.getConnection();
-             var statement = connection.createStatement();
-             var rows = statement.executeQuery(
-                     "SELECT deployment_version,deployment_signature_sha256,incarnation_id,admin_role,usage_role,version "
-                             + "FROM pangrova_embedding_models WHERE model_name='existing-model'")) {
-            assertTrue(rows.next());
-            assertEquals("", rows.getString(1));
-            assertEquals("", rows.getString(2));
-            assertNotNull(rows.getString(3));
-            assertNull(rows.getString(4));
-            assertNull(rows.getString(5));
-            assertEquals(3, rows.getInt(6));
-        }
-    }
-
-    @Test
     void schemaValidationDoesNotCreateOrUpgradeAnUnmigratedTable() throws Exception {
         var empty = SharedPostgresContainer.isolatedDataSource("absent_model_schema");
         var uninitialized = new JdbcEmbeddingModelRegistry(empty, ADMIN_GROUP, USAGE_GROUP);
@@ -154,7 +117,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             assertThrows(org.pangrova.security.authz.AuthorizationDeniedException.class,
-                    () -> org.pangrova.metadata.artifact.jdbc.GeneratedModelCurrentAuthority.requireCurrent(
+                    () -> org.pangrova.ai.store.jdbc.GeneratedModelCurrentAuthority.requireCurrent(
                             connection, USER.principal(), observed));
         }
         assertModelRoles(ADMIN_GROUP, null);
@@ -176,7 +139,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
             throws Exception {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            return org.pangrova.metadata.artifact.jdbc.GeneratedModelCurrentAuthority.observe(
+            return org.pangrova.ai.store.jdbc.GeneratedModelCurrentAuthority.observe(
                     connection, user.principal(), Set.of("m"));
         }
     }

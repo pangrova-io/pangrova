@@ -18,16 +18,10 @@ import org.pangrova.governance.quality.rule.InMemoryQualityRuleStore;
 import org.pangrova.governance.quality.schedule.CronScheduler;
 import org.pangrova.security.mask.ColumnMask;
 import org.pangrova.security.mask.EnrichedColumnMaskStore;
-import org.pangrova.observability.noop.NoOpMetricsProvider;
-import org.pangrova.spi.connector.data.*;
-import org.pangrova.spi.connector.data.write.*;
-import org.pangrova.spi.connector.data.write.model.*;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.spi.streaming.CdcOperation;
-import org.pangrova.spi.streaming.WatermarkStore;
-import org.pangrova.streaming.cdc.*;
+import org.pangrova.spi.streaming.record.CdcEnvelope;
+import org.pangrova.spi.streaming.record.CdcOperation;
+import org.pangrova.spi.streaming.store.WatermarkStore;
 import org.pangrova.streaming.watermark.*;
-import org.pangrova.streaming.writer.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -46,7 +40,7 @@ import static org.assertj.core.api.Assertions.*;
  * Acceptance test: validates the streaming/governance chain from main() to CDC pipeline.
  *
  * <p>Chain under test: LineageEventEmitter → GovernanceContext → StreamingContext →
- * WatermarkTracker → CdcConsumer</p>
+ * WatermarkTracker → CDC format converter</p>
  *
  * <p><b>Property 33: Streaming/governance chain from main() to CDC pipeline</b></p>
  */
@@ -139,7 +133,7 @@ class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.Si
         assertThat(emitter.eventsDroppedTotal()).isGreaterThan(0);
     }
 
-    /** WatermarkTracker transitions: ACTIVE on advance, STALE on regression. */
+    /** WatermarkTracker ignores non-advancing updates without poisoning the state. */
     @Test
     void watermarkTrackerStateTransitions() {
         WatermarkTracker tracker = createWatermarkTracker();
@@ -149,7 +143,8 @@ class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.Si
         assertThat(tracker.getState("t1")).isEqualTo(WatermarkState.ACTIVE);
 
         tracker.updateWatermark("t1", now.minusSeconds(60));
-        assertThat(tracker.getState("t1")).isEqualTo(WatermarkState.STALE);
+        assertThat(tracker.getState("t1")).isEqualTo(WatermarkState.ACTIVE);
+        assertThat(tracker.getWatermark("t1")).isEqualTo(now);
     }
 
     /** CoordinatorBootstrap starts with streaming/governance chain intact. */
@@ -166,7 +161,7 @@ class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.Si
     /** DebeziumJsonConverter parses a Debezium JSON message into correct CdcEnvelope fields. */
     @Test
     void debeziumConverterParsesMessage() {
-        var converter = new org.pangrova.streaming.cdc.format.DebeziumJsonConverter();
+        var converter = new org.pangrova.streaming.format.DebeziumJsonConverter();
 
         CdcEnvelope envelope = converter.deserialize(
                 buildDebeziumJson().getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -353,19 +348,4 @@ class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.Si
         }
     }
 
-    private static class NoOpTableWriter implements TableWriter {
-        @Override
-        public WriteResult write(String tableName, List<WriteRecord> records,
-                                 WriteMode writeMode, WriteContext context) {
-            return new WriteResult(tableName, records.size(), 0, 0, 0, Instant.now());
-        }
-
-        @Override
-        public TableFormat format() {
-            return TableFormat.ICEBERG;
-        }
-
-        @Override
-        public void close() { }
-    }
 }

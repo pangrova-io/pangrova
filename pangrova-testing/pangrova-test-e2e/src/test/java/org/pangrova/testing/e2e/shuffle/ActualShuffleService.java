@@ -14,9 +14,9 @@ import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
-import org.pangrova.shuffle.ShuffleProducerSetChecksum;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
-import org.pangrova.shuffle.server.ShuffleServerRuntime;
+import org.pangrova.shuffle.api.commit.ShuffleProducerSetChecksum;
+import org.pangrova.shuffle.service.config.ShuffleServiceConfig;
+import org.pangrova.shuffle.service.server.ShuffleServerRuntime;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
 
@@ -251,16 +251,16 @@ final class ActualShuffleService implements AutoCloseable {
                 .setAccessCapability(producer.registration().getFinalizeCapability()).build());
     }
 
-    org.pangrova.shuffle.exchange.ExternalShuffleTransport delegateRead(
+    org.pangrova.shuffle.api.exchange.ExternalShuffleTransport delegateRead(
             AdmittedProducer producer, TaskRequest consumer) {
         var attempt = consumer.getAttempt();
         var owner = attempt.getExecutionOwner();
-        var exchangeOwner = new org.pangrova.shuffle.ShuffleExecutionOwner(
+        var exchangeOwner = new org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner(
                 owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken());
-        var exchangeAttempt = new org.pangrova.shuffle.exchange.ExchangeTaskAttempt(
+        var exchangeAttempt = new org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt(
                 attempt.getQueryOrJobId(), attempt.getStageId(), attempt.getPartitionId(),
                 attempt.getTaskId(), attempt.getControlEpoch(),
-                new org.pangrova.shuffle.exchange.ExchangeAttemptFence(attempt.getPlanEpoch(),
+                new org.pangrova.shuffle.api.exchange.ExchangeAttemptFence(attempt.getPlanEpoch(),
                         attempt.getAttemptId(), attempt.getFencingToken()), exchangeOwner,
                 attempt.getWorkerExecutionIdentity().getAdmissionDomainId(),
                 attempt.getWorkerExecutionIdentity().getIncarnationId());
@@ -270,14 +270,14 @@ final class ActualShuffleService implements AutoCloseable {
                 .setTaskAttempt(attempt).build()).getAccessCapability();
         var binding = producer.request().getExecutionOptions().getShuffle().getExecutionBinding();
         var endpoints = binding.getEndpointsList().stream().map(endpoint ->
-                new org.pangrova.shuffle.ShuffleServerEndpoint(endpoint.getHost(), endpoint.getPort(),
+                new org.pangrova.shuffle.api.registration.ShuffleServerEndpoint(endpoint.getHost(), endpoint.getPort(),
                         endpoint.getPartitionStart(), endpoint.getPartitionEnd(), endpoint.getTlsIdentity())).toList();
         var commit = binding.getCommitAddress();
-        return new org.pangrova.shuffle.exchange.ExternalShuffleTransport(binding.getShuffleId(),
-                endpoints, new org.pangrova.shuffle.ShuffleServiceAddress(commit.getHost(), commit.getPort(),
+        return new org.pangrova.shuffle.api.exchange.ExternalShuffleTransport(binding.getShuffleId(),
+                endpoints, new org.pangrova.shuffle.api.registration.ShuffleServiceAddress(commit.getHost(), commit.getPort(),
                         commit.getTlsIdentity()), 0, partitions, attempt.getPlanEpoch(), exchangeOwner,
                 exchangeAttempt, consumer.getDeadlineEpochMs(),
-                new org.pangrova.shuffle.ShuffleAccess(capability.getToken().toByteArray(),
+                new org.pangrova.shuffle.api.capability.ShuffleAccess(capability.getToken().toByteArray(),
                         capability.getExpiresAtEpochMs()), 1, producer.producerSetChecksum().getDigest().toByteArray());
     }
 }

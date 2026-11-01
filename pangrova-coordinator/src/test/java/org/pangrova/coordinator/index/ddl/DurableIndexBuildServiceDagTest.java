@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.index.ddl;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.api.ArtifactTypeIds;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;

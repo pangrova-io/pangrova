@@ -26,7 +26,7 @@ import org.pangrova.spi.execution.SessionContext;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.testing.TestExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;

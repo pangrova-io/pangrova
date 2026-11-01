@@ -40,7 +40,7 @@ class NativeShuffleTransportTest {
             var first = transport.startServer(handle, 4);
             var second = transport.startServer(handle, 4);
             assertThat(second.port()).isEqualTo(first.port()).isPositive();
-            assertThat(second.partitionTickets()).extracting(org.pangrova.shuffle.ShufflePartitionTicket::partitionId)
+            assertThat(second.partitionTickets()).extracting(org.pangrova.shuffle.api.registration.ShufflePartitionTicket::partitionId)
                     .containsExactly(0, 1, 2, 3);
             transport.stopServer(handle);
         }

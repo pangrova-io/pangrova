@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.artifact;
 
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.artifact.GeneratedValueArtifactMetadataStore;
-import org.pangrova.metadata.artifact.GeneratedValueArtifactReference;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.indexing.control.GeneratedValueArtifactMetadataStore;
+import org.pangrova.indexing.api.GeneratedValueArtifactReference;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.OperatorBinding;
 
@@ -15,12 +15,12 @@ public final class GeneratedValueArtifactBindingResolver {
 
     private final GeneratedValueArtifactMetadataStore metadataStore;
     private final PublishedArtifactBindingResolver artifactResolver;
-    private final org.pangrova.metadata.artifact.build.ArtifactBuildStore buildStore;
+    private final org.pangrova.indexing.control.ArtifactBuildStore buildStore;
 
     /** Resolves generated templates through the same immutable artifact metadata and partition reader. */
     public GeneratedValueArtifactBindingResolver(
             GeneratedValueArtifactMetadataStore metadataStore,
-            org.pangrova.metadata.artifact.build.ArtifactBuildStore buildStore) {
+            org.pangrova.indexing.control.ArtifactBuildStore buildStore) {
         this.metadataStore = Objects.requireNonNull(
                 metadataStore, "metadataStore must not be null");
         this.artifactResolver = new PublishedArtifactBindingResolver(buildStore);

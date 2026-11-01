@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
+import java.time.Duration;
+
 /**
  * System-level configuration for CDC ingestion streams.
  *
@@ -8,20 +10,20 @@ package org.pangrova.coordinator.streaming;
  *
  * @param maxStreamsPerTenant           maximum concurrent RUNNING/CREATING streams per tenant
  * @param defaultBatchSize             default poll batch size
- * @param defaultFlushInterval         default flush interval (ISO-8601 duration string, e.g. "PT5S")
  * @param defaultMaxConsecutiveFailures default failure threshold before FAILED state
  * @param defaultMaxConcurrentWrites   default max concurrent writes per stream
  * @param defaultMaxPendingBytes       default max pending bytes per stream
  * @param pipelineThreadPoolSize       thread pool size for CDC pipeline threads
+ * @param commitStateRetention         retention for terminal CDC commit-state rows
  */
 public record StreamConfig(
         int maxStreamsPerTenant,
         int defaultBatchSize,
-        String defaultFlushInterval,
         int defaultMaxConsecutiveFailures,
         int defaultMaxConcurrentWrites,
         long defaultMaxPendingBytes,
-        int pipelineThreadPoolSize
+        int pipelineThreadPoolSize,
+        Duration commitStateRetention
 ) {
 
     public StreamConfig {
@@ -30,9 +32,6 @@ public record StreamConfig(
         }
         if (defaultBatchSize <= 0) {
             throw new IllegalArgumentException("defaultBatchSize must be positive");
-        }
-        if (defaultFlushInterval == null || defaultFlushInterval.isBlank()) {
-            throw new IllegalArgumentException("defaultFlushInterval must not be blank");
         }
         if (defaultMaxConsecutiveFailures <= 0) {
             throw new IllegalArgumentException("defaultMaxConsecutiveFailures must be positive");
@@ -46,6 +45,10 @@ public record StreamConfig(
         if (pipelineThreadPoolSize <= 0) {
             throw new IllegalArgumentException("pipelineThreadPoolSize must be positive");
         }
+        if (commitStateRetention == null || commitStateRetention.isNegative()
+                || commitStateRetention.isZero()) {
+            throw new IllegalArgumentException("commitStateRetention must be positive");
+        }
     }
 
     /** Returns a configuration with sensible production defaults. */
@@ -53,11 +56,23 @@ public record StreamConfig(
         return new StreamConfig(
                 10,          // maxStreamsPerTenant
                 1000,        // defaultBatchSize
-                "PT5S",      // defaultFlushInterval (5 seconds)
                 10,          // defaultMaxConsecutiveFailures
                 4,           // defaultMaxConcurrentWrites
                 64 * 1024 * 1024L, // defaultMaxPendingBytes (64 MB)
-                8            // pipelineThreadPoolSize
+                8,           // pipelineThreadPoolSize
+                Duration.ofDays(7) // commitStateRetention
         );
+    }
+
+    /** Returns a copy of this configuration with a different commit-state retention. */
+    public StreamConfig withCommitStateRetention(Duration commitStateRetention) {
+        return new StreamConfig(
+                maxStreamsPerTenant,
+                defaultBatchSize,
+                defaultMaxConsecutiveFailures,
+                defaultMaxConcurrentWrites,
+                defaultMaxPendingBytes,
+                pipelineThreadPoolSize,
+                commitStateRetention);
     }
 }

@@ -447,7 +447,7 @@ public class TaskManager implements AutoCloseable {
         return info != null ? info.shufflePort() : 0;
     }
 
-    public Optional<org.pangrova.shuffle.ShuffleServerHandle> getShuffleServerHandle(
+    public Optional<org.pangrova.shuffle.api.registration.ShuffleServerHandle> getShuffleServerHandle(
             String taskId) {
         TaskInfo info = tasks.get(taskId);
         return Optional.ofNullable(info == null ? null : info.shuffleServerHandle());

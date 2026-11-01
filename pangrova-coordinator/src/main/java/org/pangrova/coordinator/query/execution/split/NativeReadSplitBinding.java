@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query.execution.split;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogState;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorSplit;

@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
 import java.util.Objects;
 
-import org.pangrova.shuffle.ShuffleCapabilities;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
 
 /**
  * Enforces the ADR-002 D3 retry-policy binding: task-level retry (fault-tolerant execution) may only

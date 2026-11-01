@@ -4,11 +4,11 @@ import org.pangrova.spi.observability.Span;
 import org.pangrova.spi.observability.SpanKind;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.spi.execution.ResultTransport;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.shuffle.ShuffleServerHandle;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.registration.ShuffleServerHandle;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
-import org.pangrova.shuffle.ShuffleTransport;
+import org.pangrova.shuffle.api.transport.ShuffleTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

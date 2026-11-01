@@ -10,23 +10,23 @@ import org.pangrova.coordinator.streaming.StreamDdlContext;
 import org.pangrova.coordinator.streaming.StreamDdlExecutor;
 import org.pangrova.coordinator.streaming.StreamScheduler;
 import org.pangrova.coordinator.streaming.StreamSchedulerContext;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.streaming.JdbcStreamOffsetStore;
-import org.pangrova.metadata.streaming.JdbcStreamStateStore;
-import org.pangrova.metadata.streaming.StreamOffsetStore;
-import org.pangrova.metadata.streaming.StreamState;
-import org.pangrova.metadata.streaming.StreamStateStore;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.streaming.jdbc.JdbcStreamOffsetStore;
+import org.pangrova.streaming.jdbc.JdbcStreamStateStore;
+import org.pangrova.spi.streaming.store.StreamOffsetStore;
+import org.pangrova.spi.streaming.store.StreamState;
+import org.pangrova.spi.streaming.store.StreamStateStore;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.streaming.CdcWriteSink;
+import org.pangrova.spi.streaming.sink.CdcWriteSink;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
-import org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore;
+import org.pangrova.streaming.jdbc.JdbcCdcCommitStateStore;
 import org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator;
-import org.pangrova.streaming.cdc.format.CanalJsonConverter;
-import org.pangrova.streaming.cdc.format.DebeziumJsonConverter;
-import org.pangrova.streaming.cdc.format.MaxwellJsonConverter;
+import org.pangrova.streaming.format.CanalJsonConverter;
+import org.pangrova.streaming.format.DebeziumJsonConverter;
+import org.pangrova.streaming.format.MaxwellJsonConverter;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.slf4j.Logger;
@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -60,10 +61,21 @@ final class StreamingBootstrap implements AutoCloseable {
     private final StreamDdlExecutor ddlExecutor;
     private final StreamScheduler scheduler;
     private final ScheduledExecutorService reconciliationExecutor;
+    private final JdbcCdcCommitStateStore commitStateStore;
+    private final StreamConfig config;
+    private volatile ScheduledFuture<?> commitStatePruneFuture;
 
+    /** Test/embedded constructor without durable commit-state pruning. */
     StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler) {
+        this(ddlExecutor, scheduler, null, StreamConfig.withDefaults());
+    }
+
+    StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler,
+                       JdbcCdcCommitStateStore commitStateStore, StreamConfig config) {
         this.ddlExecutor = ddlExecutor;
         this.scheduler = scheduler;
+        this.commitStateStore = commitStateStore;
+        this.config = config;
         scheduler.stopAll();
         reconciliationExecutor = ManagedExecutorFactory.newSingleThreadScheduledExecutor("stream-reconciliation");
         reconciliationExecutor.scheduleWithFixedDelay(this::reconcileSafely, 5, 5, TimeUnit.SECONDS);
@@ -81,13 +93,20 @@ final class StreamingBootstrap implements AutoCloseable {
      * @param maintenanceScheduler shared maintenance scheduler from the streaming module
      * @param catalogRegistry      catalog registry for connector resolution (required for CDC writes)
      * @param coordinatorId        durable owner identity of this coordinator process
+     * @param accessControl        write authorization; null disables the check (single-node/tests)
+     * @param metricsProvider      CDC pipeline metrics; null yields the no-op recorder
+     * @param commitStateRetention retention for terminal CDC commit-state rows
      * @return initialized bootstrap
      */
     static StreamingBootstrap build(DataSource dataSource,
                                     WatermarkTracker watermarkTracker,
                                     MaintenanceScheduler maintenanceScheduler,
-                                    CatalogRegistry catalogRegistry, String coordinatorId) {
-        StreamConfig config = StreamConfig.withDefaults();
+                                    CatalogRegistry catalogRegistry, String coordinatorId,
+                                    org.pangrova.spi.security.AccessControl accessControl,
+                                    org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                                    java.time.Duration commitStateRetention) {
+        StreamConfig config = StreamConfig.withDefaults()
+                .withCommitStateRetention(commitStateRetention);
         StreamStateStore stateStore = new JdbcStreamStateStore(dataSource);
         StreamOffsetStore offsetStore = new JdbcStreamOffsetStore(dataSource);
         CdcRecordConverterRegistry converterRegistry = new CdcRecordConverterRegistry(List.of(
@@ -95,12 +114,14 @@ final class StreamingBootstrap implements AutoCloseable {
                 new CanalJsonConverter(),
                 new MaxwellJsonConverter()));
 
+        JdbcCdcCommitStateStore commitStateStore = new JdbcCdcCommitStateStore(dataSource);
         StreamSchedulerContext schedulerDeps = new StreamSchedulerContext(
                 stateStore, offsetStore,
-                new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)), converterRegistry,
+                new TwoPhaseCommitCoordinator(commitStateStore), converterRegistry,
                 watermarkTracker, maintenanceScheduler, config,
                 state -> createSourceReader(state),
-                state -> createWriteSink(state, catalogRegistry));
+                state -> createWriteSink(state, catalogRegistry),
+                accessControl, metricsProvider);
         StreamScheduler scheduler = new StreamScheduler(schedulerDeps, coordinatorId);
 
         StreamDdlContext ddlDeps = new StreamDdlContext(
@@ -108,7 +129,7 @@ final class StreamingBootstrap implements AutoCloseable {
         StreamDdlExecutor ddlExecutor = new StreamDdlExecutor(ddlDeps);
 
         LOG.info("event=streaming_bootstrap_built");
-        return new StreamingBootstrap(ddlExecutor, scheduler);
+        return new StreamingBootstrap(ddlExecutor, scheduler, commitStateStore, config);
     }
 
     /**
@@ -118,6 +139,10 @@ final class StreamingBootstrap implements AutoCloseable {
     void onLeaderElected() {
         scheduler.resume();
         reconciliationExecutor.execute(this::reconcileSafely);
+        if (commitStateStore != null && commitStatePruneFuture == null) {
+            commitStatePruneFuture = reconciliationExecutor.scheduleWithFixedDelay(
+                    this::pruneCommitStateSafely, 1, 24, TimeUnit.HOURS);
+        }
         LOG.info("event=streaming_leader_elected");
     }
 
@@ -127,14 +152,24 @@ final class StreamingBootstrap implements AutoCloseable {
      */
     void onLeadershipLost() {
         scheduler.stopAll();
+        stopCommitStatePruning();
         LOG.info("event=streaming_leadership_lost");
     }
 
     @Override
     public void close() {
+        stopCommitStatePruning();
         reconciliationExecutor.shutdownNow();
         scheduler.close();
         LOG.info("event=streaming_bootstrap_closed");
+    }
+
+    private void stopCommitStatePruning() {
+        ScheduledFuture<?> future = commitStatePruneFuture;
+        if (future != null) {
+            future.cancel(false);
+            commitStatePruneFuture = null;
+        }
     }
 
     private void reconcileSafely() {
@@ -142,6 +177,18 @@ final class StreamingBootstrap implements AutoCloseable {
             scheduler.reconcile();
         } catch (RuntimeException failure) {
             LOG.error("event=stream_reconciliation_failed", failure);
+        }
+    }
+
+    private void pruneCommitStateSafely() {
+        if (commitStateStore == null) {
+            return;
+        }
+        try {
+            commitStateStore.pruneTerminalBefore(
+                    java.time.Instant.now().minus(config.commitStateRetention()));
+        } catch (RuntimeException failure) {
+            LOG.warn("event=cdc_commit_state_prune_failed error={}", failure.getMessage(), failure);
         }
     }
 
@@ -155,7 +202,7 @@ final class StreamingBootstrap implements AutoCloseable {
 
     // ── Factory methods ─────────────────────────────────────────────
 
-    static org.pangrova.spi.streaming.CdcSourceReader createSourceReader(StreamState state) {
+    static org.pangrova.spi.streaming.source.CdcSourceReader createSourceReader(StreamState state) {
         Map<String, String> sourceProps = state.sourceProperties();
         String bootstrapServers = sourceProps.get("bootstrap.servers");
         String topic = sourceProps.get("topic");

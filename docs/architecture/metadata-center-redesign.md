@@ -13,7 +13,7 @@ Pangrova 应建立一个统一的元数据中心，但“统一”必须被定�
 - 所有 Connector 通过小型能力接口提供格式原生元数据；
 - 所有实时系统视图和历史库存来自同一对象身份体系。
 
-“统一”不意味着所有持久化状态都归 `pangrova-metadata` 所有。查询 journal、worker registry、execution anchor、分布式 lease、索引构建任务、流式 offset、动态表 refresh、租户配额和治理结果仍是各自业务域的状态。业务 Concept/Metric/Relationship/Ontology/Semantic View 由 Metadata 上层的 `pangrova-semantic` 拥有，AI grounding/evaluation 由 `pangrova-ai-control` 拥有；它们可以共享一个 PostgreSQL 集群，也可以引用统一的 `CatalogId/TableId/FieldId/VersionToken`，但不能继续共享一个没有边界的 Java 模块和 migration 所有权。
+“统一”不意味着所有持久化状态都归 `pangrova-metadata` 所有。查询 journal、worker registry、execution anchor、分布式 lease、索引构建任务、流式 offset、动态表 refresh、租户配额和治理结果仍是各自业务域的状态。业务 Concept/Metric/Relationship/Ontology/Semantic View 由 Metadata 上层的 `pangrova-semantic` 拥有，AI grounding/evaluation 由 `pangrova-ai` 拥有；它们可以共享一个 PostgreSQL 集群，也可以引用统一的 `CatalogId/TableId/FieldId/VersionToken`，但不能继续共享一个没有边界的 Java 模块和 migration 所有权。
 
 推荐的最终形态是：
 
@@ -41,7 +41,7 @@ Pangrova 应建立一个统一的元数据中心，但“统一”必须被定�
 这造成的不是目录观感问题，而是四个架构错误：
 
 1. **权威源不清楚**：表格式 catalog、JDBC `table_metadata`、Connector handle、Calcite cache 都可能代表“当前表”。
-2. **生命周期不一致**：Catalog/DDL 经 `MetadataService`，但统计、split、写入、系统表等主路径直接取得 `ConnectorMetadata`。
+2. **生命周期不一致**：Catalog/DDL 经 `CatalogRegistry`，但统计、split、写入、系统表等主路径直接取得 `ConnectorMetadata`。
 3. **版本没有统一语义**：当前存在 `long snapshotId`、`String snapshotToken`、table handle 内嵌 schema、query 级 pin、name-only cache 等多套机制。
 4. **故障域被放大**：元数据 migration 失败可以阻断 query HA、索引构建、流式摄取和治理；任何领域扩展都会继续扩大 metadata 模块。
 
@@ -55,7 +55,7 @@ Snowflake 的经典架构将系统分为数据存储、Virtual Warehouse 和 Clo
 
 Snowflake 从 2014 年开始使用 FoundationDB 作为元数据底座。公开资料描述的需求是高频小读写、小范围扫描、ACID、高可用、跨版本 schema 演进和 change watch；Cloud Services 本身尽量无状态，所有 hard state 进入事务存储。[^2]
 
-这里最容易产生错误类比：Snowflake 把 query state、transaction、lock queue、catalog object 等都称为 metadata-backed state，但并不意味着这些对象由一个 `MetadataService` 类负责。它表达的是**共同的持久化基础和事务规则**，不是放弃领域所有权。
+这里最容易产生错误类比：Snowflake 把 query state、transaction、lock queue、catalog object 等都称为 metadata-backed state，但并不意味着这些对象由一个 `CatalogRegistry` 类负责。它表达的是**共同的持久化基础和事务规则**，不是放弃领域所有权。
 
 对 Pangrova 的正确借鉴是：
 
@@ -221,7 +221,7 @@ Pangrova 也应显式支持两种注册模式：
 | query audit/usage | observability/governance | 历史分析，不在实时 catalog |
 | generic asset search index | governance/inventory | 跨域发现 read model |
 | Semantic View、Concept、Metric、Relationship、Ontology、semantic binding | `pangrova-semantic` | 业务含义、关系和本体有独立版本/发布/校验生命周期；只引用 Metadata 稳定 ID/version |
-| evaluation dataset/run/metric/release decision、GroundingSnapshot | `pangrova-ai-control` | 模型/语义检索与发布评测属于 AI 生命周期，不是 catalog 事实 |
+| evaluation dataset/run/metric/release decision、GroundingSnapshot | `pangrova-ai` | 模型/语义检索与发布评测属于 AI 生命周期，不是 catalog 事实 |
 
 ### 可以共享，但不能共享所有权
 
@@ -236,7 +236,7 @@ Pangrova 也应显式支持两种注册模式：
 
 ### 与 Semantic、Governance、AI 的硬边界
 
-Metadata 只回答“对象是什么、位于哪里、当前/指定版本是什么”；Semantic 回答“对象在业务上是什么意思、如何组合与计算”；Governance 回答“谁负责、是否合规、如何流动、质量如何”；AI Control 回答“为当前用户意图选择哪些已发布且已授权的事实和工具”。依赖必须保持：
+Metadata 只回答“对象是什么、位于哪里、当前/指定版本是什么”；Semantic 回答“对象在业务上是什么意思、如何组合与计算”；Governance 回答“谁负责、是否合规、如何流动、质量如何”；AI 回答“为当前用户意图选择哪些已发布且已授权的事实和工具”。依赖必须保持：
 
 ```text
 AI / Governance / Materialization
@@ -321,7 +321,7 @@ metadata -X-> coordinator / streaming / indexing
 
 ## 统一 API 设计
 
-不建立一个包含几十个方法的 `MetadataService`。`MetadataGateway` 只是依赖聚合入口：
+不建立一个包含几十个方法的 `CatalogRegistry`。`MetadataGateway` 只是依赖聚合入口：
 
 ```java
 public record MetadataGateway(
@@ -786,7 +786,7 @@ query/task history、worker health、index build、stream offset 不应伪装成
 - `pangrova-metadata` 只包含约定的 10 个领域包；
 - 无 Iceberg/Paimon SDK 依赖或 import；
 - 无 query/task/worker/index/artifact/stream offset/tenant/quality repository；
-- `MetadataService` God interface 被删除；所有 public interface 不超过仓库规定的方法数；
+- `CatalogRegistry` God interface 被删除；所有 public interface 不超过仓库规定的方法数；
 - Coordinator 元数据语义调用全部经过 MetadataGateway；执行 provider 不允许重新按名称解析 current table。
 
 ### 一致性门槛

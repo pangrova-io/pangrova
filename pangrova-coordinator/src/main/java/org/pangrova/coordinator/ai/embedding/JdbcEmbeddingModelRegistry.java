@@ -42,7 +42,7 @@ import java.util.Optional;
  * <p>Access requires current direct PostgreSQL roles. Each model stores its
  * administrative and invocation role policy; transient identity groups are not authority.</p>
  *
- * <p>Call {@link #initSchema()} after the canonical metadata migrations to validate the backing table.</p>
+ * <p>Call {@link #initSchema()} after the per-owner schema baselines to validate the backing table.</p>
  */
 @ThreadSafe
 public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry {
@@ -116,7 +116,7 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
             }
             LOG.info("event=embedding_model_registry_schema_validated");
         } catch (SQLException e) {
-            throw new IllegalStateException("Embedding model registry requires the canonical metadata migrations", e);
+            throw new IllegalStateException("Embedding model registry requires the per-owner schema baselines", e);
         }
     }
 

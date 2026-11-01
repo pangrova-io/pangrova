@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.index.ddl;
 
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.spi.connector.index.SnapshotPinProvider;
 import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.security.AccessDeniedException;

@@ -1,0 +1,306 @@
+version: 1
+status: baseline
+baselineDate: "2026-10-31"
+description: >
+  Single source of truth for module ownership and import boundaries.
+  Phase 0 registers the metadata owner artifact and the modules that must be
+  migrated next; remaining leaves are added as the manifest gate lands.
+
+modules:
+  pangrova-metadata:
+    family: null
+    reactorRole: leaf
+    layer: domain-owner
+    owner: metadata
+    packageRoots:
+      - org.pangrova.metadata
+    exports:
+      - org.pangrova.metadata.api..
+    friendExports: {}
+    internalLayers:
+      api: org.pangrova.metadata.api..
+      core: org.pangrova.metadata.core..
+      store: org.pangrova.metadata.store.jdbc..
+    forbiddenImports:
+      - org.pangrova.metadata.core..
+      - org.pangrova.metadata.store..
+      - org.pangrova.semantic..
+      - org.pangrova.ai.control..
+      - org.pangrova.ai.worker..
+      - org.pangrova.ai.store..
+      - org.pangrova.indexing..
+      - org.pangrova.streaming..
+      - org.pangrova.materialization..
+      - org.pangrova.coordinator..
+      - org.pangrova.worker..
+    automaticModuleName: org.pangrova.metadata
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-spi
+      - pangrova-security
+      - pangrova-governance
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-spi:
+        - org.pangrova.spi..
+      pangrova-security:
+        - org.pangrova.security..
+      pangrova-governance:
+        - org.pangrova.governance..
+    forbiddenLibraries:
+      - org.apache.iceberg:iceberg-api
+      - org.apache.iceberg:iceberg-core
+
+  pangrova-semantic:
+    family: null
+    reactorRole: leaf
+    layer: domain-owner
+    owner: semantic
+    packageRoots:
+      - org.pangrova.semantic
+    exports:
+      - org.pangrova.semantic.api..
+    friendExports: {}
+    internalLayers:
+      api: org.pangrova.semantic.api..
+      store: org.pangrova.semantic.store.jdbc..
+    forbiddenImports:
+      - org.pangrova.metadata..
+      - org.pangrova.coordinator..
+      - org.pangrova.ai..
+      - org.pangrova.indexing..
+    automaticModuleName: org.pangrova.semantic
+    allowedDependencies:
+      - pangrova-common
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+
+  pangrova-ai:
+    family: null
+    reactorRole: leaf
+    layer: domain-owner
+    owner: ai
+    packageRoots:
+      - org.pangrova.ai
+    exports:
+      - org.pangrova.ai.api..
+    friendExports: {}
+    internalLayers:
+      api: org.pangrova.ai.api..
+      control: org.pangrova.ai.control..
+      store: org.pangrova.ai.store.jdbc..
+    forbiddenImports:
+      - org.pangrova.metadata..
+      - org.pangrova.coordinator..
+      - org.pangrova.indexing..
+      - org.pangrova.streaming..
+      - org.pangrova.materialization..
+    automaticModuleName: org.pangrova.ai
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-semantic
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-semantic:
+        - org.pangrova.semantic..
+
+  pangrova-indexing:
+    family: null
+    reactorRole: leaf
+    layer: domain-owner
+    owner: indexing
+    packageRoots:
+      - org.pangrova.indexing
+    exports:
+      - org.pangrova.indexing.api..
+    friendExports: {}
+    internalLayers:
+      api: org.pangrova.indexing.api..
+      control: org.pangrova.indexing.control..
+      store: org.pangrova.indexing.store.jdbc..
+    forbiddenImports:
+      - org.pangrova.metadata..
+      - org.pangrova.coordinator..
+      - org.pangrova.semantic..
+      - org.pangrova.ai..
+    automaticModuleName: org.pangrova.indexing
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-spi
+      - pangrova-security
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-spi:
+        - org.pangrova.spi..
+      pangrova-security:
+        - org.pangrova.security..
+
+  pangrova-streaming-runtime:
+    family: pangrova-streaming
+    reactorRole: leaf
+    layer: domain-owner
+    owner: streaming
+    packageRoots:
+      - org.pangrova.streaming.runtime..
+      - org.pangrova.streaming.cdc..
+      - org.pangrova.streaming.watermark..
+    exports: []
+    friendExports: {}
+    internalLayers: {}
+    forbiddenImports:
+      - org.pangrova.metadata..
+      - org.pangrova.coordinator..
+    automaticModuleName: org.pangrova.streaming
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-spi
+      - pangrova-streaming-maintenance
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-spi:
+        - org.pangrova.spi..
+      pangrova-streaming-maintenance:
+        - org.pangrova.streaming.maintenance..
+
+  pangrova-materialization:
+    family: null
+    reactorRole: leaf
+    layer: domain-owner
+    owner: materialization
+    packageRoots:
+      - org.pangrova.materialization
+    exports:
+      - org.pangrova.materialization.domain..
+      - org.pangrova.materialization.port..
+    friendExports: {}
+    internalLayers:
+      store: org.pangrova.materialization.store.jdbc..
+    forbiddenImports:
+      - org.pangrova.metadata..
+      - org.pangrova.coordinator..
+      - org.pangrova.indexing..
+      - org.pangrova.streaming..
+    automaticModuleName: org.pangrova.materialization
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-spi
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-spi:
+        - org.pangrova.spi..
+
+  pangrova-query:
+    family: null
+    reactorRole: leaf
+    layer: domain-owner
+    owner: query
+    packageRoots:
+      - org.pangrova.query
+    exports: []
+    friendExports: {}
+    internalLayers:
+      core: org.pangrova.query.core..
+      transaction: org.pangrova.query.transaction..
+      store: org.pangrova.query.store.jdbc..
+    forbiddenImports:
+      - org.pangrova.metadata.core..
+      - org.pangrova.metadata.store..
+      - org.pangrova.coordinator..
+      - org.pangrova.indexing..
+      - org.pangrova.streaming..
+      - org.pangrova.materialization..
+    automaticModuleName: org.pangrova.query
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-spi
+      - pangrova-security
+      - pangrova-metadata
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-spi:
+        - org.pangrova.spi..
+      pangrova-security:
+        - org.pangrova.security..
+      pangrova-metadata:
+        - org.pangrova.metadata.api..
+
+  pangrova-shuffle-core:
+    family: pangrova-shuffle
+    reactorRole: leaf
+    layer: domain-owner
+    owner: shuffle
+    packageRoots:
+      - org.pangrova.shuffle.api..
+      - org.pangrova.shuffle.core..
+    exports:
+      - org.pangrova.shuffle.api..
+    friendExports: {}
+    internalLayers:
+      api: org.pangrova.shuffle.api..
+      core: org.pangrova.shuffle.core..
+    forbiddenImports:
+      - org.pangrova.shuffle.service..
+      - org.pangrova.metadata..
+      - org.pangrova.coordinator..
+      - org.pangrova.worker..
+      - org.pangrova.indexing..
+      - org.pangrova.streaming..
+      - org.pangrova.materialization..
+    automaticModuleName: org.pangrova.shuffle.api
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-spi
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-spi:
+        - org.pangrova.spi..
+
+  pangrova-shuffle-service:
+    family: pangrova-shuffle
+    reactorRole: leaf
+    layer: domain-owner
+    owner: shuffle
+    packageRoots:
+      - org.pangrova.shuffle.service
+    exports: []
+    friendExports: {}
+    internalLayers:
+      config: org.pangrova.shuffle.service.config..
+      model: org.pangrova.shuffle.service.model..
+      server: org.pangrova.shuffle.service.server..
+      storage: org.pangrova.shuffle.service.storage..
+      transport: org.pangrova.shuffle.service.transport..
+    forbiddenImports:
+      - org.pangrova.shuffle.core..
+      - org.pangrova.metadata..
+      - org.pangrova.coordinator..
+      - org.pangrova.worker..
+      - org.pangrova.indexing..
+      - org.pangrova.streaming..
+      - org.pangrova.materialization..
+    automaticModuleName: org.pangrova.shuffle.service
+    allowedDependencies:
+      - pangrova-common
+      - pangrova-protocol
+      - pangrova-shuffle-core
+    allowedImports:
+      pangrova-common:
+        - org.pangrova.common..
+      pangrova-protocol:
+        - org.pangrova.protocol..
+      pangrova-shuffle-core:
+        - org.pangrova.shuffle.api..
+
+pendingModules:
+  - pangrova-coordinator
+  - pangrova-governance
+  - pangrova-security
+  - pangrova-observability

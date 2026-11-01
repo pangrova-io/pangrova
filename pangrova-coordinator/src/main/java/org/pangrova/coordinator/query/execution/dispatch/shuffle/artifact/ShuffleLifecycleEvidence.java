@@ -2,10 +2,10 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle.artifact;
 
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleRegistration;
-import org.pangrova.shuffle.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
 
 import java.util.Optional;
 

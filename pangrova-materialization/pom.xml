@@ -23,6 +23,15 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-spi</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
 
         <!-- Test -->
         <dependency>
@@ -45,5 +54,67 @@
             <artifactId>archunit-junit5</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Container integration tests against the production owner baselines.
+             pangrova-indexing, pangrova-query and pangrova-security contribute the baselines the
+             materialization baseline depends on (index_commit_log, execution_anchor,
+             write_commit_journal, storage_profile_revisions). pangrova-coordinator is
+             intentionally absent: it depends on pangrova-materialization in main scope, so a
+             test-scope back-dependency would cycle the reactor; the one needed coordinator-owned
+             table (distributed_lease) is created inline by the testinfra. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-indexing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-query</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-security</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-test-common</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
+                        <TESTCONTAINERS_RYUK_DISABLED>true</TESTCONTAINERS_RYUK_DISABLED>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

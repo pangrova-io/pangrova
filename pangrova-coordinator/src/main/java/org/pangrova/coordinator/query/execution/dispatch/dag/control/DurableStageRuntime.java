@@ -10,13 +10,13 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PreparedExecution;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PartitionProgress;
-import org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactStageGraph;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore.PreparedExecution;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore.PartitionProgress;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExchangeStore;
 import org.pangrova.planner.ShuffleType;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
@@ -93,7 +93,7 @@ public final class DurableStageRuntime {
     public org.pangrova.coordinator.artifact.DurableStageShuffleEvidence shuffleEvidence() {
         return new org.pangrova.coordinator.artifact.DurableStageShuffleEvidence(dependencies.exchanges(),
                 execution.authority().dispatchSpec(), execution.job().sourceSnapshot(),
-                () -> org.pangrova.metadata.artifact.build.ArtifactExecutionOwner.from(
+                () -> org.pangrova.indexing.control.ArtifactExecutionOwner.from(
                         execution.authority().executionAnchor()));
     }
 

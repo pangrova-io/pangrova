@@ -81,7 +81,7 @@ class InternalAuthSecretWiringTest {
             var receiver = new TaskStatusReceiver(receiverContext);
             var serverContext = new CoordinatorHttpServerContext(
                     receiver, queryManager, null, authManager, null, workerManager,
-                    null, null, null, null, null, SECRET);
+                    null, null, null, null, SECRET);
             httpServer = new CoordinatorHttpServer(0, serverContext);
             httpServer.start();
             baseUrl = "http://127.0.0.1:" + httpServer.getPort();

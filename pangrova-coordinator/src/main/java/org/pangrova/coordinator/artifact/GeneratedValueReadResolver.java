@@ -2,9 +2,9 @@ package org.pangrova.coordinator.artifact;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.artifact.GeneratedValueArtifactMetadataStore;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.indexing.control.GeneratedValueArtifactMetadataStore;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.protocol.BoundExecutionPlan;
 import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.artifact.GeneratedValuesOverlayPlanBinder;

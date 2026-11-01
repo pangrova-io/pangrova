@@ -4,7 +4,7 @@ import org.pangrova.coordinator.index.IndexDescriptorCache;
 import org.pangrova.coordinator.index.IndexEvalMetrics;
 import org.pangrova.coordinator.index.filter.IndexEvalConfig;
 import org.pangrova.coordinator.index.filter.IndexSplitFilter;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

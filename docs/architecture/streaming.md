@@ -11,8 +11,19 @@ sidebar_label: "Streaming & CDC"
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
 
+> **Module layout (2026-10).** `pangrova-streaming` is the pom aggregator for
+> the streaming family; its four leaf modules nest inside it.
+> `pangrova-streaming-runtime` is the core runtime
+> (pipeline, commit orchestration, watermark); `pangrova-streaming-format` owns
+> Debezium/Canal/Maxwell JSON adapters; `pangrova-streaming-maintenance` owns the
+> maintenance scheduler; `pangrova-streaming-jdbc` owns the PostgreSQL
+> `CdcCommitStateStore` adapter. The backend-neutral `CdcCommitStateStore` API
+> lives in `pangrova-spi`. The registration store and `/cdc/register` endpoints
+> were removed; `ingestion_stream_state` is the only stream definition authority.
+
 > **Current CDC boundary.** Sections 2.4–2.5 describe current wiring and gaps;
-> sections 2.6–2.8 retain `TableWriter` contracts and historical writer sketches. The running pipeline uses
+> sections 2.6–2.8 retain historical writer sketches that are no longer in the
+> codebase. The running pipeline uses
 > `CdcPipelineLoop` → `CdcTwoPhaseCommitter` → `ConnectorPageSinkCdcWriter` on the
 > Coordinator. The source offset and Iceberg/Paimon catalog do not share an
 > atomic transaction. `COMMITTING` is now quarantined on ambiguous failure;
@@ -21,7 +32,10 @@ sidebar_label: "Streaming & CDC"
 > for the required durable Native design and its acceptance criteria. No
 > exactly-once/effectively-once production guarantee is currently claimed.
 
-> **Summary.** CDC ingestion, incremental queries, streaming writes, and watermark tracking.
+> **Summary.** CDC ingestion, watermark tracking, and table maintenance. The
+> mini-batch writer, window aggregation, continuous-query consumer, and blocking
+> The old write-model implementations were removed by the 2026-10 streaming refactor;
+> only the pipeline and sink path described above is implemented.
 
 ## 0. Product Positioning
 
@@ -101,8 +115,6 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 | `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
 | StreamWriteSink (old name) | `CdcWriteSink` | Clarifies this writes CDC data, not arbitrary stream output |
 | StreamWriteResult (old name) | `CdcWriteResult` | Consistent with CdcWriteSink |
-| `StreamingWriter` | `IncrementalWriter` | Clarifies incremental batch buffering, not stream processing |
-| `StreamingWriterConfig` | `IncrementalWriterConfig` | Consistent with IncrementalWriter |
 
 Removed APIs: CheckpointCoordinator and the streaming-local CheckpointStore —
 Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
@@ -170,9 +182,9 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ### 2.2 Unified Write Architecture
 
-**Design principle**: CDC writes and client writes share the same underlying write component (`TableWriter`); CDC merely adds a parsing layer on top of the write component.
+**Design principle**: CDC writes and client writes share the same underlying write component (`CdcWriteSink`); CDC merely adds a parsing layer on top of the write component.
 
-Note: `TableWriter` runs in the Worker-side Java write path. For SQL writes, the Coordinator orchestrates the transaction and schedules write Tasks, while Workers perform the actual data-file writes and report results. The CDC Consumer, as a write service, can be deployed on a Worker or on a dedicated ingestion node, but reuses the same `TableWriter` SPI and transaction semantics.
+Note: `CdcWriteSink` runs in the Worker-side Java write path. For SQL writes, the Coordinator orchestrates the transaction and schedules write Tasks, while Workers perform the actual data-file writes and report results. The CDC Consumer, as a write service, can be deployed on a Worker or on a dedicated ingestion node, but reuses the same `CdcWriteSink` SPI and transaction semantics.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -211,7 +223,7 @@ Note: `TableWriter` runs in the Worker-side Java write path. For SQL writes, the
 
 ### 2.3 CDC Consumer
 
-The CDC Consumer is only responsible for parsing Debezium messages, then delegates the actual write to `TableWriter`.
+The CDC Consumer is only responsible for parsing Debezium messages, then delegates the actual write to `CdcWriteSink`.
 
 ```java
 /**
@@ -303,7 +315,7 @@ StreamingBootstrap
 ```
 
 `StreamingBootstrap.createWriteSink()` explicitly reports that Worker dispatch is
-unavailable. A `TableWriter` SPI or an illustrative Native CDC design does not change
+unavailable. A `CdcWriteSink` SPI or an illustrative Native CDC design does not change
 that instantiated path. The CDC sink is not covered by the relational distributed
 write journal. See [Distributed Write](distributed-writes.md) for the current
 publication and repair boundary.
@@ -1591,7 +1603,7 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 
-> **Write Interface Hierarchy**: `TableWriter` (§2.6) is the unified upper-layer write entry point. It internally delegates to `ConnectorPageSinkProvider` ([04 §1.2](./connectors.md)) for format-specific file persistence. See [04 §5.1](./connectors.md) for the complete delegation model diagram. `DataWriter` (02 §6) is deprecated — all write paths should use `TableWriter`.
+> **Write Interface Hierarchy**: `CdcWriteSink` (§2.6) is the unified upper-layer write entry point. It internally delegates to `ConnectorPageSinkProvider` ([04 §1.2](./connectors.md)) for format-specific file persistence. See [04 §5.1](./connectors.md) for the complete delegation model diagram. `DataWriter` (02 §6) is deprecated — all write paths should use `CdcWriteSink`.
 
 
 > **CDC Consumer Deployment**: CDC Consumer runs as an embedded component within Worker processes (default) or as standalone processes. The deployment model is defined here in §3. For cluster-level deployment topology, see [distributed.md §2](./distributed.md). CDC Consumer instances register with ZooKeeper for partition assignment coordination.
@@ -1608,6 +1620,5 @@ See [14 §7](./observability.md) for structured logging format.
 > | ACTIVE | Event within allowed lateness | ACTIVE | Advance watermark |
 > | ACTIVE | No events for `idle-timeout` | IDLE | Emit idle watermark, pause advancement |
 > | IDLE | New event received | ACTIVE | Resume watermark advancement |
-> | ACTIVE | Watermark regression detected | STALE | Log warning, hold current watermark |
-> | STALE | Newer event received | ACTIVE | Resume normal advancement |
+> | ACTIVE | Watermark regression detected (non-advancing candidate) | ACTIVE | Log warning, hold current watermark |
 > | ANY | Unrecoverable error | FAILED | Emit error metric, stop tracker |

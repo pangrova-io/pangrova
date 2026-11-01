@@ -4,7 +4,7 @@ import org.pangrova.governance.lineage.DatasetRef;
 import org.pangrova.governance.lineage.LineageBackend;
 import org.pangrova.governance.lineage.LineageEvent;
 import org.pangrova.governance.lineage.LineageEventEmitter;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.resilience.breaker.CircuitBreaker;
 import org.pangrova.resilience.breaker.CircuitBreakerConfig;
 import org.pangrova.security.tenant.model.ResourceQuota;

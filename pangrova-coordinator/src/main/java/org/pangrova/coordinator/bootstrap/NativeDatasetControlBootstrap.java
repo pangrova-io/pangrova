@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.metadata.NativeDatasetControlClient;
 import org.pangrova.coordinator.metadata.WorkerNativeDatasetControl;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
 
 import java.util.Optional;
@@ -43,10 +43,11 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
     }
 
     private org.pangrova.spi.connector.metadata.ManagedSourceCatalog sourceCatalog(CatalogDescriptor catalog) {
-        return new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(metadataDataSource,
+        return new org.pangrova.metadata.store.jdbc.source.JdbcManagedSourceCatalog(metadataDataSource,
                 new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                         catalog.name(), catalog.incarnationId(), catalog.revision()),
-                executionId -> requireStarted(dependencies.fencer().get()).currentAnchor(executionId));
+                executionId -> requireStarted(dependencies.fencer().get()).currentAnchor(executionId),
+                new org.pangrova.query.transaction.JdbcSourcePublicationTransaction());
     }
 
     private static <T> T requireStarted(T service) {

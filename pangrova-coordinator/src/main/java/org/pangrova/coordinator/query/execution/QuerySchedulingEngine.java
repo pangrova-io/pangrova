@@ -39,7 +39,7 @@ import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.write.WriteAllocationIntent;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.protocol.rest.config.WriteConfig;
@@ -228,7 +228,7 @@ final class QuerySchedulingEngine {
 
     private record WriteAdmission(String queryId, String catalogName, ConnectorSession session,
             ConnectorMetadata metadata, ConnectorTableHandle table, DmlWriteContext context,
-            org.pangrova.metadata.catalog.CatalogHandle catalogHandle,
+            org.pangrova.metadata.core.catalog.CatalogHandle catalogHandle,
             org.pangrova.spi.coordination.WriteAuthorizationReceipt authority, WriteAllocationIntent intent) {}
 
     private void allocateReservedWrite(

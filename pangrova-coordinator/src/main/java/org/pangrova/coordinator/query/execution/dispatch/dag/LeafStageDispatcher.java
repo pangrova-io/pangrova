@@ -411,7 +411,7 @@ final class LeafStageDispatcher {
         }
     }
 
-    private static org.pangrova.shuffle.ShuffleHandle shuffleHandle(
+    private static org.pangrova.shuffle.api.registration.ShuffleHandle shuffleHandle(
             StageDAG dag, int stageId) {
         Stage stage = dag.findStage(stageId);
         return stage == null ? null : stage.shuffleHandle();

@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.feature;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,13 +31,13 @@ import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.ai.AiInfrastructureStores;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.feature.FeatureCatalogStore.FeatureViewId;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.ai.control.AiInfrastructureStores;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.ai.api.FeatureCatalogStore.FeatureViewId;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
@@ -110,11 +113,11 @@ class FeatureViewSqlIntegrationTest {
         var grants = new PersistentGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.ALL, "SCHEMA", "lake", "sales", null, null));
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.SELECT, "TABLE", "lake", "raw", "customers", null));
-        policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
+        policies = new org.pangrova.metadata.core.TableControlRowPolicyStore(
                 metadata.catalogRegistry(), new PersistentRowPolicyStore(dataSource));
         var persistedMasks = new PersistentColumnMaskStore(dataSource);
         persistedMasks.initSchema();
-        masks = new org.pangrova.metadata.service.TableControlColumnMaskStore(
+        masks = new org.pangrova.metadata.core.TableControlColumnMaskStore(
                 metadata.catalogRegistry(), persistedMasks);
         policies.savePolicy(new RowPolicy(0, "source_rows", "lake", "raw", "customers",
                 "customer_id >= 100", List.of("feature-role"), true, 1, null));
@@ -132,7 +135,7 @@ class FeatureViewSqlIntegrationTest {
                 transport, new TaskScheduler(new WorkerPerformanceScorer()),
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 taskTracker, metadata.catalogRegistry(), null, null, 0);
-        var exports = new DurableFeatureExportService(new JdbcArtifactBuildStore(dataSource),
+        var exports = new DurableFeatureExportService(new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)),
                 new SnapshotArtifactSplitPlanner(metadata.catalogRegistry()), warehouse.resolve("exports").toString(),
                 metadata.catalogRegistry());
         var service = new FeatureViewStatementService(infrastructure.features(), exports, access, (sql, actor) -> {
@@ -166,10 +169,10 @@ class FeatureViewSqlIntegrationTest {
                         new ConnectorTableMetadata.Column("event_ts", PangrovaType.TIMESTAMP),
                         new ConnectorTableMetadata.Column("secret", PangrovaType.VARCHAR)), Map.of()));
         var registry = metadata.catalogRegistry();
-        registry.setTableControlService(new org.pangrova.metadata.control.TableControlService(
-                new org.pangrova.metadata.control.JdbcTableControlStore(dataSource),
+        registry.setTableControlService(new org.pangrova.metadata.core.control.TableControlService(
+                new org.pangrova.metadata.core.control.JdbcTableControlStore(dataSource),
                 registry::requireCurrentCatalogIdentity));
-        registry.setGovernanceBindingStore(new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(
+        registry.setGovernanceBindingStore(new org.pangrova.metadata.core.control.JdbcTableControlGovernanceBindingStore(
                 dataSource));
         var source = connectorMetadata.getTableHandle(sourceSession, new SchemaTableName("raw", "customers"));
         registry.tableControl().adopt("lake", "raw", "customers", USER.principal(),
@@ -282,7 +285,7 @@ class FeatureViewSqlIntegrationTest {
                 + "'");
         dispatch("MATERIALIZE FEATURE VIEW global_limit VERSION 1 SNAPSHOT '" + snapshot + "'");
         var compiled = observedCompile.get();
-        var builds = new JdbcArtifactBuildStore(dataSource);
+        var builds = new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         String jobId = completed.get().rows().get(0).getString("job_id");
         var spec = builds.findDispatchSpec(TENANT, jobId).orElseThrow();
         assertThat(compiled.splitIndependent()).isFalse();
@@ -297,20 +300,20 @@ class FeatureViewSqlIntegrationTest {
         }
         try (var ownership = new org.pangrova.coordinator.testinfra.CoordinatorArtifactExecutionFixtures(dataSource)) {
             var anchor = ownership.takeOwnership(TENANT, jobId, "global-coordinator", 4);
-            var stages = new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(dataSource);
+            var stages = new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
             var terminal = spec.stageGraph().stages().stream().filter(value -> value.publicationOutput())
                     .findFirst().orElseThrow();
             assertThat(terminal.parallelism()).isEqualTo(1);
-            var key = new org.pangrova.metadata.artifact.build.ArtifactBuildJobKey(TENANT, jobId);
+            var key = new org.pangrova.indexing.control.ArtifactBuildJobKey(TENANT, jobId);
             var progress = stages.inspectPartition(key, anchor, terminal.stageId(), 0);
             assertThat(progress.pageOrdinal()).isPositive();
-            assertThat(stages.preparePartition(new org.pangrova.metadata.artifact.jdbc.build
+            assertThat(stages.preparePartition(new org.pangrova.indexing.store.jdbc
                     .JdbcArtifactStageExecutionStore.PartitionClaim(
                             key, anchor, terminal.stageId(), 0, progress.pageOrdinal(),
                             4, java.time.Duration.ofMinutes(1), Instant.now()),
                     evidence -> evidence.lease())).isEmpty();
             var frozen = stages.prepareExecution(
-                    new org.pangrova.metadata.artifact.build.ArtifactBuildJobKey(TENANT, jobId), anchor);
+                    new org.pangrova.indexing.control.ArtifactBuildJobKey(TENANT, jobId), anchor);
             assertThat(frozen.authority().dispatchSpec().stageGraph().sha256()).isEqualTo(spec.stageGraph().sha256());
         }
         assertPinnedPageCoverage(jobId, snapshot);
@@ -377,7 +380,7 @@ class FeatureViewSqlIntegrationTest {
     }
 
     /** Independent component oracle with a real engine-issued, state-bound and explicitly closed lifetime. */
-    private List<org.pangrova.metadata.artifact.build.ArtifactBuildSplit> enumeratePinnedCoverage(long snapshot) {
+    private List<org.pangrova.indexing.control.ArtifactBuildSplit> enumeratePinnedCoverage(long snapshot) {
         String queryId = "feature-coverage";
         var state = new QueryStateMachine();
         var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));

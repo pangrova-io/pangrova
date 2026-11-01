@@ -24,7 +24,7 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

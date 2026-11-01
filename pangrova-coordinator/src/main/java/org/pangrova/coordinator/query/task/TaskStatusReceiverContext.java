@@ -10,7 +10,7 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.governance.lineage.LineageEventEmitter;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.spi.coordination.QueryStateJournal;
 import org.pangrova.spi.coordination.WriteCommitJournal;
 import org.pangrova.coordinator.speculation.DuplicateTaskResolver;

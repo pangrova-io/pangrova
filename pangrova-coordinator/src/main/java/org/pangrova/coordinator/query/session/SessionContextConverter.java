@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.session;
 
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.HashMap;

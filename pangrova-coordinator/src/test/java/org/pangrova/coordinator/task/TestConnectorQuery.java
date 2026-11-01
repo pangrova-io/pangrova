@@ -3,7 +3,7 @@ package org.pangrova.coordinator.task;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.spi.connector.ConnectorQueryAuthority;
 import org.pangrova.spi.connector.ConnectorSession;
 

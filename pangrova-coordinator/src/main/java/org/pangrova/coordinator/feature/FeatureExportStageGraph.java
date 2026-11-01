@@ -2,10 +2,10 @@ package org.pangrova.coordinator.feature;
 
 import org.pangrova.coordinator.artifact.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.control.ArtifactStageGraph;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.artifact.TabularExportPlanBuilder;
 import org.pangrova.protocol.BoundExecutionPlan;

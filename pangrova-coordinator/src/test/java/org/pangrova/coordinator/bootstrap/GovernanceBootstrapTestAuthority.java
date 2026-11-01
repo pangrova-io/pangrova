@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.JdbcTableControlStore;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.control.JdbcTableControlStore;
+import org.pangrova.metadata.core.control.TableControlService;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
 
 import javax.sql.DataSource;
 
@@ -27,9 +27,9 @@ final class GovernanceBootstrapTestAuthority {
         registry.setTableControlService(new TableControlService(
                 new JdbcTableControlStore(source), registry::requireCurrentCatalogIdentity));
         registry.register(metadata.getCatalogDescriptor("quality_catalog").orElseGet(() ->
-                new org.pangrova.metadata.catalog.CatalogDescriptor("quality_catalog",
-                        org.pangrova.metadata.catalog.CatalogType.INTERNAL, "internal",
-                        org.pangrova.metadata.catalog.CatalogState.ACTIVE,
+                new org.pangrova.metadata.api.catalog.CatalogDescriptor("quality_catalog",
+                        org.pangrova.metadata.api.catalog.CatalogType.INTERNAL, "internal",
+                        org.pangrova.metadata.api.catalog.CatalogState.ACTIVE,
                         java.util.Map.of(), "", java.util.Set.of())));
         return registry;
     }
@@ -40,13 +40,13 @@ final class GovernanceBootstrapTestAuthority {
         var metadata = new JdbcMetadataStore(source);
         var descriptor = metadata.getCatalogDescriptor("quality_catalog").orElseThrow();
         var control = new TableControlService(new JdbcTableControlStore(source),
-                name -> new org.pangrova.metadata.control.CatalogDeploymentIdentity(
+                name -> new org.pangrova.metadata.core.control.CatalogDeploymentIdentity(
                         descriptor.incarnationId(), descriptor.revision()));
         var owner = control.registerCreated("quality_catalog", "default", "quality_source", "quality-owner",
                 java.util.Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
                         "ICEBERG", "quality-bootstrap-owner", "s3://test/quality-source", "schema")),
                 java.util.Optional.empty()).orElseThrow();
-        var store = new org.pangrova.metadata.governance.JdbcQualityRuleStore(source);
+        var store = new org.pangrova.governance.quality.store.JdbcQualityRuleStore(source);
         var now = java.time.Instant.now();
         store.saveRule(new org.pangrova.governance.quality.rule.DataQualityRule(1, "required_positive",
                 "quality_catalog", "default", "quality_source", "id > 0",

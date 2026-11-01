@@ -66,11 +66,24 @@ ALTER STREAM clickstream_ingest SET (
 );
 ```
 
-The current pipeline reads `batch_size` and `max_consecutive_failures` from
-stream properties. A RUNNING stream restarts with a new ownership epoch when
-properties change. Each source batch has its own durable checkpoint; the former
-`checkpoint.interval` example did not configure a timer. The bootstrap registers
-`debezium-json`, `canal-json`, and `maxwell-json` converters.
+The current pipeline reads `batch_size`, `max_consecutive_failures`,
+`watermark_delay`, `late_data_policy`, and `allowed_lateness` from stream
+properties:
+
+| Property | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `batch_size` | positive integer | 1000 | Maximum records per poll batch |
+| `max_consecutive_failures` | positive integer | 10 | Consecutive failures before the stream enters FAILED |
+| `watermark_delay` | duration (`PT10S`, `10s`, `500ms`, `5m`, `1h`, `2d`, or bare milliseconds) | `10s` | Delay applied when advancing the per-table watermark |
+| `late_data_policy` | `update` or `drop` | `update` | How records older than the watermark are handled |
+| `allowed_lateness` | duration as above | `0s` | How far behind the watermark a record may be before it is late |
+
+Invalid property values fail the pipeline at startup (the stream enters the
+FAILED state) instead of silently falling back to a default. A RUNNING stream
+restarts with a new ownership epoch when properties change. Each source batch
+has its own durable checkpoint; the former `checkpoint.interval` example did
+not configure a timer. The bootstrap registers `debezium-json`, `canal-json`,
+and `maxwell-json` converters.
 
 DDL persists the requested state on the accepting coordinator. Only the elected
 maintenance coordinator starts pipelines; it reconciles changes accepted by other

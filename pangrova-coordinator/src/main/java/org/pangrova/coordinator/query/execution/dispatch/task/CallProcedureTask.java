@@ -12,7 +12,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.coordinator.query.statement.TableWarmupExecutor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.LiteralValue;

@@ -1,17 +1,17 @@
 package org.pangrova.coordinator.streaming;
 
-import org.pangrova.metadata.streaming.StreamLifecycleState;
-import org.pangrova.metadata.streaming.StreamOffsetStore;
-import org.pangrova.metadata.streaming.StreamState;
-import org.pangrova.metadata.streaming.StreamStateStore;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.spi.streaming.CdcRecordConverter;
-import org.pangrova.spi.streaming.CdcSourceReader;
-import org.pangrova.spi.streaming.CdcWriteResult;
-import org.pangrova.spi.streaming.CdcWriteSink;
-import org.pangrova.spi.streaming.SourceRecord;
-import org.pangrova.spi.streaming.TopicPartitionOffset;
-import org.pangrova.spi.streaming.WatermarkStore;
+import org.pangrova.spi.streaming.store.StreamLifecycleState;
+import org.pangrova.spi.streaming.store.StreamOffsetStore;
+import org.pangrova.spi.streaming.store.StreamState;
+import org.pangrova.spi.streaming.store.StreamStateStore;
+import org.pangrova.spi.streaming.record.CdcEnvelope;
+import org.pangrova.spi.streaming.record.CdcRecordConverter;
+import org.pangrova.spi.streaming.source.CdcSourceReader;
+import org.pangrova.spi.streaming.sink.CdcWriteResult;
+import org.pangrova.spi.streaming.sink.CdcWriteSink;
+import org.pangrova.spi.streaming.source.SourceRecord;
+import org.pangrova.spi.streaming.source.TopicPartitionOffset;
+import org.pangrova.spi.streaming.store.WatermarkStore;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
 import org.pangrova.streaming.maintenance.CompactionResult;
 import org.pangrova.streaming.maintenance.MaintenanceConfig;
@@ -142,7 +142,6 @@ class StreamSchedulerStopAllRaceTest extends org.pangrova.testing.ContainerTestB
     static class NoOpStreamStateStore implements StreamStateStore {
         @Override public boolean createState(StreamState state) { return true; }
         @Override public void saveStateIfEpoch(StreamState state, long epoch) {}
-        @Override public void saveState(StreamState s) {}
         @Override public Optional<StreamState> loadState(String n) { return Optional.empty(); }
         @Override public List<StreamState> listByTenant(String t) { return List.of(); }
         @Override public List<StreamState> listByState(StreamLifecycleState s) { return List.of(); }
@@ -194,7 +193,7 @@ class StreamSchedulerStopAllRaceTest extends org.pangrova.testing.ContainerTestB
         var dataSource = org.pangrova.coordinator.testinfra.SharedPostgresContainer
                 .migratedDataSource("stream_scheduler");
         return new org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator(
-                new org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore(dataSource));
+                new org.pangrova.streaming.jdbc.JdbcCdcCommitStateStore(dataSource));
     }
 
 }

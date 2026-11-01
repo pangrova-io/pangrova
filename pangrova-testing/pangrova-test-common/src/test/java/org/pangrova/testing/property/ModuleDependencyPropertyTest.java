@@ -30,9 +30,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * builds a dependency graph, and verifies it against the architecture hard rules
  * defined in {@code architecture-governance-rules.md}.</p>
  *
- * <p>Post-consolidation: validates the 18-module structure after merging
- * pangrova-connector → pangrova-spi, pangrova-substrait → pangrova-planner,
- * pangrova-tenant → pangrova-security, pangrova-transport → pangrova-spi + pangrova-worker.</p>
+ * <p>Validates the current reactor dependency graph. The module count and
+ * package-to-module mapping must stay aligned with the root POM and
+ * `.pangrova/modules.yaml`.</p>
  *
  * <p><b>Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9</b></p>
  */
@@ -42,10 +42,7 @@ class ModuleDependencyPropertyTest {
      * Maps a Java package prefix to its owning module name.
      * Order matters: more specific prefixes must come first.
      *
-     * <p>Post-consolidation (18 modules): pangrova-connector merged into pangrova-spi,
-     * pangrova-substrait merged into pangrova-planner, pangrova-tenant merged into
-     * pangrova-security, pangrova-transport split into pangrova-spi (contracts) and
-     * pangrova-worker (implementation).</p>
+     * <p>Mappings must stay aligned with the root POM and `.pangrova/modules.yaml`.</p>
      */
     private static final List<PackageModuleMapping> PACKAGE_TO_MODULE = List.of(
             // Connector implementations (most specific first)
@@ -67,6 +64,11 @@ class ModuleDependencyPropertyTest {
             new PackageModuleMapping("org.pangrova.parser", "pangrova-parser"),
             new PackageModuleMapping("org.pangrova.planner", "pangrova-planner"),
             new PackageModuleMapping("org.pangrova.metadata", "pangrova-metadata"),
+            new PackageModuleMapping("org.pangrova.query", "pangrova-query"),
+            new PackageModuleMapping("org.pangrova.indexing", "pangrova-indexing"),
+            new PackageModuleMapping("org.pangrova.materialization", "pangrova-materialization"),
+            new PackageModuleMapping("org.pangrova.semantic", "pangrova-semantic"),
+            new PackageModuleMapping("org.pangrova.ai", "pangrova-ai"),
             new PackageModuleMapping("org.pangrova.protocol", "pangrova-protocol"),
             new PackageModuleMapping("org.pangrova.spi", "pangrova-spi"),
             new PackageModuleMapping("org.pangrova.common", "pangrova-common"),
@@ -74,7 +76,13 @@ class ModuleDependencyPropertyTest {
             new PackageModuleMapping("org.pangrova.governance", "pangrova-governance"),
             new PackageModuleMapping("org.pangrova.security", "pangrova-security"),
             new PackageModuleMapping("org.pangrova.resilience", "pangrova-resilience"),
-            new PackageModuleMapping("org.pangrova.streaming", "pangrova-streaming"),
+            new PackageModuleMapping("org.pangrova.streaming.format", "pangrova-streaming-format"),
+            new PackageModuleMapping("org.pangrova.streaming.maintenance", "pangrova-streaming-maintenance"),
+            new PackageModuleMapping("org.pangrova.streaming.jdbc", "pangrova-streaming-jdbc"),
+            new PackageModuleMapping("org.pangrova.streaming", "pangrova-streaming-runtime"),
+            // Shuffle: service prefix first, core owns the api/core roots
+            new PackageModuleMapping("org.pangrova.shuffle.service", "pangrova-shuffle-service"),
+            new PackageModuleMapping("org.pangrova.shuffle", "pangrova-shuffle-core"),
             new PackageModuleMapping("org.pangrova.operations", "pangrova-operations"),
             new PackageModuleMapping("org.pangrova.resource", "pangrova-resource"),
             new PackageModuleMapping("org.pangrova.testing", "pangrova-testing")
@@ -85,8 +93,7 @@ class ModuleDependencyPropertyTest {
      * Modules not listed here have no restrictions enforced by this test (e.g. pangrova-coordinator
      * is an integration hub with broad allowed dependencies).
      *
-     * <p>Post-consolidation (18 modules): removed pangrova-connector, pangrova-substrait,
-     * pangrova-tenant, pangrova-transport. Updated allowed deps for consolidated modules.</p>
+     * <p>Keep this list aligned with the root POM and `.pangrova/modules.yaml`.</p>
      */
     private static final Map<String, Set<String>> ALLOWED_DEPS = Map.ofEntries(
             // Leaf module: no pangrova dependencies
@@ -108,16 +115,60 @@ class ModuleDependencyPropertyTest {
             Map.entry("pangrova-operations", Set.of("pangrova-common", "pangrova-spi")),
             Map.entry("pangrova-resource", Set.of("pangrova-common", "pangrova-spi")),
             // Streaming: only SPI + common (connector base is now in SPI)
-            Map.entry("pangrova-streaming", Set.of("pangrova-spi", "pangrova-common")),
+            Map.entry("pangrova-streaming-runtime", Set.of(
+                    "pangrova-spi", "pangrova-common", "pangrova-streaming-maintenance")),
+            Map.entry("pangrova-streaming-format", Set.of("pangrova-spi", "pangrova-common")),
+            Map.entry("pangrova-streaming-maintenance", Set.of("pangrova-spi", "pangrova-common")),
+            Map.entry("pangrova-streaming-jdbc", Set.of("pangrova-spi", "pangrova-common")),
             // Worker: includes transport; depends on SPI, protocol, common, cross-cutting
             Map.entry("pangrova-worker", Set.of(
                     "pangrova-spi", "pangrova-protocol", "pangrova-common",
                     "pangrova-observability", "pangrova-resilience",
-                    "pangrova-resource", "pangrova-security", "pangrova-operations"))
+                    "pangrova-resource", "pangrova-security", "pangrova-operations",
+                    "pangrova-shuffle-core")),
+            // Metadata owner artifact: technical facts only. pangrova-ai.api is
+            // imported by the artifact export-job contracts tracked by the governance plan.
+            Map.entry("pangrova-metadata", Set.of(
+                    "pangrova-spi", "pangrova-common", "pangrova-security",
+                    "pangrova-governance", "pangrova-ai")),
+            // Query owner artifact: durable write commit, execution anchor, COPY admission,
+            // query state and lineage outbox. Only metadata.api may be imported from metadata.
+            Map.entry("pangrova-query", Set.of(
+                    "pangrova-spi", "pangrova-common", "pangrova-security", "pangrova-metadata")),
+            Map.entry("pangrova-materialization", Set.of(
+                    "pangrova-spi", "pangrova-common")),
+            // Semantic owner artifact: semantic view identity and JDBC persistence.
+            Map.entry("pangrova-semantic", Set.of(
+                    "pangrova-spi", "pangrova-common")),
+            // AI owner artifact: evaluation/feature catalog API, control wiring
+            // and JDBC adapters; depends on the semantic module for its aggregate stores.
+            Map.entry("pangrova-ai", Set.of(
+                    "pangrova-spi", "pangrova-common", "pangrova-semantic")),
+            // Indexing owner artifact: index/artifact descriptors, publication and
+            // JDBC adapters. It must never import metadata internals.
+            Map.entry("pangrova-indexing", Set.of(
+                    "pangrova-spi", "pangrova-common", "pangrova-security")),
+            // Shuffle: core is contracts + engine orchestration; service is the
+            // deployable transport/storage implementation.
+            Map.entry("pangrova-shuffle-core", Set.of("pangrova-common", "pangrova-spi")),
+            Map.entry("pangrova-shuffle-service", Set.of(
+                    "pangrova-common", "pangrova-protocol", "pangrova-shuffle-core"))
     );
 
     /** Modules whose imports are checked (those with explicit allowed-deps rules). */
     private static final List<String> CONSTRAINED_MODULES = List.copyOf(ALLOWED_DEPS.keySet());
+
+    /**
+     * Repository-relative source roots for modules that are not located directly
+     * under the repository root. Defaults to the module name itself.
+     */
+    private static final Map<String, String> MODULE_SRC_DIRS = Map.of(
+            "pangrova-streaming-runtime", "pangrova-streaming/pangrova-streaming-runtime",
+            "pangrova-streaming-format", "pangrova-streaming/pangrova-streaming-format",
+            "pangrova-streaming-maintenance", "pangrova-streaming/pangrova-streaming-maintenance",
+            "pangrova-streaming-jdbc", "pangrova-streaming/pangrova-streaming-jdbc",
+            "pangrova-shuffle-core", "pangrova-shuffle/pangrova-shuffle-core",
+            "pangrova-shuffle-service", "pangrova-shuffle/pangrova-shuffle-service");
 
     private static final Pattern IMPORT_PATTERN =
             Pattern.compile("^import\\s+(?:static\\s+)?(org\\.pangrova\\.[a-zA-Z0-9_.]+)\\s*;");
@@ -175,7 +226,7 @@ class ModuleDependencyPropertyTest {
     }
 
     /**
-     * Property 10: pangrova-streaming must not depend on pangrova-coordinator internals.
+     * Property 10: pangrova-streaming-runtime must not depend on pangrova-coordinator internals.
      *
      * <p><b>Validates: Requirements 3.5, 3.7, 8.5</b></p>
      */
@@ -183,7 +234,7 @@ class ModuleDependencyPropertyTest {
     @Tag("Feature: full-pipeline-audit-fix, Property 10: Module dependency direction correctness")
     void streamingNeverDependsOnCoordinator(@ForAll("streamingImportedModules") String depModule) {
         assertThat(depModule)
-                .as("pangrova-streaming must not depend on pangrova-coordinator")
+                .as("pangrova-streaming-runtime must not depend on pangrova-coordinator")
                 .isNotEqualTo("pangrova-coordinator");
     }
 
@@ -262,7 +313,7 @@ class ModuleDependencyPropertyTest {
 
     @Provide
     Arbitrary<String> streamingImportedModules() {
-        Set<String> deps = collectImportedPangrovaModules("pangrova-streaming");
+        Set<String> deps = collectImportedPangrovaModules("pangrova-streaming-runtime");
         return deps.isEmpty()
                 ? Arbitraries.just("pangrova-common")
                 : Arbitraries.of(deps);
@@ -322,7 +373,7 @@ class ModuleDependencyPropertyTest {
             if (allowed == null) {
                 continue;
             }
-            Path srcDir = root.resolve(module).resolve("src/main/java");
+            Path srcDir = moduleSrcDir(root, module);
             if (!Files.isDirectory(srcDir)) {
                 continue;
             }
@@ -337,7 +388,7 @@ class ModuleDependencyPropertyTest {
 
     private static Set<String> collectImportedPangrovaModules(String module) {
         Path root = TestProjectPaths.findProjectRoot();
-        Path srcDir = root.resolve(module).resolve("src/main/java");
+        Path srcDir = moduleSrcDir(root, module);
         if (!Files.isDirectory(srcDir)) {
             return Set.of();
         }
@@ -436,6 +487,11 @@ class ModuleDependencyPropertyTest {
             }
         }
         return null;
+    }
+
+    private static Path moduleSrcDir(Path root, String module) {
+        return root.resolve(MODULE_SRC_DIRS.getOrDefault(module, module))
+                .resolve("src/main/java");
     }
 
     // -----------------------------------------------------------------------

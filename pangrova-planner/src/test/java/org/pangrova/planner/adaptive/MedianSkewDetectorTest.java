@@ -2,10 +2,10 @@ package org.pangrova.planner.adaptive;
 
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
-import org.pangrova.shuffle.SkewDetector;
-import org.pangrova.shuffle.SkewDetector.SkewDetectionConfig;
-import org.pangrova.shuffle.SkewDetector.SkewDetectionResult;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
+import org.pangrova.shuffle.api.adaptive.SkewDetector;
+import org.pangrova.shuffle.api.adaptive.SkewDetector.SkewDetectionConfig;
+import org.pangrova.shuffle.api.adaptive.SkewDetector.SkewDetectionResult;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

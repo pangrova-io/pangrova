@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.coordinator.index.IndexGenerationPublisher;
 import org.pangrova.indexing.storage.IndexCache;
-import org.pangrova.metadata.exception.IndexAlreadyExistsException;
+import org.pangrova.indexing.api.IndexAlreadyExistsException;
 import org.pangrova.parser.ast.statement.AlterIndexStatement;
 import org.pangrova.parser.ast.statement.CreateIndexStatement;
 import org.pangrova.parser.ast.statement.DropIndexStatement;

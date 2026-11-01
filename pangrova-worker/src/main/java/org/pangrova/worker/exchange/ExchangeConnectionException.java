@@ -2,7 +2,7 @@ package org.pangrova.worker.exchange;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.api.exchange.ExchangeEndpoint;
 
 /**
  * Thrown when an exchange endpoint connection fails after all retry attempts.

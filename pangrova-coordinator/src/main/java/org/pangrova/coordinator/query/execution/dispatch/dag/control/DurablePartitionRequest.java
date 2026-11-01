@@ -4,14 +4,14 @@ import org.pangrova.coordinator.artifact.template.ArtifactPartitionBindings;
 import org.pangrova.coordinator.artifact.template.PersistedStagePlan;
 import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PreparedPartition;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.shuffle.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
 import org.pangrova.spi.annotation.Internal;
 
 import java.time.Instant;

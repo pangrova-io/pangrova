@@ -5,10 +5,10 @@ import org.pangrova.spi.connector.ConnectorTransactionHandle;
 import org.pangrova.spi.connector.data.ConnectorPageSink;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.spi.streaming.CdcRow;
-import org.pangrova.spi.streaming.CdcWriteResult;
-import org.pangrova.spi.streaming.CdcWriteSink;
+import org.pangrova.spi.streaming.record.CdcEnvelope;
+import org.pangrova.spi.streaming.record.CdcRow;
+import org.pangrova.spi.streaming.sink.CdcWriteResult;
+import org.pangrova.spi.streaming.sink.CdcWriteSink;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

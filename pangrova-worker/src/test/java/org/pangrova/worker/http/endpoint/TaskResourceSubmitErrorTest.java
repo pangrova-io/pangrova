@@ -3,7 +3,7 @@ package org.pangrova.worker.http.endpoint;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
 import org.pangrova.testing.TestExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;

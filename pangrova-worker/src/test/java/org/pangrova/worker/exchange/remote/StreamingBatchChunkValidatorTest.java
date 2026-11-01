@@ -30,7 +30,7 @@ class StreamingBatchChunkValidatorTest {
 
         validator.accept(CanonicalBatchChunks.chunk(batch, 0, 1, 2, checksum), 7L);
         validator.validateOutputChecksum(checksum(
-                org.pangrova.shuffle.ShufflePartitionManifestChecksum.accumulator()
+                org.pangrova.shuffle.api.commit.ShufflePartitionManifestChecksum.accumulator()
                         .add(0L, batch.length, 7L,
                                 MessageDigest.getInstance("SHA-256").digest(batch))
                         .finish()));

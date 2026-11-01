@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.index;
 
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.planner.index.IndexHint;
 import org.pangrova.planner.index.IndexPredicateAnalyzer;
 import org.pangrova.spi.index.IndexCoverageStats;

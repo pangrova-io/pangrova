@@ -3,30 +3,29 @@ package org.pangrova.coordinator.query.statement;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.ConnectorHandleFactory;
-import org.pangrova.metadata.control.InMemoryTableControlMaintenanceStore;
-import org.pangrova.metadata.control.InMemoryTableControlGovernanceBindingStore;
-import org.pangrova.metadata.control.InMemoryTableControlStore;
-import org.pangrova.metadata.control.GovernanceBindingType;
-import org.pangrova.metadata.control.MaintenanceOperation;
-import org.pangrova.metadata.control.OwnershipMode;
-import org.pangrova.metadata.control.TableControlMaintenanceService;
-import org.pangrova.metadata.control.TableControlPolicyBinder;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.control.TableControlSettings;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.service.ResolvedTable;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.ConnectorHandleFactory;
+import org.pangrova.metadata.core.control.InMemoryTableControlMaintenanceStore;
+import org.pangrova.metadata.core.control.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.metadata.core.control.InMemoryTableControlStore;
+import org.pangrova.metadata.core.control.GovernanceBindingType;
+import org.pangrova.metadata.core.control.MaintenanceOperation;
+import org.pangrova.metadata.api.control.OwnershipMode;
+import org.pangrova.metadata.core.control.TableControlMaintenanceService;
+import org.pangrova.metadata.core.control.TableControlPolicyBinder;
+import org.pangrova.metadata.core.control.TableControlService;
+import org.pangrova.metadata.core.control.TableControlSettings;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.api.schema.SchemaChange;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.metadata.api.binding.ResolvedTable;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.coordinator.query.audit.TableControlAuditEmitter;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.security.audit.AuditEvent;
@@ -114,7 +113,7 @@ class DdlExecutorOwnershipTest {
                 .hasRootCauseMessage("Identity catalog unavailable");
         assertThat(metadata.tables).containsKey("default.orders");
         assertThat(registry.tableControl().find("test_cat", "default", "orders").orElseThrow().state())
-                .isEqualTo(org.pangrova.metadata.control.TableControlState.ORPHANED_MANAGED);
+                .isEqualTo(org.pangrova.metadata.core.control.TableControlState.ORPHANED_MANAGED);
     }
 
     @Test
@@ -156,7 +155,7 @@ class DdlExecutorOwnershipTest {
                 .hasMessageContaining("identity");
         assertThat(metadata.tables).containsKey("default.users");
         assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().state())
-                .isEqualTo(org.pangrova.metadata.control.TableControlState.ACTIVE);
+                .isEqualTo(org.pangrova.metadata.core.control.TableControlState.ACTIVE);
     }
 
     @Test
@@ -294,7 +293,7 @@ class DdlExecutorOwnershipTest {
         assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().tableId())
                 .isEqualTo(original.tableId());
         assertThat(registry.tableControl().find("test_cat", "default", "people").orElseThrow().state())
-                .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
+                .isEqualTo(org.pangrova.metadata.core.control.TableControlState.RENAMING);
         assertThatThrownBy(() -> registry.tableControl().requireCreatableName("test_cat", "default", "users"))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> registry.tableGovernance().requireBindable("test_cat", "default", "users"))
@@ -314,9 +313,9 @@ class DdlExecutorOwnershipTest {
                         "ALTER TABLE test_cat.default.users RENAME TO people"), context()))
                 .isInstanceOf(IllegalStateException.class).hasMessage("rename failed");
         assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().state())
-                .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
+                .isEqualTo(org.pangrova.metadata.core.control.TableControlState.RENAMING);
         assertThat(registry.tableControl().find("test_cat", "default", "people").orElseThrow().state())
-                .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
+                .isEqualTo(org.pangrova.metadata.core.control.TableControlState.RENAMING);
     }
 
     @Test
@@ -509,7 +508,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void columnTagRequiresAdoptionAndBindsToTheStableTableId() {
         RecordingMetadataService tags = new RecordingMetadataService();
-        ddlExecutor.setMetadataService(tags);
+        ddlExecutor.setColumnTagPort(tags);
         var set = (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
                 "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'");
         var unset = (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
@@ -544,7 +543,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void columnTagRejectsUnknownColumns() {
         RecordingMetadataService tags = new RecordingMetadataService();
-        ddlExecutor.setMetadataService(tags);
+        ddlExecutor.setColumnTagPort(tags);
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
@@ -577,7 +576,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void unlinkClearsDurableColumnTags() {
         RecordingMetadataService tags = new RecordingMetadataService();
-        ddlExecutor.setMetadataService(tags);
+        ddlExecutor.setColumnTagPort(tags);
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
@@ -601,12 +600,12 @@ class DdlExecutorOwnershipTest {
                 "test_cat", "default", table, "alice");
     }
 
-    private final class RecordingMetadataService extends org.pangrova.metadata.service.DefaultMetadataService {
+    private final class RecordingMetadataService extends org.pangrova.metadata.core.DefaultMetadataService {
         private final Map<String, String> tags = new LinkedHashMap<>();
 
         RecordingMetadataService() {
-            super(registry, new org.pangrova.metadata.cache.TieredMetadataCache(), null,
-                    new org.pangrova.metadata.schema.SchemaEvolutionValidator());
+            super(registry, new org.pangrova.metadata.core.cache.TieredMetadataCache(), null,
+                    new org.pangrova.metadata.core.schema.SchemaEvolutionValidator());
         }
 
         @Override

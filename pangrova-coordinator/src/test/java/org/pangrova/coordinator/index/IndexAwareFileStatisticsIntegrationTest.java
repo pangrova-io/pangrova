@@ -4,7 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore;
+import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.planner.index.IndexHint;
 import org.pangrova.spi.connector.metadata.ConnectorSplit;
 import org.pangrova.spi.index.IndexType;

@@ -43,6 +43,15 @@ class PackageDependencyAcyclicityPropertyTest {
             Pattern.compile("^import\\s+(?:static\\s+)?(org\\.pangrova\\.[a-zA-Z0-9_.]+)\\s*;");
 
     /**
+     * Repository-relative source roots for modules that are not located directly
+     * under the repository root. Defaults to the module name itself.
+     */
+    private static final Map<String, String> MODULE_SRC_DIRS = Map.of(
+            "pangrova-streaming-runtime", "pangrova-streaming/pangrova-streaming-runtime",
+            "pangrova-shuffle-core", "pangrova-shuffle/pangrova-shuffle-core",
+            "pangrova-shuffle-service", "pangrova-shuffle/pangrova-shuffle-service");
+
+    /**
      * Modules to check for package-level dependency cycles.
      * Covers all main production modules with significant internal package structure.
      */
@@ -59,12 +68,13 @@ class PackageDependencyAcyclicityPropertyTest {
             "pangrova-governance",
             "pangrova-security",
             "pangrova-resilience",
-            "pangrova-streaming",
+            "pangrova-streaming-runtime",
             "pangrova-operations",
             "pangrova-resource",
             "pangrova-config",
             "pangrova-indexing",
-            "pangrova-shuffle"
+            "pangrova-shuffle-core",
+            "pangrova-shuffle-service"
     );
 
     /**
@@ -100,7 +110,7 @@ class PackageDependencyAcyclicityPropertyTest {
             "pangrova-governance",
             "pangrova-security",
             "pangrova-resilience",
-            "pangrova-streaming",
+            "pangrova-streaming-runtime",
             "pangrova-operations",
             "pangrova-resource"
     );
@@ -150,7 +160,8 @@ class PackageDependencyAcyclicityPropertyTest {
     private static List<CyclicPair> detectAllCyclicPairs() {
         List<CyclicPair> result = new ArrayList<>();
         for (String module : CHECKED_MODULES) {
-            Path srcDir = PROJECT_ROOT.resolve(module).resolve("src/main/java");
+            Path srcDir = PROJECT_ROOT.resolve(MODULE_SRC_DIRS.getOrDefault(module, module))
+                    .resolve("src/main/java");
             if (!Files.isDirectory(srcDir)) {
                 continue;
             }

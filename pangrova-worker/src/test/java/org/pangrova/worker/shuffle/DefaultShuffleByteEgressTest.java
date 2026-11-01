@@ -4,11 +4,11 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.shuffle.ShuffleByteEgress;
-import org.pangrova.shuffle.spool.SpoolStore;
-import org.pangrova.shuffle.spool.SpoolWriter;
-import org.pangrova.shuffle.spool.SpoolReader;
-import org.pangrova.shuffle.ShuffleDurability;
+import org.pangrova.shuffle.api.transport.ShuffleByteEgress;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolWriter;
+import org.pangrova.shuffle.api.spool.SpoolReader;
+import org.pangrova.shuffle.api.capability.ShuffleDurability;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

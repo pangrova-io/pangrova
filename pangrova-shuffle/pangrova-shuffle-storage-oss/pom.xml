@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.pangrova</groupId>
+        <artifactId>pangrova-shuffle</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pangrova-shuffle-storage-oss</artifactId>
+    <name>Pangrova Shuffle Storage OSS</name>
+    <description>Alibaba Cloud OSS shuffle storage: durable accepted-batch object storage and
+        durable spool backend. The Aliyun OSS SDK is confined to this module.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>3.17.4</version>
+        </dependency>
+        <!-- aliyun-sdk-oss still uses javax.xml.bind; JDK17 no longer bundles JAXB -->
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+            <version>2.3.3</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

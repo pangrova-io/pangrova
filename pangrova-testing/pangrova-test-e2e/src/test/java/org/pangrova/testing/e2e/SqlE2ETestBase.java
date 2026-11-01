@@ -1,5 +1,8 @@
 package org.pangrova.testing.e2e;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,8 +26,8 @@ import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
-import org.pangrova.metadata.store.JdbcMetadataStore;
-import org.pangrova.metadata.store.MetadataStore;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
+import org.pangrova.metadata.core.store.MetadataStore;
 import org.pangrova.observability.metrics.CoordinatorMetrics;
 import org.pangrova.observability.metrics.WorkerMetrics;
 import org.pangrova.observability.tracing.TracingHttpFilter;
@@ -255,7 +258,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // Additional resources that leak if not closed between test classes.
     private static volatile org.apache.arrow.memory.RootAllocator coordinatorArrowAllocator;
     private static volatile org.pangrova.coordinator.bootstrap.IndexingBootstrap sharedIndexingBootstrap;
-    private static volatile org.pangrova.metadata.artifact.build.ArtifactBuildStore
+    private static volatile org.pangrova.indexing.control.ArtifactBuildStore
             sharedArtifactBuildStore;
     private static volatile org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher
             sharedArtifactBuildDispatcher;
@@ -271,9 +274,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             sharedStatementDispatcher;
     private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
             materializationDispatcher;
-    private static volatile org.pangrova.metadata.materialization.JdbcMaterializationRepository
+    private static volatile org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository
             materializationRepository;
-    private static volatile org.pangrova.metadata.materialization.JdbcMaterializationCatalog
+    private static volatile org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog
             materializationCatalog;
     private static volatile org.pangrova.spi.security.AccessControl featureAccessControl;
     private static volatile boolean durableStorageProfileScenario;
@@ -758,7 +761,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             if (registry.listCatalogNames().contains(config.catalogName())) {
                 var existing = registry.getCatalog(config.catalogName()).getDescriptor();
                 // Switching test classes must not replace an unchanged physical deployment.
-                boolean matches = existing.type() == org.pangrova.metadata.catalog.CatalogType.CONNECTOR
+                boolean matches = existing.type() == org.pangrova.metadata.api.catalog.CatalogType.CONNECTOR
                         && existing.provider().equals(config.connectorType())
                         && existing.properties().equals(config.properties())
                         && existing.allowedTenants().isEmpty();
@@ -906,8 +909,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         null,
                         null,
                         null,
-                        null,
-                        metadataBootstrap.metadataService(),
+                        metadataBootstrap.metadataGateway(),
                         E2E_INTERNAL_AUTH_SECRET,
                         () -> requireE2ECoordination().getCurrentEpoch()));
     }
@@ -1852,10 +1854,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static void initCoordinatorReadiness() {
         var coordination = new org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService(
-                new org.pangrova.metadata.coordination.JdbcDistributedLease(
+                new org.pangrova.coordinator.coordination.JdbcDistributedLease(
                         stateStoreDataSource));
         coordination.setExecutionAnchorStore(
-                new org.pangrova.metadata.coordination.JdbcExecutionAnchorStore(
+                new org.pangrova.query.transaction.JdbcExecutionAnchorStore(
                         stateStoreDataSource));
         coordination.start(E2E_COORDINATOR_ID);
         if (!coordination.isLeader(E2E_COORDINATOR_ID)
@@ -2211,7 +2213,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return new org.pangrova.coordinator.query.task.report.DurableArtifactWorkReportSink(
                 java.util.Objects.requireNonNull(sharedArtifactBuildStore,
                         "E2E durable artifact store must be initialized"),
-                new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(stateStoreDataSource));
+                new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore(stateStoreDataSource,
+                        new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)));
     }
 
     private static void stopArtifactControlLoops() {
@@ -2240,9 +2243,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                     () -> requireE2ECoordination().getCurrentEpoch(),
                                     new org.pangrova.coordinator.artifact.ArtifactExecutionOwnership(
                                             requireE2ECoordination(), E2E_COORDINATOR_ID),
-                                    new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(
-                                            stateStoreDataSource),
-                                    new org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore(stateStoreDataSource),
+                                    new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore(
+                                            stateStoreDataSource,
+                                            new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)),
+                                    new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExchangeStore(
+                                            stateStoreDataSource,
+                                            new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)),
                                     java.util.Objects.requireNonNull(sharedQueryDispatcher,
                                             "shared QueryDispatcher must be initialized").dagEngine()),
                             new org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher.Settings(
@@ -2283,11 +2289,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static org.pangrova.coordinator.index.IndexAwareSplitFetcher registerIndexHandlers(
             org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher statementDispatcher) {
         try {
-            var indexMetadataStore = new org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore(stateStoreDataSource);
+            var indexMetadataStore = new org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore(stateStoreDataSource);
             closeQuietly(sharedIndexingBootstrap, "indexing_lifecycle_rebuild");
             sharedIndexingBootstrap = new org.pangrova.coordinator.bootstrap.IndexingBootstrap(
                     tempDir.resolve("index-artifacts").toString(),
-                    new org.pangrova.metadata.coordination.JdbcDistributedLease(stateStoreDataSource),
+                    new org.pangrova.coordinator.coordination.JdbcDistributedLease(stateStoreDataSource),
                     sharedArtifactBuildStore, E2eArtifactPublications.router(stateStoreDataSource));
             sharedIndexingBootstrap.start(indexMetadataStore, metadataBootstrap.catalogRegistry(),
                     METRICS_PROVIDER, currentAccessControl);
@@ -2309,7 +2315,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     new org.pangrova.coordinator.query.execution.dispatch.task.AlterIndexTask(indexExecutor));
             statementDispatcher.registerFactory(metadataFactory);
 
-            var schemaEvolutionHandler = new org.pangrova.metadata.index.IndexSchemaEvolutionHandler(indexMetadataStore);
+            var schemaEvolutionHandler = new org.pangrova.indexing.control.IndexSchemaEvolutionHandler(indexMetadataStore);
             if (sharedDdlExecutor != null) {
                 sharedDdlExecutor.setSchemaEvolutionHandler(schemaEvolutionHandler);
             }
@@ -2320,8 +2326,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             indexAwareSplitFetcher.bindGeneratedValueReads(
                     new org.pangrova.coordinator.artifact.GeneratedValueReadResolver(
                             metadataBootstrap.catalogRegistry(), sharedArtifactBuildStore,
-                            new org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore(
-                                    stateStoreDataSource)));
+                            new org.pangrova.indexing.store.jdbc.JdbcGeneratedValueArtifactPublicationStore(
+                                    stateStoreDataSource,
+                                    new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent))));
 
             LOG.info("event=index_infrastructure_initialized_in_e2e executor_type={} pruning=enabled",
                     indexExecutor.getClass().getSimpleName());
@@ -2369,16 +2376,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var catalog = metadataBootstrap.catalogRegistry();
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
                 org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
-        ddlExecutor.setMetadataService(metadataBootstrap.metadataService());
-        ddlExecutor.setColumnMaskStore(new org.pangrova.metadata.service.TableControlColumnMaskStore(catalog,
+        ddlExecutor.setColumnTagPort(metadataBootstrap.metadataGateway().tags());
+        ddlExecutor.setColumnMaskStore(new org.pangrova.metadata.core.TableControlColumnMaskStore(catalog,
                 new org.pangrova.security.store.PersistentColumnMaskStore(stateStoreDataSource)));
         sharedDdlExecutor = ddlExecutor;
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
-        var maintenancePolicyService = new org.pangrova.metadata.control.TableControlMaintenanceService(
-                new org.pangrova.metadata.control.JdbcTableControlMaintenanceStore(stateStoreDataSource));
+        var maintenancePolicyService = new org.pangrova.metadata.core.control.TableControlMaintenanceService(
+                new org.pangrova.metadata.core.control.JdbcTableControlMaintenanceStore(stateStoreDataSource));
         var controlledMaintenance = new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(
                 catalog, maintenancePolicyService,
-                new org.pangrova.metadata.coordination.JdbcDistributedLease(stateStoreDataSource),
+                new org.pangrova.coordinator.coordination.JdbcDistributedLease(stateStoreDataSource),
                 E2E_COORDINATOR_ID);
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
@@ -2450,7 +2457,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalog));
         // Storage Profile management
         org.pangrova.spi.storage.StorageProfileRegistry spRegistry = durableStorageProfileScenario
-                ? new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(
+                ? new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(
                         java.util.Objects.requireNonNull(stateStoreDataSource))
                 : new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
         tasks.put(org.pangrova.parser.ast.statement.CreateStorageProfileStatement.class,
@@ -2473,7 +2480,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.ast.statement.DropTagStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.DropTagTask(branchExecutor));
         var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
-        var fileSpaces = new org.pangrova.metadata.file.JdbcFileSpaceRegistry(stateStoreDataSource);
+        var fileSpaces = new org.pangrova.security.storage.store.JdbcFileSpaceRegistry(stateStoreDataSource);
         var fileAudit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(null);
         org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
                 metadataFactory, fileSpaces, currentAccessControl, fileAudit);
@@ -2482,12 +2489,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 org.pangrova.coordinator.file.FileSpaceAccessService.FileSpaceAccessContext.of(
                         "", () -> List.of("http://" + IN_PROCESS_WORKER_HOST + ":"
                                 + sharedWorkerHttpPort), fileAudit, E2E_INTERNAL_AUTH_SECRET,
-                        new org.pangrova.metadata.file.JdbcFileSpaceAuthority(stateStoreDataSource)));
+                        new org.pangrova.security.storage.store.JdbcFileSpaceAuthority(stateStoreDataSource)));
         var fileClient = org.pangrova.coordinator.file.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);
         org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
                 metadataFactory, fileSpaces, currentAccessControl, fileAudit,
                 new org.pangrova.coordinator.file.StageDirectoryRefreshService(
-                        new org.pangrova.metadata.file.JdbcFileDirectoryIndex(stateStoreDataSource),
+                        new org.pangrova.security.storage.store.JdbcFileDirectoryIndex(stateStoreDataSource),
                         fileAccess, fileClient, currentAccessControl));
         metadataFactory.registerTask(org.pangrova.parser.ast.statement.ListStageStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.file.ListStageTask(
@@ -2500,7 +2507,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     sharedArtifactBuildStore,
                     new org.pangrova.coordinator.artifact.SnapshotArtifactSplitPlanner(catalog),
                     tempDir.resolve("feature-exports").toString(), catalog);
-            var features = org.pangrova.metadata.ai.AiInfrastructureStores.jdbc(stateStoreDataSource).features();
+            var features = org.pangrova.ai.control.AiInfrastructureStores.jdbc(stateStoreDataSource).features();
             var service = new org.pangrova.coordinator.feature.FeatureViewStatementService(
                     features, exports, featureAccessControl,
                     (sql, actor) -> java.util.Objects.requireNonNull(queryDispatcherRef.get(),
@@ -2568,22 +2575,22 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return new DurableDynamicTableAuthority(materializationRepository(), materializationCatalog());
     }
 
-    private static org.pangrova.metadata.materialization.JdbcMaterializationRepository
+    private static org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository
             materializationRepository() {
         var repository = materializationRepository;
         if (repository == null) {
-            repository = new org.pangrova.metadata.materialization.JdbcMaterializationRepository(
+            repository = new org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository(
                     java.util.Objects.requireNonNull(stateStoreDataSource));
             materializationRepository = repository;
         }
         return repository;
     }
 
-    private static org.pangrova.metadata.materialization.JdbcMaterializationCatalog
+    private static org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog
             materializationCatalog() {
         var catalog = materializationCatalog;
         if (catalog == null) {
-            catalog = new org.pangrova.metadata.materialization.JdbcMaterializationCatalog(
+            catalog = new org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog(
                     java.util.Objects.requireNonNull(stateStoreDataSource));
             materializationCatalog = catalog;
         }
@@ -2591,16 +2598,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     /** Reopens the persisted materialization authority as a coordinator restart would. */
-    protected static org.pangrova.metadata.materialization.JdbcMaterializationCatalog
+    protected static org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog
             reopenDynamicTablePublicationCatalog() {
-        return new org.pangrova.metadata.materialization.JdbcMaterializationCatalog(
+        return new org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog(
                 java.util.Objects.requireNonNull(stateStoreDataSource));
     }
 
     /** Durable authority pair wired into the E2E Dynamic Table runtime. */
     protected record DurableDynamicTableAuthority(
-            org.pangrova.metadata.materialization.JdbcMaterializationRepository repository,
-            org.pangrova.metadata.materialization.JdbcMaterializationCatalog catalog) {
+            org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository repository,
+            org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog catalog) {
     }
 
     /**
@@ -2662,18 +2669,18 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         MetadataBootstrap startingBootstrap = null;
         try {
             System.err.println("[E2E-DEBUG] initializeMetadata: creating datasource");
-            startingPool = org.pangrova.metadata.store.PooledDataSourceFactory.create(
+            startingPool = org.pangrova.metadata.store.jdbc.PooledDataSourceFactory.create(
                     pgJdbcUrl(), pgUsername(), pgPassword());
             DataSource ds = startingPool;
             System.err.println("[E2E-DEBUG] initializeMetadata: datasource created");
             MetadataSchemaInitializer.createSchema(ds);
             System.err.println("[E2E-DEBUG] initializeMetadata: schema created");
             stateStoreDataSource = ds;
-            sharedWriteCommitJournal = new org.pangrova.metadata.coordination.JdbcWriteCommitJournal(ds);
+            sharedWriteCommitJournal = new org.pangrova.query.transaction.JdbcWriteCommitJournal(ds);
             sharedDatasetControlClient = new org.pangrova.coordinator.metadata.NativeDatasetControlClient(
                     E2E_INTERNAL_AUTH_SECRET);
-            sharedArtifactBuildStore = new org.pangrova.metadata.artifact.jdbc.build
-                    .JdbcArtifactBuildStore(ds);
+            sharedArtifactBuildStore = new org.pangrova.indexing.store.jdbc
+                    .JdbcArtifactBuildStore(ds, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
             MetadataStore store = new JdbcMetadataStore(ds);
             System.err.println("[E2E-DEBUG] initializeMetadata: JdbcMetadataStore created");
             var dependencies = new org.pangrova.coordinator.metadata.WorkerNativeDatasetControl.Dependencies(
@@ -2681,28 +2688,29 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     () -> java.util.Objects.requireNonNull(sharedWriteCommitJournal, "E2E write commit journal"),
                     () -> E2E_WRITE_COMMIT_FENCER,
                     () -> requireE2ECoordination().getCurrentEpoch());
-            java.util.function.Function<org.pangrova.metadata.catalog.CatalogDescriptor,
+            java.util.function.Function<org.pangrova.metadata.api.catalog.CatalogDescriptor,
                     org.pangrova.spi.connector.metadata.ManagedSourceCatalog> sourceCatalogs = descriptor ->
-                    new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(ds,
+                    new org.pangrova.metadata.store.jdbc.source.JdbcManagedSourceCatalog(ds,
                             new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                                     descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
-                            E2E_WRITE_COMMIT_FENCER::currentAnchor);
+                            E2E_WRITE_COMMIT_FENCER::currentAnchor,
+                            new org.pangrova.query.transaction.JdbcSourcePublicationTransaction());
             TestConnectorHandleFactory connectorFactory = new TestConnectorHandleFactory(descriptor ->
                     java.util.Optional.of(new org.pangrova.coordinator.metadata.WorkerNativeDatasetControl(
                             descriptor, dependencies, sharedDatasetControlClient, sourceCatalogs.apply(descriptor))),
                     descriptor -> java.util.Optional.of(sourceCatalogs.apply(descriptor)));
             MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
             startingBootstrap = bootstrap;
-            bootstrap.catalogRegistry().setTableControlService(new org.pangrova.metadata.control.TableControlService(
-                    new org.pangrova.metadata.control.JdbcTableControlStore(ds),
+            bootstrap.catalogRegistry().setTableControlService(new org.pangrova.metadata.core.control.TableControlService(
+                    new org.pangrova.metadata.core.control.JdbcTableControlStore(ds),
                     bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
-                    org.pangrova.metadata.control.TableControlSettings.fromSystemProperties()));
+                    org.pangrova.metadata.core.control.TableControlSettings.fromSystemProperties()));
             bootstrap.catalogRegistry().setTableStatisticsService(
-                    new org.pangrova.metadata.control.TableControlStatisticsService(
+                    new org.pangrova.metadata.core.control.TableControlStatisticsService(
                             bootstrap.catalogRegistry().tableControl(),
-                            new org.pangrova.metadata.control.JdbcTableControlStatisticsStore(ds)));
+                            new org.pangrova.metadata.core.control.JdbcTableControlStatisticsStore(ds)));
             bootstrap.catalogRegistry().setGovernanceBindingStore(
-                    new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(ds));
+                    new org.pangrova.metadata.core.control.JdbcTableControlGovernanceBindingStore(ds));
             System.err.println("[E2E-DEBUG] initializeMetadata: bootstrap initialized");
             LOG.info("MetadataBootstrap initialized with state store tables");
             metadataDataSourcePool = startingPool;

@@ -26,7 +26,11 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-connector-*` | Data source connectors (Iceberg / Paimon) |
 | `pangrova-standalone` | Single-node standalone deployment |
 | `pangrova-security` | Authentication and authorization |
-| `pangrova-streaming` | Streaming query support |
+| `pangrova-streaming` | Streaming family aggregator (pom): runtime, format adapters, maintenance scheduling, JDBC store adapter |
+| `pangrova-streaming-runtime` | CDC pipeline runtime, commit orchestration, watermark state machine |
+| `pangrova-streaming-format` | CDC source-format adapters (Debezium/Canal/Maxwell JSON) |
+| `pangrova-streaming-maintenance` | Table maintenance scheduling (compaction, snapshot expiration, orphan cleanup) |
+| `pangrova-streaming-jdbc` | PostgreSQL adapter for the CDC commit-state store SPI |
 | `pangrova-governance` | Data governance and lineage |
 | `pangrova-indexing` | Index management and build orchestration |
 | `pangrova-transport` | Transport layer abstraction |
@@ -122,12 +126,15 @@ pangrova-worker (Java)
 | `governance` | spi, common, security |
 | `security` | spi, common |
 | `resilience` | spi, common |
-| `streaming` | spi, common |
+| `streaming-runtime` | spi, common, streaming-maintenance |
+| `streaming-format` | spi, common |
+| `streaming-maintenance` | spi, common |
+| `streaming-jdbc` | spi, common |
 | `operations` | spi, common, shuffle |
 | `resource` | spi, common |
 | `shuffle` | spi, common |
 | `worker` | spi, protocol, common, resilience, resource, observability, operations, shuffle, native-bundle |
-| `coordinator` | spi, protocol, common, metadata, planner, parser, security, observability, resilience, resource, operations, governance, streaming, indexing, worker, shuffle, client-rest, connector-*, materialization |
+| `coordinator` | spi, protocol, common, metadata, planner, parser, security, observability, resilience, resource, operations, governance, streaming-runtime, indexing, worker, shuffle, client-rest, connector-*, materialization |
 | `connector-*` | spi, common, protocol only |
 | `client-*` | protocol, common |
 | `worker-native` | protocol only (JNI/Protobuf) |
@@ -145,6 +152,15 @@ pangrova-worker (Java)
 - `connector-*`: only `spi`, `common`, `protocol` — NO worker/coordinator/materialization imports.
 - `planner`: NO `materialization`, `metadata`, or `coordinator` imports; it receives
   materialization DTOs through coordinator-owned bridges only.
+- `streaming-runtime` (core): NO JDBC/`javax.sql` or Jackson imports; persistence goes
+  through `org.pangrova.spi.streaming` contracts (capability subpackages
+  `source`/`record`/`sink`/`commit`/`store`, cross-cutting `exception`). `streaming-jdbc` depends only on
+  SPI/common and implements the store contracts; it never depends on core.
+- `shuffle-core`: exactly two explicit roots — `org.pangrova.shuffle.api` (export
+  contracts, subdivided by capability) and `org.pangrova.shuffle.core` (internal
+  orchestration). It MUST NOT own the `org.pangrova.shuffle` root package, and
+  `api` MUST NOT depend on `core`. `shuffle-service` owns
+  `org.pangrova.shuffle.service` exclusively.
 - `observability`, `governance`, `security`, `resilience`: NO business execution module imports.
 - `operations`, `resource`, `config`: NO coordinator/worker internal imports.
 - `coordinator` → `worker`: compile-scope restricted to `org.pangrova.worker.transport.*` only.

@@ -56,18 +56,6 @@ class GovernanceContextInitializeTest {
 
         // CronScheduler schedules enabled rules; disabled ones are filtered by store
         assertThat(ruleStore.getAllEnabledRules()).hasSize(2);
-        assertThat(scheduledRuleNames).containsExactlyInAnyOrder("null_check", "range_check");
-    }
-
-    @Test
-    void queryRuntimeOwnershipDoesNotAlsoStartLegacyCron() {
-        var names = new CopyOnWriteArrayList<String>();
-        var store = new InMemoryQualityRuleStore();
-        store.saveRule(rule(11, "query_owned", true, "* * * * *"));
-        module = buildModule(store, names);
-        module.initialize(false);
-        assertThat(names).isEmpty();
-        assertThat(store.getAllEnabledRules()).hasSize(1);
     }
 
     @Test
@@ -92,12 +80,7 @@ class GovernanceContextInitializeTest {
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
                 ruleStore, new UnconfiguredQualityRuleExecutor(), alerter);
-        CronScheduler scheduler = new CronScheduler(handler) {
-            @Override public void scheduleRule(DataQualityRule rule) {
-                scheduledNames.add(rule.ruleName());
-                super.scheduleRule(rule);
-            }
-        };
+        CronScheduler scheduler = new CronScheduler(handler);
         TagBasedSecurityPolicy policy = new TagBasedSecurityPolicy(
                 new NoOpColumnMaskStore(), new NoOpAuditConfigStore());
         return new GovernanceContext(new GovernanceDeps(

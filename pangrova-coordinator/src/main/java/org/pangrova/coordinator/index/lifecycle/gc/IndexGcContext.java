@@ -2,7 +2,7 @@ package org.pangrova.coordinator.index.lifecycle.gc;
 
 import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.pangrova.spi.connector.index.SnapshotPinProvider;
 import org.pangrova.spi.index.IndexDescriptor;

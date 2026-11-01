@@ -9,7 +9,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
-import org.pangrova.metadata.storage.JdbcCopySourceReadAdmissions;
+import org.pangrova.query.transaction.JdbcCopySourceReadAdmissions;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 
 import java.net.URI;

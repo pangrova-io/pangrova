@@ -18,7 +18,7 @@ import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
+import org.pangrova.shuffle.api.exchange.DirectExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceConverter;
 
 /** Properties for canonical task-scoped exchange source conversion. */

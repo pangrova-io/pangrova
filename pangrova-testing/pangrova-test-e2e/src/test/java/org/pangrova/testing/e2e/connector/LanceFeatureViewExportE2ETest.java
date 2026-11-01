@@ -1,23 +1,26 @@
 package org.pangrova.testing.e2e.connector;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
-import org.pangrova.metadata.evaluation.EvaluationDatasetId;
-import org.pangrova.metadata.evaluation.EvaluationDatasetVersion;
-import org.pangrova.metadata.evaluation.EvaluationMetric;
-import org.pangrova.metadata.evaluation.EvaluationMetricDirection;
-import org.pangrova.metadata.evaluation.EvaluationMetricPolicy;
-import org.pangrova.metadata.evaluation.EvaluationMetricRule;
-import org.pangrova.metadata.evaluation.EvaluationReleaseDecision;
-import org.pangrova.metadata.evaluation.EvaluationRun;
-import org.pangrova.metadata.evaluation.EvaluationRunState;
-import org.pangrova.metadata.evaluation.EvaluationSubjectType;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
+import org.pangrova.ai.api.EvaluationDatasetId;
+import org.pangrova.ai.api.EvaluationDatasetVersion;
+import org.pangrova.ai.api.EvaluationMetric;
+import org.pangrova.ai.api.EvaluationMetricDirection;
+import org.pangrova.ai.api.EvaluationMetricPolicy;
+import org.pangrova.ai.api.EvaluationMetricRule;
+import org.pangrova.ai.api.EvaluationReleaseDecision;
+import org.pangrova.ai.api.EvaluationRun;
+import org.pangrova.ai.api.EvaluationRunState;
+import org.pangrova.ai.api.EvaluationSubjectType;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
@@ -122,8 +125,8 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
                 .contains("source_plan_base64");
         executeDdl("CREATE FEATURE VIEW " + view + "_limit VERSION 1 AS '"
                 + definition.replace("FROM " + source, "FROM " + source + " LIMIT 1") + "'");
-        var limited = org.pangrova.metadata.ai.AiInfrastructureStores.jdbc(stateStoreDataSource()).features()
-                .findFeatureView(new org.pangrova.metadata.feature.FeatureCatalogStore.FeatureViewId(
+        var limited = org.pangrova.ai.control.AiInfrastructureStores.jdbc(stateStoreDataSource()).features()
+                .findFeatureView(new org.pangrova.ai.api.FeatureCatalogStore.FeatureViewId(
                         tenant, CATALOG, "default", view.substring(view.lastIndexOf('.') + 1) + "_limit"), 1)
                 .orElseThrow();
         assertThat(limited.sourceQuery()).contains("LIMIT 1");
@@ -137,7 +140,6 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         var session = authenticatedCatalogSession(CATALOG);
         tenant = session.getProperties().get("tenant_id");
         var tenants = new JdbcTenantStore(stateStoreDataSource());
-        tenants.initSchema();
         assertThat(tenants.getTenant(tenant)).hasValueSatisfying(current ->
                 assertThat(current.status()).isEqualTo(TenantStatus.ACTIVE));
         assertThat(tenants.getTenantForUser(session.getUser())).hasValueSatisfying(membership ->
@@ -150,9 +152,9 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         var grants = new PersistentGrantStore(stateStoreDataSource());
         grants.addGrant(PrivilegeGrant.of(role, Privilege.ALL, "SCHEMA", CATALOG, "default", null, null));
         grants.addGrant(PrivilegeGrant.of(role, Privilege.SELECT, "TABLE", CATALOG, sourceSchema, "customers", null));
-        policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(metadataBootstrap.catalogRegistry(),
+        policies = new org.pangrova.metadata.core.TableControlRowPolicyStore(metadataBootstrap.catalogRegistry(),
                 new PersistentRowPolicyStore(stateStoreDataSource()));
-        masks = new org.pangrova.metadata.service.TableControlColumnMaskStore(metadataBootstrap.catalogRegistry(),
+        masks = new org.pangrova.metadata.core.TableControlColumnMaskStore(metadataBootstrap.catalogRegistry(),
                 new PersistentColumnMaskStore(stateStoreDataSource()));
         replacePolicies(minimum, mask);
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
@@ -175,7 +177,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
     }
 
     private List<String> readPublished(TypedRow result, long snapshot) throws Exception {
-        var store = new JdbcArtifactBuildStore(stateStoreDataSource());
+        var store = new JdbcArtifactBuildStore(stateStoreDataSource(), new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         String job = result.getString("job_id");
         await().atMost(Duration.ofMinutes(2)).untilAsserted(() -> assertThat(store.findPublishedGeneration(
                 tenant, result.getString("artifact_id"), result.getString("generation"), Long.toString(snapshot))).isPresent());
@@ -204,7 +206,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
 
     private void assertPublishedRowCountGatesRelease(
             TypedRow result, long snapshot, long expectedRows, boolean shouldApprove) {
-        var manifest = new JdbcArtifactBuildStore(stateStoreDataSource())
+        var manifest = new JdbcArtifactBuildStore(stateStoreDataSource(), new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent))
                 .findPublishedGeneration(tenant, result.getString("artifact_id"),
                         result.getString("generation"), Long.toString(snapshot))
                 .orElseThrow();
@@ -213,7 +215,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         String policyVersion = "minimum-two-rows-" + suffix;
         String runId = "feature-export-" + suffix;
         Instant now = Instant.now();
-        var evaluations = org.pangrova.metadata.ai.AiInfrastructureStores
+        var evaluations = org.pangrova.ai.control.AiInfrastructureStores
                 .jdbc(stateStoreDataSource()).evaluations();
         evaluations.createDatasetVersion(new EvaluationDatasetVersion(
                 new EvaluationDatasetId(tenant, datasetId), 1, "feature-e2e",

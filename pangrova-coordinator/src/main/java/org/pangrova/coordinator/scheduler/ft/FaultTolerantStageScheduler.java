@@ -7,12 +7,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.pangrova.coordinator.scheduler.StageScheduler;
-import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger;
-import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger.RepartitionDecision;
+import org.pangrova.shuffle.api.adaptive.AdaptiveRepartitionTrigger;
+import org.pangrova.shuffle.api.adaptive.AdaptiveRepartitionTrigger.RepartitionDecision;
 import org.pangrova.spi.execution.scheduling.FaultTolerancePolicy;
 import org.pangrova.spi.execution.scheduling.RetryBudget;
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

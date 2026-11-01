@@ -153,17 +153,16 @@ class SpiWiringVerificationTest {
             "org.pangrova.indexing.fs.LocalFileSystemAccessor",
             "org.pangrova.indexing.storage.CachedBloomFilterIndexData",
             // Metadata — pending metadata P0 wiring
-            "org.pangrova.metadata.adapter.FederationColumnHandle",
-            "org.pangrova.metadata.adapter.FederationConnectorMetadata",
-            "org.pangrova.metadata.adapter.FederationTableHandle",
-            "org.pangrova.metadata.checkpoint.JdbcCheckpointStore",
-            "org.pangrova.metadata.coordination.JdbcCoordinatorRegistry",
-            "org.pangrova.metadata.coordination.JdbcDistributedLease",
-            "org.pangrova.metadata.coordination.JdbcQueryStateJournal",
-            "org.pangrova.metadata.coordination.JdbcWorkerRegistry",
-            "org.pangrova.metadata.service.DefaultConnectorSession",
-            "org.pangrova.metadata.streaming.JdbcCdcRegistrationStore",
-            "org.pangrova.metadata.streaming.JdbcWatermarkStore",
+            "org.pangrova.metadata.core.federation.FederationColumnHandle",
+            "org.pangrova.metadata.core.federation.FederationConnectorMetadata",
+            "org.pangrova.metadata.core.federation.FederationTableHandle",
+            "org.pangrova.metadata.core.checkpoint.JdbcCheckpointStore",
+            "org.pangrova.coordinator.coordination.JdbcCoordinatorRegistry",
+            "org.pangrova.coordinator.coordination.JdbcDistributedLease",
+            "org.pangrova.query.core.JdbcQueryStateJournal",
+            "org.pangrova.coordinator.coordination.JdbcWorkerRegistry",
+            "org.pangrova.metadata.core.DefaultConnectorSession",
+            "org.pangrova.streaming.jdbc.JdbcWatermarkStore",
             // Resilience — checkpoint removed per streaming positioning clarification
             // Security
             "org.pangrova.security.mask.EmptyColumnMaskStore",
@@ -188,16 +187,10 @@ class SpiWiringVerificationTest {
             "org.pangrova.spi.index.data.text.NGramBloomIndexData",
             "org.pangrova.spi.index.data.text.PrefixIndexData",
             // Streaming — pending streaming P0 wiring
-            "org.pangrova.streaming.cdc.CdcRegistrationHandler",
-            "org.pangrova.streaming.cdc.InMemoryCdcRegistrationStore",
-            "org.pangrova.streaming.cdc.JdbcCdcRegistrationStore",
-            "org.pangrova.streaming.cdc.format.CanalJsonConverter",
-            "org.pangrova.streaming.cdc.format.DebeziumJsonConverter",
-            "org.pangrova.streaming.cdc.format.MaxwellJsonConverter",
+            "org.pangrova.streaming.format.CanalJsonConverter",
+            "org.pangrova.streaming.format.DebeziumJsonConverter",
+            "org.pangrova.streaming.format.MaxwellJsonConverter",
             "org.pangrova.streaming.watermark.InMemoryWatermarkStore",
-            "org.pangrova.streaming.watermark.JdbcWatermarkStore",
-            "org.pangrova.streaming.writer.LakeTableWriter",
-            "org.pangrova.streaming.writer.MergeTreeTableWriter",
             // Exchange/shuffle — pending distributed correctness P0
             "org.pangrova.worker.exchange.remote.HybridExchangeManager",
             "org.pangrova.worker.exchange.remote.RemoteShuffleExchangeManager",
@@ -227,9 +220,9 @@ class SpiWiringVerificationTest {
             // the durable write-commit journal when a metadata datasource is configured — A-COMMIT-01).
             // It stays listed here only because the reachability roots (QueryManager/WorkerBootstrap)
             // do not traverse bootstrap wiring classes, same as the other Jdbc* bootstrap-wired impls.
-            "org.pangrova.metadata.coordination.JdbcWriteCommitJournal",
+            "org.pangrova.query.transaction.JdbcWriteCommitJournal",
             // Metadata — pending metadata service wiring
-            "org.pangrova.metadata.service.DefaultMetadataService",
+            "org.pangrova.metadata.core.DefaultMetadataService",
             // Observability — pending event listener wiring
             "org.pangrova.observability.eventlistener.JdbcQueryEventListener",
             "org.pangrova.observability.logging.MdcTaskWrapping",

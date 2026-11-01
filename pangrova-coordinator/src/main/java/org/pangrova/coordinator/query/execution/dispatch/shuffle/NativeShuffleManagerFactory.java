@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleContext;
-import org.pangrova.shuffle.ShuffleDurability;
-import org.pangrova.shuffle.ShuffleManagerFactory;
-import org.pangrova.shuffle.ShuffleProvider;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.contract.ShuffleContext;
+import org.pangrova.shuffle.api.capability.ShuffleDurability;
+import org.pangrova.shuffle.api.contract.ShuffleManagerFactory;
+import org.pangrova.shuffle.api.contract.ShuffleProvider;
 
 /**
  * In-tree {@code native} shuffle factory (ADR-002 D1/D4): in-process data exchange.

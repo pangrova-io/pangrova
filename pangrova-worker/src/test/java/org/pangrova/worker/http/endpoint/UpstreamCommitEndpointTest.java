@@ -1,7 +1,7 @@
 package org.pangrova.worker.http.endpoint;
 
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
 import org.pangrova.testing.TestExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;

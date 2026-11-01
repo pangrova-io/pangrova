@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.index;
 
 import org.pangrova.indexing.build.BuildFileMapping;
-import org.pangrova.metadata.index.model.IndexFileMapping;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.api.IndexFileMapping;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;

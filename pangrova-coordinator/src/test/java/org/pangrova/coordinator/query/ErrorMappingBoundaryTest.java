@@ -10,7 +10,7 @@ import org.pangrova.common.exception.ValidationException;
 import org.pangrova.coordinator.scheduler.failure.CircuitBreakerOpenException;
 import org.pangrova.spi.transport.ResultTooLargeException;
 import org.pangrova.worker.exchange.ExchangeConnectionException;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.api.exchange.ExchangeEndpoint;
 import org.pangrova.worker.jni.NativeRuntimeException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

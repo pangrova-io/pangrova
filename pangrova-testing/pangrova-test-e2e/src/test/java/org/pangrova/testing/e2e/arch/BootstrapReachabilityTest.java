@@ -45,7 +45,7 @@ class BootstrapReachabilityTest {
     private static final List<String> BOOTSTRAP_MAINS = List.of(
             "org.pangrova.coordinator.bootstrap.PangrovaCoordinatorMain",
             "org.pangrova.worker.bootstrap.PangrovaWorkerMain",
-            "org.pangrova.shuffle.deployment.PangrovaShuffleServer"
+            "org.pangrova.shuffle.service.deployment.PangrovaShuffleServer"
     );
 
     private static final String DEAD_CODE_ANNOTATION =
@@ -84,9 +84,7 @@ class BootstrapReachabilityTest {
             "org.pangrova.governance.classification.CatalogTagService",
             "org.pangrova.governance.lineage.LineageQueryService",
             "org.pangrova.governance.quality.QualityCheckService",
-            "org.pangrova.metadata.dependency.ObjectDependencyService",
-            "org.pangrova.metadata.service.MetadataCleanupScheduler",
-            "org.pangrova.metadata.service.ModelCatalogService",
+            "org.pangrova.metadata.core.dependency.ObjectDependencyService",
             "org.pangrova.observability.logging.MdcPropagatingExecutorService",
             "org.pangrova.planner.adaptive.StageReplanCoordinator",
             "org.pangrova.resource.memory.HeartbeatCrossDomainMemoryCoordinator",

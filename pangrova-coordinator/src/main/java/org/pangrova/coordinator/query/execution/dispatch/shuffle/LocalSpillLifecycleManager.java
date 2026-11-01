@@ -2,11 +2,11 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.pangrova.shuffle.ShuffleCommitResult;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleRegistration;
-import org.pangrova.shuffle.spool.SpoolStore;
+import org.pangrova.shuffle.api.commit.ShuffleCommitResult;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
+import org.pangrova.shuffle.api.spool.SpoolStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

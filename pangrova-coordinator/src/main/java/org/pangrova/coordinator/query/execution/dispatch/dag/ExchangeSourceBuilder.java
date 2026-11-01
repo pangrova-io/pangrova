@@ -11,7 +11,7 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.planner.StagePlanAccess;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.protocol.v2.DirectExchangeInput;

@@ -1,10 +1,10 @@
 package org.pangrova.testing.e2e.metadata;
 
-import org.pangrova.metadata.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.metadata.cache.JdbcInvalidationPoller;
-import org.pangrova.metadata.cache.MetadataCache;
-import org.pangrova.metadata.cache.CacheStats;
-import org.pangrova.metadata.model.TableMetadata;
+import org.pangrova.metadata.core.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.core.cache.JdbcInvalidationPoller;
+import org.pangrova.metadata.core.cache.MetadataCache;
+import org.pangrova.metadata.core.cache.CacheStats;
+import org.pangrova.metadata.api.schema.TableMetadata;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;

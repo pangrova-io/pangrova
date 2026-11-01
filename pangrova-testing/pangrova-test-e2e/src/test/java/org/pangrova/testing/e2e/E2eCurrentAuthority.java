@@ -1,5 +1,8 @@
 package org.pangrova.testing.e2e;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.pangrova.coordinator.ai.embedding.DurableGeneratedValueBuildService;
 import org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
@@ -9,10 +12,10 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.store.jdbc.JdbcGeneratedValueArtifactPublicationStore;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
@@ -48,7 +51,6 @@ final class E2eCurrentAuthority {
                                   ResourceQuota deploymentQuota) {
         java.util.Objects.requireNonNull(deploymentQuota, "deploymentQuota");
         var store = new JdbcTenantStore(dataSource);
-        store.initSchema();
         if (store.getTenant(tenantId).isEmpty()) {
             store.createTenant(new Tenant(tenantId, "Authenticated SQL E2E tenant", TenantStatus.ACTIVE,
                     deploymentQuota, List.of(), List.of(), "e2e", Map.of(), Instant.EPOCH, principal));
@@ -80,9 +82,9 @@ final class E2eCurrentAuthority {
                     "STORAGE_PROFILE", "*", null, null, null));
         }
         return new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new org.pangrova.metadata.service.TableControlRowPolicyStore(
+                new RowLevelSecurityFilter(new org.pangrova.metadata.core.TableControlRowPolicyStore(
                         catalogs, new PersistentRowPolicyStore(dataSource))),
-                new ColumnMaskingProcessor(new org.pangrova.metadata.service.TableControlColumnMaskStore(
+                new ColumnMaskingProcessor(new org.pangrova.metadata.core.TableControlColumnMaskStore(
                         catalogs, new PersistentColumnMaskStore(dataSource))));
     }
 
@@ -99,7 +101,7 @@ final class E2eCurrentAuthority {
     }
 
     static GeneratedValueMaterializationCoordinator generatedValues(GeneratedServices services) {
-        var publications = new JdbcGeneratedValueArtifactPublicationStore(services.dataSource());
+        var publications = new JdbcGeneratedValueArtifactPublicationStore(services.dataSource(), new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         var selector = new DefaultWorkerSelector(services.workers(), services.scheduler(),
                 new SplitAssignmentManager(), new SpillBudget(1024L * 1024 * 1024, ""), services.models());
         var builds = new DurableGeneratedValueBuildService(services.builds(), publications,

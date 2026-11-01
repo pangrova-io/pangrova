@@ -8,8 +8,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread-safe in-memory catalog tag store for development and testing.
  * Tags stored here are transient and do not survive coordinator restart.
  *
- * <p>For persistent storage, a JDBC-backed implementation can be substituted
- * (analogous to {@link JdbcColumnTagStore} for column tags).</p>
+ * <p>For persistent storage, the governance bootstrap must wire a durable
+ * {@link CatalogTagStore} implementation; this class is for development/testing only.</p>
  */
 public final class InMemoryCatalogTagStore implements CatalogTagStore {
 

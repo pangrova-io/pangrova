@@ -1,7 +1,7 @@
 package org.pangrova.testing.e2e;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.security.tenant.model.ResourceQuota;
 import org.pangrova.security.tenant.model.Tenant;
 import org.pangrova.testing.E2ETest;

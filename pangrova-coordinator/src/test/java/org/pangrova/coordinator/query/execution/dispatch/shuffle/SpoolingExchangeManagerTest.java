@@ -3,14 +3,14 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 import java.nio.ByteBuffer;
 import java.util.NoSuchElementException;
 
-import org.pangrova.shuffle.ShuffleCommitResult;
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleDurability;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleRegistration;
-import org.pangrova.shuffle.spool.SpoolReader;
-import org.pangrova.shuffle.spool.SpoolStore;
-import org.pangrova.shuffle.spool.SpoolWriter;
+import org.pangrova.shuffle.api.commit.ShuffleCommitResult;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.capability.ShuffleDurability;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
+import org.pangrova.shuffle.api.spool.SpoolReader;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolWriter;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

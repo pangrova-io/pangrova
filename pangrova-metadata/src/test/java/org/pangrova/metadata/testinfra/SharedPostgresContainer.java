@@ -1,6 +1,6 @@
 package org.pangrova.metadata.testinfra;
 
-import org.flywaydb.core.Flyway;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -39,14 +39,11 @@ public final class SharedPostgresContainer {
         return dataSource(schema);
     }
 
-    /** Creates an isolated schema and applies the complete production migration chain. */
+    /** Creates an isolated schema and applies the per-owner production baselines present on
+     *  the test classpath (bundled security schema first, then metadata and the other owners). */
     public static DataSource migratedDataSource(String prefix) throws SQLException {
         DataSource dataSource = isolatedDataSource(prefix);
-        Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
+        SchemaMigrationRunner.migrateAll(dataSource);
         return dataSource;
     }
 

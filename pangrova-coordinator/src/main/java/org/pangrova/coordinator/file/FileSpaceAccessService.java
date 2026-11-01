@@ -325,7 +325,7 @@ public final class FileSpaceAccessService {
     public record FileSpaceAccessContext(String managedProfileName, Duration ttl,
             LongSupplier clock, Supplier<List<String>> workerEndpoints,
             FileSpaceAuditEmitter audit, String signingSecret,
-            org.pangrova.metadata.file.FileSpaceAuthority authority) {
+            org.pangrova.security.storage.store.FileSpaceAuthority authority) {
 
         public FileSpaceAccessContext {
             Objects.requireNonNull(ttl, "ttl must not be null");
@@ -345,7 +345,7 @@ public final class FileSpaceAccessService {
         /** Convenience factory with the standard five-minute descriptor lifetime. */
         public static FileSpaceAccessContext of(String managedProfileName,
                 Supplier<List<String>> workerEndpoints, FileSpaceAuditEmitter audit,
-                String signingSecret, org.pangrova.metadata.file.FileSpaceAuthority authority) {
+                String signingSecret, org.pangrova.security.storage.store.FileSpaceAuthority authority) {
             return new FileSpaceAccessContext(managedProfileName, Duration.ofMinutes(5),
                     System::currentTimeMillis, workerEndpoints, audit, signingSecret, authority);
         }

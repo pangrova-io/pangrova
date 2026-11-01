@@ -15,7 +15,7 @@ import org.pangrova.planner.adaptive.ShuffleStageStats;
 import org.pangrova.planner.adaptive.SkewJoinHandler;
 import org.pangrova.planner.adaptive.SkewResult;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.commit.ShufflePartitionStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -10,14 +10,14 @@ import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.secret.SecretResolver;
@@ -132,7 +132,7 @@ class MetadataToSqlCompilerChainPropertyTest {
 
         // Verify: MetadataService resolves schemas from IcebergConnector (Req 15.2-15.3)
         MetadataSessionContext session = systemSession();
-        List<String> schemas = metadataBootstrap.metadataService().listSchemas(session, CATALOG_NAME);
+        List<String> schemas = metadataBootstrap.metadataGateway().resolution().listSchemas(session, CATALOG_NAME);
         assertThat(schemas).contains(SCHEMA_NAME);
 
         // Verify: CalciteSchema tree has catalog → schema hierarchy (Req 15.4)

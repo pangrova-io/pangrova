@@ -1,18 +1,24 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder;
 import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.Fixture;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.service.ResolvedTable;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.api.schema.SchemaChange;
+import org.pangrova.metadata.api.MetadataGateway;
+import org.pangrova.metadata.api.binding.QueryMetadataLifecyclePort;
+import org.pangrova.metadata.api.binding.TableResolutionPort;
+import org.pangrova.metadata.api.catalog.CatalogLifecyclePort;
+import org.pangrova.metadata.api.control.ColumnTagPort;
+import org.pangrova.metadata.api.mutation.TableDdlPort;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.metadata.api.binding.ResolvedTable;
 import org.pangrova.planner.DmlWriteTarget;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.PlannedQuery;
@@ -67,14 +73,50 @@ class PlanExecutionFactoryDeleteCompilationTest {
     }
 
     static SqlCompiler buildCompiler(Fixture fixture) {
-        var schemaBuilder = new MetadataSchemaBuilder(new DeleteSchemaListing(), fixture.registry);
+        var schemaBuilder = new MetadataSchemaBuilder(new MetadataGateway(new DeleteSchemaListing(), new DeleteSchemaListing(), new DeleteSchemaListing(), new DeleteSchemaListing(), new DeleteSchemaListing()), fixture.registry);
         return new SqlCompiler(new PangrovaPlanner(schemaBuilder.buildRootSchema(
                 org.pangrova.coordinator.metadata.MetadataPlanningTestSessions.session())),
                 new SubstraitConverter(), new SubstraitPlanSerializer());
     }
 
     /** Only catalog/schema listing is allowed while building the real planner schema. */
-    private static final class DeleteSchemaListing implements MetadataService {
+    private static final class DeleteSchemaListing implements CatalogLifecyclePort, TableDdlPort, TableResolutionPort, QueryMetadataLifecyclePort, ColumnTagPort {
+    @Override
+    public void setTag(MetadataSessionContext session, QualifiedTableRef tableRef,
+            String columnName, String tagKey, String value) {}
+
+    @Override
+    public void unsetTag(MetadataSessionContext session, QualifiedTableRef tableRef,
+            String columnName, String tagKey) {}
+
+    @Override
+    public java.util.Map<String, String> listTags(
+            MetadataSessionContext session, QualifiedTableRef tableRef, String columnName) {
+        return java.util.Map.of();
+    }
+
+    @Override
+    public int clearTableTags(MetadataSessionContext session, java.util.UUID tableId) {
+        return 0;
+    }
+
+    @Override
+    public int renameTableTags(MetadataSessionContext session,
+            QualifiedTableRef from, QualifiedTableRef to) {
+        return 0;
+    }
+
+    @Override
+    public Optional<CatalogDescriptor> getCatalogDescriptor(String catalogName) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String catalogName, String incarnationId, long revision) {
+        return Optional.empty();
+    }
+
         @Override
         public List<String> listCatalogs(MetadataSessionContext session) {
             return List.of(CATALOG);
@@ -117,7 +159,7 @@ class PlanExecutionFactoryDeleteCompilationTest {
         }
 
         @Override
-        public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) {
+        public void beginQuery(org.pangrova.metadata.api.session.MetadataSessionContext context) {
             String queryId = context.queryId();
             throw new AssertionError("Compilation must not begin a metadata transaction");
         }

@@ -82,7 +82,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                     .resolve("bound", "db", "read_owner"))
                     .hasStackTraceContaining("format identity");
             assertThat(registry.tableControl().findById(record.tableId()).orElseThrow().state())
-                    .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+                    .isEqualTo(org.pangrova.metadata.core.control.TableControlState.QUARANTINED);
         }
     }
 
@@ -110,7 +110,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             assertThatThrownBy(() -> controlled.resolve("bound", "db", "cached_owner"))
                     .hasMessageContaining("ownership changed");
             assertThat(registry.tableControl().findById(replacement.tableId()).orElseThrow().state())
-                    .isEqualTo(org.pangrova.metadata.control.TableControlState.ACTIVE);
+                    .isEqualTo(org.pangrova.metadata.core.control.TableControlState.ACTIVE);
         }
     }
 
@@ -137,7 +137,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             assertThatThrownBy(() -> owner.resolve("bound", "db", "cached_data"))
                     .hasMessageContaining("ownership or namespace changed");
             assertThat(registry.tableControl().findById(original.tableId()).orElseThrow().state())
-                    .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
+                    .isEqualTo(org.pangrova.metadata.core.control.TableControlState.RENAMING);
         }
     }
 
@@ -236,15 +236,15 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var owner = new PlanningReadBindings(
                     fixture.bootstrap.catalogRegistry(), fixture.session);
 
-            var controlStore = new org.pangrova.metadata.control.InMemoryTableControlStore();
-            var control = new org.pangrova.metadata.control.TableControlService(controlStore, fixture.bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
-                    new org.pangrova.metadata.control.TableControlSettings(
+            var controlStore = new org.pangrova.metadata.core.control.InMemoryTableControlStore();
+            var control = new org.pangrova.metadata.core.control.TableControlService(controlStore, fixture.bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
+                    new org.pangrova.metadata.core.control.TableControlSettings(
                             true, true, java.util.Set.of()));
             var statisticsService =
-                    new org.pangrova.metadata.control.TableControlStatisticsService(control,
-                            new org.pangrova.metadata.control
+                    new org.pangrova.metadata.core.control.TableControlStatisticsService(control,
+                            new org.pangrova.metadata.core.control
                                     .InMemoryTableControlStatisticsStore());
-            var record = org.pangrova.metadata.control.TableControlRecord.builder()
+            var record = org.pangrova.metadata.core.control.TableControlRecord.builder()
                     .tableId(java.util.UUID.randomUUID())
                     .name("bound", "db", "analyzed")
                     .catalogIncarnationId(fixture.bootstrap.catalogRegistry()
@@ -253,9 +253,9 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                             .requireCurrentCatalogIdentity("bound").revision())
                     .format("PAIMON")
                     .formatTableUuid("uuid-analyzed")
-                    .ownershipMode(org.pangrova.metadata.control.OwnershipMode.MANAGED)
-                    .state(org.pangrova.metadata.control.TableControlState.ACTIVE)
-                    .provenance(org.pangrova.metadata.control.TableControlProvenance.CREATED)
+                    .ownershipMode(org.pangrova.metadata.api.control.OwnershipMode.MANAGED)
+                    .state(org.pangrova.metadata.core.control.TableControlState.ACTIVE)
+                    .provenance(org.pangrova.metadata.core.control.TableControlProvenance.CREATED)
                     .metadataRevision(1)
                     .version("PAIMON:uuid-analyzed:1", java.time.Instant.now())
                     .createdAt(java.time.Instant.now())

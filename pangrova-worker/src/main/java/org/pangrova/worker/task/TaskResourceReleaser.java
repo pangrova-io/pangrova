@@ -1,6 +1,6 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.shuffle.ShuffleTransport;
+import org.pangrova.shuffle.api.transport.ShuffleTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -10,8 +10,8 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.service.MetadataService;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogLifecyclePort;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 
 /** Authenticated internal endpoint for exact catalog revision deployment. */
@@ -19,9 +19,9 @@ import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 @Produces(MediaType.APPLICATION_JSON)
 public final class CatalogDeploymentResource {
 
-    private final MetadataService metadataService;
+    private final CatalogLifecyclePort metadataService;
 
-    public CatalogDeploymentResource(MetadataService metadataService) {
+    public CatalogDeploymentResource(CatalogLifecyclePort metadataService) {
         this.metadataService = java.util.Objects.requireNonNull(metadataService, "metadataService");
     }
 

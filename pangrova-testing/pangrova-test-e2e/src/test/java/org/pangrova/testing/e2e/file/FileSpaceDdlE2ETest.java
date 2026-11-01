@@ -9,7 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.metadata.file.JdbcFileSpaceRegistry;
+import org.pangrova.security.storage.store.JdbcFileSpaceRegistry;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
@@ -158,7 +158,7 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
     @Test
     void refreshPublishesWorkerMetadataAndSubpathDeletionThroughSql() throws Exception {
         configureDurableStorageProfiles(true);
-        var profiles = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(stateStoreDataSource());
+        var profiles = new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(stateStoreDataSource());
         String profile = name + "_profile";
         assertThat(profiles.createIfAbsent(new org.pangrova.spi.storage.StorageProfile(profile,
                 org.pangrova.spi.storage.StorageType.LOCAL, files.toString(), "", "", "",
@@ -175,7 +175,7 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
                     java.nio.file.attribute.FileTime.from(modified));
             Files.writeString(root.resolve("keep.txt"), "keep");
             executeDdl("ALTER STAGE " + PREFIX + name + " REFRESH");
-            var index = new org.pangrova.metadata.file.JdbcFileDirectoryIndex(stateStoreDataSource());
+            var index = new org.pangrova.security.storage.store.JdbcFileDirectoryIndex(stateStoreDataSource());
             assertThat(index.page(stage, null, 100)).extracting(org.pangrova.spi.storage.file.FileStat::path)
                     .containsExactly("images/old.txt", "keep.txt");
             assertThat(index.page(stage, null, 100).get(0).size()).isEqualTo(3);
@@ -207,7 +207,7 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
     @Test
     void managedRenameKeepsFilesAndNameReuseCannotExposeThem() throws Exception {
         configureDurableStorageProfiles(true);
-        var profiles = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(stateStoreDataSource());
+        var profiles = new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(stateStoreDataSource());
         String profile = name + "_profile";
         assertThat(profiles.createIfAbsent(new org.pangrova.spi.storage.StorageProfile(profile,
                 org.pangrova.spi.storage.StorageType.LOCAL, files.toString(), "", "", "",

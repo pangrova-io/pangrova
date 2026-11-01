@@ -49,6 +49,6 @@ class PangrovaErrorCodeTest {
 
     @Test
     void enumHasExpectedSize() {
-        assertThat(PangrovaErrorCode.values()).hasSize(189);
+        assertThat(PangrovaErrorCode.values()).hasSize(195);
     }
 }

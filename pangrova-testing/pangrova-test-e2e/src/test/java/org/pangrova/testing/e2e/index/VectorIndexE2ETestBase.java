@@ -13,12 +13,15 @@
  */
 package org.pangrova.testing.e2e.index;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.metadata.artifact.ArtifactGenerationManifest;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
-import org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore;
+import org.pangrova.indexing.api.ArtifactGenerationManifest;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
+import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.protocol.ArtifactBindingChecksum;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactObject;
@@ -86,7 +89,7 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
         assertThat(active.sourceId()).isEqualTo(fqn);
         assertThat(active.sourceSnapshot()).isNotBlank().isEqualTo(descriptor.buildSnapshotId());
         assertThat(active.artifactType()).isEqualTo("VECTOR_INDEX");
-        var store = new JdbcArtifactBuildStore(stateStoreDataSource());
+        var store = new JdbcArtifactBuildStore(stateStoreDataSource(), new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         var manifest = store.findPublishedGeneration(descriptor.tenantId(), descriptor.indexId(),
                 Integer.toString(descriptor.generation()), active.sourceSnapshot()).orElseThrow(() ->
                         new IllegalStateException("READY index has no durable published artifact"));

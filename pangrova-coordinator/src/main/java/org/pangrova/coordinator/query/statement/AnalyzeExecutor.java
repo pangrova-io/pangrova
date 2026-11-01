@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.control.TableControlStatistics;
-import org.pangrova.metadata.control.TableControlStatisticsService;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.control.TableControlService;
+import org.pangrova.metadata.core.control.TableControlStatistics;
+import org.pangrova.metadata.core.control.TableControlStatisticsService;
 import org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.TypedRow;

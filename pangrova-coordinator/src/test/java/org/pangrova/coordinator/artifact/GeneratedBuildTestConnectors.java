@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.artifact;
 
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.protocol.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;

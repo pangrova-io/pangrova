@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
-import org.pangrova.shuffle.exchange.ExchangeChannelManager;
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleProvider;
+import org.pangrova.shuffle.api.exchange.ExchangeChannelManager;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.contract.ShuffleProvider;
 
 /**
  * Simple {@link ShuffleProvider} that holds a fixed control plane, data plane, and capability set

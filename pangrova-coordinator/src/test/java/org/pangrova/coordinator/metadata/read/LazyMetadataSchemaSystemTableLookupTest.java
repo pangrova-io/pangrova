@@ -3,15 +3,15 @@ package org.pangrova.coordinator.metadata.read;
 import org.pangrova.coordinator.metadata.MetadataPlanningTestSessions;
 
 import org.apache.calcite.schema.lookup.LikePattern;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.exception.MetadataResolutionException;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.api.error.MetadataResolutionException;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
@@ -288,8 +288,8 @@ class LazyMetadataSchemaSystemTableLookupTest {
     }
 
     private static final class EmptyStore implements MetadataStore {
-        @Override public void saveTable(org.pangrova.metadata.model.TableMetadata table) {}
-        @Override public Optional<org.pangrova.metadata.model.TableMetadata> loadTable(
+        @Override public void saveTable(org.pangrova.metadata.api.schema.TableMetadata table) {}
+        @Override public Optional<org.pangrova.metadata.api.schema.TableMetadata> loadTable(
                 String catalog, String schema, String table) { return Optional.empty(); }
         @Override public void deleteTable(String catalog, String schema, String table) {}
         @Override public List<QualifiedTableRef> searchTables(String pattern) { return List.of(); }

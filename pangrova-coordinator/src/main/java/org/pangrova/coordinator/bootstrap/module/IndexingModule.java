@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap.module;
 import org.pangrova.coordinator.bootstrap.IndexingBootstrap;
 import org.pangrova.coordinator.bootstrap.IndexQueryBootstrap;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

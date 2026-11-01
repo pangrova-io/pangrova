@@ -1,26 +1,29 @@
 package org.pangrova.coordinator.artifact;
 
-import org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate;
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
+import org.pangrova.indexing.control.ArtifactStageTemplate;
+import org.pangrova.indexing.control.ArtifactStageGraph;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.build.ArtifactPageCompletion;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.artifact.GeneratedValueArtifactDescriptor;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.api.ArtifactBuildOutputScope;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.control.ArtifactPageCompletion;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.indexing.api.GeneratedValueArtifactDescriptor;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore;
 import org.pangrova.coordinator.artifact.template.FrozenStageBindings;
 import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore;
+import org.pangrova.indexing.store.jdbc.JdbcGeneratedValueArtifactPublicationStore;
 import org.pangrova.protocol.ArtifactBindingChecksum;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
@@ -60,12 +63,12 @@ class GeneratedValueArtifactPublicationIntegrationTest {
     void atomicallyPublishesSidecarAndBindsOnlyTheTaskSourceObject() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource(
                 "generated_value_publication");
-        JdbcArtifactBuildStore buildStore = new JdbcArtifactBuildStore(dataSource);
+        JdbcArtifactBuildStore buildStore = new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         executions = new org.pangrova.coordinator.testinfra.CoordinatorArtifactExecutionFixtures(dataSource);
         org.pangrova.coordinator.testinfra.CoordinatorArtifactAuthorityFixtures.provision(
                 dataSource, TENANT, "alice", dispatch().authorizationScope());
         JdbcGeneratedValueArtifactPublicationStore publicationStore =
-                new JdbcGeneratedValueArtifactPublicationStore(dataSource);
+                new JdbcGeneratedValueArtifactPublicationStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         publicationStore.register(new GeneratedValueArtifactDescriptor(
                 TENANT, ARTIFACT_ID, SOURCE_ID,
                 "lake", "sales", "documents", "embedding",
@@ -116,9 +119,9 @@ class GeneratedValueArtifactPublicationIntegrationTest {
             pool.setMaximumPoolSize(1);
             pool.setMinimumIdle(0);
             pool.setConnectionTimeout(500);
-            var claimed = new JdbcArtifactStageExecutionStore(pool).preparePartition(
+            var claimed = new JdbcArtifactStageExecutionStore(pool, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent)).preparePartition(
                     new JdbcArtifactStageExecutionStore.PartitionClaim(
-                            new org.pangrova.metadata.artifact.build.ArtifactBuildJobKey(TENANT, consumerJob), owner,
+                            new org.pangrova.indexing.control.ArtifactBuildJobKey(TENANT, consumerJob), owner,
                             0, 0, 0, 10, Duration.ofSeconds(30), START), prepared -> {
                         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
                         var result = PublishedArtifactBindingResolver.materializePrepared(List.of(read), List.of(encoded),
@@ -256,10 +259,10 @@ class GeneratedValueArtifactPublicationIntegrationTest {
                 TENANT, JOB_ID, ARTIFACT_ID,
                 ArtifactTypeIds.GENERATED_COLUMN_VALUES,
                 GENERATION, SOURCE_ID, SNAPSHOT,
-                org.pangrova.metadata.artifact.contract.ArtifactExecutionKind.BUILD,
-                org.pangrova.metadata.artifact.contract.ArtifactDependencySet.sourceSnapshot(
+                org.pangrova.indexing.api.ArtifactExecutionKind.BUILD,
+                org.pangrova.indexing.api.ArtifactDependencySet.sourceSnapshot(
                         SOURCE_ID, SNAPSHOT),
-                org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy.FORBID,
+                org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy.FORBID,
                 "s3://warehouse/system/generated-values-test", format.getFormatId(),
                 format.getMajorVersion(), format.getMinorVersion(),
                 HexFormat.of().formatHex(format.getSchemaSha256().toByteArray()),
@@ -285,7 +288,7 @@ class GeneratedValueArtifactPublicationIntegrationTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 HexFormat.of().parseHex(
-                                        org.pangrova.metadata.artifact.contract.ArtifactDependencySet
+                                        org.pangrova.indexing.api.ArtifactDependencySet
                                                 .sourceSnapshot(SOURCE_ID, SNAPSHOT).sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2.ArtifactEmptyPartitionPolicy
                         .ARTIFACT_EMPTY_PARTITION_POLICY_FORBID)

@@ -8,16 +8,16 @@ import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.serde.IndexSerializer;
 import org.pangrova.indexing.serde.TypeSerializerRegistry;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.index.CommitEventRequest;
-import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.metadata.index.model.CommitLogEntry;
-import org.pangrova.metadata.index.model.IndexFileMapping;
-import org.pangrova.metadata.store.MetadataStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.indexing.control.CommitEventRequest;
+import org.pangrova.indexing.control.IndexMetadataStore;
+import org.pangrova.indexing.api.CommitLogEntry;
+import org.pangrova.indexing.api.IndexFileMapping;
+import org.pangrova.metadata.core.store.MetadataStore;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
@@ -313,9 +313,9 @@ class IndexCommitHandlerLeaderGateTest {
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
                 Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
-        @Override public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.metadata.index.model.IndexPublicationRequest request) { throw new AssertionError(); }
-        @Override public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+        @Override public org.pangrova.indexing.api.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.indexing.api.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.indexing.api.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) {
             return Optional.empty();
@@ -398,11 +398,11 @@ class IndexCommitHandlerLeaderGateTest {
     static final class StubMetadataStore implements MetadataStore {
         private final CatalogDescriptor descriptor;
         StubMetadataStore(CatalogDescriptor d) { this.descriptor = d; }
-        @Override public void saveTable(org.pangrova.metadata.model.TableMetadata m) {}
-        @Override public Optional<org.pangrova.metadata.model.TableMetadata> loadTable(
+        @Override public void saveTable(org.pangrova.metadata.api.schema.TableMetadata m) {}
+        @Override public Optional<org.pangrova.metadata.api.schema.TableMetadata> loadTable(
                 String c, String s, String t) { return Optional.empty(); }
         @Override public void deleteTable(String c, String s, String t) {}
-        @Override public List<org.pangrova.metadata.model.QualifiedTableRef> searchTables(
+        @Override public List<org.pangrova.metadata.api.object.QualifiedTableRef> searchTables(
                 String p) { return List.of(); }
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) {}
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) {
@@ -416,7 +416,7 @@ class IndexCommitHandlerLeaderGateTest {
             return Optional.empty();
         }
         @Override public void updateSyncTime(String c, Instant t) {}
-        @Override public void recordSyncHistory(org.pangrova.metadata.sync.SyncResult r) {}
+        @Override public void recordSyncHistory(org.pangrova.metadata.core.store.SyncResult r) {}
         @Override public void saveSchemas(String c, List<String> s) {}
     }
 }

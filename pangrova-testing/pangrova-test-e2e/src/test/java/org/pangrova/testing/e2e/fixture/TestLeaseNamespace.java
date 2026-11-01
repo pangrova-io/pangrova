@@ -1,6 +1,6 @@
 package org.pangrova.testing.e2e.fixture;
 
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
+import org.pangrova.coordinator.coordination.JdbcDistributedLease;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.LeaseEntry;
 

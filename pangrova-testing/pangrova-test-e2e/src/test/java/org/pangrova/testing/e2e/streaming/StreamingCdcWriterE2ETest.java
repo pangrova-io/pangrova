@@ -1,379 +1,178 @@
 package org.pangrova.testing.e2e.streaming;
 
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.write.DataFileSink;
-import org.pangrova.spi.connector.data.write.model.WriteContext;
-import org.pangrova.spi.connector.data.write.model.WriteMode;
-import org.pangrova.spi.connector.data.write.model.WriteRecord;
-import org.pangrova.spi.connector.data.write.model.WriteResult;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.streaming.cdc.CdcConsumer;
-import org.pangrova.streaming.cdc.CdcConfig;
-import org.pangrova.streaming.writer.LakeTableWriter;
-import org.pangrova.testing.TestObservability;
-import org.pangrova.testing.e2e.SqlE2ETestBase;
-import org.pangrova.testing.e2e.config.ConnectorTestConfig;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.concurrent.BackoffStrategy;
+import org.pangrova.spi.streaming.record.CdcEnvelope;
+import org.pangrova.spi.streaming.record.CdcOperation;
+import org.pangrova.spi.streaming.source.CdcSourceReader;
+import org.pangrova.spi.streaming.sink.CdcWriteResult;
+import org.pangrova.spi.streaming.sink.CdcWriteSink;
+import org.pangrova.spi.streaming.source.SourceRecord;
+import org.pangrova.spi.streaming.source.SourceId;
+import org.pangrova.spi.streaming.source.TopicPartitionOffset;
+import org.pangrova.streaming.cdc.CdcPipelineConfig;
+import org.pangrova.streaming.cdc.CdcPipelineLoop;
+import org.pangrova.streaming.cdc.CdcPipelineLoopContext;
+import org.pangrova.streaming.cdc.CdcPipelineRuntimeHooks;
+import org.pangrova.streaming.cdc.CdcQuotaEnforcer;
+import org.pangrova.streaming.format.DebeziumJsonConverter;
+import org.pangrova.streaming.maintenance.CompactionResult;
+import org.pangrova.streaming.maintenance.MaintenanceConfig;
+import org.pangrova.streaming.maintenance.MaintenanceScheduler;
+import org.pangrova.streaming.maintenance.MaintenanceStatus;
+import org.pangrova.streaming.maintenance.OrphanCleanupResult;
+import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
+import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
+import org.pangrova.streaming.watermark.InMemoryWatermarkStore;
+import org.pangrova.streaming.watermark.WatermarkTracker;
 
-import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * E2E test for Streaming CDC Writer pipeline.
- *
- * <p>Validates the CDC ingestion path:
- * Debezium JSON → CdcConsumer.parseDebeziumMessage → CdcEnvelope →
- * groupByTable → LakeTableWriter.write → WriteResult callback.
- *
- * <p>Also validates that CDC-ingested data is queryable through the
- * standard SQL pipeline after write.
+ * End-to-end coverage for the production CDC path: Debezium JSON → converter →
+ * {@link CdcPipelineLoop} → {@link CdcWriteSink} → offset commit.
  */
-@DisplayName("Streaming CDC Writer E2E — CDC Ingestion Pipeline")
-class StreamingCdcWriterE2ETest extends SqlE2ETestBase {
+class StreamingCdcWriterE2ETest {
 
-    private static final String CATALOG = "iceberg_catalog";
-    private static final String SCHEMA = "default";
+    private static final String TARGET = "catalog.schema.orders";
+    private static final String STREAM = "cdc-orders";
 
-    private String testTable;
+    @Test
+    void debeziumConverterParsesMessage() {
+        CdcEnvelope envelope = new DebeziumJsonConverter().deserialize(
+                """
+                {"payload":{"op":"c","before":null,"after":{"id":1,"name":"alice"},\
+                "ts_ms":1234567890,"source":{"db":"mydb","table":"users"}}}"""
+                        .getBytes(StandardCharsets.UTF_8));
 
-    @Override
-    protected List<ConnectorTestConfig> connectorConfigs() {
-        return List.of(ConnectorTestConfig.icebergLocal(
-                CATALOG, SCHEMA, icebergWarehouse().toString()));
+        assertThat(envelope.operation()).isEqualTo(CdcOperation.INSERT);
+        assertThat(envelope.after()).isNotNull();
+        assertThat(envelope.after().get("id")).isEqualTo(1);
+        assertThat(envelope.after().get("name")).isEqualTo("alice");
+        assertThat(envelope.before()).isNull();
+        assertThat(envelope.tableName()).isEqualTo("mydb.users");
     }
 
-    @BeforeEach
-    void setupTable() {
-        String suffix = Long.toHexString(System.nanoTime());
-        testTable = "cdc_test_" + suffix;
-        dataSetup.createTestTable(CATALOG, SCHEMA, testTable,
-                "id INT, name VARCHAR(100), amount DOUBLE");
-    }
+    @Test
+    void pipelineWritesParsedBatchAndCommitsOffsets() throws Exception {
+        byte[] payload = """
+                {"payload":{"op":"u","before":{"id":1,"name":"old"},\
+                "after":{"id":1,"name":"new"},"ts_ms":1234567890,\
+                "source":{"db":"mydb","table":"users"}}}"""
+                .getBytes(StandardCharsets.UTF_8);
+        SourceRecord record = new SourceRecord("orders", 0, 42, new byte[]{1}, payload,
+                System.currentTimeMillis());
 
-    @Nested
-    @DisplayName("CdcConsumer Debezium JSON Parsing")
-    class DebeziumParsingTest {
-
-        @Test
-        @DisplayName("parses INSERT envelope with before=null and after populated")
-        void parseInsertEnvelope() {
-            CdcConsumer consumer = createCdcConsumer();
-            String json = debeziumInsertJson("test_db." + testTable, 1, "alice", 100.0);
-
-            CdcEnvelope envelope = consumer.parseDebeziumMessage(json);
-
-            assertThat(envelope.operation().name()).isEqualTo("INSERT");
-            assertThat(envelope.tableName()).isEqualTo("test_db." + testTable);
-            assertThat(envelope.before()).isNull();
-            assertThat(envelope.after()).isNotNull();
-            assertThat(envelope.after().get("id")).isEqualTo(1);
-            assertThat(envelope.after().get("name")).isEqualTo("alice");
-            assertThat(envelope.schemaVersion()).isZero();
-        }
-
-        @Test
-        @DisplayName("parses UPDATE envelope with both before and after")
-        void parseUpdateEnvelope() {
-            CdcConsumer consumer = createCdcConsumer();
-            String json = debeziumUpdateJson("test_db." + testTable,
-                    1, "alice", 100.0, "alice", 200.0);
-
-            CdcEnvelope envelope = consumer.parseDebeziumMessage(json);
-
-            assertThat(envelope.operation().name()).isEqualTo("UPDATE");
-            assertThat(envelope.before()).isNotNull();
-            assertThat(envelope.before().get("amount")).isEqualTo(100.0);
-            assertThat(envelope.after()).isNotNull();
-            assertThat(envelope.after().get("amount")).isEqualTo(200.0);
-        }
-
-        @Test
-        @DisplayName("parses DELETE envelope with before populated and after=null")
-        void parseDeleteEnvelope() {
-            CdcConsumer consumer = createCdcConsumer();
-            String json = debeziumDeleteJson("test_db." + testTable, 1, "alice", 100.0);
-
-            CdcEnvelope envelope = consumer.parseDebeziumMessage(json);
-
-            assertThat(envelope.operation().name()).isEqualTo("DELETE");
-            assertThat(envelope.before()).isNotNull();
-            assertThat(envelope.before().get("id")).isEqualTo(1);
-            assertThat(envelope.after()).isNull();
-        }
-
-        @Test
-        @DisplayName("rejects malformed JSON with IllegalArgumentException")
-        void rejectMalformedJson() {
-            CdcConsumer consumer = createCdcConsumer();
-
-            assertThatThrownBy(() -> consumer.parseDebeziumMessage("{invalid"))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Failed to parse");
-        }
-    }
-
-    @Nested
-    @DisplayName("LakeTableWriter Write with Callback")
-    class LakeTableWriterTest {
-
-        @Test
-        @DisplayName("writes INSERT records and fires callback with correct stats")
-        void writeInsertRecordsWithCallback() {
-            List<WriteResult> results = new CopyOnWriteArrayList<>();
-            try (LakeTableWriter writer = new LakeTableWriter(new StubDataFileSink(1), "id", results::add)) {
-                List<WriteRecord> records = List.of(
-                        insertRecord(1, "alice", 100.0),
-                        insertRecord(2, "bob", 200.0));
-
-                WriteResult result = writer.write(testTable, records,
-                        WriteMode.UPSERT, WriteContext.selfManaged());
-
-                assertThat(result.tableName()).isEqualTo(testTable);
-                assertThat(result.recordCount()).isEqualTo(2);
-                assertThat(result.dataFilesWritten()).isEqualTo(1);
-                assertThat(result.positionDeleteFiles()).isZero();
-                assertThat(result.equalityDeleteFiles()).isZero();
-                assertThat(results).hasSize(1);
-                assertThat(results.get(0).commitTime()).isNotNull();
+        RecordingSource reader = new RecordingSource(record);
+        RecordingSink sink = new RecordingSink();
+        try (MaintenanceScheduler maintenance = new MaintenanceScheduler(
+                new NoOpMaintenance(), MaintenanceConfig.defaults())) {
+            CdcPipelineConfig config = new CdcPipelineConfig(
+                    STREAM, new SourceId(STREAM), TARGET,
+                    10, Duration.ofMillis(50), 10, 3, 5);
+            CdcPipelineLoopContext deps = new CdcPipelineLoopContext(
+                    reader, new DebeziumJsonConverter(), sink,
+                    new CdcQuotaEnforcer(4, 1_000_000),
+                    new WatermarkTracker(new InMemoryWatermarkStore()),
+                    maintenance,
+                    CdcPipelineRuntimeHooks.forTests(e -> { }, BackoffStrategy.retry(10, 100), null));
+            CdcPipelineLoop loop = new CdcPipelineLoop(config, deps);
+            Thread thread = new Thread(loop);
+            thread.start();
+            try {
+                assertThat(reader.awaitCommit()).isTrue();
+            } finally {
+                loop.stop();
+                thread.join(5_000);
             }
         }
 
-        @Test
-        @DisplayName("classifies same-key duplicates as position deletes")
-        void classifySameKeyDuplicatesAsPositionDeletes() {
-            List<WriteResult> results = new CopyOnWriteArrayList<>();
-            try (LakeTableWriter writer = new LakeTableWriter(new StubDataFileSink(1), "id", results::add)) {
-                List<WriteRecord> records = List.of(
-                        insertRecord(1, "alice", 100.0),
-                        insertRecord(1, "alice_v2", 150.0),
-                        insertRecord(2, "bob", 200.0));
-
-                WriteResult result = writer.write(testTable, records,
-                        WriteMode.UPSERT, WriteContext.selfManaged());
-
-                assertThat(result.recordCount()).isEqualTo(3);
-                assertThat(result.positionDeleteFiles()).isEqualTo(1);
-            }
-        }
+        assertThat(sink.envelopes).hasSize(1);
+        assertThat(sink.envelopes.get(0).operation()).isEqualTo(CdcOperation.UPDATE);
+        assertThat(sink.envelopes.get(0).after().get("name")).isEqualTo("new");
+        assertThat(reader.committed.get(0))
+                .containsEntry(new TopicPartitionOffset("orders", 0), 43L);
     }
 
-    @Nested
-    @DisplayName("CDC Batch Processing Pipeline")
-    class BatchProcessingTest {
+    private static final class RecordingSource implements CdcSourceReader {
+        private final List<SourceRecord> batch;
+        private final AtomicInteger polls = new AtomicInteger();
+        private final List<Map<TopicPartitionOffset, Long>> committed = new CopyOnWriteArrayList<>();
 
-        @Test
-        @DisplayName("processBatch: parse → group → write → commit full cycle")
-        void processBatchFullCycle() {
-            List<WriteResult> writeResults = new CopyOnWriteArrayList<>();
-            try (LakeTableWriter writer = new LakeTableWriter(new StubDataFileSink(1), "id", writeResults::add)) {
-                List<List<CdcEnvelope>> committed = new CopyOnWriteArrayList<>();
-                try (CdcConsumer consumer = new CdcConsumer(
-                        writer, createCdcConfig(), committed::add, TestObservability.METRICS)) {
-
-                    String tableName = "test_db." + testTable;
-                    List<String> batch = List.of(
-                            debeziumInsertJson(tableName, 1, "alice", 100.0),
-                            debeziumInsertJson(tableName, 2, "bob", 200.0),
-                            debeziumUpdateJson(tableName, 1, "alice", 100.0, "alice", 300.0));
-
-                    consumer.processBatch(batch);
-
-                    assertThat(writeResults).hasSize(1);
-                    assertThat(writeResults.get(0).recordCount()).isEqualTo(3);
-                    assertThat(committed).hasSize(1);
-                    assertThat(committed.get(0)).hasSize(3);
-                }
-            }
-        }
-
-        @Test
-        @DisplayName("processBatch skips unparseable messages via dead-letter")
-        void processBatchDeadLetterSkip() {
-            List<WriteResult> writeResults = new CopyOnWriteArrayList<>();
-            try (LakeTableWriter writer = new LakeTableWriter(new StubDataFileSink(1), "id", writeResults::add)) {
-                List<List<CdcEnvelope>> committed = new CopyOnWriteArrayList<>();
-                try (CdcConsumer consumer = new CdcConsumer(
-                        writer, createCdcConfig(), committed::add, TestObservability.METRICS)) {
-
-                    String tableName = "test_db." + testTable;
-                    List<String> batch = List.of(
-                            debeziumInsertJson(tableName, 1, "alice", 100.0),
-                            "{broken-json",
-                            debeziumInsertJson(tableName, 2, "bob", 200.0));
-
-                    consumer.processBatch(batch);
-
-                    assertThat(committed).hasSize(1);
-                    assertThat(committed.get(0)).hasSize(2);
-                }
-            }
-        }
-
-        @Test
-        @DisplayName("groupByTable correctly partitions envelopes by table name")
-        void groupByTablePartitioning() {
-            CdcConsumer consumer = createCdcConsumer();
-            String table1 = "db1.orders";
-            String table2 = "db1.users";
-
-            CdcEnvelope e1 = consumer.parseDebeziumMessage(
-                    debeziumInsertJson(table1, 1, "item_a", 10.0));
-            CdcEnvelope e2 = consumer.parseDebeziumMessage(
-                    debeziumInsertJson(table2, 2, "bob", 0.0));
-            CdcEnvelope e3 = consumer.parseDebeziumMessage(
-                    debeziumInsertJson(table1, 3, "item_b", 20.0));
-
-            Map<String, List<CdcEnvelope>> grouped =
-                    consumer.groupByTable(List.of(e1, e2, e3));
-
-            assertThat(grouped).hasSize(2);
-            assertThat(grouped.get(table1)).hasSize(2);
-            assertThat(grouped.get(table2)).hasSize(1);
-        }
-    }
-
-    @Nested
-    @DisplayName("CDC to SQL Query Verification")
-    class CdcToSqlQueryTest {
-
-        @Test
-        @DisplayName("CDC-ingested data is queryable via SQL pipeline after insert")
-        void cdcIngestedDataQueryableViaSql() {
-            insertCdcTestData();
-
-            List<TypedRow> rows = sqlRunner.execute(
-                    "SELECT id, name, amount FROM " + CATALOG + "." + SCHEMA
-                            + "." + testTable + " ORDER BY id");
-
-            assertThat(rows).hasSize(3);
-            assertThat(rows.get(0).getRaw("name")).isEqualTo("alice");
-            assertThat(rows.get(1).getRaw("name")).isEqualTo("bob");
-            assertThat(rows.get(2).getRaw("name")).isEqualTo("charlie");
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Helper: CdcConsumer and CdcConfig factory
-    // -----------------------------------------------------------------------
-
-    private CdcConsumer createCdcConsumer() {
-        LakeTableWriter writer = new LakeTableWriter(new StubDataFileSink(1), "id", result -> {});
-        return new CdcConsumer(writer, createCdcConfig(), envelopes -> {},
-                TestObservability.METRICS);
-    }
-
-    private static CdcConfig createCdcConfig() {
-        String loopback = InetAddress.getLoopbackAddress().getHostAddress();
-        return new CdcConfig(
-                loopback + ":0", "e2e-test-group",
-                List.of("cdc-topic"), "e2e-consumer-1",
-                "test-tenant", 4, 64 * 1024 * 1024);
-    }
-
-    // -----------------------------------------------------------------------
-    // Helper: WriteRecord factory
-    // -----------------------------------------------------------------------
-
-    private static WriteRecord insertRecord(int id, String name, double amount) {
-        TypedRow row = TypedRow.builder()
-                .putInt("id", id)
-                .putString("name", name)
-                .putRaw("amount", amount)
-                .build();
-        return WriteRecord.fromClient(row, WriteRecord.WriteOperation.INSERT);
-    }
-
-    // -----------------------------------------------------------------------
-    // Helper: insert test data via SQL for query verification
-    // -----------------------------------------------------------------------
-
-    private void insertCdcTestData() {
-        String fqn = CATALOG + "." + SCHEMA + "." + testTable;
-        sqlRunner.execute("INSERT INTO " + fqn + " VALUES (1, 'alice', 100.0)");
-        sqlRunner.execute("INSERT INTO " + fqn + " VALUES (2, 'bob', 200.0)");
-        sqlRunner.execute("INSERT INTO " + fqn + " VALUES (3, 'charlie', 300.0)");
-    }
-
-    // -----------------------------------------------------------------------
-    // Helper: Debezium JSON builders
-    // -----------------------------------------------------------------------
-
-    private static String debeziumInsertJson(String tableName,
-                                             int id, String name, double amount) {
-        String[] parts = tableName.split("\\.", 2);
-        String db = parts.length > 1 ? parts[0] : "";
-        String table = parts.length > 1 ? parts[1] : parts[0];
-        return """
-                {"payload":{
-                  "op":"c",
-                  "before":null,
-                  "after":{"id":%d,"name":"%s","amount":%s},
-                  "ts_ms":%d,
-                  "source":{"db":"%s","table":"%s","version":"0"}
-                }}""".formatted(id, name, amount,
-                System.currentTimeMillis(), db, table);
-    }
-
-    private static String debeziumUpdateJson(String tableName,
-                                             int id, String oldName, double oldAmount,
-                                             String newName, double newAmount) {
-        String[] parts = tableName.split("\\.", 2);
-        String db = parts.length > 1 ? parts[0] : "";
-        String table = parts.length > 1 ? parts[1] : parts[0];
-        return """
-                {"payload":{
-                  "op":"u",
-                  "before":{"id":%d,"name":"%s","amount":%s},
-                  "after":{"id":%d,"name":"%s","amount":%s},
-                  "ts_ms":%d,
-                  "source":{"db":"%s","table":"%s","version":"0"}
-                }}""".formatted(id, oldName, oldAmount,
-                id, newName, newAmount,
-                System.currentTimeMillis(), db, table);
-    }
-
-    private static String debeziumDeleteJson(String tableName,
-                                             int id, String name, double amount) {
-        String[] parts = tableName.split("\\.", 2);
-        String db = parts.length > 1 ? parts[0] : "";
-        String table = parts.length > 1 ? parts[1] : parts[0];
-        return """
-                {"payload":{
-                  "op":"d",
-                  "before":{"id":%d,"name":"%s","amount":%s},
-                  "after":null,
-                  "ts_ms":%d,
-                  "source":{"db":"%s","table":"%s","version":"0"}
-                }}""".formatted(id, name, amount,
-                System.currentTimeMillis(), db, table);
-    }
-
-    // -----------------------------------------------------------------------
-    // Helper: Stub DataFileSink for test isolation
-    // -----------------------------------------------------------------------
-
-    private static final class StubDataFileSink implements DataFileSink {
-        private final int filesToReturn;
-
-        StubDataFileSink(int filesToReturn) {
-            this.filesToReturn = filesToReturn;
+        private RecordingSource(SourceRecord record) {
+            this.batch = List.of(record);
         }
 
         @Override
-        public int writeRecords(String tableName, java.util.List<WriteRecord> records,
-                                WriteMode writeMode) {
-            return filesToReturn;
+        public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
+            return polls.getAndIncrement() == 0 ? batch : List.of();
         }
 
         @Override
-        public void close() {}
+        public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {
+            committed.add(Map.copyOf(offsets));
+        }
+
+        @Override
+        public void seekToOffsets(Map<TopicPartitionOffset, Long> offsets) { }
+
+        @Override
+        public void close() { }
+
+        private boolean awaitCommit() throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (committed.isEmpty() && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            return !committed.isEmpty();
+        }
+    }
+
+    private static final class RecordingSink implements CdcWriteSink {
+        private final List<CdcEnvelope> envelopes = new CopyOnWriteArrayList<>();
+
+        @Override
+        public CdcWriteResult writeBatch(List<CdcEnvelope> batch) {
+            envelopes.addAll(batch);
+            return new CdcWriteResult(batch.size(), batch.size() * 128L, 1, TARGET);
+        }
+
+        @Override
+        public void close() { }
+    }
+
+    private static final class NoOpMaintenance implements TableMaintenanceSpi {
+        @Override
+        public CompletableFuture<CompactionResult> compactAsync(String tableName) {
+            return CompletableFuture.completedFuture(new CompactionResult(tableName, 0, 0, 0));
+        }
+
+        @Override
+        public CompletableFuture<OrphanCleanupResult> cleanOrphansAsync(
+                String tableName, Duration olderThan) {
+            return CompletableFuture.completedFuture(new OrphanCleanupResult(tableName, 0, 0));
+        }
+
+        @Override
+        public CompletableFuture<SnapshotExpirationResult> expireSnapshotsAsync(
+                String tableName, Duration olderThan) {
+            return CompletableFuture.completedFuture(new SnapshotExpirationResult(tableName, 0));
+        }
+
+        @Override
+        public MaintenanceStatus getMaintenanceStatus(String tableName) {
+            return new MaintenanceStatus(tableName, 0, 0, 0, 0, 0, 0, 0, null, null, null);
+        }
     }
 }

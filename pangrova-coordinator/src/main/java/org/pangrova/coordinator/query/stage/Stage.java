@@ -11,7 +11,7 @@ import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveDecisi
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskRetryCallback;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
-import org.pangrova.shuffle.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

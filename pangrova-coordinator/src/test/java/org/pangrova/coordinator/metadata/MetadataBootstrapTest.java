@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.MetadataSyncService;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.sync.MetadataSyncService;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +31,7 @@ class MetadataBootstrapTest {
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store);
 
         assertThat(bootstrap.catalogRegistry()).isNotNull();
-        assertThat(bootstrap.metadataService()).isNotNull();
+        assertThat(bootstrap.metadataGateway()).isNotNull();
 
         bootstrap.shutdown();
     }

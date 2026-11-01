@@ -3,8 +3,8 @@ package org.pangrova.coordinator.artifact;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.proto.Plan;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
 import org.pangrova.planner.substrait.SubstraitProtocolVersion;
 import org.pangrova.protocol.DataSplitProtoCodec;
 import org.pangrova.protocol.RowLocatorContractValidator;
@@ -40,7 +40,7 @@ public final class ArtifactDispatchProtocolValidator {
                 && output.getEncryptionKeyRef().equals(job.encryptionKeyRef())
                 && formatMatches(job, output)
                 && (output.hasRowLocator() != job.artifactType().equals(
-                        org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TABULAR_EXPORT))
+                        org.pangrova.indexing.api.ArtifactTypeIds.TABULAR_EXPORT))
                 && outputStateIsUnbound(output)
                 && output.getExecutionKind() == protocolExecutionKind(job)
                 && output.getEmptyPartitionPolicy() == protocolEmptyPolicy(job)
@@ -126,7 +126,7 @@ public final class ArtifactDispatchProtocolValidator {
     }
 
     /** Validates only the canonical executable stage bytes, never SQL reconstructed during replay. */
-    public static void validatePlan(org.pangrova.metadata.artifact.build.ArtifactStageGraph.StagePlan stage) {
+    public static void validatePlan(org.pangrova.indexing.control.ArtifactStageGraph.StagePlan stage) {
         try {
             Plan plan = Plan.parseFrom(stage.planBytes());
             if (!plan.getUnknownFields().asMap().isEmpty()

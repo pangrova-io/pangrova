@@ -1,8 +1,8 @@
 package org.pangrova.worker.task;
 
 import org.pangrova.spi.execution.ResultTransport;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.shuffle.ShuffleTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.transport.ShuffleTransport;
 
 /**
  * Groups transport SPI references for TaskManager.

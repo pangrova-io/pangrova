@@ -30,7 +30,7 @@ import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.protocol.rest.error.ErrorDetail;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

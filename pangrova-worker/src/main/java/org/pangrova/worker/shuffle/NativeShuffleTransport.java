@@ -3,9 +3,9 @@ package org.pangrova.worker.shuffle;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.spi.execution.TaskExecutor;
-import org.pangrova.shuffle.ShufflePartitionTicket;
-import org.pangrova.shuffle.ShuffleServerHandle;
-import org.pangrova.shuffle.ShuffleTransport;
+import org.pangrova.shuffle.api.registration.ShufflePartitionTicket;
+import org.pangrova.shuffle.api.registration.ShuffleServerHandle;
+import org.pangrova.shuffle.api.transport.ShuffleTransport;
 import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.protocol.v2.StartShuffleServerRequest;

@@ -11,7 +11,7 @@ import org.pangrova.planner.FragmentedPlan;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.PlanStage;
 import org.pangrova.planner.StageTransfer;
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.api.exchange.ExchangeReadMode;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

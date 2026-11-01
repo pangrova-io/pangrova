@@ -85,7 +85,7 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   and statistics references only. Business concepts, terms, metrics,
   relationships, semantic views, ontologies, and their publication state MUST
   be owned by `pangrova-semantic`; AI grounding/evaluation state MUST be owned
-  by `pangrova-ai-control`. Metadata MUST NOT import either implementation.
+  by `pangrova-ai`. Metadata MUST NOT import either implementation.
 - `pangrova-semantic` is one owner artifact with internal model, relationship,
   ontology, compiler, projection, adapter, and JDBC-store package boundaries.
   A generic `pangrova-graph` artifact is forbidden. RDF/SKOS/OWL/SHACL,
@@ -123,9 +123,6 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   `planner.substrait`; they must not appear in domain or public API packages.
 - `internal` is documentation, not a Java access boundary. Architecture tests
   must reject imports of internal packages from any other leaf.
-- Every owned root and every exported/friend-exported package must contain a
-  `package-info.java` documenting its owner, stability, allowed consumers, and
-  prohibited responsibilities.
 - Tests inside a production leaf may mirror that leaf's package to exercise
   package-private behavior. Reusable test utilities belong under an exclusive
   testing root such as `org.pangrova.testing.testkit`; they must not create a

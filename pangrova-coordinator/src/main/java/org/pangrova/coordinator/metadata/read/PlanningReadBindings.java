@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.exception.MetadataResolutionException;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.control.TableControlRecord;
+import org.pangrova.metadata.api.error.MetadataResolutionException;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;

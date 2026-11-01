@@ -2,16 +2,16 @@ package org.pangrova.coordinator.streaming;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.streaming.StreamLifecycleState;
-import org.pangrova.metadata.streaming.StreamState;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.spi.streaming.CdcOperation;
-import org.pangrova.spi.streaming.CdcRecordConverter;
-import org.pangrova.spi.streaming.SourceRecord;
-import org.pangrova.spi.streaming.TopicPartitionOffset;
+import org.pangrova.spi.streaming.store.StreamLifecycleState;
+import org.pangrova.spi.streaming.store.StreamState;
+import org.pangrova.spi.streaming.record.CdcEnvelope;
+import org.pangrova.spi.streaming.record.CdcOperation;
+import org.pangrova.spi.streaming.record.CdcRecordConverter;
+import org.pangrova.spi.streaming.source.SourceRecord;
+import org.pangrova.spi.streaming.source.TopicPartitionOffset;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
-import org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore;
-import org.pangrova.streaming.cdc.commit.SourceId;
+import org.pangrova.streaming.jdbc.JdbcCdcCommitStateStore;
+import org.pangrova.spi.streaming.source.SourceId;
 import org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator;
 import org.pangrova.streaming.maintenance.MaintenanceConfig;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
@@ -35,10 +35,10 @@ class StreamSchedulerCheckpointTest extends ContainerTestBase {
         var store = new JdbcCdcCommitStateStore(SharedPostgresContainer.migratedDataSource("scheduler_checkpoint"));
         var coordinator = new TwoPhaseCommitCoordinator(store);
         var old = coordinator.prepare(new SourceId("ingestion"),
-                new org.pangrova.streaming.cdc.commit.CdcBatchCheckpoint(List.of(
-                        new org.pangrova.streaming.cdc.commit.OffsetRange("orders", 0, 0, 100))));
-        store.compareAndSetState(old.id(), org.pangrova.streaming.cdc.commit.CdcCommitState.PREPARED,
-                org.pangrova.streaming.cdc.commit.CdcCommitState.COMMITTING);
+                new org.pangrova.spi.streaming.commit.CdcBatchCheckpoint(List.of(
+                        new org.pangrova.spi.streaming.source.OffsetRange("orders", 0, 0, 100))));
+        store.compareAndSetState(old.id(), org.pangrova.spi.streaming.commit.CdcCommitState.PREPARED,
+                org.pangrova.spi.streaming.commit.CdcCommitState.COMMITTING);
         coordinator.commit(old);
         var expected = Map.of(new TopicPartitionOffset("orders", 0), 11L,
                 new TopicPartitionOffset("payments", 2), 21L);

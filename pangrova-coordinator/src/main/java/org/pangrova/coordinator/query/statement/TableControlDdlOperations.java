@@ -4,13 +4,13 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.OwnershipMode;
-import org.pangrova.metadata.control.TableControlMaintenanceService;
-import org.pangrova.metadata.control.TableControlPolicyBinder;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.service.MetadataService;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.control.OwnershipMode;
+import org.pangrova.metadata.core.control.TableControlMaintenanceService;
+import org.pangrova.metadata.core.control.TableControlPolicyBinder;
+import org.pangrova.metadata.core.control.TableControlRecord;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.control.ColumnTagPort;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.TypedRow;
@@ -40,7 +40,7 @@ final class TableControlDdlOperations {
     private final CatalogRegistry catalogRegistry;
     private volatile TableControlMaintenanceService maintenancePolicyService;
     private volatile org.pangrova.coordinator.query.audit.TableControlAuditEmitter audit;
-    private volatile MetadataService metadataService;
+    private volatile ColumnTagPort columnTagPort;
     private volatile ColumnMaskStore columnMaskStore;
 
     TableControlDdlOperations(CatalogRegistry catalogRegistry) {
@@ -55,16 +55,16 @@ final class TableControlDdlOperations {
         this.audit = emitter;
     }
 
-    void setMetadataService(MetadataService service) {
-        this.metadataService = service;
+    void setColumnTagPort(ColumnTagPort service) {
+        this.columnTagPort = service;
     }
 
     void setColumnMaskStore(ColumnMaskStore store) {
         this.columnMaskStore = store;
     }
 
-    MetadataService metadataService() {
-        return metadataService;
+    ColumnTagPort columnTagPort() {
+        return columnTagPort;
     }
 
     /** Adopts an external table as LINKED. The physical table is not modified. */
@@ -113,7 +113,7 @@ final class TableControlDdlOperations {
         if (record == null) {
             return;
         }
-        MetadataService service = metadataService;
+        ColumnTagPort service = columnTagPort;
         if (service != null) {
             service.clearTableTags(SessionContextConverter.toMetadataSessionContext(context), record.tableId());
         }
@@ -139,7 +139,7 @@ final class TableControlDdlOperations {
      */
     void moveNameScopedGovernance(QualifiedTableName from, QualifiedTableName to,
             List<String> columns, CoordinatorSessionContext context) {
-        MetadataService service = metadataService;
+        ColumnTagPort service = columnTagPort;
         var identity = catalogRegistry.tableControl().find(to.catalog(), to.schema(), to.table());
         if (service != null && identity.isPresent()) {
             service.renameTableTags(SessionContextConverter.toMetadataSessionContext(context),

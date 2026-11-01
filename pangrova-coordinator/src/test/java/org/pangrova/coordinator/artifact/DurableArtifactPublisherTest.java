@@ -1,21 +1,24 @@
 package org.pangrova.coordinator.artifact;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.build.ArtifactPageCompletion;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.artifact.ArtifactGenerationManifest;
-import org.pangrova.metadata.artifact.ArtifactPublicationStore;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.api.ArtifactBuildOutputScope;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.control.ArtifactPageCompletion;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.indexing.api.ArtifactGenerationManifest;
+import org.pangrova.indexing.control.ArtifactPublicationStore;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -51,7 +54,7 @@ class DurableArtifactPublisherTest {
     void setUp() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource(
                 "durable_artifact_publisher");
-        store = new JdbcArtifactBuildStore(dataSource);
+        store = new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         executions = new org.pangrova.coordinator.testinfra.CoordinatorArtifactExecutionFixtures(dataSource);
         var source = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items");
         org.pangrova.coordinator.testinfra.CoordinatorArtifactAuthorityFixtures.provision(
@@ -142,7 +145,7 @@ class DurableArtifactPublisherTest {
 
         executions.ownership("maintenance-a").yield(buildAnchor);
         assertThat(store.listReadyForPublication(10, START.plusSeconds(1)))
-                .containsExactly(new org.pangrova.metadata.artifact.build.ArtifactBuildJobKey(TENANT, "job-1"));
+                .containsExactly(new org.pangrova.indexing.control.ArtifactBuildJobKey(TENANT, "job-1"));
 
         AtomicInteger calls = new AtomicInteger();
         ArtifactPublicationStore adapter = (claim, owner, epoch, now) -> {
@@ -174,17 +177,17 @@ class DurableArtifactPublisherTest {
         store.createJob(new ArtifactBuildJob(
                         TENANT, "job-1", "artifact-1", TYPE, "generation-1",
                         "catalog.schema.items", "snapshot-1",
-                        org.pangrova.metadata.artifact.contract.ArtifactExecutionKind.BUILD,
-                        org.pangrova.metadata.artifact.contract.ArtifactDependencySet.sourceSnapshot(
+                        org.pangrova.indexing.api.ArtifactExecutionKind.BUILD,
+                        org.pangrova.indexing.api.ArtifactDependencySet.sourceSnapshot(
                                 "catalog.schema.items", "snapshot-1"),
-                        org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy.FORBID,
+                        org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy.FORBID,
                         "s3://bucket/staging/artifact-1/generation-1",
                         "pangrova.diskann.segment", 1, 0, "a".repeat(64),
                         "native-build-1", "",
                         "request-1", 1, 0, ArtifactBuildJobState.QUEUED,
                         0, START, START, START),
                 ArtifactBuildDispatchSpec.of(
-                        "job-1", org.pangrova.metadata.artifact.build.ArtifactStageGraph.forArtifactPages(
+                        "job-1", org.pangrova.indexing.control.ArtifactStageGraph.forArtifactPages(
                                 "plan".getBytes(StandardCharsets.UTF_8), "binding".getBytes(StandardCharsets.UTF_8),
                                 List.of(new ArtifactBuildPage("job-1", "page-1", 0, 0, 0,
                                         ArtifactBuildPageKind.SOURCE_MAP, List.of(ArtifactBuildSplit.of(

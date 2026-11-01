@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.metadata.control.MaintenanceOperation;
+import org.pangrova.metadata.core.control.MaintenanceOperation;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;

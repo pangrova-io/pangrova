@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.index.ddl;
 
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactBuildStore;
 import org.pangrova.security.authz.DeferredAuthorizationScope;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;

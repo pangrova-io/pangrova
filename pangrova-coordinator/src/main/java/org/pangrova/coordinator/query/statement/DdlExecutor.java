@@ -5,12 +5,12 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.statement.dml.DmlExpressionEvaluator;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.service.MetadataService;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.control.ColumnTagPort;
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
@@ -45,12 +45,12 @@ public final class DdlExecutor {
 
     private final CatalogRegistry catalogRegistry;
     private final TableControlDdlOperations tableControlOperations;
-    private volatile org.pangrova.metadata.index.IndexSchemaEvolutionHandler schemaEvolutionHandler;
+    private volatile org.pangrova.indexing.control.IndexSchemaEvolutionHandler schemaEvolutionHandler;
     private volatile Runnable schemaInvalidator;
 
     /** Creates the executor with optional index invalidation hooks. */
     public DdlExecutor(CatalogRegistry catalogRegistry,
-                org.pangrova.metadata.index.IndexSchemaEvolutionHandler schemaEvolutionHandler,
+                org.pangrova.indexing.control.IndexSchemaEvolutionHandler schemaEvolutionHandler,
                 Runnable schemaInvalidator) {
         this.catalogRegistry = catalogRegistry;
         this.tableControlOperations = new TableControlDdlOperations(catalogRegistry);
@@ -68,7 +68,7 @@ public final class DdlExecutor {
      * Thread-safe: field is volatile.
      */
     public void setSchemaEvolutionHandler(
-            org.pangrova.metadata.index.IndexSchemaEvolutionHandler handler) {
+            org.pangrova.indexing.control.IndexSchemaEvolutionHandler handler) {
         this.schemaEvolutionHandler = handler;
     }
 
@@ -82,7 +82,7 @@ public final class DdlExecutor {
 
     /** Enables {@code ADOPT WITH (...)} maintenance policy properties. */
     public void setMaintenancePolicyService(
-            org.pangrova.metadata.control.TableControlMaintenanceService service) {
+            org.pangrova.metadata.core.control.TableControlMaintenanceService service) {
         tableControlOperations.setMaintenancePolicyService(service);
     }
 
@@ -95,8 +95,8 @@ public final class DdlExecutor {
     /** Purges table_id-scoped governance bindings when the control record retires. */
 
     /** Owns durable column-tag persistence and governance notification. */
-    public void setMetadataService(MetadataService metadataService) {
-        tableControlOperations.setMetadataService(metadataService);
+    public void setColumnTagPort(ColumnTagPort columnTagPort) {
+        tableControlOperations.setColumnTagPort(columnTagPort);
     }
 
     /**
@@ -264,7 +264,7 @@ public final class DdlExecutor {
         List<String> columns = renameTarget == null ? List.of() : tableColumns(metadata, session, handle);
         // Move ownership before the physical rename so a target that already has a
         // live control record is rejected while the catalog is still untouched.
-        org.pangrova.metadata.control.TableControlRecord movedControl = null;
+        org.pangrova.metadata.core.control.TableControlRecord movedControl = null;
         if (renameTarget != null && tableControl.enabled()) {
             var sourceControl = tableControl.find(ref.catalog(), ref.schema(), ref.table());
             if (sourceControl.isPresent()) {
@@ -297,7 +297,7 @@ public final class DdlExecutor {
     private List<TypedRow> executeSetColumnTag(
             AlterTableStatement.SetColumnTag stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        MetadataService service = requireTagMetadataService();
+        ColumnTagPort service = requireTagColumnTagPort();
         service.setTag(SessionContextConverter.toMetadataSessionContext(context),
                 new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
                 stmt.columnName(), stmt.tagKey(), stmt.tagValue());
@@ -311,7 +311,7 @@ public final class DdlExecutor {
     private List<TypedRow> executeUnsetColumnTag(
             AlterTableStatement.UnsetColumnTag stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        MetadataService service = requireTagMetadataService();
+        ColumnTagPort service = requireTagColumnTagPort();
         service.unsetTag(SessionContextConverter.toMetadataSessionContext(context),
                 new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
                 stmt.columnName(), stmt.tagKey());
@@ -321,8 +321,8 @@ public final class DdlExecutor {
         return List.of();
     }
 
-    private MetadataService requireTagMetadataService() {
-        MetadataService service = tableControlOperations.metadataService();
+    private ColumnTagPort requireTagColumnTagPort() {
+        ColumnTagPort service = tableControlOperations.columnTagPort();
         if (service == null) {
             throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
                     "ALTER TABLE column tags require the metadata service");
@@ -491,31 +491,31 @@ public final class DdlExecutor {
         if (handler == null) {
             return;
         }
-        org.pangrova.metadata.index.model.SchemaChangeEvent event =
+        org.pangrova.indexing.api.SchemaChangeEvent event =
                 toSchemaChangeEvent(tenantId, ref, stmt);
         if (event != null) {
             handler.onSchemaChange(event);
         }
     }
 
-    private static org.pangrova.metadata.index.model.SchemaChangeEvent toSchemaChangeEvent(
+    private static org.pangrova.indexing.api.SchemaChangeEvent toSchemaChangeEvent(
             String tenantId, QualifiedTableName ref, AlterTableStatement stmt) {
         if (stmt instanceof AlterTableStatement.AddColumn add) {
-            return org.pangrova.metadata.index.model.SchemaChangeEvent.addColumn(
+            return org.pangrova.indexing.api.SchemaChangeEvent.addColumn(
                     tenantId, ref.catalog(), ref.schema(), ref.table(),
                     add.columnName(), add.columnType().toCanonicalString());
         }
         if (stmt instanceof AlterTableStatement.DropColumn drop) {
-            return org.pangrova.metadata.index.model.SchemaChangeEvent.dropColumn(
+            return org.pangrova.indexing.api.SchemaChangeEvent.dropColumn(
                     tenantId, ref.catalog(), ref.schema(), ref.table(), drop.columnName());
         }
         if (stmt instanceof AlterTableStatement.RenameColumn rename) {
-            return org.pangrova.metadata.index.model.SchemaChangeEvent.renameColumn(
+            return org.pangrova.indexing.api.SchemaChangeEvent.renameColumn(
                     tenantId, ref.catalog(), ref.schema(), ref.table(),
                     rename.oldName(), rename.newName());
         }
         if (stmt instanceof AlterTableStatement.ChangeColumnType change) {
-            return org.pangrova.metadata.index.model.SchemaChangeEvent.modifyColumnType(
+            return org.pangrova.indexing.api.SchemaChangeEvent.modifyColumnType(
                     tenantId, ref.catalog(), ref.schema(), ref.table(),
                     change.columnName(), null, change.newType().toCanonicalString());
         }
@@ -527,7 +527,7 @@ public final class DdlExecutor {
         if (handler == null) {
             return;
         }
-        handler.onSchemaChange(org.pangrova.metadata.index.model.SchemaChangeEvent.dropTable(
+        handler.onSchemaChange(org.pangrova.indexing.api.SchemaChangeEvent.dropTable(
                 tenantId, ref.catalog(), ref.schema(), ref.table()));
     }
 

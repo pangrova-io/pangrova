@@ -3,7 +3,7 @@ package org.pangrova.coordinator.index.lifecycle;
 import java.time.Instant;
 
 import org.pangrova.indexing.build.BuildClaimHandler;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

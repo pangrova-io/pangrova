@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.metadata.storage.JdbcCopySourceReadAdmissions;
+import org.pangrova.query.transaction.JdbcCopySourceReadAdmissions;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.Checksum;

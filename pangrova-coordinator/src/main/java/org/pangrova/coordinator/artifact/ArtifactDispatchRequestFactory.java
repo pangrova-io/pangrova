@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.artifact;
 
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.OperatorBinding;
 

@@ -2,8 +2,8 @@ package org.pangrova.testing.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
-import org.pangrova.metadata.coordination.JdbcCoordinatorRegistry;
-import org.pangrova.metadata.store.EmbeddedDataSource;
+import org.pangrova.coordinator.coordination.JdbcCoordinatorRegistry;
+import org.pangrova.metadata.store.jdbc.EmbeddedDataSource;
 import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.testing.ContainerTestBase;

@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.index.ddl;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy;
+import org.pangrova.indexing.api.ArtifactTypeIds;
 import org.pangrova.planner.artifact.VectorArtifactBuildPlanBuilder;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.DataSplit;

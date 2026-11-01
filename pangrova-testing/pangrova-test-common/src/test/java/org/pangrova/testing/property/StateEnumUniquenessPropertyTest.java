@@ -42,6 +42,16 @@ class StateEnumUniquenessPropertyTest {
     private static final Path PROJECT_ROOT = TestProjectPaths.findProjectRoot();
 
     /**
+     * Repository-relative source roots for modules that are not located directly
+     * under the repository root. Defaults to the module name itself.
+     */
+    private static final Map<String, String> MODULE_SRC_DIRS = Map.of(
+            "pangrova-streaming-runtime", "pangrova-streaming/pangrova-streaming-runtime",
+            "pangrova-streaming-format", "pangrova-streaming/pangrova-streaming-format",
+            "pangrova-streaming-maintenance", "pangrova-streaming/pangrova-streaming-maintenance",
+            "pangrova-streaming-jdbc", "pangrova-streaming/pangrova-streaming-jdbc");
+
+    /**
      * SPI-level state enum simple names that must have exactly one definition
      * in stable upstream modules (pangrova-spi, pangrova-protocol).
      */
@@ -79,8 +89,7 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-metadata:CatalogState",
             "pangrova-metadata:TableControlState",  // LINKED/MANAGED control-plane lifecycle
             "pangrova-metadata:MaintenanceRunState",  // control-plane maintenance run lifecycle
-            "pangrova-streaming:CdcStreamState",
-            "pangrova-streaming:WatermarkState",
+            "pangrova-streaming-runtime:WatermarkState",
             "pangrova-security:TenantStatus",
             "pangrova-resilience:CircuitBreaker.State",
             "pangrova-resilience:SplitRetryManager.SplitState",
@@ -91,24 +100,23 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-coordinator:SchedulerCancelResult.Status",
             "pangrova-security:AuthenticatorHealthStatus",
             "pangrova-worker:TaskCancelResult.Status",
-            "pangrova-metadata:StreamLifecycleState",
+            "pangrova-spi:StreamLifecycleState",  // ingestion stream lifecycle, SPI-owned after streaming refactor
             "pangrova-spi:ClusteringState",
             "pangrova-spi:IndexState",
             "pangrova-common:StateStoreType",  // moved from pangrova-config in cbe99e06 module merge
             "pangrova-config:StateStoreType",  // legacy copy retained for StateStoreFactory/CoordinatorOptions
-            "pangrova-spi:CdcRegistration.CdcStreamState",
             "pangrova-coordinator:StatementCategory",
             "pangrova-coordinator:ReclusterJob.State",  // data recluster lifecycle
             "pangrova-parser:StatementType",  // false positive — discriminator enum, "StatementType" contains "State" substring
-            "pangrova-streaming:CdcCommitState",  // CDC two-phase commit coordinator (Req 10.6)
+            "pangrova-spi:CdcCommitState",  // CDC two-phase commit coordinator (Req 10.6)
             "pangrova-operations:JfrState",  // JFR profiling lifecycle
             "pangrova-spi:TransportStatus",  // gRPC transport status
             "pangrova-spi:QueryState",  // SPI query lifecycle
             "pangrova-coordinator:SettableDynamicFilter.State",  // adaptive dynamic filter state
             "pangrova-indexing:IndexFileReadResult.Status",  // index file read result status
             "pangrova-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
-            "pangrova-metadata:SemanticViewValidationState",
-            "pangrova-metadata:EvaluationRunState",
+            "pangrova-semantic:SemanticViewValidationState",  // semantic view validation lifecycle (moved to pangrova-semantic)
+            "pangrova-ai:EvaluationRunState",  // evaluation run lifecycle (moved to pangrova-ai)
             "pangrova-metadata:ArtifactBuildJobState",
             // Unified materialization kernel lifecycle enums.
             "pangrova-materialization:GcLedgerEntry.GcState",
@@ -210,7 +218,8 @@ class StateEnumUniquenessPropertyTest {
         List<StateEnumEntry> entries = new ArrayList<>();
         List<String> modules = findJavaModules();
         for (String module : modules) {
-            Path srcDir = PROJECT_ROOT.resolve(module).resolve("src/main/java");
+            Path srcDir = PROJECT_ROOT.resolve(MODULE_SRC_DIRS.getOrDefault(module, module))
+                    .resolve("src/main/java");
             if (!Files.isDirectory(srcDir)) {
                 continue;
             }
@@ -250,13 +259,28 @@ class StateEnumUniquenessPropertyTest {
         try (Stream<Path> dirs = Files.list(PROJECT_ROOT)) {
             dirs.filter(Files::isDirectory)
                     .filter(d -> d.getFileName().toString().startsWith("pangrova-"))
-                    .filter(d -> Files.isRegularFile(d.resolve("pom.xml")))
-                    .filter(d -> Files.isDirectory(d.resolve("src/main/java")))
-                    .forEach(d -> modules.add(d.getFileName().toString()));
+                    .forEach(family -> {
+                        if (isJavaModule(family)) {
+                            modules.add(family.getFileName().toString());
+                        }
+                        // Family aggregators (e.g. pangrova-streaming) hold nested leaf modules.
+                        try (Stream<Path> children = Files.list(family)) {
+                            children.filter(Files::isDirectory)
+                                    .filter(StateEnumUniquenessPropertyTest::isJavaModule)
+                                    .forEach(child -> modules.add(child.getFileName().toString()));
+                        } catch (IOException ignored) {
+                            // skip inaccessible families
+                        }
+                    });
         } catch (IOException ignored) {
             // skip
         }
         return List.copyOf(modules);
+    }
+
+    private static boolean isJavaModule(Path dir) {
+        return Files.isRegularFile(dir.resolve("pom.xml"))
+                && Files.isDirectory(dir.resolve("src/main/java"));
     }
 
     // -----------------------------------------------------------------------

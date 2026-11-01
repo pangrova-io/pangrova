@@ -17,13 +17,13 @@ import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.spi.connector.data.page.BatchFormat;
 import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
-import org.pangrova.shuffle.exchange.ExchangeChannelContext;
-import org.pangrova.shuffle.exchange.ExchangeChannelManager;
-import org.pangrova.shuffle.exchange.ExchangeSource;
-import org.pangrova.shuffle.exchange.ExchangeSink;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.exchange.ExchangeAttemptFence;
+import org.pangrova.shuffle.api.exchange.ExchangeChannelContext;
+import org.pangrova.shuffle.api.exchange.ExchangeChannelManager;
+import org.pangrova.shuffle.api.exchange.ExchangeSource;
+import org.pangrova.shuffle.api.exchange.ExchangeSink;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 
 /**
  * Property-based tests for Exchange abstraction layer (columnar ArrowPage path).
@@ -164,7 +164,7 @@ class RemoteExchangeManagerPropertyTest {
         @Override
         public ExchangeSource createSource(
                 ExchangeChannelContext context,
-                org.pangrova.shuffle.exchange.ExchangeReadMode readMode) {
+                org.pangrova.shuffle.api.exchange.ExchangeReadMode readMode) {
             return new InMemoryTestSource(
                     channels.computeIfAbsent(
                             context.queryId() + ":" + context.exchangePartitionId(),

@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.artifact;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.ai.embedding.DurableGeneratedValueBuildService;
@@ -12,16 +15,16 @@ import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryCon
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
-import org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.CatalogHandle;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
+import org.pangrova.indexing.store.jdbc.JdbcGeneratedValueArtifactPublicationStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
 import org.pangrova.planner.artifact.GeneratedValueArtifactBuildPlanBuilder;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.AllColumns;
@@ -82,10 +85,10 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.Contain
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource(
                 "durable_generated_values");
-        store = new JdbcArtifactBuildStore(dataSource);
-        writeJournal = new org.pangrova.metadata.coordination.JdbcWriteCommitJournal(dataSource);
+        store = new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
+        writeJournal = new org.pangrova.query.transaction.JdbcWriteCommitJournal(dataSource);
         executions = new org.pangrova.coordinator.testinfra.CoordinatorArtifactExecutionFixtures(dataSource);
-        generatedValueMetadata = new JdbcGeneratedValueArtifactPublicationStore(dataSource);
+        generatedValueMetadata = new JdbcGeneratedValueArtifactPublicationStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
 
         var connector = new SnapshotConnector(
                 GeneratedColumnMetadataCodec.encode(definitions()));
@@ -228,7 +231,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.Contain
         sql("CREATE TRIGGER reject_generated_descriptor BEFORE INSERT ON generated_value_artifacts "
                 + "FOR EACH ROW EXECUTE FUNCTION reject_generated_descriptor()");
         assertThatThrownBy(() -> service.submitCommitted(write, definitions(), TABLE, SNAPSHOT, session()))
-                .isInstanceOf(org.pangrova.metadata.exception.MetastoreException.class);
+                .isInstanceOf(org.pangrova.metadata.api.error.MetastoreException.class);
         assertThat(store.listRunnableJobs(10, Instant.now())).isEmpty();
         assertThat(writeJournal.isDeferredWorkAcknowledged(fingerprint)).isFalse();
         sql("DROP TRIGGER reject_generated_descriptor ON generated_value_artifacts");

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
+import org.pangrova.query.core.JdbcQueryStateJournal;
 import org.pangrova.spi.coordination.JournalEventContext;
 import org.pangrova.spi.coordination.JournalWriteException;
 import org.pangrova.spi.coordination.QueryStateEvent;

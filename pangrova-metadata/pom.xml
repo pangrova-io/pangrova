@@ -24,10 +24,10 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-materialization</artifactId>
-        </dependency>
+        <!-- Owner baselines for governance/ai arrive via the MAIN deps below; metadata tests
+             exercise only metadata- and security-owned tables. Cross-owner tests (artifact
+             authority, index store zones, whole-chain schema conformance) live in their owner
+             modules, which keeps the test dependency graph acyclic for the reactor. -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-security</artifactId>
@@ -36,15 +36,10 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-governance</artifactId>
         </dependency>
-
-        <!-- Iceberg catalog adapters -->
+        <!-- Generated-model current authority (store.jdbc) is used by managed source admission. -->
         <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai</artifactId>
         </dependency>
 
         <!-- Jackson for JSON serialization -->
@@ -93,43 +88,8 @@
             <artifactId>caffeine</artifactId>
         </dependency>
 
-        <!-- A-HA-01: Apache Curator + ZooKeeper for a quorum-replicated DistributedLease
-             (removes the single-JDBC coordination SPOF). Marked optional so the ZK backend
-             is not forced onto downstream modules that use the JDBC/in-memory lease. -->
-        <dependency>
-            <groupId>org.apache.curator</groupId>
-            <artifactId>curator-recipes</artifactId>
-            <version>${curator.version}</version>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.zookeeper</groupId>
-            <artifactId>zookeeper</artifactId>
-            <version>${zookeeper.version}</version>
-            <optional>true</optional>
-            <exclusions>
-                <!-- ZK 3.8 bundles logback 1.2.x; exclude so the project's aligned logback 1.4.14
-                     (classic+core) is used and ZooKeeperServer static init does not hit
-                     NoSuchMethodError on the removed Loader.systemClassloaderIfNull. -->
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
-        <!-- A-HA-01 test: ZooKeeper 3.8 declares metrics-core as provided (non-transitive); the
-             embedded ZooKeeperServer used in tests needs it on the test classpath. -->
-        <dependency>
-            <groupId>io.dropwizard.metrics</groupId>
-            <artifactId>metrics-core</artifactId>
-            <version>${dropwizard.metrics.version}</version>
-            <scope>test</scope>
-        </dependency>
+        <!-- A-HA-01: Apache Curator + ZooKeeper coordination implementations moved to
+             pangrova-coordinator; the metadata module no longer owns any ZK backend. -->
         <dependency>
             <groupId>org.xerial.snappy</groupId>
             <artifactId>snappy-java</artifactId>
@@ -168,6 +128,10 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- No test deps on pangrova-indexing/query/coordinator: their MAIN graphs point back at
+             pangrova-metadata (query, coordinator directly; indexing via query), so reverse test
+             edges would create reactor cycles. Cross-owner integration tests moved to the owning
+             modules (indexing authority tests, coordinator schema conformance). -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-test-common</artifactId>

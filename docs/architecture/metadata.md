@@ -30,7 +30,7 @@ These components have evolved independently and lack a unified metadata manageme
 
 | Goal | Description |
 |------|------|
-| Unified entry | All metadata operations go through the single `MetadataService` entry point, replacing scattered Managers |
+| Unified entry | All metadata operations go through the single `CatalogRegistry` entry point, replacing scattered Managers |
 | Catalog lifecycle | Supports Catalog registration, discovery, health checks, and dynamic load/unload |
 | Multi-source federation | Uniformly adapts HMS, AWS Glue, Iceberg REST Catalog, and built-in Catalogs |
 | Metadata cache | Tiered cache (local + Redis) with invalidation coordinated with security policy |
@@ -2424,7 +2424,7 @@ Metadata management emits the following spans (see [14 §4](./observability.md) 
 
 
 
-> **Cross-reference (§3.1 MetadataService):** `MetadataService` resolves tables and
+> **Cross-reference (§3.1 MetadataService):** `CatalogRegistry` resolves tables and
 > `MetadataSchemaBuilder` builds the Calcite root schema from `CatalogRegistry`.
 > `FederationCatalogHandle` wraps the `FederatedCatalog` SPI described in §3.8.
 
@@ -2432,7 +2432,7 @@ Metadata management emits the following spans (see [14 §4](./observability.md) 
 > **FederatedCatalog Authoritative Location**: FederatedCatalog SPI is defined in §3.8 of this document (07). All former references to "11 §6.2" have been corrected to point here. See also [00 §5.1](./overview.md) SPI summary table.
 
 
-> **MetadataService implementation:** `MetadataService` is an interface and
+> **MetadataService implementation:** `CatalogRegistry` is an interface and
 > `DefaultMetadataService` is its current implementation. The traced decorator in
 > §7.2 is proposed and is not present in the source tree.
 

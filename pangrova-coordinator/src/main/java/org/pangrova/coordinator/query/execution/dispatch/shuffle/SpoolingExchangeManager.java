@@ -6,14 +6,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.pangrova.spi.annotation.ThreadSafe;
-import org.pangrova.shuffle.ShuffleCommitResult;
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleRegistration;
-import org.pangrova.shuffle.spool.SpoolStore;
-import org.pangrova.shuffle.spool.SpoolStoreContext;
-import org.pangrova.shuffle.spool.SpoolStoreFactory;
+import org.pangrova.shuffle.api.commit.ShuffleCommitResult;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolStoreContext;
+import org.pangrova.shuffle.api.spool.SpoolStoreFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

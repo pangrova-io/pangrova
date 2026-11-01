@@ -5,8 +5,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.spi.annotation.ThreadSafe;
-import org.pangrova.shuffle.ShuffleDataInventory;
-import org.pangrova.shuffle.ShuffleDataRef;
+import org.pangrova.shuffle.api.inventory.ShuffleDataInventory;
+import org.pangrova.shuffle.api.inventory.ShuffleDataRef;
 
 /**
  * In-memory implementation of {@link ShuffleDataInventory} for the coordinator (G-RES-08).

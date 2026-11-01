@@ -143,6 +143,7 @@ except `security.enabled` and `tenant.enabled`.
 | `governance.enabled` | bool | `true` | Enable the governance module |
 | `resilience.enabled` | bool | `true` | Enable the resilience module (circuit breaker, retry) |
 | `streaming.enabled` | bool | `true` | Enable the streaming module |
+| `streaming.commit-state-retention` | duration | `"7d"` | How long terminal CDC commit-state rows are kept before pruning; must be positive |
 | `tenant.enabled` | bool | `false` | Enable the multi-tenant module; requires authenticated user identities |
 | `indexing.enabled` | bool | `true` | Enable the indexing module |
 | `operations.enabled` | bool | `true` | Enable the operations module (compaction, maintenance) |

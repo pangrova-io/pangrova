@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.artifact.template;
 
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph.StagePlan;
+import org.pangrova.indexing.control.ArtifactStageGraph.StagePlan;
 import org.pangrova.planner.PlanFragment;
 import org.pangrova.planner.SerializedPlanFragment;
 import org.pangrova.planner.SplitSourceDescriptor;

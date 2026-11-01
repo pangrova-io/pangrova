@@ -2,16 +2,16 @@ package org.pangrova.coordinator.artifact;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalArtifactIntent;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.ArtifactGenerationManifest;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PublishedInput;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.api.ArtifactBuildOutputScope;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.api.ArtifactGenerationManifest;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore.PublishedInput;
 import org.pangrova.protocol.ArtifactBindingChecksum;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
@@ -257,10 +257,10 @@ class PublishedArtifactBindingResolverTest {
                     TENANT, "job-1", "index-1",
                     bm25 ? "TEXT_INDEX" : "VECTOR_INDEX", "7",
                     "catalog.schema.table", "snapshot-1",
-                    org.pangrova.metadata.artifact.contract.ArtifactExecutionKind.BUILD,
-                    org.pangrova.metadata.artifact.contract.ArtifactDependencySet.sourceSnapshot(
+                    org.pangrova.indexing.api.ArtifactExecutionKind.BUILD,
+                    org.pangrova.indexing.api.ArtifactDependencySet.sourceSnapshot(
                             "catalog.schema.table", "snapshot-1"),
-                    org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy.FORBID,
+                    org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy.FORBID,
                     bm25 ? BuiltInCapabilityCatalog.BM25_ARTIFACT_FORMAT_ID
                             : BuiltInCapabilityCatalog.DISKANN_ARTIFACT_FORMAT_ID,
                     bm25 ? BuiltInCapabilityCatalog.BM25_ARTIFACT_FORMAT_MAJOR
@@ -302,7 +302,7 @@ class PublishedArtifactBindingResolverTest {
                                     .ALGORITHM_SHA256)
                             .setDigest(com.google.protobuf.ByteString.copyFrom(
                                     java.util.HexFormat.of().parseHex(
-                                            org.pangrova.metadata.artifact.contract.ArtifactDependencySet
+                                            org.pangrova.indexing.api.ArtifactDependencySet
                                                     .sourceSnapshot("catalog.schema.table",
                                                             "snapshot-1").sha256()))))
                     .setEmptyPartitionPolicy(org.pangrova.protocol.v2
@@ -317,7 +317,7 @@ class PublishedArtifactBindingResolverTest {
                     .setOutputArtifact(output)
                     .build();
             return Optional.of(ArtifactBuildDispatchSpec.of(
-                    jobId, org.pangrova.metadata.artifact.build.ArtifactStageGraph.forArtifactPages(
+                    jobId, org.pangrova.indexing.control.ArtifactStageGraph.forArtifactPages(
                             new byte[] {1}, OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(), List.of(), java.util.List.of()),
                     TENANT, "principal",
                     org.pangrova.security.authz.DeferredAuthorizationScope.raw(
@@ -350,19 +350,19 @@ class PublishedArtifactBindingResolverTest {
         }
 
         @Override
-        public java.util.Map<String, org.pangrova.metadata.artifact.build.ArtifactBuildSplit>
+        public java.util.Map<String, org.pangrova.indexing.control.ArtifactBuildSplit>
                 loadPublishedSourceSplits(String tenantId, String jobId,
                         java.util.Set<String> sourceObjectIds) {
             if (!sourceObjectIds.equals(Set.of("object-a"))) return java.util.Map.of();
             byte[] bytes = java.util.Base64.getDecoder().decode(split("object-a", "snapshot-1"));
             return java.util.Map.of("object-a",
-                    org.pangrova.metadata.artifact.build.ArtifactBuildSplit.of("object-a", bytes));
+                    org.pangrova.indexing.control.ArtifactBuildSplit.of("object-a", bytes));
         }
 
         @Override public void createJob(ArtifactBuildJob job, ArtifactBuildDispatchSpec spec,
                 List<ArtifactBuildPage> pages) { throw unsupported(); }
         @Override public void createCatalogExportJob(
-                org.pangrova.metadata.feature.FeatureCatalogStore.ExportRequest request,
+                org.pangrova.ai.api.FeatureCatalogStore.ExportRequest request,
                 ArtifactBuildJob job, ArtifactBuildDispatchSpec spec,
                 List<ArtifactBuildPage> pages) { throw unsupported(); }
         @Override public List<ArtifactBuildJobKey> listRunnableJobs(
@@ -375,7 +375,7 @@ class PublishedArtifactBindingResolverTest {
         @Override public boolean renewPage(ArtifactBuildLease lease, Duration duration,
                 Instant now) { throw unsupported(); }
         @Override public boolean completePage(
-                org.pangrova.metadata.artifact.build.ArtifactPageCompletion completion) {
+                org.pangrova.indexing.control.ArtifactPageCompletion completion) {
             throw unsupported();
         }
         @Override public boolean retryPage(ArtifactBuildLease lease, Instant available,

@@ -4,7 +4,7 @@ import io.substrait.proto.NamedStruct;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;

@@ -20,8 +20,8 @@ import java.util.Optional;
 
 import org.pangrova.indexing.eval.BreakerStateStore;
 import org.pangrova.indexing.eval.SharedBreakerState;
-import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.metadata.index.model.BreakerState;
+import org.pangrova.indexing.control.IndexMetadataStore;
+import org.pangrova.indexing.api.BreakerState;
 
 /**
  * Coordinator-side {@link BreakerStateStore} that projects the authoritative

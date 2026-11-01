@@ -2,9 +2,9 @@ package org.pangrova.testing.e2e.shuffle;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import org.pangrova.metadata.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.metadata.store.SchemaMigrationRunner;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.query.transaction.JdbcExecutionAnchorStore;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
+import org.pangrova.shuffle.service.config.ShuffleServiceConfig;
 import org.pangrova.testing.e2e.SharedTestContainers;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -68,7 +68,7 @@ final class ActualShuffleBackend implements AutoCloseable {
         config.setPassword(pg.getPassword());
         config.setMaximumPoolSize(4);
         jdbc = new HikariDataSource(config);
-        SchemaMigrationRunner.migrate(jdbc);
+        SchemaMigrationRunner.migrateAll(jdbc);
     }
 
     private void initializeObjects() {
@@ -128,7 +128,7 @@ final class ActualShuffleBackend implements AutoCloseable {
     }
 
     ShuffleServiceConfig.ObjectStorage objectConfig() {
-        return new ShuffleServiceConfig.ObjectStorage(bucket, "acceptance", "us-east-1", endpoint(),
+        return new ShuffleServiceConfig.ObjectStorage("s3", bucket, "acceptance", "us-east-1", endpoint(),
                 true, false, Duration.ofSeconds(30), Duration.ofSeconds(10));
     }
 

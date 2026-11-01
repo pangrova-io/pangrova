@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.resource.memory.TaskMemoryPool;
-import org.pangrova.shuffle.ShuffleServerHandle;
+import org.pangrova.shuffle.api.registration.ShuffleServerHandle;
 import org.pangrova.worker.buffer.OutputBufferManager;
 
 import org.pangrova.common.concurrent.ThreadSafe;

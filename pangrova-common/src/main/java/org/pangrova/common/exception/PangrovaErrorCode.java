@@ -109,6 +109,7 @@ public enum PangrovaErrorCode {
     FILE_STORAGE_UNAVAILABLE("FILE-0005", "Object storage is unavailable"),
     FILE_STORAGE_NOT_CONFIGURED("FILE-0006", "Object storage is not configured for this space"),
     FILE_LIMIT_EXCEEDED("FILE-0007", "File operation exceeds a configured limit"),
+    STORAGE_STORE_ERROR("STORAGE-0001", "Storage space and profile store operation failed"),
 
     RUNTIME_TASK_FAILED("RUNTIME-0001", "Task execution failed"),
     RUNTIME_STAGE_FAILED("RUNTIME-0002", "Stage execution failed"),
@@ -170,6 +171,11 @@ public enum PangrovaErrorCode {
     TENANT_OWNERSHIP_MISMATCH("TENANT-0002", "Tenant ownership mismatch"),
     TENANT_NOT_FOUND("TENANT-0003", "Tenant not found"),
     TENANT_INVALID_STATE("TENANT-0004", "Tenant is in an invalid state for the requested operation"),
+    TENANT_STORE_ERROR("TENANT-0005", "Tenant store operation failed"),
+
+    INDEX_STORE_ERROR("INDEX-0001", "Index metadata store operation failed"),
+
+    STREAMING_STORE_ERROR("STREAMING-0006", "Streaming store operation failed"),
 
     DML_CONCURRENCY_LIMIT("DML-0001", "DML concurrency limit exceeded"),
     DML_CONFLICT_DETECTED("DML-0002", "DML write conflict detected"),
@@ -201,6 +207,7 @@ public enum PangrovaErrorCode {
 
     GOVERNANCE_LINEAGE_EMISSION_FAILED("GOVERNANCE-0001", "Lineage event emission failed"),
     GOVERNANCE_QUALITY_CHECK_FAILED("GOVERNANCE-0002", "Data quality check failed"),
+    GOVERNANCE_QUALITY_STORE_ERROR("GOVERNANCE-0003", "Quality rule store operation failed"),
 
     OBS_SDK_INIT_FAILED("OBS-0001", "OpenTelemetry SDK initialization failed"),
     OBS_TRACE_PROPAGATION_FAILED("OBS-0002", "Trace context propagation failed"),
@@ -239,6 +246,9 @@ public enum PangrovaErrorCode {
     AI_MODEL_SERVICE_UNAVAILABLE("AI-3016", "Model service unavailable on data plane"),
     AI_INVOCATION_AUTHORIZATION_DENIED(
             "AI-3017", "AI invocation authorization denied"),
+    AI_STORE_ERROR("AI-0008", "AI governance store operation failed"),
+
+    SEMANTIC_STORE_ERROR("SEMANTIC-0001", "Semantic view store operation failed"),
 
     TEST_REFERENCE_ENGINE_INIT_FAILED("TEST-0001", "Reference engine initialization failed"),
     TEST_RESULT_MISMATCH("TEST-0002", "Result mismatch detected"),

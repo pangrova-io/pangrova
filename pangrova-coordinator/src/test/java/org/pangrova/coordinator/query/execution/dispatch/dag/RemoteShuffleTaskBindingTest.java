@@ -23,10 +23,10 @@ import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.shuffle.ShuffleAccess;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
-import org.pangrova.shuffle.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.capability.ShuffleAccess;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
 import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 

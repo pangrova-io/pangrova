@@ -11,7 +11,7 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
-import org.pangrova.shuffle.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
 
 /** Delegates exact task-bound data access after Coordinator control binding. */
 final class CoordinatorShuffleTaskGrantBinder {

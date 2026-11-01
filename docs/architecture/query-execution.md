@@ -1755,7 +1755,7 @@ batches, and obtain a staged metadata fragment with `finishWithMetadata()`.
 The Worker reports that fragment under the canonical task identity. The
 Coordinator invokes `ConnectorMetadata.finishDistributedWrite()` to publish
 the connector snapshot. This is not a `nativeGetNextBatch()` pull loop and does
-not use the legacy `DataWriter` example or a `TableWriter` shortcut.
+not use the legacy `DataWriter` example or a `CdcWriteSink` shortcut.
 
 ### 6.4 Write Path Responsibility Matrix
 

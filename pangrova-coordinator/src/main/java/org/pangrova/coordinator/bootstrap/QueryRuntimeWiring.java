@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.metadata.coordination.JdbcWorkerRegistry;
+import org.pangrova.coordinator.coordination.JdbcWorkerRegistry;
 import org.pangrova.observability.audit.LogAuditStore;
 import org.pangrova.observability.audit.QueryAuditService;
 import org.pangrova.security.audit.AuditEventEmitter;

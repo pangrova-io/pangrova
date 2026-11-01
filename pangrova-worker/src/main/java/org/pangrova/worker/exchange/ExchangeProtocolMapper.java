@@ -8,9 +8,9 @@ import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.ShuffleServiceAddress;
 import org.pangrova.protocol.v2.ShuffleServiceEndpoint;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
-import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.exchange.ExternalShuffleTransport;
 
 /** Maps canonical exchange domain objects to the Native runtime protocol. */
 final class ExchangeProtocolMapper {

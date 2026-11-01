@@ -7,7 +7,7 @@ import org.pangrova.spi.annotation.Experimental;
  *
  * <p>The policy is consulted by the DAG scheduler's failure handling path.
  * Retry-based policies ({@link #TASK_RETRY}, {@link #STAGE_RETRY}) are only
- * effective when the active {@link org.pangrova.shuffle.ShuffleCapabilities}
+ * effective when the active {@link org.pangrova.shuffle.api.capability.ShuffleCapabilities}
  * supports it — i.e., {@code shuffleCapabilities.supportsTaskRetry()} returns
  * {@code true} (requires at least {@code LOCAL_SPILL} durability).
  *
@@ -34,7 +34,7 @@ public enum FaultTolerancePolicy {
     /**
      * Retry the failed task up to the configured {@link RetryBudget} limit.
      * Requires that the shuffle provider supports task retry
-     * ({@link org.pangrova.shuffle.ShuffleCapabilities#supportsTaskRetry()}).
+     * ({@link org.pangrova.shuffle.api.capability.ShuffleCapabilities#supportsTaskRetry()}).
      * The scheduler re-reads committed partitions from a surviving shuffle store
      * rather than re-running upstream stages.
      *

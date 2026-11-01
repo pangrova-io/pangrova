@@ -1,7 +1,7 @@
 package org.pangrova.testing.e2e.speculation;
 
-import org.pangrova.metadata.store.SchemaMigrationRunner;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.security.authn.AuthenticationRequest;
 import org.pangrova.security.authn.LdapAuthenticator;
 import org.pangrova.security.authz.Privilege;
@@ -88,7 +88,7 @@ final class ProcessSecurityAuthority implements AutoCloseable {
         dataSource.setCurrentSchema(schema);
         dataSource.setUser(postgres.getUsername());
         dataSource.setPassword(postgres.getPassword());
-        SchemaMigrationRunner.migrate(dataSource);
+        SchemaMigrationRunner.migrateAll(dataSource);
         initializePermissions();
     }
 
@@ -100,7 +100,6 @@ final class ProcessSecurityAuthority implements AutoCloseable {
         var grants = new PersistentGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("spec_process_operator", Privilege.ALL, "CATALOG", "spec_catalog", "*", "*", null));
         var tenants = new JdbcTenantStore(dataSource);
-        tenants.initSchema();
         tenants.createTenant(new Tenant(TENANT, "Process speculation", TenantStatus.ACTIVE,
                 new ResourceQuota(1L << 30, 2, 2, 300_000, 4L << 30, 100, 40L << 30, 4L << 30),
                 List.of("spec_catalog"), List.of("default"), null, Map.of(), Instant.now(), USER));

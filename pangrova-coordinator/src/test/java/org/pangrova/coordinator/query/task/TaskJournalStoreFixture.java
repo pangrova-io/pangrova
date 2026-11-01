@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
+import org.pangrova.query.core.JdbcQueryStateJournal;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.postgresql.ds.PGSimpleDataSource;

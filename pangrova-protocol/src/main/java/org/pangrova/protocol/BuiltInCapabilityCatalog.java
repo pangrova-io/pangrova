@@ -79,7 +79,7 @@ public final class BuiltInCapabilityCatalog {
             "pangrova.artifact.export.tabular";
     public static final String TABULAR_EXPORT_VERSION = "1.0.0";
     public static final String TABULAR_EXPORT_FORMAT_ID =
-            "pangrova.tabular-export.arrow-stream";
+            "pangrova.tabular-export.columnar-stream";
     public static final int TABULAR_EXPORT_FORMAT_MAJOR = 1;
     /** Reserved Native scan output carrying the source object's physical row position. */
     public static final String PHYSICAL_ROW_POSITION_COLUMN = "$pangrova$row_position";

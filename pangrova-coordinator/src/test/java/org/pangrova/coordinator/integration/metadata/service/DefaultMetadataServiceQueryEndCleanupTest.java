@@ -1,20 +1,20 @@
 package org.pangrova.coordinator.integration.metadata.service;
 
-import org.pangrova.metadata.service.DefaultMetadataService;
+import org.pangrova.metadata.core.DefaultMetadataService;
 
-import org.pangrova.metadata.cache.TieredMetadataCache;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.ConnectorHandleFactory;
-import org.pangrova.metadata.event.MetadataEventDispatcher;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.schema.SchemaEvolutionValidator;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.ConnectorHandleFactory;
+import org.pangrova.metadata.core.event.MetadataEventDispatcher;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;

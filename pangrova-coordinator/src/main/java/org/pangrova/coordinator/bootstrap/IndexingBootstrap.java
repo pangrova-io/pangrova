@@ -28,9 +28,9 @@ import org.pangrova.indexing.serde.IndexSerializer;
 import org.pangrova.indexing.serde.TypeSerializerRegistry;
 import org.pangrova.indexing.storage.IndexCache;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.metadata.index.model.CacheEvent;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.indexing.control.IndexMetadataStore;
+import org.pangrova.indexing.api.CacheEvent;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.MaintenanceLeaderAware;
@@ -98,8 +98,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     private final String baseIndexPath;
     private final DistributedLease distributedLease;
-    private final org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore;
-    private final org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore;
+    private final org.pangrova.indexing.control.ArtifactBuildStore artifactBuildStore;
+    private final org.pangrova.indexing.control.ArtifactPublicationStore artifactPublicationStore;
     private final MaintenanceLeaderElection configuredLeaderElection;
     private MaintenanceLeaderElection leaderElection;
     private DurableArtifactPublisher artifactPublisher;
@@ -118,7 +118,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore) {
+            org.pangrova.indexing.control.ArtifactBuildStore artifactBuildStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore, null, null);
     }
 
@@ -126,8 +126,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
-            org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore) {
+            org.pangrova.indexing.control.ArtifactBuildStore artifactBuildStore,
+            org.pangrova.indexing.control.ArtifactPublicationStore artifactPublicationStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore,
                 artifactPublicationStore, null);
     }
@@ -135,8 +135,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
-            org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore,
+            org.pangrova.indexing.control.ArtifactBuildStore artifactBuildStore,
+            org.pangrova.indexing.control.ArtifactPublicationStore artifactPublicationStore,
             MaintenanceLeaderElection configuredLeaderElection) {
         if (baseIndexPath == null || baseIndexPath.isBlank()) {
             throw new IllegalStateException(
@@ -376,18 +376,18 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public ConnectorAccessorResolver getAccessorResolver() { return accessorResolver; }
 
     /** Returns the generic durable artifact store shared by build and query binding. */
-    public org.pangrova.metadata.artifact.build.ArtifactBuildStore getArtifactBuildStore() {
+    public org.pangrova.indexing.control.ArtifactBuildStore getArtifactBuildStore() {
         return artifactBuildStore;
     }
 
-    static Map<String, org.pangrova.metadata.artifact.ArtifactPublicationStore>
+    static Map<String, org.pangrova.indexing.control.ArtifactPublicationStore>
             artifactPublicationStores(
-                    org.pangrova.metadata.artifact.ArtifactPublicationStore store) {
+                    org.pangrova.indexing.control.ArtifactPublicationStore store) {
         return Map.of(
-                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.VECTOR_INDEX, store,
-                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TEXT_INDEX, store,
-                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TABULAR_EXPORT, store,
-                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.GENERATED_COLUMN_VALUES, store);
+                org.pangrova.indexing.api.ArtifactTypeIds.VECTOR_INDEX, store,
+                org.pangrova.indexing.api.ArtifactTypeIds.TEXT_INDEX, store,
+                org.pangrova.indexing.api.ArtifactTypeIds.TABULAR_EXPORT, store,
+                org.pangrova.indexing.api.ArtifactTypeIds.GENERATED_COLUMN_VALUES, store);
     }
 
     /**

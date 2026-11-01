@@ -1,14 +1,14 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.ConnectorHandleFactory;
-import org.pangrova.metadata.streaming.StreamLifecycleState;
-import org.pangrova.metadata.streaming.StreamState;
-import org.pangrova.metadata.store.MetadataStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.ConnectorHandleFactory;
+import org.pangrova.spi.streaming.store.StreamLifecycleState;
+import org.pangrova.spi.streaming.store.StreamState;
+import org.pangrova.metadata.core.store.MetadataStore;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
@@ -24,11 +24,11 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.spi.streaming.CdcOperation;
-import org.pangrova.spi.streaming.CdcRow;
-import org.pangrova.spi.streaming.CdcWriteResult;
-import org.pangrova.spi.streaming.CdcWriteSink;
+import org.pangrova.spi.streaming.record.CdcEnvelope;
+import org.pangrova.spi.streaming.record.CdcOperation;
+import org.pangrova.spi.streaming.record.CdcRow;
+import org.pangrova.spi.streaming.sink.CdcWriteResult;
+import org.pangrova.spi.streaming.sink.CdcWriteSink;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -280,10 +280,10 @@ class StreamingBootstrapWriteSinkWiringTest {
         private final CopyOnWriteArrayList<CatalogDescriptor> catalogs = new CopyOnWriteArrayList<>();
 
         @Override
-        public void saveTable(org.pangrova.metadata.model.TableMetadata metadata) {}
+        public void saveTable(org.pangrova.metadata.api.schema.TableMetadata metadata) {}
 
         @Override
-        public Optional<org.pangrova.metadata.model.TableMetadata> loadTable(
+        public Optional<org.pangrova.metadata.api.schema.TableMetadata> loadTable(
                 String catalog, String schema, String table) {
             return Optional.empty();
         }
@@ -292,7 +292,7 @@ class StreamingBootstrapWriteSinkWiringTest {
         public void deleteTable(String catalog, String schema, String table) {}
 
         @Override
-        public List<org.pangrova.metadata.model.QualifiedTableRef> searchTables(String pattern) {
+        public List<org.pangrova.metadata.api.object.QualifiedTableRef> searchTables(String pattern) {
             return List.of();
         }
 
@@ -326,7 +326,7 @@ class StreamingBootstrapWriteSinkWiringTest {
         public void updateSyncTime(String catalogName, Instant syncTime) {}
 
         @Override
-        public void recordSyncHistory(org.pangrova.metadata.sync.SyncResult result) {}
+        public void recordSyncHistory(org.pangrova.metadata.core.store.SyncResult result) {}
 
         @Override
         public void saveSchemas(String catalogName, List<String> schemas) {}

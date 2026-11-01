@@ -10,8 +10,8 @@ import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
 import io.grpc.TlsChannelCredentials;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
 
 /** Keeps Coordinator control-channel TLS policy consistent with advertised endpoints. */
 final class CoordinatorShuffleChannelSecurity {

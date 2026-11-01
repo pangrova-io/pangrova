@@ -2,10 +2,10 @@ package org.pangrova.testing.e2e.write;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.security.tenant.model.Tenant;
 import org.pangrova.security.tenant.model.TenantRole;

@@ -28,13 +28,13 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.parser.ast.SetSessionStatement;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.spi.coordination.QueryStateJournal;
-import org.pangrova.shuffle.ShuffleServiceAddress;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.slf4j.Logger;
@@ -56,13 +56,13 @@ final class QueryExecutionBootstrap {
     private final ModuleIntegrationBootstrap moduleWiring;
     private final StreamingBootstrap streamingBootstrap;
     private final HighAvailabilityCoordinationService coordinationService;
-    private final org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver;
+    private final org.pangrova.shuffle.api.ownership.ShuffleExecutionOwnerResolver shuffleOwnerResolver;
     private final javax.sql.DataSource metadataDataSource;
     private final org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker;
     private final org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
     private final org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier writeAuthoritySupplier;
-    private final org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore;
+    private final org.pangrova.semantic.api.SemanticViewStore semanticViewStore;
     private final java.util.function.Function<org.pangrova.coordinator.feature.FeatureSourceCompiler,
             org.pangrova.coordinator.feature.FeatureViewStatementService> featureViewServiceFactory;
     private final org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
@@ -86,13 +86,13 @@ final class QueryExecutionBootstrap {
                          org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker,
                          org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
                                  generatedValueMaterialization,
-                         org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore,
+                         org.pangrova.semantic.api.SemanticViewStore semanticViewStore,
                          java.util.function.Function<org.pangrova.coordinator.feature.FeatureSourceCompiler,
                                  org.pangrova.coordinator.feature.FeatureViewStatementService>
                                  featureViewServiceFactory,
                          org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
                                  embeddingModelRegistry,
-                         org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver,
+                         org.pangrova.shuffle.api.ownership.ShuffleExecutionOwnerResolver shuffleOwnerResolver,
                          javax.sql.DataSource metadataDataSource,
                          org.pangrova.security.audit.AuditEventEmitter auditEmitter) {
         this.config = config;
@@ -153,7 +153,7 @@ final class QueryExecutionBootstrap {
         }
         if (metadataDataSource != null && accessControl != null && coordinationService != null) {
             rtd.setCopySourceBinder(new CopySourceTaskBinder(
-                    new org.pangrova.metadata.storage.JdbcCopySourceReadAdmissions(metadataDataSource, accessControl),
+                    new org.pangrova.query.transaction.JdbcCopySourceReadAdmissions(metadataDataSource, accessControl),
                     coordinationService::requireExecutionAnchor));
         }
         this.remoteTaskDispatcher = rtd;
@@ -236,20 +236,20 @@ final class QueryExecutionBootstrap {
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(
                 catalog, null,
                 org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
-        ddlExecutor.setMetadataService(metadataBootstrap.metadataService());
+        ddlExecutor.setColumnTagPort(metadataBootstrap.metadataGateway().tags());
         if (metadataDataSource != null
                 && (config.securityEnabled() || config.governanceEnabled())) {
             ddlExecutor.setColumnMaskStore(
-                    new org.pangrova.metadata.service.TableControlColumnMaskStore(catalog,
+                    new org.pangrova.metadata.core.TableControlColumnMaskStore(catalog,
                             new org.pangrova.security.store.PersistentColumnMaskStore(metadataDataSource)));
         }
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenancePolicyService =
-                new org.pangrova.metadata.control.TableControlMaintenanceService(
+                new org.pangrova.metadata.core.control.TableControlMaintenanceService(
                         metadataDataSource != null
-                                ? new org.pangrova.metadata.control
+                                ? new org.pangrova.metadata.core.control
                                         .JdbcTableControlMaintenanceStore(metadataDataSource)
-                                : new org.pangrova.metadata.control
+                                : new org.pangrova.metadata.core.control
                                         .InMemoryTableControlMaintenanceStore());
         var controlledMaintenance =
                 new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(
@@ -523,7 +523,7 @@ final class QueryExecutionBootstrap {
         if (metadataDataSource == null) {
             return;
         }
-        var registry = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(metadataDataSource);
+        var registry = new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(metadataDataSource);
         factory.registerTask(org.pangrova.parser.ast.statement.CreateStorageProfileStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.CreateStorageProfileTask(registry));
         factory.registerTask(org.pangrova.parser.ast.statement.DropStorageProfileStatement.class,
@@ -540,7 +540,7 @@ final class QueryExecutionBootstrap {
         if (source == null) {
             return;
         }
-        var registry = new org.pangrova.metadata.file.JdbcFileSpaceRegistry(source);
+        var registry = new org.pangrova.security.storage.store.JdbcFileSpaceRegistry(source);
         var audit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(auditOutput);
         org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
                 factory, registry, authorization, audit);
@@ -550,7 +550,7 @@ final class QueryExecutionBootstrap {
                         .create(config.internalAuthSecret());
         var refresh = access == null ? null
                 : new org.pangrova.coordinator.file.StageDirectoryRefreshService(
-                        new org.pangrova.metadata.file.JdbcFileDirectoryIndex(source),
+                        new org.pangrova.security.storage.store.JdbcFileDirectoryIndex(source),
                         access, client, authorization);
         org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
                 factory, registry, authorization, audit, refresh);
@@ -578,9 +578,9 @@ final class QueryExecutionBootstrap {
                                                 + worker.httpPort())
                                         .toList(),
                         audit, config.internalAuthSecret(),
-                        new org.pangrova.metadata.file.JdbcFileSpaceAuthority(source));
+                        new org.pangrova.security.storage.store.JdbcFileSpaceAuthority(source));
         return new org.pangrova.coordinator.file.FileSpaceAccessService(registry,
-                new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(source),
+                new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(source),
                 authorization, context);
     }
 
@@ -652,7 +652,7 @@ final class QueryExecutionBootstrap {
     /** Registers the metadata-only Semantic View control-plane statements. */
     private void registerSemanticViewTasks(
             org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
-            org.pangrova.metadata.semantic.SemanticViewStore store) {
+            org.pangrova.semantic.api.SemanticViewStore store) {
         var service = new org.pangrova.coordinator.semantic.SemanticViewStatementService(
                 java.util.Objects.requireNonNull(store, "store must not be null"), accessControl);
         factory.registerTask(

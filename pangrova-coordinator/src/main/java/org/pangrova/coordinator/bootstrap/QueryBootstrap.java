@@ -28,7 +28,7 @@ import org.pangrova.coordinator.speculation.SpeculativeTaskLauncher;
 import org.pangrova.coordinator.speculation.StragglerDetector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.spi.coordination.WorkerRegistry;
@@ -58,7 +58,7 @@ final class QueryBootstrap {
     private final HighAvailabilityCoordinationService coordinationService;
     private final QueryDurableRecoveryWiring durableRecovery;
     private final org.pangrova.security.secret.SecretResolver secretResolver;
-    private final org.pangrova.metadata.ai.AiInfrastructureStores aiInfrastructureStores;
+    private final org.pangrova.ai.control.AiInfrastructureStores aiInfrastructureStores;
 
     private WorkerManager workerManager;
     private QueryManager queryManager;
@@ -84,7 +84,7 @@ final class QueryBootstrap {
     private TaskScheduler taskScheduler;
     private WeightedFairScheduler fairScheduler;
     private org.pangrova.planner.cache.QueryResultCache queryResultCache;
-    private org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore;
+    private org.pangrova.indexing.control.ArtifactBuildStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
     private org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
@@ -134,7 +134,7 @@ final class QueryBootstrap {
         this(config, tracingProvider, metricsProvider, accessControl, metadataBootstrap,
                 moduleWiring, metadataDataSource, streamingBootstrap, coordinationService,
                 secretResolver, metadataDataSource == null ? null
-                        : org.pangrova.metadata.ai.AiInfrastructureStores
+                        : org.pangrova.ai.control.AiInfrastructureStores
                                 .jdbc(metadataDataSource));
     }
 
@@ -146,7 +146,7 @@ final class QueryBootstrap {
                    javax.sql.DataSource metadataDataSource, StreamingBootstrap streamingBootstrap,
                    HighAvailabilityCoordinationService coordinationService,
                    org.pangrova.security.secret.SecretResolver secretResolver,
-                   org.pangrova.metadata.ai.AiInfrastructureStores aiInfrastructureStores) {
+                   org.pangrova.ai.control.AiInfrastructureStores aiInfrastructureStores) {
         this.config = config;
         this.tracingProvider = tracingProvider;
         this.metricsProvider = metricsProvider;
@@ -194,8 +194,10 @@ final class QueryBootstrap {
         taskScheduler = moduleContext.require(TaskScheduler.class);
         queryResultCache = moduleContext.require(org.pangrova.planner.SqlCompiler.class).queryResultCache();
         if (metadataDataSource != null) {
-            artifactBuildStore = new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore(
-                    metadataDataSource);
+            artifactBuildStore = new org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore(
+                    metadataDataSource,
+                    new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                            org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent));
         }
         embeddingModelRegistry = runtimeWiring.createEmbeddingModelRegistry();
         auditEmitter = runtimeWiring.createAuditEmitter();
@@ -256,7 +258,7 @@ final class QueryBootstrap {
                         aiInfrastructureStores, accessControl, embeddingModelRegistry));
         generatedValueMaterialization = materializationWiring.createGeneratedValue(catalog);
         materializationWiring.bindGeneratedValueReads(moduleContext, catalog);
-        org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore =
+        org.pangrova.semantic.api.SemanticViewStore semanticViewStore =
                 aiInfrastructureStores == null ? null
                         : aiInfrastructureStores.semanticViews();
         var featureViewService =
@@ -376,9 +378,14 @@ final class QueryBootstrap {
                         taskTracker, config.coordinatorId(), activeControlTerm,
                         new org.pangrova.coordinator.artifact.ArtifactExecutionOwnership(
                                 service, config.coordinatorId()),
-                        new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(
-                                metadataDataSource),
-                        new org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore(metadataDataSource),
+                        new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore(
+                                metadataDataSource,
+                                new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                                        org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent)),
+                        new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExchangeStore(
+                                metadataDataSource,
+                                new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                                        org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent)),
                         queryDispatcher.dagEngine()),
                 new org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher.Settings(
                         java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(5), 32));
@@ -542,8 +549,10 @@ final class QueryBootstrap {
                         ? org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink.rejecting()
                         : new org.pangrova.coordinator.query.task.report.DurableArtifactWorkReportSink(
                                 artifactBuildStore,
-                                new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(
-                                        metadataDataSource));
+                                new org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore(
+                                        metadataDataSource,
+                                        new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                                                org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent)));
         return new TaskStatusReceiver(new TaskStatusReceiverContext(
                 queryManager, taskTracker, workerManager,
                 speculative ? speculativeTaskLauncher : null,

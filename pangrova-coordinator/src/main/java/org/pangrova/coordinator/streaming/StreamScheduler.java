@@ -3,21 +3,28 @@ package org.pangrova.coordinator.streaming;
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.metadata.streaming.StreamLifecycleState;
-import org.pangrova.metadata.streaming.StreamState;
-import org.pangrova.spi.streaming.CdcRecordConverter;
-import org.pangrova.spi.streaming.CdcSourceReader;
-import org.pangrova.spi.streaming.CdcWriteSink;
-import org.pangrova.spi.streaming.TopicPartitionOffset;
+import org.pangrova.spi.streaming.store.StreamLifecycleState;
+import org.pangrova.spi.streaming.store.StreamState;
+import org.pangrova.spi.streaming.record.CdcRecordConverter;
+import org.pangrova.spi.streaming.source.CdcSourceReader;
+import org.pangrova.spi.streaming.sink.CdcWriteSink;
+import org.pangrova.spi.streaming.source.TopicPartitionOffset;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.streaming.cdc.CdcDeadLetterHandler;
+import org.pangrova.streaming.cdc.CdcFencingToken;
 import org.pangrova.streaming.cdc.CdcPipelineConfig;
-import org.pangrova.streaming.cdc.commit.SourceId;
+import org.pangrova.streaming.cdc.CdcPipelineMetrics;
+import org.pangrova.streaming.cdc.CdcPipelinePolicies;
+import org.pangrova.streaming.cdc.CdcPipelineRuntimeHooks;
+import org.pangrova.streaming.cdc.CdcQuotaEnforcer;
+import org.pangrova.streaming.cdc.PipelineSecurityContext;
+import org.pangrova.streaming.cdc.StaleFenceException;
+import org.pangrova.streaming.cdc.WritePolicyEnforcer;
+import org.pangrova.spi.streaming.source.SourceId;
 import org.pangrova.streaming.cdc.CdcPipelineListener;
 import org.pangrova.streaming.cdc.CdcPipelineLoop;
 import org.pangrova.streaming.cdc.CdcPipelineLoopContext;
-import org.pangrova.streaming.cdc.CdcPipelineRuntimeHooks;
-import org.pangrova.streaming.cdc.CdcQuotaEnforcer;
-import org.pangrova.streaming.query.ContinuousQueryConsumer;
-import org.pangrova.streaming.query.ContinuousQueryExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -93,15 +100,12 @@ public final class StreamScheduler implements AutoCloseable {
 
     private final StreamSchedulerContext deps;
     private final ConcurrentHashMap<String, PipelineEntry> activePipelines = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Duration> continuousQueries = new ConcurrentHashMap<>();
     private final ExecutorService pipelineExecutor;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     /** BUG-D16 fix: prevents new pipelines from starting between stopAll and resume. */
     private final AtomicBoolean paused = new AtomicBoolean(false);
     private final String coordinatorId;
     private final Object lifecycleLock = new Object();
-    /** Optional consumer that drives execution of registered continuous queries. */
-    private volatile ContinuousQueryConsumer continuousQueryConsumer;
 
     /** Creates a scheduler with the durable identity of its coordinator process. */
     public StreamScheduler(StreamSchedulerContext deps, String coordinatorId) {
@@ -120,31 +124,6 @@ public final class StreamScheduler implements AutoCloseable {
             throw new IllegalArgumentException("coordinatorId must not be blank");
         }
         return coordinatorId;
-    }
-
-    /**
-     * Starts the continuous query consumer that polls the registration map and
-     * activates refresh loops. Idempotent — calling more than once has no effect.
-     *
-     * @param executor      executor that performs the actual incremental refresh per CQ
-     * @param scanInterval  how often to scan the registration map for new entries
-     */
-    public synchronized void startContinuousQueryConsumer(
-            ContinuousQueryExecutor executor, Duration scanInterval) {
-        if (continuousQueryConsumer != null) {
-            return;
-        }
-        Objects.requireNonNull(executor, "executor must not be null");
-        Objects.requireNonNull(scanInterval, "scanInterval must not be null");
-        continuousQueryConsumer = new ContinuousQueryConsumer(
-                continuousQueries, executor, scanInterval);
-        continuousQueryConsumer.start();
-        LOG.info("event=continuous_query_consumer_started scanInterval={}", scanInterval);
-    }
-
-    /** Returns the active continuous query consumer for inspection/testing. */
-    public ContinuousQueryConsumer continuousQueryConsumer() {
-        return continuousQueryConsumer;
     }
 
     /** Reserves a local slot before claiming a new durable attempt or allocating source resources. */
@@ -212,6 +191,18 @@ public final class StreamScheduler implements AutoCloseable {
         int maxFailures = parseIntProperty(effectiveState.streamProperties(), "max_consecutive_failures",
                 config.defaultMaxConsecutiveFailures());
 
+        // Policies come from the persisted stream properties; invalid values fail
+        // the pipeline at startup instead of silently falling back to defaults.
+        CdcPipelinePolicies policies;
+        try {
+            policies = CdcPipelinePolicies.fromStreamProperties(
+                    effectiveState.streamProperties(), effectiveState.epoch());
+        } catch (IllegalArgumentException policyFailure) {
+            throw new IllegalArgumentException(
+                    "Invalid CDC policies for stream '" + streamName + "': "
+                            + policyFailure.getMessage(), policyFailure);
+        }
+
         CdcPipelineConfig pipelineConfig = new CdcPipelineConfig(
                 streamName,
                 new SourceId(effectiveState.checkpointId()),
@@ -221,18 +212,55 @@ public final class StreamScheduler implements AutoCloseable {
                 CDC_POLL_INTERVAL_MS,
                 maxFailures,
                 5,
-                Duration.parse(config.defaultFlushInterval()));
+                policies);
 
         CdcPipelineListener listener = failure -> pipelineFailed(entry, effectiveState, failure);
 
         CdcQuotaEnforcer quotaEnforcer = new CdcQuotaEnforcer(
                 config.defaultMaxConcurrentWrites(), config.defaultMaxPendingBytes());
 
+        PipelineSecurityContext securityContext =
+                effectiveState.creatorIdentity() == null || effectiveState.creatorIdentity().isBlank()
+                        ? PipelineSecurityContext.SYSTEM
+                        : PipelineSecurityContext.forPrincipal(effectiveState.creatorIdentity());
+        WritePolicyEnforcer writePolicyEnforcer = (context, table, operations) -> {
+            if (deps.accessControl() == null || operations.isEmpty()) {
+                return;
+            }
+            QualifiedTableName ref = QualifiedTableName.resolve(List.of(table.split("\\.")));
+            UserIdentity user = new UserIdentity(context.principal(), context.groups(),
+                    context.attributes(), context.authenticatedAt());
+            for (org.pangrova.spi.streaming.record.CdcOperation operation : operations) {
+                switch (operation) {
+                    case INSERT -> deps.accessControl().checkCanInsertIntoTable(
+                            user, ref.catalog(), ref.schema(), ref.table());
+                    case UPDATE -> deps.accessControl().checkCanUpdateTable(
+                            user, ref.catalog(), ref.schema(), ref.table());
+                    case DELETE -> deps.accessControl().checkCanDeleteFromTable(
+                            user, ref.catalog(), ref.schema(), ref.table());
+                }
+            }
+        };
+        CdcFencingToken fencingToken = epoch -> {
+            var current = deps.stateStore().loadState(streamName);
+            if (current.isEmpty() || current.get().epoch() != epoch) {
+                throw new StaleFenceException(streamName, epoch);
+            }
+        };
+        CdcPipelineMetrics metrics = deps.metricsProvider() == null
+                ? CdcPipelineMetrics.noop()
+                : new CdcPipelineMetrics(deps.metricsProvider(), streamName);
+        CdcDeadLetterHandler deadLetterHandler = (stream, payload, cause) ->
+                LOG.warn("event=cdc_dead_letter stream={} payloadBytes={} error={}",
+                        stream, payload.length, cause.getMessage());
+
         CdcPipelineLoopContext loopDeps = new CdcPipelineLoopContext(
                 reader, converter, writeSink, quotaEnforcer,
                 deps.watermarkTracker(), deps.maintenanceScheduler(),
                 new CdcPipelineRuntimeHooks(
-                        listener, BackoffStrategy.retry(100, CDC_RETRY_MAX_DELAY_MS), deps.commitCoordinator()));
+                        listener, BackoffStrategy.retry(100, CDC_RETRY_MAX_DELAY_MS),
+                        deps.commitCoordinator(), securityContext, writePolicyEnforcer,
+                        fencingToken, deadLetterHandler, metrics));
 
         return new CdcPipelineLoop(pipelineConfig, loopDeps, offsets);
     }
@@ -363,11 +391,6 @@ public final class StreamScheduler implements AutoCloseable {
             return;
         }
         stopAll();
-        ContinuousQueryConsumer cqConsumer = continuousQueryConsumer;
-        if (cqConsumer != null) {
-            cqConsumer.close();
-            continuousQueryConsumer = null;
-        }
         pipelineExecutor.shutdownNow();
         LOG.info("event=stream_scheduler_closed");
     }
@@ -378,43 +401,6 @@ public final class StreamScheduler implements AutoCloseable {
 
     public int activeCount() {
         return activePipelines.size();
-    }
-
-    /**
-     * Registers a continuous query for watermark-based auto-refresh.
-     * Subscribes to {@link WatermarkTracker} for the source table and triggers
-     * incremental refresh when watermark advances beyond the threshold.
-     *
-     * @param cqName          continuous query name
-     * @param refreshInterval refresh interval (how often to check watermark advance)
-     */
-    public void registerContinuousQuery(String cqName, Duration refreshInterval) {
-        if (closed.get() || paused.get()) {
-            LOG.warn("event=continuous_query_rejected cqName={} reason={}",
-                    cqName, closed.get() ? "scheduler_closed" : "scheduler_paused");
-            return;
-        }
-        continuousQueries.put(cqName, refreshInterval);
-        LOG.info("event=continuous_query_registered cqName={} refreshInterval={}", cqName, refreshInterval);
-    }
-
-    /**
-     * Unregisters a continuous query.
-     *
-     * @param cqName continuous query name
-     */
-    public void unregisterContinuousQuery(String cqName) {
-        Duration removed = continuousQueries.remove(cqName);
-        if (removed != null) {
-            LOG.info("event=continuous_query_unregistered cqName={}", cqName);
-        }
-    }
-
-    /**
-     * Returns the number of registered continuous queries.
-     */
-    public int continuousQueryCount() {
-        return continuousQueries.size();
     }
 
     private static int parseIntProperty(Map<String, String> props, String key, int defaultValue) {

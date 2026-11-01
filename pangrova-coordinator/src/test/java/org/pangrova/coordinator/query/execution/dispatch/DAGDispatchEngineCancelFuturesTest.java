@@ -15,10 +15,10 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.shuffle.ShuffleCommitResult;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleRegistration;
+import org.pangrova.shuffle.api.commit.ShuffleCommitResult;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

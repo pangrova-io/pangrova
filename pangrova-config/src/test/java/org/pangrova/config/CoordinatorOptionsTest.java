@@ -116,6 +116,24 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.QUERY_MAX_CONCURRENT.defaultValue()).isEqualTo(100);
     }
 
+    @Test
+    void streamCommitStateRetentionDefaultsToSevenDays() {
+        assertThat(CoordinatorOptions.STREAM_COMMIT_STATE_RETENTION.defaultValue())
+                .isEqualTo(Duration.ofDays(7));
+        assertThat(CoordinatorOptions.STREAM_COMMIT_STATE_RETENTION.typeClass())
+                .isEqualTo(Duration.class);
+        assertThat(CoordinatorOptions.STREAM_COMMIT_STATE_RETENTION.key())
+                .isEqualTo("streaming.commit-state-retention");
+    }
+
+    @Test
+    void streamCommitStateRetentionResolvedFromConfig() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(
+                Map.of("streaming.commit-state-retention", "30d"));
+        assertThat(config.getDuration(CoordinatorOptions.STREAM_COMMIT_STATE_RETENTION))
+                .isEqualTo(Duration.ofDays(30));
+    }
+
     // ---- Worker management defaults ----
 
     @Test

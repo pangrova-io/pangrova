@@ -5,7 +5,7 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.metadata.storage.JdbcStorageProfileRegistry;
+import org.pangrova.security.storage.store.JdbcStorageProfileRegistry;
 import org.pangrova.operations.bootstrap.BootstrapFailedException;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.GroupRoleMapping;

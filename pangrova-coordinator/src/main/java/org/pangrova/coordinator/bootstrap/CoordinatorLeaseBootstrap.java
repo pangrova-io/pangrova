@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
-import org.pangrova.metadata.coordination.ZooKeeperLeaseProvider;
+import org.pangrova.coordinator.coordination.JdbcDistributedLease;
+import org.pangrova.coordinator.coordination.zookeeper.ZooKeeperLeaseProvider;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

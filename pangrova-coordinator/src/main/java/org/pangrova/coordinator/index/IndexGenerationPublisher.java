@@ -3,10 +3,10 @@ package org.pangrova.coordinator.index;
 import java.time.Instant;
 
 import org.pangrova.indexing.serde.IndexSerializer;
-import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.metadata.index.model.IndexArtifactFormat;
-import org.pangrova.metadata.index.model.IndexGenerationManifest;
-import org.pangrova.metadata.index.model.IndexPublicationRequest;
+import org.pangrova.indexing.control.IndexMetadataStore;
+import org.pangrova.indexing.api.IndexArtifactFormat;
+import org.pangrova.indexing.api.IndexGenerationManifest;
+import org.pangrova.indexing.api.IndexPublicationRequest;
 import org.pangrova.spi.index.IndexDescriptor;
 
 /** Creates the canonical artifact identity and atomically publishes one index generation. */

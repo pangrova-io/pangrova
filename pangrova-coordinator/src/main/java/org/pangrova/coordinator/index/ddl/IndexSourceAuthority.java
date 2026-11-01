@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.index.ddl;
 
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.security.AccessDeniedException;

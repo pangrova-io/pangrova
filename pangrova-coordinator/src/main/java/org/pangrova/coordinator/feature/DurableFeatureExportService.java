@@ -18,7 +18,7 @@
  */
 package org.pangrova.coordinator.feature;
 
-import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
+import org.pangrova.indexing.control.ArtifactStageGraph;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -27,20 +27,20 @@ import org.pangrova.common.util.DigestUtils;
 import org.pangrova.coordinator.artifact.SnapshotArtifactSplitPlanner;
 import org.pangrova.coordinator.artifact.ProtectedSourceSchemaVerifier;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.contract.ArtifactDependencySet;
-import org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy;
-import org.pangrova.metadata.artifact.contract.ArtifactExecutionKind;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.feature.FeatureCatalogStore.ExportRequest;
-import org.pangrova.metadata.feature.FeatureCatalogStore.FeatureViewVersion;
-import org.pangrova.metadata.feature.FeatureCatalogStore.ObjectKind;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.api.ArtifactDependencySet;
+import org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy;
+import org.pangrova.indexing.api.ArtifactExecutionKind;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.ai.api.FeatureCatalogStore.ExportRequest;
+import org.pangrova.ai.api.FeatureCatalogStore.FeatureViewVersion;
+import org.pangrova.ai.api.FeatureCatalogStore.ObjectKind;
 import org.pangrova.planner.artifact.ArtifactBuildPlan;
 import org.pangrova.planner.artifact.TabularExportPlanBuilder;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;

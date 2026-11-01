@@ -6,7 +6,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
-import org.pangrova.shuffle.ShufflePartitionManifestChecksum;
+import org.pangrova.shuffle.api.commit.ShufflePartitionManifestChecksum;
 import org.pangrova.worker.exchange.CanonicalBatchChunks;
 
 /** Ordered producer statistics and digest for one output partition. */

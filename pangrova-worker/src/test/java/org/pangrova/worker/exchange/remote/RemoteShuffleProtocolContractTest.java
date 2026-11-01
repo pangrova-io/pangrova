@@ -11,10 +11,10 @@ import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.worker.exchange.CanonicalBatchChunks;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
-import org.pangrova.shuffle.exchange.ExchangeChannelContext;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.exchange.ExchangeAttemptFence;
+import org.pangrova.shuffle.api.exchange.ExchangeChannelContext;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 import org.junit.jupiter.api.Test;
 
 class RemoteShuffleProtocolContractTest {

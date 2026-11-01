@@ -13,8 +13,8 @@ import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.api.exchange.DirectExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeEndpoint;
 
 /** Verifies canonical v2 exchange bindings become task-scoped inputs exactly once. */
 class ExchangeSourceConverterTest {

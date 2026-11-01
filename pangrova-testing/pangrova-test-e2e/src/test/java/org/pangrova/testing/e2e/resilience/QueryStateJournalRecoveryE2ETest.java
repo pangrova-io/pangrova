@@ -3,7 +3,7 @@ package org.pangrova.testing.e2e.resilience;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
+import org.pangrova.query.core.JdbcQueryStateJournal;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.QueryStateEvent;
 import org.pangrova.spi.coordination.StateJournalConfig;
@@ -319,7 +319,7 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
 
     private static void createJournalTables(DataSource ds) {
-        org.pangrova.metadata.store.SchemaMigrationRunner.migrate(ds);
+        org.pangrova.metadata.store.jdbc.SchemaMigrationRunner.migrateAll(ds);
     }
 
     private static void truncateJournalTables(DataSource ds) throws Exception {

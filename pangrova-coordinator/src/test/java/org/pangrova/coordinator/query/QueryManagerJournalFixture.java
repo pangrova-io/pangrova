@@ -16,7 +16,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
-import org.pangrova.metadata.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.query.transaction.JdbcExecutionAnchorStore;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.tenant.model.ResourceQuota;
 import org.pangrova.security.tenant.model.Tenant;

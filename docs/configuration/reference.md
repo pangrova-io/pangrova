@@ -81,6 +81,7 @@ descriptions live in the per-component pages.
 | `governance.enabled` | `true` | Governance module |
 | `resilience.enabled` | `true` | Resilience module |
 | `streaming.enabled` | `true` | Streaming module |
+| `streaming.commit-state-retention` | `"7d"` | Retention for terminal CDC commit-state rows before pruning (must be positive) |
 | `tenant.enabled` | `false` | Multi-tenant module; requires authenticated security (not NOOP) |
 | `indexing.enabled` | `true` | Indexing module |
 | `operations.enabled` | `true` | Operations module |

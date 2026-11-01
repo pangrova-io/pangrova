@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.audit;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.control.TableMaintenanceRun;
-import org.pangrova.metadata.event.MetadataEvent;
-import org.pangrova.metadata.event.MetadataEventListener;
+import org.pangrova.metadata.core.control.TableControlRecord;
+import org.pangrova.metadata.core.control.TableMaintenanceRun;
+import org.pangrova.metadata.core.event.MetadataEvent;
+import org.pangrova.metadata.core.event.MetadataEventListener;
 import org.pangrova.security.audit.AccessedObject;
 import org.pangrova.security.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
@@ -88,7 +88,7 @@ public final class TableControlAuditEmitter implements MetadataEventListener {
                 null, null, null, queryId(context), null,
                 ref.catalog(), ref.schema(),
                 List.of(accessed(ref, run.operation().name())),
-                run.state() == org.pangrova.metadata.control.MaintenanceRunState.SUCCEEDED,
+                run.state() == org.pangrova.metadata.core.control.MaintenanceRunState.SUCCEEDED,
                 error, durationMs, 0, 0, Map.copyOf(properties)));
     }
 

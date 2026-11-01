@@ -111,7 +111,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
             var control = fixture.control();
             tasks.requireControlEpochHandshake();
             tasks.observeControlEpoch(2);
-            var anchors = new org.pangrova.metadata.coordination.JdbcExecutionAnchorStore(stateStoreDataSource());
+            var anchors = new org.pangrova.query.transaction.JdbcExecutionAnchorStore(stateStoreDataSource());
             String execution = "control-recovery-" + java.util.UUID.randomUUID();
             var previous = anchors.tryAcquire(execution, "control-original", java.util.UUID.randomUUID().toString(),
                     java.time.Duration.ofSeconds(60)).orElseThrow();

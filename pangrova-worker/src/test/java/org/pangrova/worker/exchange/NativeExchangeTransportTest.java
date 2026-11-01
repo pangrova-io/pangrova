@@ -4,10 +4,10 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.exchange.DirectExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.api.exchange.ExchangeInput;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.shuffle.NativeShuffleTransport;
@@ -102,7 +102,7 @@ class NativeExchangeTransportTest {
                 .toExchangeTaskAttempt(request.getAttempt());
     }
 
-    private static ExchangeEndpoint endpoint(TaskRequest request, org.pangrova.shuffle.ShuffleServerHandle server) {
+    private static ExchangeEndpoint endpoint(TaskRequest request, org.pangrova.shuffle.api.registration.ShuffleServerHandle server) {
         var value = request.getAttempt();
         var ticket = server.partitionTickets().get(0);
         return new ExchangeEndpoint(value.getTaskId(), value.getStageId(), value.getPartitionId(), ticket.partitionId(),

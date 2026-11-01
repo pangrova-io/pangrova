@@ -2,9 +2,9 @@ package org.pangrova.coordinator.streaming;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.SourceUnavailableException;
-import org.pangrova.spi.streaming.SourceRecord;
-import org.pangrova.spi.streaming.CdcSourceReader;
-import org.pangrova.spi.streaming.TopicPartitionOffset;
+import org.pangrova.spi.streaming.source.SourceRecord;
+import org.pangrova.spi.streaming.source.CdcSourceReader;
+import org.pangrova.spi.streaming.source.TopicPartitionOffset;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;

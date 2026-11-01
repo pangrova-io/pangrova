@@ -194,7 +194,7 @@ class SessionContextConverterTest {
                 Map.of("catalog", "iceberg", "schema", "prod", "timezone", "UTC", "locale", "en_US"),
                 identity, "tenant-1");
 
-        org.pangrova.metadata.service.MetadataSessionContext result =
+        org.pangrova.metadata.api.session.MetadataSessionContext result =
                 SessionContextConverter.toMetadataSessionContext(ctx);
 
         assertThat(result.user()).isEqualTo("alice");
@@ -211,7 +211,7 @@ class SessionContextConverterTest {
     void toMetadataSessionContext_handlesNullIdentity() {
         CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-2", Map.of(), null, null);
 
-        org.pangrova.metadata.service.MetadataSessionContext result =
+        org.pangrova.metadata.api.session.MetadataSessionContext result =
                 SessionContextConverter.toMetadataSessionContext(ctx);
 
         assertThat(result.user()).isEqualTo("anonymous");
@@ -223,7 +223,7 @@ class SessionContextConverterTest {
     void toMetadataSessionContext_connectorPropertiesAreImmutable() {
         CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-3", Map.of("key", "val"), null, null);
 
-        org.pangrova.metadata.service.MetadataSessionContext result =
+        org.pangrova.metadata.api.session.MetadataSessionContext result =
                 SessionContextConverter.toMetadataSessionContext(ctx);
 
         assertThat(result.connectorProperties()).containsEntry("key", "val");
@@ -254,7 +254,7 @@ class SessionContextConverterTest {
                 Map.of("timezone", "Asia/Shanghai"));
 
         CoordinatorSessionContext coordinator = SessionContextConverter.fromSpiSessionContext("q-rt2", spi);
-        org.pangrova.metadata.service.MetadataSessionContext metadata =
+        org.pangrova.metadata.api.session.MetadataSessionContext metadata =
                 SessionContextConverter.toMetadataSessionContext(coordinator);
 
         assertThat(metadata.user()).isEqualTo("bob");
@@ -268,13 +268,13 @@ class SessionContextConverterTest {
 
     @Test
     void metadataToConnectorSession_excludesEngineInternalFields() {
-        org.pangrova.metadata.service.MetadataSessionContext metaCtx =
-                new org.pangrova.metadata.service.MetadataSessionContext(
+        org.pangrova.metadata.api.session.MetadataSessionContext metaCtx =
+                new org.pangrova.metadata.api.session.MetadataSessionContext(
                         "alice", "iceberg", "prod", "UTC", "en_US",
                         Map.of("key", "val"), "tenant-1", "secret-token", "q-1");
 
         ConnectorSession connector =
-                org.pangrova.metadata.service.DefaultConnectorSession.fromSessionContext(metaCtx);
+                org.pangrova.metadata.core.DefaultConnectorSession.fromSessionContext(metaCtx);
 
         assertThat(connector.getUser()).isEqualTo("alice");
         assertThat(connector.getCatalog()).contains("iceberg");

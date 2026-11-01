@@ -1,0 +1,31 @@
+package org.pangrova.streaming.maintenance;
+
+import java.time.Duration;
+
+/**
+ * Configuration for maintenance scheduling.
+ */
+public record MaintenanceConfig(
+    Duration compactionInterval,
+    Duration orphanCleanupInterval,
+    Duration snapshotExpirationInterval,
+    Duration compactionScanInterval,
+    int minFilesToCompact,
+    int maxEqualityDeleteFiles,
+    Duration orphanFileAge,
+    Duration snapshotRetention,
+    int threads,
+    int maxConcurrentTasks,
+    int taskQueueCapacity,
+    Duration taskTimeout
+) {
+    public static MaintenanceConfig defaults() {
+        return new MaintenanceConfig(
+            Duration.ofMinutes(60), Duration.ofHours(6),
+            Duration.ofHours(12), Duration.ofMinutes(60),
+            5, 10,
+            Duration.ofDays(3), Duration.ofDays(7),
+            4, 4, 16, Duration.ofMinutes(30)
+        );
+    }
+}

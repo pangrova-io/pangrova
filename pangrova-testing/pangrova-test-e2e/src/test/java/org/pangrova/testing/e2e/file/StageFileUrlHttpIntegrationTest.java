@@ -36,9 +36,9 @@ import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
 import org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.metadata.file.JdbcFileSpaceRegistry;
-import org.pangrova.metadata.storage.JdbcStorageProfileRegistry;
-import org.pangrova.metadata.store.SchemaMigrationRunner;
+import org.pangrova.security.storage.store.JdbcFileSpaceRegistry;
+import org.pangrova.security.storage.store.JdbcStorageProfileRegistry;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
 import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.security.authn.AuthenticationRequest;
 import org.pangrova.security.authn.AuthenticationResult;
@@ -107,9 +107,8 @@ class StageFileUrlHttpIntegrationTest {
             statement.execute("CREATE SCHEMA " + schema);
         }
         source.setCurrentSchema(schema);
-        SchemaMigrationRunner.migrate(source);
-        var tenants = new org.pangrova.metadata.tenant.JdbcTenantStore(source);
-        tenants.initSchema();
+        SchemaMigrationRunner.migrateAll(source);
+        var tenants = new org.pangrova.security.tenant.store.JdbcTenantStore(source);
         tenants.createTenant(new org.pangrova.security.tenant.model.Tenant("tenant-a", "HTTP file tests",
                 org.pangrova.security.tenant.model.TenantStatus.ACTIVE,
                 new org.pangrova.security.tenant.model.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
@@ -136,7 +135,7 @@ class StageFileUrlHttpIntegrationTest {
         worker = start(new ResourceConfig().register(new FileSpaceFileResource(accessors, SECRET))
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class));
         var context = FileSpaceAccessService.FileSpaceAccessContext.of("local",
-                () -> List.of(base(worker).toString()), new FileSpaceAuditEmitter(null), SECRET, new org.pangrova.metadata.file.JdbcFileSpaceAuthority(source));
+                () -> List.of(base(worker).toString()), new FileSpaceAuditEmitter(null), SECRET, new org.pangrova.security.storage.store.JdbcFileSpaceAuthority(source));
         var access = new FileSpaceAccessService(spaces, profiles, rbac, context);
         authentication = new AuthenticationManager(List.of(new TestAuthenticator()));
         coordinator = start(new ResourceConfig().register(new FileSpaceFilesResource(access,

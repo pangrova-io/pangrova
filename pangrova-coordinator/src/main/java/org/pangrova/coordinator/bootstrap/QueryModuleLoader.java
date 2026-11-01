@@ -8,7 +8,7 @@ import org.pangrova.coordinator.bootstrap.module.QueryExecutionModule;
 import org.pangrova.coordinator.bootstrap.module.SecurityModule;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.query.execution.result.QueryCacheService;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.resource.scheduler.WeightedFairScheduler;
 import org.pangrova.spi.security.AccessControl;

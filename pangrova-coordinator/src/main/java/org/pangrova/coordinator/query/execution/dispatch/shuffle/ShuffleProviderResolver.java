@@ -5,11 +5,11 @@ import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.TreeMap;
 
-import org.pangrova.shuffle.ShuffleCapabilities;
-import org.pangrova.shuffle.ShuffleContext;
-import org.pangrova.shuffle.ShuffleDurability;
-import org.pangrova.shuffle.ShuffleManagerFactory;
-import org.pangrova.shuffle.ShuffleProvider;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilities;
+import org.pangrova.shuffle.api.contract.ShuffleContext;
+import org.pangrova.shuffle.api.capability.ShuffleDurability;
+import org.pangrova.shuffle.api.contract.ShuffleManagerFactory;
+import org.pangrova.shuffle.api.contract.ShuffleProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

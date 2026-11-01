@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.cache;
 
-import org.pangrova.metadata.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.metadata.cache.JdbcInvalidationPoller;
+import org.pangrova.metadata.core.cache.InvalidationEntry.InvalidationType;
+import org.pangrova.metadata.core.cache.JdbcInvalidationPoller;
 import org.pangrova.planner.cache.CacheEntryMetadata;
 import org.pangrova.planner.cache.CacheKey;
 import org.pangrova.planner.cache.CachedResult;

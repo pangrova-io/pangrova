@@ -32,9 +32,9 @@ import org.pangrova.coordinator.query.execution.dispatch.task.semantic.PublishSe
 import org.pangrova.coordinator.query.execution.dispatch.task.semantic.ShowSemanticViewsTask;
 import org.pangrova.coordinator.query.statement.StatementClassifier;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.ai.AiInfrastructureStores;
-import org.pangrova.metadata.semantic.SemanticViewId;
-import org.pangrova.metadata.semantic.SemanticViewStore;
+import org.pangrova.ai.control.AiInfrastructureStores;
+import org.pangrova.semantic.api.SemanticViewId;
+import org.pangrova.semantic.api.SemanticViewStore;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;

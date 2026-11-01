@@ -5,7 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
+import org.pangrova.indexing.control.ArtifactBuildJobKey;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
 

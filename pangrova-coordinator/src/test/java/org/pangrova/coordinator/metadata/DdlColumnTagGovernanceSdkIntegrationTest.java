@@ -12,12 +12,11 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.governance.classification.ColumnTagService;
 import org.pangrova.governance.classification.InMemoryAuditConfigStore;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
-import org.pangrova.metadata.control.GovernanceBindingType;
-import org.pangrova.metadata.control.InMemoryTableControlGovernanceBindingStore;
-import org.pangrova.metadata.control.TableControlPolicyBinder;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.service.DefaultMetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.core.control.GovernanceBindingType;
+import org.pangrova.metadata.core.control.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.metadata.core.control.TableControlPolicyBinder;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.store.PersistentColumnMaskStore;
@@ -59,7 +58,7 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
             long rowsBefore = committedRows(table);
             assertThat(rowsBefore).isEqualTo(2);
 
-            var metadataService = (DefaultMetadataService) fixture.bootstrap.metadataService();
+            var metadataService = fixture.bootstrap.defaultMetadataService();
             DataSource tagAuthority = SharedPostgresContainer.isolatedDataSource("ddl_tag_governance");
             DataSource maskAuthority = SharedPostgresContainer.isolatedDataSource("ddl_tag_masks");
             ColumnTagService tagService = new ColumnTagService(name -> fixture.bootstrap.catalogRegistry()
@@ -67,18 +66,18 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
             metadataService.setColumnTagService(tagService);
             PersistentColumnMaskStore maskStore = new PersistentColumnMaskStore(maskAuthority);
             maskStore.initSchema();
-            var boundMasks = new org.pangrova.metadata.service.TableControlColumnMaskStore(
+            var boundMasks = new org.pangrova.metadata.core.TableControlColumnMaskStore(
                     fixture.bootstrap.catalogRegistry(), maskStore);
 
-            org.pangrova.metadata.store.SchemaMigrationRunner.migrate(tagAuthority);
-            var bindingStore = new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(tagAuthority);
+            org.pangrova.metadata.store.jdbc.SchemaMigrationRunner.migrateAll(tagAuthority);
+            var bindingStore = new org.pangrova.metadata.core.control.JdbcTableControlGovernanceBindingStore(tagAuthority);
             fixture.bootstrap.catalogRegistry().setGovernanceBindingStore(bindingStore);
             var binder = new TableControlPolicyBinder(
                     fixture.bootstrap.catalogRegistry().tableControl(), bindingStore);
             AtomicInteger invalidations = new AtomicInteger();
             var executor = new DdlExecutor(fixture.bootstrap.catalogRegistry(), null,
                     invalidations::incrementAndGet);
-            executor.setMetadataService(metadataService);
+            executor.setColumnTagPort(metadataService);
 
             var tracker = new CoordinatorTaskTracker();
             var state = new QueryStateMachine();

@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.index.ddl;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.contract.ArtifactDependencySet;
-import org.pangrova.metadata.artifact.contract.ArtifactEmptyPartitionPolicy;
-import org.pangrova.metadata.artifact.contract.ArtifactExecutionKind;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildJobState;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.api.ArtifactDependencySet;
+import org.pangrova.indexing.api.ArtifactEmptyPartitionPolicy;
+import org.pangrova.indexing.api.ArtifactExecutionKind;
 import org.pangrova.planner.artifact.ArtifactBuildPlan;
 import org.pangrova.protocol.v2.ArtifactDependency;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
@@ -43,7 +43,7 @@ record DurableIndexBuildSubmission(
         ArtifactBuildJob job = buildJob(
                 definition, sourceId, dependencies, output);
         ArtifactBuildDispatchSpec dispatch = ArtifactBuildDispatchSpec.of(
-                definition.jobId(), org.pangrova.metadata.artifact.build.ArtifactStageGraph.forArtifactPages(
+                definition.jobId(), org.pangrova.indexing.control.ArtifactStageGraph.forArtifactPages(
                         definition.plan().planBytes(),
                         OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(),
                         definition.pages(), java.util.List.of()),

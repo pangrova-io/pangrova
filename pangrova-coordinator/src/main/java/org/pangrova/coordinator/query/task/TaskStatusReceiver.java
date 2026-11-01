@@ -211,7 +211,7 @@ public final class TaskStatusReceiver {
             return artifactWorkReportSink.commit(request.taskRequest().getSecurity().getTenantId(),
                     status, report.canonicalTaskReport());
         } catch (org.pangrova.security.authz.AuthorizationDeniedException
-                | org.pangrova.metadata.artifact.jdbc.ArtifactExecutionFence.LostOwnerException fenced) {
+                | org.pangrova.indexing.store.jdbc.ArtifactExecutionFence.LostOwnerException fenced) {
             LOG.warn("event=durable_report_rejected_authority queryId={} taskId={} reason={}",
                     report.queryId(), report.taskId(), fenced.getMessage());
             return false;

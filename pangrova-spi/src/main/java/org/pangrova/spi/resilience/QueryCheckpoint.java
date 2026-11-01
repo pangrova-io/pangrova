@@ -18,7 +18,7 @@ import java.util.Optional;
  * <ul>
  *   <li>This checkpoint SPI (stage-boundary metadata)</li>
  *   <li>Durable shuffle (shuffle data survives worker failure — see
- *       {@link org.pangrova.shuffle.ShuffleDurability})</li>
+ *       {@link org.pangrova.shuffle.api.capability.ShuffleDurability})</li>
  *   <li>The FTE stage scheduler's retry budget</li>
  * </ul>
  *

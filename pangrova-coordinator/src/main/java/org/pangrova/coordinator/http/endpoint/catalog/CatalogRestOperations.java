@@ -12,12 +12,12 @@ import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResponse.Schema
 import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResponse.TableIdentifier;
 import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResponse.TableMetadataPayload;
 import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResponse.UpdatePropertiesResponse;
-import org.pangrova.metadata.model.ColumnMetadata;
-import org.pangrova.metadata.model.ColumnType;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.api.schema.ColumnMetadata;
+import org.pangrova.metadata.api.schema.ColumnType;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.api.MetadataGateway;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,9 +41,9 @@ public final class CatalogRestOperations {
     private static final Logger LOG = LoggerFactory.getLogger(CatalogRestOperations.class);
     private static final String DEFAULT_SCHEMA = "default";
 
-    private final MetadataService metadataService;
+    private final MetadataGateway metadataService;
 
-    public CatalogRestOperations(MetadataService metadataService) {
+    public CatalogRestOperations(MetadataGateway metadataService) {
         this.metadataService = checkNotNull(metadataService, "metadataService must not be null");
     }
 
@@ -56,12 +56,12 @@ public final class CatalogRestOperations {
     public List<List<String>> listNamespaces(String parent) {
         MetadataSessionContext session = createSession();
         if (parent == null || parent.isEmpty()) {
-            List<String> catalogs = metadataService.listCatalogs(session);
+            List<String> catalogs = metadataService.catalogs().listCatalogs(session);
             return catalogs.stream()
                     .map(List::of)
                     .toList();
         }
-        List<String> schemas = metadataService.listSchemas(session, parent);
+        List<String> schemas = metadataService.resolution().listSchemas(session, parent);
         return schemas.stream()
                 .map(s -> List.of(parent, s))
                 .toList();
@@ -82,7 +82,7 @@ public final class CatalogRestOperations {
      */
     public GetNamespaceResponse getNamespace(String namespace) {
         MetadataSessionContext session = createSession();
-        List<String> catalogs = metadataService.listCatalogs(session);
+        List<String> catalogs = metadataService.catalogs().listCatalogs(session);
         if (!catalogs.contains(namespace)) {
             return null;
         }
@@ -94,7 +94,7 @@ public final class CatalogRestOperations {
      */
     public boolean namespaceExists(String namespace) {
         MetadataSessionContext session = createSession();
-        List<String> catalogs = metadataService.listCatalogs(session);
+        List<String> catalogs = metadataService.catalogs().listCatalogs(session);
         return catalogs.contains(namespace);
     }
 
@@ -103,11 +103,11 @@ public final class CatalogRestOperations {
      */
     public boolean dropNamespace(String namespace) {
         MetadataSessionContext session = createSession();
-        List<String> catalogs = metadataService.listCatalogs(session);
+        List<String> catalogs = metadataService.catalogs().listCatalogs(session);
         if (!catalogs.contains(namespace)) {
             return false;
         }
-        metadataService.dropCatalog(session, namespace, true);
+        metadataService.catalogs().dropCatalog(session, namespace, true);
         LOG.info("event=drop_namespace namespace={}", namespace);
         return true;
     }
@@ -118,7 +118,7 @@ public final class CatalogRestOperations {
     public UpdatePropertiesResponse updateNamespaceProperties(
             String namespace, List<String> removals, Map<String, String> updates) {
         MetadataSessionContext session = createSession();
-        List<String> catalogs = metadataService.listCatalogs(session);
+        List<String> catalogs = metadataService.catalogs().listCatalogs(session);
         if (!catalogs.contains(namespace)) {
             return null;
         }
@@ -136,11 +136,11 @@ public final class CatalogRestOperations {
      */
     public List<TableIdentifier> listTables(String namespace) {
         MetadataSessionContext session = createSession();
-        List<String> catalogs = metadataService.listCatalogs(session);
+        List<String> catalogs = metadataService.catalogs().listCatalogs(session);
         if (!catalogs.contains(namespace)) {
             return null;
         }
-        List<String> schemas = metadataService.listSchemas(session, namespace);
+        List<String> schemas = metadataService.resolution().listSchemas(session, namespace);
         return schemas.stream()
                 .flatMap(schema -> listTablesInSchema(namespace, schema).stream())
                 .toList();
@@ -151,7 +151,7 @@ public final class CatalogRestOperations {
      */
     public LoadTableResponse createTable(String namespace, CreateTableRequest request) {
         MetadataSessionContext session = createSession();
-        List<String> catalogs = metadataService.listCatalogs(session);
+        List<String> catalogs = metadataService.catalogs().listCatalogs(session);
         if (!catalogs.contains(namespace)) {
             return null;
         }
@@ -160,7 +160,7 @@ public final class CatalogRestOperations {
                 namespace, DEFAULT_SCHEMA, request.name(),
                 columns, Map.of(), List.of(), request.properties(), null, null);
         QualifiedTableRef tableRef = new QualifiedTableRef(namespace, DEFAULT_SCHEMA, request.name());
-        metadataService.createTable(session, tableRef, tableMetadata);
+        metadataService.tables().createTable(session, tableRef, tableMetadata);
         LOG.info("event=create_table namespace={} table={}", namespace, request.name());
         return buildLoadTableResponse(tableMetadata);
     }
@@ -172,7 +172,7 @@ public final class CatalogRestOperations {
         MetadataSessionContext session = createSession();
         QualifiedTableRef tableRef = resolveTableRef(namespace, table);
         try {
-            metadataService.resolveTable(session, tableRef);
+            metadataService.resolution().resolveTable(session, tableRef);
             TableMetadata metadata = new TableMetadata(
                     namespace, tableRef.schema(), table,
                     List.of(), Map.of(), List.of(), Map.of(), null, null);
@@ -191,7 +191,7 @@ public final class CatalogRestOperations {
         MetadataSessionContext session = createSession();
         QualifiedTableRef tableRef = resolveTableRef(namespace, table);
         try {
-            metadataService.resolveTable(session, tableRef);
+            metadataService.resolution().resolveTable(session, tableRef);
             return true;
         } catch (RuntimeException e) {
             return false;
@@ -205,7 +205,7 @@ public final class CatalogRestOperations {
         MetadataSessionContext session = createSession();
         QualifiedTableRef tableRef = resolveTableRef(namespace, table);
         try {
-            metadataService.dropTable(session, tableRef);
+            metadataService.tables().dropTable(session, tableRef);
             LOG.info("event=drop_table namespace={} table={}", namespace, table);
             return true;
         } catch (org.pangrova.spi.security.AccessDeniedException denied) {
@@ -226,7 +226,7 @@ public final class CatalogRestOperations {
      */
     public List<TableIdentifier> listViews(String namespace) {
         MetadataSessionContext session = createSession();
-        List<String> catalogs = metadataService.listCatalogs(session);
+        List<String> catalogs = metadataService.catalogs().listCatalogs(session);
         if (!catalogs.contains(namespace)) {
             return null;
         }
@@ -249,7 +249,7 @@ public final class CatalogRestOperations {
         MetadataSessionContext session = createSession();
         QualifiedTableRef searchRef = new QualifiedTableRef(catalog, schema, "%");
         try {
-            metadataService.resolveTable(session, searchRef);
+            metadataService.resolution().resolveTable(session, searchRef);
             return List.of(new TableIdentifier(List.of(catalog, schema), searchRef.table()));
         } catch (RuntimeException e) {
             return List.of();

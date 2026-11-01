@@ -1,7 +1,7 @@
 package org.pangrova.testing.e2e.write;
 
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
-import org.pangrova.metadata.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
 import org.pangrova.protocol.NativeWriteBindings;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.SecurityContext;

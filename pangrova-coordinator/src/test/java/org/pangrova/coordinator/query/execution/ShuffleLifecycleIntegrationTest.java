@@ -10,13 +10,13 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.LocalShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleAccess;
-import org.pangrova.shuffle.ShuffleCommitResult;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
-import org.pangrova.shuffle.ShuffleServiceAddress;
-import org.pangrova.shuffle.ShuffleHandle;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
-import org.pangrova.shuffle.ShuffleRegistration;
+import org.pangrova.shuffle.api.capability.ShuffleAccess;
+import org.pangrova.shuffle.api.commit.ShuffleCommitResult;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -88,9 +88,9 @@ class ShuffleLifecycleIntegrationTest {
 
     @Test
     void commitResultWithPartitionStats() {
-        Map<Integer, org.pangrova.shuffle.ShufflePartitionStats> stats = Map.of(
-                0, new org.pangrova.shuffle.ShufflePartitionStats(0, 1024, 100),
-                1, new org.pangrova.shuffle.ShufflePartitionStats(1, 2048, 200));
+        Map<Integer, org.pangrova.shuffle.api.commit.ShufflePartitionStats> stats = Map.of(
+                0, new org.pangrova.shuffle.api.commit.ShufflePartitionStats(0, 1024, 100),
+                1, new org.pangrova.shuffle.api.commit.ShufflePartitionStats(1, 2048, 200));
         ShuffleCommitResult result = new ShuffleCommitResult(stats, 3072, 300);
 
         assertEquals(2, result.partitionStats().size());

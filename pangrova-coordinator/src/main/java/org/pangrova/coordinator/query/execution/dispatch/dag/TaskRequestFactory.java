@@ -29,7 +29,7 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.shuffle.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
 
 /**
  * Builds SubmitTaskRequest instances for task dispatch.

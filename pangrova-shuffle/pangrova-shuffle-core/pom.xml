@@ -12,10 +12,15 @@
 
     <artifactId>pangrova-shuffle-core</artifactId>
     <name>Pangrova Shuffle Core</name>
-    <description>Shuffle SPI, exchange, and spool abstractions for Pangrova distributed query engine</description>
+    <description>In-tree shuffle engine implementations (spool-backed exchange) on top of the
+        provider-neutral pangrova-shuffle-api contracts</description>
 
     <dependencies>
         <!-- Internal module dependencies (version inherited from parent) -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>

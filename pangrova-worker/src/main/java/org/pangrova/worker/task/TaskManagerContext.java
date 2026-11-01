@@ -3,8 +3,8 @@ package org.pangrova.worker.task;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.spi.execution.ResultTransport;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.shuffle.ShuffleTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.transport.ShuffleTransport;
 import org.pangrova.resource.ResourceManager;
 import org.pangrova.resource.memory.NodeMemoryPool;
 import org.pangrova.spi.execution.TaskExecutor;

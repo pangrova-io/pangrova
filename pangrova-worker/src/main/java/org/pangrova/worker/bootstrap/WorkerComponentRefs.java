@@ -5,7 +5,7 @@ import org.pangrova.resource.ResourceMonitor;
 import org.pangrova.resource.memory.RootMemoryPool;
 import org.pangrova.resource.memory.NodeMemoryPool;
 import org.pangrova.resource.tenant.TenantResourceTracker;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
 import org.pangrova.worker.PangrovaWorker;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient;
 import org.pangrova.worker.buffer.ActiveOutputBuffer;

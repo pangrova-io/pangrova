@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactExecutionOwner;
-import org.pangrova.metadata.artifact.jdbc.CurrentDeferredExecutionContext;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactExecutionOwner;
+import org.pangrova.indexing.store.jdbc.CurrentDeferredExecutionContext;
 import org.pangrova.observability.tracing.ExecutionTraceContext;
 
 import java.util.Map;

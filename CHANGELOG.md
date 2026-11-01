@@ -29,6 +29,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive testing: E2E with TestContainers, property-based tests with jqwik, TPC-H/DS benchmarks
 
 ### Changed
+- Split streaming into a family aggregator `pangrova-streaming` with four nested
+  leaf modules: the core runtime `pangrova-streaming-runtime`, plus
+  `pangrova-streaming-format`, `pangrova-streaming-maintenance`, and
+  `pangrova-streaming-jdbc`. The backend-neutral `CdcCommitStateStore` contract
+  lives in `pangrova-spi`.
+- Deep-review fixes: offset persistence now allows explicit rewinds (monotonicity
+  moves to the pipeline commit protocol and HA epoch fencing); `StreamStateStore`
+  keeps only the explicit `saveStateIfEpoch` CAS; CDC pipelines parse
+  `watermark_delay`/`late_data_policy`/`allowed_lateness` from stream properties
+  with strict startup validation; write authorization checks
+  INSERT/UPDATE/DELETE per batch operations; `CdcPipelineRuntimeHooks` exposes a
+  `forTests()` factory instead of a 3-arg constructor; maintenance is notified
+  only after the per-table lock is released and `MaintenanceScheduler.close()`
+  cancels in-flight SPI futures; `WatermarkState.STALE` removed;
+  `SKIP_AND_RECORD` requires a durable dead-letter handler; and
+  `streaming.commit-state-retention` is a validated coordinator configuration
+  option (default `7d`).
+- CDC pipelines restore persisted watermarks, apply the configured watermark
+  delay, support dead-letter skip/record and late-data drop/update policies, and
+  carry security, fencing, and metrics hooks through the live loop.
+- Streaming SPI contracts (`org.pangrova.spi.streaming`) regrouped by capability
+  into subpackages: `source` (readers, records, offsets), `record` (envelope
+  model and converters), `sink` (write sink and result), `commit` (two-phase
+  commit state and checkpoints), `store` (stream state, offsets, watermarks), and
+  `exception` (`StreamingStoreException` shared by all store adapters).
+- Shuffle modules repackaged by capability. `pangrova-shuffle-core` now owns two
+  explicit roots — `org.pangrova.shuffle.api` (export contracts, subdivided into
+  `contract`/`registration`/`capability`/`transport`/`ownership`/`commit`/
+  `inventory`/`adaptive`/`exchange`/`spool`) and `org.pangrova.shuffle.core`
+  (internal orchestration and the local-FS spool adapter) — and no longer owns
+  the `org.pangrova.shuffle` root package. `pangrova-shuffle-service` owns
+  `org.pangrova.shuffle.service` exclusively: `model` holds the shared internal
+  allocation/commit/cleanup records, `config`/`storage` were split out of
+  `server`/`deployment` to break the previous bidirectional package cycle, and
+  the JDBC transaction helper lives with the stores that use it.
+  `AdaptiveRepartitionTrigger` sits in `api.adaptive` until `pangrova-scheduler`
+  exists to host placement strategies.
+- Maintenance scheduling evaluates SPI status outside the scheduler lock,
+  dispatches asynchronously, and excludes CDC writes per table.
 - Generated-value sidecars now use one nullable segment-v2 contract and matching
   Java/Native build/overlay capability version 2.0.0. Readers reject old formats;
   sidecars must be rebuilt, not silently reinterpreted. Final SQL/distributed
@@ -60,12 +99,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a deliberate decision.
 
 ### Removed
+- Removed the inert CDC registration subsystem (`/cdc/register`, `/cdc/heartbeat`,
+  `cdc_registrations`, `CdcLifecycleManager`); `ingestion_stream_state` is the
+  only stream definition authority.
+- Removed unwired streaming code: `StreamingWiring`, `CdcConsumer`, the
+  `TableWriter` write model and Iceberg/Paimon writers, mini-batch writers,
+  window aggregation, continuous-query polling, file/embedding interceptors,
+  `LateDataRouter`, duplicate JDBC watermark/registration stores, and duplicate
+  retention/compaction policies.
 - Removed the incomplete Celeborn adapter, its reflective coordinator factory, ServiceLoader
   registration, and container test. The adapter had no Worker-side production wiring and the test
   did not prove that query data traversed Celeborn. The generic shuffle SPI and canonical external
   shuffle protocol remain available for a fully wired implementation.
 
 ### Fixed
+- CDC watermarks are restored from the durable store on restart and no longer
+  reset to epoch; non-advancing events no longer poison the state machine.
+- A malformed CDC payload no longer silently fails the whole batch when the
+  pipeline is configured for skip-and-record dead-letter handling.
+- Maintenance task timeouts now release the per-table guard, permit, and
+  in-flight marker on the completing thread without leaking capacity.
 - Carry the Coordinator internal authentication secret and opt-in speculation
   setting from YAML into the production bootstrap; reject blank internal secrets.
   Use consumed environment names and distinct advertised hosts in multi-process

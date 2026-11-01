@@ -5,9 +5,9 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.coordination.JdbcCoordinatorRegistry;
-import org.pangrova.metadata.coordination.JdbcWorkerRegistry;
-import org.pangrova.metadata.store.EmbeddedDataSource;
+import org.pangrova.coordinator.coordination.JdbcCoordinatorRegistry;
+import org.pangrova.coordinator.coordination.JdbcWorkerRegistry;
+import org.pangrova.metadata.store.jdbc.EmbeddedDataSource;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.pangrova.spi.coordination.DistributedLease;

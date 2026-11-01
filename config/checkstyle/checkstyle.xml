@@ -339,7 +339,7 @@
              every other numeric expression remain subject to MagicNumber. -->
         <module name="SuppressionXpathSingleFilter">
             <property name="checks" value="MagicNumber"/>
-            <property name="files" value="[\\/]org[\\/]pangrova[\\/]metadata[\\/]materialization[\\/]JdbcMaterialization[A-Za-z]+\.java$"/>
+            <property name="files" value="[\\/]org[\\/]pangrova[\\/]materialization[\\/]store[\\/]jdbc[\\/]JdbcMaterialization[A-Za-z]+\.java$"/>
             <property name="query" value="//METHOD_CALL[DOT[IDENT[@text='statement'] and IDENT[starts-with(@text,'set')]]]/ELIST/EXPR[1]/NUM_INT | //METHOD_CALL[IDENT[@text='setJson' or @text='setInstant' or @text='bindNullableUuid' or @text='bindObjectId']]/ELIST/EXPR[2]/NUM_INT | //METHOD_CALL[DOT[IDENT[@text='bindObjectId' or @text='bindNullableUuid']]]/ELIST/EXPR[2]/NUM_INT"/>
         </module>
         <!-- Constant-holder interfaces are banned; nominal marker interfaces are valid Java types. -->

@@ -5,7 +5,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.coordinator.index.IndexDescriptorCache;
 import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.indexing.eval.IndexEvaluationFailures;
 import org.pangrova.planner.index.IndexHint;
 import org.pangrova.spi.connector.index.NativeIndexCapability;

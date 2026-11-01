@@ -34,12 +34,12 @@ import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
 import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
-import org.pangrova.metadata.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
-import org.pangrova.metadata.storage.JdbcCopySourceReadAdmissions;
-import org.pangrova.metadata.storage.JdbcStorageProfileRegistry;
-import org.pangrova.metadata.store.SchemaMigrationRunner;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.query.transaction.JdbcExecutionAnchorStore;
+import org.pangrova.coordinator.coordination.JdbcDistributedLease;
+import org.pangrova.query.transaction.JdbcCopySourceReadAdmissions;
+import org.pangrova.security.storage.store.JdbcStorageProfileRegistry;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceResponse;
@@ -108,11 +108,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CopySourceReadHttpE2ETest extends ContainerTestBase {
     private static final String ACCESS_KEY = "copy-http-e2e";
     private static final String SECRET_KEY = "copy-http-e2e-secret";
-    private static final org.pangrova.shuffle.exchange.ExchangeTransport NO_EXCHANGE =
-            new org.pangrova.shuffle.exchange.ExchangeTransport() {
+    private static final org.pangrova.shuffle.api.exchange.ExchangeTransport NO_EXCHANGE =
+            new org.pangrova.shuffle.api.exchange.ExchangeTransport() {
                 @Override public void bindInputs(long executorHandle,
-                        org.pangrova.shuffle.exchange.ExchangeTaskAttempt attempt,
-                        List<org.pangrova.shuffle.exchange.ExchangeInput> inputs) {
+                        org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt attempt,
+                        List<org.pangrova.shuffle.api.exchange.ExchangeInput> inputs) {
                     throw new AssertionError("COPY staging must not bind Native exchange");
                 }
                 @Override public void releaseInputs(long executorHandle) {}
@@ -557,7 +557,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
             source.setURL(config.metadataJdbcConfig().jdbcUrl());
             source.setUser(config.metadataJdbcConfig().username());
             source.setPassword(config.metadataJdbcConfig().password());
-            SchemaMigrationRunner.migrate(source);
+            SchemaMigrationRunner.migrateAll(source);
             var roles = new PersistentRoleStore(source);
             roles.initSchema();
             var tenants = new JdbcTenantStore(source);

@@ -15,7 +15,6 @@ import org.pangrova.coordinator.http.endpoint.CoordinatorTaskResource;
 import org.pangrova.coordinator.http.endpoint.QueryResource;
 import org.pangrova.coordinator.http.endpoint.RequestLimitFilter;
 import org.pangrova.coordinator.http.endpoint.SplitResource;
-import org.pangrova.coordinator.http.endpoint.StreamingResource;
 import org.pangrova.coordinator.http.endpoint.TracingFilter;
 import org.pangrova.coordinator.http.endpoint.WebUiResource;
 import org.pangrova.coordinator.http.endpoint.WebUiStaticResource;
@@ -84,7 +83,7 @@ public final class CoordinatorHttpServer {
     public CoordinatorHttpServer(int port, TaskStatusReceiver receiver,
                                   QueryManager queryManager, TracingHttpFilter tracingHttpFilter) {
         this(port, new CoordinatorHttpServerContext(
-                receiver, queryManager, tracingHttpFilter, null, null, null, null, null));
+                receiver, queryManager, tracingHttpFilter, null, null, null, null));
     }
 
     /**
@@ -95,7 +94,7 @@ public final class CoordinatorHttpServer {
                                   AuthenticationManager authenticationManager) {
         this(port, new CoordinatorHttpServerContext(
                 receiver, queryManager, tracingHttpFilter, authenticationManager,
-                null, null, null, null));
+                null, null, null));
     }
 
     /**
@@ -107,7 +106,7 @@ public final class CoordinatorHttpServer {
                                   HealthCheckEndpoint healthCheckEndpoint) {
         this(port, new CoordinatorHttpServerContext(
                 receiver, queryManager, tracingHttpFilter, authenticationManager,
-                healthCheckEndpoint, null, null, null));
+                healthCheckEndpoint, null, null));
     }
 
     /** Starts the Jetty server. */
@@ -150,7 +149,6 @@ public final class CoordinatorHttpServer {
         registerIfPresent(config, deps.workerManager(),
                 manager -> new WorkerResource(
                         manager, null, deps.coordinatorEpochSupplier()));
-        registerIfPresent(config, deps.cdcHandler(), StreamingResource::new);
         registerIfPresent(config, deps.splitAssignmentManager(), SplitResource::new);
         registerCatalogRestResources(config, deps);
         if (deps.copySourceReadResource() != null) {
@@ -185,7 +183,7 @@ public final class CoordinatorHttpServer {
             config.register(new CatalogRestResource(operations));
             config.register(new OAuth2TokenResource(deps.authenticationManager()));
             if (deps.internalAuthSecret() != null && !deps.internalAuthSecret().isBlank()) {
-                config.register(new CatalogDeploymentResource(deps.metadataService()));
+                config.register(new CatalogDeploymentResource(deps.metadataService().catalogs()));
             }
         }
     }

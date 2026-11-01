@@ -43,9 +43,9 @@ import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessResponse;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleProducerSetChecksum;
-import org.pangrova.shuffle.ShuffleRegistration;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.commit.ShuffleProducerSetChecksum;
+import org.pangrova.shuffle.api.registration.ShuffleRegistration;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -375,9 +375,9 @@ class CoordinatorShuffleLifecycleManagerTest {
         ShuffleTlsConfig tls = tlsConfig("localhost");
         assertThatThrownBy(() -> new CoordinatorShuffleLifecycleManager(
                 List.of(
-                        new org.pangrova.shuffle.ShuffleServiceAddress(
+                        new org.pangrova.shuffle.api.registration.ShuffleServiceAddress(
                                 "127.0.0.1", 9443, "localhost"),
-                        new org.pangrova.shuffle.ShuffleServiceAddress(
+                        new org.pangrova.shuffle.api.registration.ShuffleServiceAddress(
                                 "127.0.0.1", 9444, "")),
                 queryId -> new ShuffleExecutionOwner("owner", "incarnation", 9L),
                 tls))
@@ -418,7 +418,7 @@ class CoordinatorShuffleLifecycleManagerTest {
     private static CoordinatorShuffleLifecycleManager manager(
             int port, String tlsIdentity, ShuffleTlsConfig tlsConfig) {
         return new CoordinatorShuffleLifecycleManager(
-                List.of(new org.pangrova.shuffle.ShuffleServiceAddress(
+                List.of(new org.pangrova.shuffle.api.registration.ShuffleServiceAddress(
                         "127.0.0.1", port, tlsIdentity)),
                 queryId -> new ShuffleExecutionOwner("owner", "incarnation", 9L),
                 tlsConfig);

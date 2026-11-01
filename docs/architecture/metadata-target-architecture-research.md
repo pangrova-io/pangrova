@@ -10,7 +10,7 @@ Pangrova 已经具备一个现代湖仓查询引擎所需的大部分“零件�
 结论可以概括为五点：
 
 1. `pangrova-metadata` 已成为控制面状态的聚合模块。当前工作区中该模块有 170 个 Java 源文件，覆盖 catalog、缓存和 schema，也覆盖索引、构建任务、查询/写入协调、流式 offset、动态表、租户、质量规则等。它同时是“元数据 API”“数据库 schema 所有者”“同步器”和多个业务域的持久化层，已经超出单一模块可维护的边界。
-2. 查询时元数据一致性目前没有闭环。主查询路径绕开 `MetadataService`，拆分规划所用 `ConnectorSession` 不携带 `queryId`；Iceberg/Paimon 连接器的快照固定恰好依赖 `queryId`。即使生命周期先注册成功，也无法保证实际 split 与统计读取使用同一表版本。
+2. 查询时元数据一致性目前没有闭环。主查询路径绕开 `CatalogRegistry`，拆分规划所用 `ConnectorSession` 不携带 `queryId`；Iceberg/Paimon 连接器的快照固定恰好依赖 `queryId`。即使生命周期先注册成功，也无法保证实际 split 与统计读取使用同一表版本。
 3. 通用元数据模型是有损投影。`TableMetadata` 缺少稳定 table ID、版本 token、schema/spec/sort ID、字段 ID 历史、ref、主键和 bucket/merge 语义；建表路径还会丢掉列类型。它不适合作为 Iceberg/Paimon 表元数据的权威副本。
 4. 写入 WAL 解决了“先记意图再提交”的顺序问题，但没有建立格式原生的幂等证明。恢复逻辑依赖“重复执行必须幂等”的契约，连接器却没有把 WAL 的 idempotency key 可靠写入 Iceberg snapshot summary 或 Paimon 的提交身份；提交超时后存在“实际已成功、协调器未知”的窗口。
 5. 缓存失效和增量同步都依赖易丢事件的时间戳/本地水位。正确目标应是“不可变版本缓存 + 事务 outbox/原生版本复验”，同步副本只服务搜索、治理和离线盘点，不应成为查询正确性的权威来源。
@@ -58,13 +58,13 @@ Pangrova 已经具备一个现代湖仓查询引擎所需的大部分“零件�
 
 ### “统一服务”不是主执行入口
 
-`MetadataService` 有 13 个操作，混合 catalog CRUD、表 DDL、查询生命周期和治理 tag；`DefaultMetadataService` 498 行，承担双缓存、事件、schema change 和 metrics。与此同时，Coordinator 主代码中有 35 个文件、53 处直接调用 `CatalogHandle.getMetadata(...)`，解析、统计、split、DDL/DML、视图、系统表、索引和流式任务都可绕过该服务。
+`CatalogRegistry` 有 13 个操作，混合 catalog CRUD、表 DDL、查询生命周期和治理 tag；`DefaultMetadataService` 498 行，承担双缓存、事件、schema change 和 metrics。与此同时，Coordinator 主代码中有 35 个文件、53 处直接调用 `CatalogHandle.getMetadata(...)`，解析、统计、split、DDL/DML、视图、系统表、索引和流式任务都可绕过该服务。
 
 这导致同一逻辑出现两套路径：
 
 - `DefaultMetadataService.beginQuery/cleanupQuery` 遍历所有 catalog；
 - 实际查询路径由 `ConnectorQueryScope`/`QueryOwnershipTracker` 独立调用连接器生命周期；
-- `MetadataService` 自己的缓存、事件和租户上下文不必然覆盖 Coordinator 的直接路径。
+- `CatalogRegistry` 自己的缓存、事件和租户上下文不必然覆盖 Coordinator 的直接路径。
 
 因此目标不应是强迫所有高频调用经过一个“大服务”。应把入口按职责拆成小接口，再由 Coordinator 只依赖一个 facade：名称解析与授权、查询表绑定、DDL、运维各有明确端口。
 

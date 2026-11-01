@@ -3,13 +3,13 @@ package org.pangrova.coordinator.index.ddl;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.artifact.SnapshotArtifactSplitPlanner;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildPage;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.control.ArtifactBuildSplit;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.planner.artifact.ArtifactBuildPlan;
@@ -163,7 +163,7 @@ public final class DurableIndexBuildService {
             level.add(pageId);
         }
         if (!artifactType.equals(
-                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TEXT_INDEX)
+                org.pangrova.indexing.api.ArtifactTypeIds.TEXT_INDEX)
                 || level.isEmpty()) {
             return List.copyOf(pages);
         }
@@ -204,7 +204,7 @@ public final class DurableIndexBuildService {
             }
             return new NativeBuildSpec(
                     Bm25ArtifactBuildPlanBuilder.build(tableName, column),
-                    org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TEXT_INDEX,
+                    org.pangrova.indexing.api.ArtifactTypeIds.TEXT_INDEX,
                     List.of(stringProperty("analyzer", analyzer)));
         }
         String algorithm = normalizedAlgorithm(descriptor);
@@ -220,7 +220,7 @@ public final class DurableIndexBuildService {
                 VectorArtifactBuildPlanBuilder.build(
                         tableName, column, buildCapability,
                         BuiltInCapabilityCatalog.vectorArtifactFormat(algorithm)),
-                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.VECTOR_INDEX,
+                org.pangrova.indexing.api.ArtifactTypeIds.VECTOR_INDEX,
                 vectorProperties(
                         buildCapability, descriptor.properties(), vector.dimension(), metric));
     }

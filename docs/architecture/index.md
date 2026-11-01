@@ -118,7 +118,7 @@ These design references are grouped under the **Operations** and **Contributing*
    modules. Plugin-capable contracts may be discovered via `ServiceLoader`; not every
    SPI uses service loading. Core SPIs include
    `ConnectorFactory`, `ConnectorMetadata`, `ConnectorSplitManager`, `ConnectorPageSourceProvider`,
-   `ConnectorPageSinkProvider`, `TableWriter`, `TableMaintenanceSpi`,
+   `ConnectorPageSinkProvider`, `CdcWriteSink`, `TableMaintenanceSpi`,
    `DistributedCacheStore`, `TracingProvider`,
    and `MetricsProvider`. Use source declarations and the owning subsystem document for signatures.
 6. **Verifiable operation.** Resource management, caching, resilience, and observability behavior

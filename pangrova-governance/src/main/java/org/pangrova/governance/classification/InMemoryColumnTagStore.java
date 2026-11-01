@@ -8,8 +8,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread-safe in-memory column tag store for development and testing.
  * Tags stored here are transient — they do not survive coordinator restart.
  *
- * <p>For persistent tag storage, configure a JDBC DataSource so the governance
- * bootstrap uses {@link JdbcColumnTagStore} instead.</p>
+ * <p>For persistent tag storage, the governance bootstrap must wire a durable
+ * {@link ColumnTagStore} implementation; this class is for development/testing only.</p>
  */
 public final class InMemoryColumnTagStore implements ColumnTagStore {
 

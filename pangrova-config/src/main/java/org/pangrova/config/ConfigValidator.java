@@ -1,5 +1,6 @@
 package org.pangrova.config;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -76,6 +77,17 @@ public final class ConfigValidator {
     }
 
     /**
+     * Registers a positive duration constraint (value must be > 0).
+     *
+     * @param option the duration config option
+     * @return this validator for chaining
+     */
+    public ConfigValidator positiveDuration(ConfigOption<Duration> option) {
+        constraints.add(new PositiveDurationConstraint(option));
+        return this;
+    }
+
+    /**
      * Validates the given configuration against all registered constraints.
      *
      * @param config the configuration to validate
@@ -144,6 +156,21 @@ public final class ConfigValidator {
             if (value < min || value > max) {
                 return "Config '" + option.key() + "' value " + value
                         + " is out of range [" + min + ", " + max + "]";
+            }
+            return null;
+        }
+    }
+
+    private record PositiveDurationConstraint(ConfigOption<Duration> option)
+            implements ConfigConstraint<Duration> {
+        @Override
+        public String check(PangrovaConfiguration config) {
+            Duration value = config.get(option);
+            if (value == null) {
+                return null;
+            }
+            if (value.isNegative() || value.isZero()) {
+                return "Config '" + option.key() + "' value " + value + " must be positive";
             }
             return null;
         }

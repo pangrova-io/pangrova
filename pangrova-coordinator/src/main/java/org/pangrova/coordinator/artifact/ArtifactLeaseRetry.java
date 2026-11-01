@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.artifact;
 
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.jdbc.ArtifactExecutionFence;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.store.jdbc.ArtifactExecutionFence;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

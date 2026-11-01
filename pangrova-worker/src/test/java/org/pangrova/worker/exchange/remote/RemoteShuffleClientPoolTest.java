@@ -11,7 +11,7 @@ import java.time.Duration;
 
 import static org.awaitility.Awaitility.await;
 
-import org.pangrova.shuffle.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

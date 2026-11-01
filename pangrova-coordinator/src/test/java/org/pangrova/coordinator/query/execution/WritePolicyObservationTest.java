@@ -239,10 +239,10 @@ class WritePolicyObservationTest extends ContainerTestBase {
                 catalog.createTable(org.apache.iceberg.catalog.TableIdentifier.of("default", name), columns);
             }
         }
-        var directory = new org.pangrova.metadata.store.JdbcMetadataStore(dataSource);
-        directory.saveCatalogDescriptor(new org.pangrova.metadata.catalog.CatalogDescriptor(
-                "default", org.pangrova.metadata.catalog.CatalogType.CONNECTOR, "iceberg",
-                org.pangrova.metadata.catalog.CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()),
+        var directory = new org.pangrova.metadata.store.jdbc.JdbcMetadataStore(dataSource);
+        directory.saveCatalogDescriptor(new org.pangrova.metadata.api.catalog.CatalogDescriptor(
+                "default", org.pangrova.metadata.api.catalog.CatalogType.CONNECTOR, "iceberg",
+                org.pangrova.metadata.api.catalog.CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()),
                 "", Set.of("tenant-a")));
         connectorFactory = new org.pangrova.coordinator.metadata.PluginConnectorHandleFactory(
                 getClass().getClassLoader(), new org.pangrova.security.secret.SecretResolver(),

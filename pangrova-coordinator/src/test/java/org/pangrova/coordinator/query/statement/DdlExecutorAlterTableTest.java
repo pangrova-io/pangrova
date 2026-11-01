@@ -1,14 +1,14 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.ConnectorHandleFactory;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.ConnectorHandleFactory;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
@@ -248,7 +248,7 @@ class DdlExecutorAlterTableTest {
         @Override public void saveTable(TableMetadata m) { }
         @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
         @Override public void deleteTable(String c, String s, String t) { }
-        @Override public List<org.pangrova.metadata.model.QualifiedTableRef> searchTables(String p) { return List.of(); }
+        @Override public List<org.pangrova.metadata.api.object.QualifiedTableRef> searchTables(String p) { return List.of(); }
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String n) { }

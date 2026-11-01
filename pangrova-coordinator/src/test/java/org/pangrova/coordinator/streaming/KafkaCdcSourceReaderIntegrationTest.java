@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.streaming;
 
-import org.pangrova.spi.streaming.SourceRecord;
-import org.pangrova.spi.streaming.TopicPartitionOffset;
+import org.pangrova.spi.streaming.source.SourceRecord;
+import org.pangrova.spi.streaming.source.TopicPartitionOffset;
 import org.pangrova.testing.ContainerTestBase;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;

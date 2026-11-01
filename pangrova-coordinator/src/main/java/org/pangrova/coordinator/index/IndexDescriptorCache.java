@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.index;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.spi.index.IndexDescriptor;
 
 import java.time.Duration;

@@ -751,7 +751,7 @@ class CanonicalTaskReportValidatorTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 java.util.HexFormat.of().parseHex(
-                                        org.pangrova.metadata.artifact.contract.ArtifactDependencySet
+                                        org.pangrova.indexing.api.ArtifactDependencySet
                                                 .sourceSnapshot("catalog.schema.table",
                                                         "snapshot-8").sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2
@@ -768,7 +768,7 @@ class CanonicalTaskReportValidatorTest {
                     .setArtifactType("TABULAR_EXPORT")
                     .setExecutionKind(org.pangrova.protocol.v2.ArtifactExecutionKind.ARTIFACT_EXECUTION_KIND_EXPORT)
                     .setFormat(org.pangrova.protocol.v2.ArtifactFormatRef.newBuilder()
-                            .setFormatId("pangrova.tabular-export.arrow-stream"))
+                            .setFormatId("pangrova.tabular-export.columnar-stream"))
                     .setOutputScopeId("page-1").build();
             default -> throw new IllegalArgumentException("unsupported test work kind");
         };

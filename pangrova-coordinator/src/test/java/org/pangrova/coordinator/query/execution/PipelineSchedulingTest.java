@@ -10,7 +10,7 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.api.exchange.ExchangeReadMode;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

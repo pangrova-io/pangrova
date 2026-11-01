@@ -3,7 +3,7 @@ package org.pangrova.coordinator.index.lifecycle;
 import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
 import org.pangrova.coordinator.index.ddl.IndexBuildServices;
 import org.pangrova.indexing.config.IndexingConfig;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 
 import java.util.Objects;
 

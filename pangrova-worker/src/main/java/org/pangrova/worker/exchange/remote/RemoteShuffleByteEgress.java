@@ -18,11 +18,11 @@ import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.ShuffleExecutionBinding;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
-import org.pangrova.shuffle.ShuffleServiceAddress;
-import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.exchange.ExchangeAttemptFence;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 
 /** Task-scoped JNI egress for coordinator-allocated external shuffle. */
 @ThreadSafe

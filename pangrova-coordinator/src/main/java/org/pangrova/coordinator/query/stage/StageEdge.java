@@ -15,7 +15,7 @@ package org.pangrova.coordinator.query.stage;
 
 import org.pangrova.planner.ShuffleType;
 import org.pangrova.protocol.v2.BatchSerde;
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.api.exchange.ExchangeReadMode;
 
 import java.util.List;
 

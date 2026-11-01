@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.artifact.template;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
-import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PreparedPartition;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.control.ArtifactBuildJob;
+import org.pangrova.indexing.control.ArtifactBuildLease;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.api.ArtifactBuildOutputScope;
+import org.pangrova.indexing.api.ArtifactBuildPageKind;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore.PreparedPartition;
 import org.pangrova.coordinator.artifact.ArtifactDispatchProtocolValidator;
 import org.pangrova.coordinator.artifact.PublishedArtifactBindingResolver;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.ArtifactPartitionResources;

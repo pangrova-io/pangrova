@@ -11,8 +11,8 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -81,7 +81,8 @@ public final class PangrovaCoordinatorMain {
                 .require(CoordinatorOptions.COORDINATOR_ID)
                 .intRange(CoordinatorOptions.COORDINATOR_PORT, 1, MAX_TCP_PORT)
                 .positiveInt(CoordinatorOptions.METADATA_CACHE_L1_MAX_SIZE)
-                .positiveInt(CoordinatorOptions.QUERY_MAX_CONCURRENT);
+                .positiveInt(CoordinatorOptions.QUERY_MAX_CONCURRENT)
+                .positiveDuration(CoordinatorOptions.STREAM_COMMIT_STATE_RETENTION);
     }
 
     /**
@@ -138,6 +139,8 @@ public final class PangrovaCoordinatorMain {
                 config.getDuration(CoordinatorOptions.QUERY_TIMEOUT).toSeconds(),
                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TIMEOUT_CHECK_INTERVAL_SECONDS,
                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TASK_TIMEOUT_SECONDS);
+        System.setProperty("pangrova.streaming.commit-state-retention-seconds",
+                String.valueOf(config.getDuration(CoordinatorOptions.STREAM_COMMIT_STATE_RETENTION).toSeconds()));
         return new CoordinatorBootstrapConfig(
                 core, buildFeatureFlags(config), queryConfig,
                 loadTransportConfig(config),

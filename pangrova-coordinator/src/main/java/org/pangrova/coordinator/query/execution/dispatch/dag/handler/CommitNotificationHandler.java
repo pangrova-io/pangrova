@@ -6,7 +6,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.shuffle.exchange.ExchangeReadMode;
+import org.pangrova.shuffle.api.exchange.ExchangeReadMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

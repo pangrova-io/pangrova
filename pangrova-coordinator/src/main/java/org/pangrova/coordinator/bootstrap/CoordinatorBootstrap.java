@@ -7,11 +7,11 @@ import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.coordinator.metadata.PluginFederationHandleFactory;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.ai.AiInfrastructureStores;
-import org.pangrova.metadata.store.JdbcMetadataStore;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.store.PooledDataSourceFactory;
-import org.pangrova.metadata.store.SchemaMigrationRunner;
+import org.pangrova.ai.control.AiInfrastructureStores;
+import org.pangrova.metadata.store.jdbc.JdbcMetadataStore;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.store.jdbc.PooledDataSourceFactory;
+import org.pangrova.metadata.store.jdbc.SchemaMigrationRunner;
 import org.pangrova.security.secret.EnvSecretProvider;
 import org.pangrova.security.secret.FileSecretProvider;
 import org.pangrova.security.secret.SecretResolver;
@@ -49,7 +49,7 @@ public final class CoordinatorBootstrap {
     private DataSource metadataDataSource;
     private AiInfrastructureStores aiInfrastructureStores;
     private org.pangrova.spi.coordination.DistributedLease distributedLease;
-    private org.pangrova.metadata.coordination.ZooKeeperLeaseProvider zkLeaseProvider;
+    private org.pangrova.coordinator.coordination.zookeeper.ZooKeeperLeaseProvider zkLeaseProvider;
     private SecurityBootstrap security;
     private ModuleIntegrationBootstrap moduleWiring;
     private StreamingBootstrap streamingBootstrap;
@@ -98,10 +98,10 @@ public final class CoordinatorBootstrap {
 
     private void startRoleSubsystems() {
         security = new SecurityBootstrap(config, metadataDataSource, source ->
-                new org.pangrova.metadata.service.TableControlColumnMaskStore(
+                new org.pangrova.metadata.core.TableControlColumnMaskStore(
                         metadataBootstrap.catalogRegistry(),
                         new org.pangrova.security.store.PersistentColumnMaskStore(source)),
-                source -> new org.pangrova.metadata.service.TableControlRowPolicyStore(
+                source -> new org.pangrova.metadata.core.TableControlRowPolicyStore(
                         metadataBootstrap.catalogRegistry(),
                         new org.pangrova.security.store.PersistentRowPolicyStore(source)));
         security.start();
@@ -146,9 +146,8 @@ public final class CoordinatorBootstrap {
         return new HttpBootstrap(config,
                 observability.tracingProvider(), security.authenticationManager(),
                 query.taskStatusReceiver(), query.queryManager(), query.workerManager(),
-                moduleWiring.getCdcLifecycleManager(), this,
-                query.splitAssignmentManager(),
-                metadataBootstrap != null ? metadataBootstrap.metadataService() : null);
+                this, query.splitAssignmentManager(),
+                metadataBootstrap != null ? metadataBootstrap.metadataGateway() : null);
     }
 
     org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource copySourceReadResource() {
@@ -156,7 +155,7 @@ public final class CoordinatorBootstrap {
             return null;
         }
         return new org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource(
-                new org.pangrova.metadata.storage.JdbcCopySourceReadAdmissions(
+                new org.pangrova.query.transaction.JdbcCopySourceReadAdmissions(
                         metadataDataSource, security.accessControl()), ha.haService());
     }
 
@@ -179,10 +178,10 @@ public final class CoordinatorBootstrap {
                 new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(
                         query.auditEmitter()),
                 config.internalAuthSecret(),
-                new org.pangrova.metadata.file.JdbcFileSpaceAuthority(metadataDataSource));
+                new org.pangrova.security.storage.store.JdbcFileSpaceAuthority(metadataDataSource));
         var access = new org.pangrova.coordinator.file.FileSpaceAccessService(
-                new org.pangrova.metadata.file.JdbcFileSpaceRegistry(metadataDataSource),
-                new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(metadataDataSource),
+                new org.pangrova.security.storage.store.JdbcFileSpaceRegistry(metadataDataSource),
+                new org.pangrova.security.storage.store.JdbcStorageProfileRegistry(metadataDataSource),
                 security.accessControl(), context);
         return new org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource(
                 access,
@@ -284,7 +283,10 @@ public final class CoordinatorBootstrap {
             }
             metadataDataSource = PooledDataSourceFactory.create(jdbc.jdbcUrl(), jdbc.username(), jdbc.password());
             distributedLease = resolveDistributedLease(metadataDataSource);
-            SchemaMigrationRunner.migrate(metadataDataSource);
+            // Per-owner Flyway baselines in dependency order, preceded by the bundled security
+            // schema so the query baseline's storage_profile_revisions FK resolves. The security
+            // bootstrap re-applies the bundled schema later (idempotent).
+            SchemaMigrationRunner.migrateAll(metadataDataSource);
             aiInfrastructureStores = AiInfrastructureStores.jdbc(metadataDataSource);
             MetadataStore store = new JdbcMetadataStore(metadataDataSource);
             ClassLoader cl = getClass().getClassLoader();
@@ -293,22 +295,9 @@ public final class CoordinatorBootstrap {
             connectorHandleFactory = new PluginConnectorHandleFactory(
                     cl, secretResolver, nativeDatasetControl::forCatalog, nativeDatasetControl::sourceForCatalog);
             var federationFactory = new PluginFederationHandleFactory(cl, secretResolver);
-            metadataBootstrap = MetadataBootstrap.initialize(
-                    store, connectorHandleFactory, federationFactory, metadataDataSource);
-            // Control records (ownership/identity/version) are durable in the metadata
-            // schema; the in-memory default only serves tests and metadata-less modes.
-            metadataBootstrap.catalogRegistry().setTableControlService(
-                    new org.pangrova.metadata.control.TableControlService(
-                            new org.pangrova.metadata.control.JdbcTableControlStore(metadataDataSource),
-                            metadataBootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
-                            org.pangrova.metadata.control.TableControlSettings.fromSystemProperties()));
-            metadataBootstrap.catalogRegistry().setTableStatisticsService(
-                    new org.pangrova.metadata.control.TableControlStatisticsService(
-                            metadataBootstrap.catalogRegistry().tableControl(),
-                            new org.pangrova.metadata.control
-                                    .JdbcTableControlStatisticsStore(metadataDataSource)));
-            metadataBootstrap.catalogRegistry().setGovernanceBindingStore(
-                    new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(metadataDataSource));
+            metadataBootstrap = MetadataBootstrap.initializeDurable(
+                    store, connectorHandleFactory, federationFactory,
+                    metadataDataSource, metadataDataSource);
             LOG.info("event=phase_started phase=metadata");
         } catch (Exception e) {
             throw new BootstrapFailedException("Metadata", e);
@@ -347,8 +336,9 @@ public final class CoordinatorBootstrap {
         moduleWiring.startGovernance(config, metadataDataSource);
         // Share the governance tag event source with metadata DDL so SET/UNSET
         // COLUMN TAG activates masking, and replay durable tags after a restart.
-        if (metadataBootstrap != null && metadataBootstrap.metadataService()
-                instanceof org.pangrova.metadata.service.DefaultMetadataService taggedService) {
+        if (metadataBootstrap != null) {
+            org.pangrova.metadata.core.DefaultMetadataService taggedService =
+                    metadataBootstrap.defaultMetadataService();
             org.pangrova.governance.classification.ColumnTagService tagService =
                     moduleWiring.getColumnTagService();
             if (tagService != null) {
@@ -369,7 +359,7 @@ public final class CoordinatorBootstrap {
         }
         // Wire invalidation poller for leader-gated TTL cleanup (Task 1.9)
         if (metadataDataSource != null && metadataBootstrap != null) {
-            var invalidationPoller = new org.pangrova.metadata.cache.JdbcInvalidationPoller(
+            var invalidationPoller = new org.pangrova.metadata.core.cache.JdbcInvalidationPoller(
                     metadataDataSource,
                     metadataBootstrap.metadataCache());
             moduleWiring.setInvalidationPoller(invalidationPoller);
@@ -407,38 +397,42 @@ public final class CoordinatorBootstrap {
             return;
         }
         executionAuthority = new org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority(
-                new org.pangrova.metadata.coordination.JdbcExecutionAnchorStore(metadataDataSource),
+                new org.pangrova.query.transaction.JdbcExecutionAnchorStore(metadataDataSource),
                 config.coordinatorId(), java.util.UUID.randomUUID().toString(), EXECUTION_OWNER_LEASE_TTL);
     }
 
     private void startIndexing() {
         try {
-            org.pangrova.metadata.index.IndexMetadataStore indexMetadataStore =
-                    new org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore(metadataDataSource);
-            org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry =
+            org.pangrova.indexing.control.IndexMetadataStore indexMetadataStore =
+                    new org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore(
+                            metadataDataSource,
+                            org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent);
+            org.pangrova.metadata.core.catalog.CatalogRegistry catalogRegistry =
                     metadataBootstrap.catalogRegistry();
             org.pangrova.spi.observability.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
             org.pangrova.spi.security.AccessControl accessControl =
                     security != null ? security.accessControl() : null;
+            var artifactAuthority = new org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority(
+                    org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent);
             moduleWiring.startIndexing(
                     indexMetadataStore, catalogRegistry, metricsProvider, accessControl,
                     config.baseIndexPath(), distributedLease,
-                    new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore(
-                            metadataDataSource),
-                    new org.pangrova.metadata.artifact.ArtifactPublicationRouter(java.util.Map.of(
-                            org.pangrova.metadata.artifact.contract.ArtifactTypeIds.VECTOR_INDEX,
-                            new org.pangrova.metadata.artifact.jdbc.JdbcIndexArtifactPublicationStore(
-                                    metadataDataSource),
-                            org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TEXT_INDEX,
-                            new org.pangrova.metadata.artifact.jdbc.JdbcIndexArtifactPublicationStore(
-                                    metadataDataSource),
-                            org.pangrova.metadata.artifact.contract.ArtifactTypeIds.GENERATED_COLUMN_VALUES,
-                            new org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore(
-                                    metadataDataSource),
-                            org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TABULAR_EXPORT,
-                            new org.pangrova.metadata.artifact.jdbc.JdbcTabularExportPublicationStore(
-                                    metadataDataSource))),
+                    new org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore(
+                            metadataDataSource, artifactAuthority),
+                    new org.pangrova.indexing.control.ArtifactPublicationRouter(java.util.Map.of(
+                            org.pangrova.indexing.api.ArtifactTypeIds.VECTOR_INDEX,
+                            new org.pangrova.indexing.store.jdbc.JdbcIndexArtifactPublicationStore(
+                                    metadataDataSource, artifactAuthority),
+                            org.pangrova.indexing.api.ArtifactTypeIds.TEXT_INDEX,
+                            new org.pangrova.indexing.store.jdbc.JdbcIndexArtifactPublicationStore(
+                                    metadataDataSource, artifactAuthority),
+                            org.pangrova.indexing.api.ArtifactTypeIds.GENERATED_COLUMN_VALUES,
+                            new org.pangrova.indexing.store.jdbc.JdbcGeneratedValueArtifactPublicationStore(
+                                    metadataDataSource, artifactAuthority),
+                            org.pangrova.indexing.api.ArtifactTypeIds.TABULAR_EXPORT,
+                            new org.pangrova.indexing.store.jdbc.JdbcTabularExportPublicationStore(
+                                    metadataDataSource, artifactAuthority))),
                     maintenanceLeaderElection);
             LOG.info("event=phase_started phase=indexing");
         } catch (Exception e) {
@@ -448,8 +442,10 @@ public final class CoordinatorBootstrap {
 
     private void startIndexQuery() {
         try {
-            org.pangrova.metadata.index.IndexMetadataStore indexMetadataStore =
-                    new org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore(metadataDataSource);
+            org.pangrova.indexing.control.IndexMetadataStore indexMetadataStore =
+                    new org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore(
+                            metadataDataSource,
+                            org.pangrova.metadata.core.TableControlDeferredPolicy::requireCurrent);
             org.pangrova.spi.observability.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
             moduleWiring.startIndexQuery(indexMetadataStore, metricsProvider);
@@ -466,7 +462,7 @@ public final class CoordinatorBootstrap {
             return;
         }
         try {
-            org.pangrova.streaming.StreamingContext streamingContext = moduleWiring.getStreamingContext();
+            org.pangrova.streaming.runtime.StreamingContext streamingContext = moduleWiring.getStreamingContext();
             if (streamingContext == null) {
                 LOG.info("event=phase_skipped phase=streaming_bootstrap reason=streaming_wiring_unavailable");
                 return;
@@ -475,7 +471,10 @@ public final class CoordinatorBootstrap {
                     metadataDataSource,
                     streamingContext.watermarkTracker(),
                     streamingContext.scheduler(),
-                    metadataBootstrap.catalogRegistry(), config.coordinatorId());
+                    metadataBootstrap.catalogRegistry(), config.coordinatorId(),
+                    security != null ? security.accessControl() : null,
+                    observability != null ? observability.metricsProvider() : null,
+                    config.streamCommitStateRetention());
             LOG.info("event=phase_started phase=streaming_bootstrap");
         } catch (Exception e) {
             LOG.warn("event=phase_failed phase=streaming_bootstrap error={}", e.getMessage(), e);
@@ -537,7 +536,7 @@ public final class CoordinatorBootstrap {
             return;
         }
         try {
-            org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry =
+            org.pangrova.metadata.core.catalog.CatalogRegistry catalogRegistry =
                     metadataBootstrap.catalogRegistry();
             branchTtlCleanupTask = new BranchTtlCleanupTask(catalogRegistry);
             LOG.info("event=phase_initialized phase=branch_ttl_cleanup state=leader_gated");

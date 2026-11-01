@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.metadata.artifact.jdbc.GeneratedModelCurrentAuthority;
+import org.pangrova.ai.store.jdbc.GeneratedModelCurrentAuthority;
 import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier.WriteAuthorityRequest;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.security.tenant.store.JdbcTenantStore;
 import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.DeferredAuthorizationScope;
@@ -99,7 +99,7 @@ final class GeneratedWriteAuthorityResolver {
                                     ::isReservedDynamicTableGeneration
                             : table -> false);
             if (!request.internalMaterializationExecution()) {
-                org.pangrova.metadata.service.TableControlDeferredPolicy.requireCurrent(connection, principal, scope);
+                org.pangrova.metadata.core.TableControlDeferredPolicy.requireCurrent(connection, principal, scope);
             }
             var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
             connection.commit();

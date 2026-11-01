@@ -4,20 +4,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.streaming.JdbcStreamOffsetStore;
-import org.pangrova.metadata.streaming.JdbcStreamStateStore;
-import org.pangrova.metadata.streaming.StreamLifecycleState;
-import org.pangrova.metadata.streaming.StreamState;
+import org.pangrova.streaming.jdbc.JdbcStreamOffsetStore;
+import org.pangrova.streaming.jdbc.JdbcStreamStateStore;
+import org.pangrova.spi.streaming.store.StreamLifecycleState;
+import org.pangrova.spi.streaming.store.StreamState;
 import org.pangrova.common.exception.StaleEpochException;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.statement.stream.AlterStreamAction;
 import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
 import org.pangrova.parser.ast.statement.stream.DropStreamStatement;
-import org.pangrova.spi.streaming.CdcSourceReader;
-import org.pangrova.spi.streaming.CdcWriteSink;
-import org.pangrova.spi.streaming.SourceRecord;
+import org.pangrova.spi.streaming.source.CdcSourceReader;
+import org.pangrova.spi.streaming.sink.CdcWriteSink;
+import org.pangrova.spi.streaming.source.SourceRecord;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
-import org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore;
+import org.pangrova.streaming.jdbc.JdbcCdcCommitStateStore;
 import org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator;
 import org.pangrova.streaming.maintenance.MaintenanceConfig;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
@@ -237,7 +237,8 @@ class StreamSchedulerLifecycleTest extends ContainerTestBase {
             assertThat(readers.get(0).closes.get()).isEqualTo(1);
             assertThat(attempts.get(1).streamProperties()).containsEntry("batch_size", "5");
             assertThat(attempts.get(1).epoch()).isEqualTo(3);
-            assertThatThrownBy(() -> states.saveState(attempts.get(0).withError("old failure")))
+            assertThatThrownBy(() -> states.saveStateIfEpoch(attempts.get(0).withError("old failure"),
+                    attempts.get(0).epoch()))
                     .isInstanceOf(StaleEpochException.class);
             assertThat(states.loadState(state.streamName()).orElseThrow().streamProperties())
                     .containsEntry("batch_size", "5");
@@ -254,7 +255,8 @@ class StreamSchedulerLifecycleTest extends ContainerTestBase {
                         assertThat(persisted.epoch()).isEqualTo(claimed.epoch() + 1);
                         assertThat(persisted.lifecycleState()).isEqualTo(drop
                                 ? StreamLifecycleState.DROPPING : StreamLifecycleState.SUSPENDED);
-                        assertThatThrownBy(() -> states.saveState(claimed.withError("late failure")))
+                        assertThatThrownBy(() -> states.saveStateIfEpoch(
+                                claimed.withError("late failure"), claimed.epoch()))
                                 .isInstanceOf(StaleEpochException.class);
                     }
                 }, s -> new TrackingSink()), "coordinator", new QueuedExecutor())) {

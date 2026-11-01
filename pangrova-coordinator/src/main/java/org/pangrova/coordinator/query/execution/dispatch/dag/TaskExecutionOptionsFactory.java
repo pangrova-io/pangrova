@@ -15,7 +15,7 @@ import org.pangrova.protocol.v2.ShuffleTaskOptions;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.WriteTaskOptions;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.shuffle.ShuffleHandle;
+import org.pangrova.shuffle.api.registration.ShuffleHandle;
 
 /** Builds canonical execution options for a worker task. */
 final class TaskExecutionOptionsFactory {

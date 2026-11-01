@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 import org.pangrova.config.ShuffleMode;
@@ -124,6 +125,21 @@ public record CoordinatorBootstrapConfig(
     /** Returns the internal auth secret from security config, or null if not configured. */
     public String internalAuthSecret() {
         return securityConfig != null ? securityConfig.internalAuthSecret() : null;
+    }
+
+    /** Default retention for terminal CDC commit-state rows: 7 days. */
+    public static final long DEFAULT_STREAM_COMMIT_STATE_RETENTION_SECONDS = Duration.ofDays(7).toSeconds();
+
+    /**
+     * Returns the retention duration for terminal CDC commit-state rows.
+     * Reads from the {@code pangrova.streaming.commit-state-retention-seconds} system property,
+     * which {@link PangrovaCoordinatorMain} derives from the typed
+     * {@code streaming.commit-state-retention} configuration option.
+     */
+    public Duration streamCommitStateRetention() {
+        return Duration.ofSeconds(Long.getLong(
+                "pangrova.streaming.commit-state-retention-seconds",
+                DEFAULT_STREAM_COMMIT_STATE_RETENTION_SECONDS));
     }
 
     public long queryTimeoutSeconds() { return query.queryTimeoutSeconds(); }

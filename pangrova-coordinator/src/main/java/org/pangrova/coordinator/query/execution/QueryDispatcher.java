@@ -24,7 +24,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.observability.tracing.QueryTracer;
 import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.shuffle.ShuffleLifecycleManager;
+import org.pangrova.shuffle.api.contract.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

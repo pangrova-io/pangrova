@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.ext.ContextResolver;
 import org.pangrova.common.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
 import org.pangrova.worker.http.endpoint.InternalAuthFilter;
 import org.pangrova.worker.http.endpoint.WorkerExceptionMapper;
 import org.pangrova.worker.http.endpoint.WorkerHealthResource;

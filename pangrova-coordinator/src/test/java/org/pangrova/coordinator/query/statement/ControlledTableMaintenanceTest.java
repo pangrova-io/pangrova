@@ -4,24 +4,24 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.audit.TableControlAuditEmitter;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.ConnectorHandleFactory;
-import org.pangrova.metadata.control.InMemoryTableControlMaintenanceStore;
-import org.pangrova.metadata.control.InMemoryTableControlStore;
-import org.pangrova.metadata.control.MaintenanceOperation;
-import org.pangrova.metadata.control.MaintenanceRunState;
-import org.pangrova.metadata.control.TableControlMaintenanceService;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.control.TableControlSettings;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.ConnectorHandleFactory;
+import org.pangrova.metadata.core.control.InMemoryTableControlMaintenanceStore;
+import org.pangrova.metadata.core.control.InMemoryTableControlStore;
+import org.pangrova.metadata.core.control.MaintenanceOperation;
+import org.pangrova.metadata.core.control.MaintenanceRunState;
+import org.pangrova.metadata.core.control.TableControlMaintenanceService;
+import org.pangrova.metadata.core.control.TableControlRecord;
+import org.pangrova.metadata.core.control.TableControlService;
+import org.pangrova.metadata.core.control.TableControlSettings;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.schema.TableMetadata;
+import org.pangrova.metadata.core.store.MetadataStore;
+import org.pangrova.metadata.core.store.SyncResult;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.security.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
@@ -43,7 +43,7 @@ import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.LeaseEntry;
 import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.metadata.control.TableMaintenanceRun;
+import org.pangrova.metadata.core.control.TableMaintenanceRun;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -132,7 +132,7 @@ class ControlledTableMaintenanceTest {
         assertThat(policies.listRuns(record.tableId(), 10).get(0).state())
                 .isEqualTo(MaintenanceRunState.FAILED);
         assertThat(registry.tableControl().find("test_cat", "default", "external").orElseThrow().state())
-                .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+                .isEqualTo(org.pangrova.metadata.core.control.TableControlState.QUARANTINED);
     }
 
     @Test

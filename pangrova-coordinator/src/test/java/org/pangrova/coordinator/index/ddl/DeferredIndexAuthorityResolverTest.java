@@ -1,12 +1,15 @@
 package org.pangrova.coordinator.index.ddl;
 
+import org.pangrova.indexing.store.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.core.TableControlDeferredPolicy;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.CoordinatorArtifactAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
-import org.pangrova.metadata.artifact.contract.ArtifactTypeIds;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactBuildDispatchSpec;
+import org.pangrova.indexing.api.ArtifactTypeIds;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactBuildStore;
 import org.pangrova.planner.artifact.VectorArtifactBuildPlanBuilder;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.security.authz.AuthorizationDeniedException;
@@ -41,7 +44,7 @@ class DeferredIndexAuthorityResolverTest extends ContainerTestBase {
         dataSource = SharedPostgresContainer.migratedDataSource("deferred_index_authority");
         CoordinatorArtifactAuthorityFixtures.provision(dataSource, TENANT, "alice",
                 DeferredAuthorizationScope.raw(TABLE, Set.of("embedding"), TABLE));
-        builds = new JdbcArtifactBuildStore(dataSource);
+        builds = new JdbcArtifactBuildStore(dataSource, new ArtifactCurrentAuthority(TableControlDeferredPolicy::requireCurrent));
         previous = descriptor(TABLE, "embedding");
         var plan = VectorArtifactBuildPlanBuilder.build(List.of("lake", "raw", "items"), "embedding",
                 BuiltInCapabilityCatalog.hnswArtifactBuildPlanRef(), BuiltInCapabilityCatalog.hnswArtifactFormat());

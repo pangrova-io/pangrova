@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.execution;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogHandle;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.CatalogHandle;
 import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.ConnectorCatalogHandle;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ConnectorWriteBinding;

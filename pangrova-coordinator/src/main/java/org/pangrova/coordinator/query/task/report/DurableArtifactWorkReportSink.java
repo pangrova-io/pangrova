@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.task.report;
 
-import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
-import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
-import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
-import org.pangrova.metadata.artifact.build.ArtifactPageCompletion;
-import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore;
+import org.pangrova.indexing.control.ArtifactBuildOutput;
+import org.pangrova.indexing.api.ArtifactBuildOutputScope;
+import org.pangrova.indexing.control.ArtifactBuildStore;
+import org.pangrova.indexing.control.ArtifactPageCompletion;
+import org.pangrova.indexing.store.jdbc.JdbcArtifactStageExecutionStore;
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.ArtifactWorkReport;
 import org.pangrova.protocol.v2.Checksum;
@@ -61,7 +61,7 @@ public final class DurableArtifactWorkReportSink implements ArtifactWorkReportSi
                 report.getOutputsList().stream()
                         .map(DurableArtifactWorkReportSink::toOutput)
                         .toList(),
-                clock.instant(), new org.pangrova.metadata.artifact.build.ArtifactExecutionOwner(
+                clock.instant(), new org.pangrova.indexing.control.ArtifactExecutionOwner(
                         status.getAttempt().getExecutionOwner().getOwnerId(),
                         status.getAttempt().getExecutionOwner().getOwnerIncarnation(),
                         status.getAttempt().getExecutionOwner().getFencingToken())));
@@ -77,12 +77,12 @@ public final class DurableArtifactWorkReportSink implements ArtifactWorkReportSi
         }).orElse(false);
     }
 
-    private boolean completeProducer(org.pangrova.metadata.artifact.build.ArtifactBuildJobKey job,
+    private boolean completeProducer(org.pangrova.indexing.control.ArtifactBuildJobKey job,
             TaskReport status, byte[] bytes) {
         var attempt = status.getAttempt();
         var owner = attempt.getExecutionOwner();
         return stages.completeProducer(new JdbcArtifactStageExecutionStore.ProducerCompletion(job,
-                new org.pangrova.metadata.artifact.build.ArtifactExecutionOwner(
+                new org.pangrova.indexing.control.ArtifactExecutionOwner(
                         owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken()),
                 attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(), attempt.getAttemptId(),
                 attempt.getFencingToken(), attempt.getControlEpoch(), bytes, clock.instant()));

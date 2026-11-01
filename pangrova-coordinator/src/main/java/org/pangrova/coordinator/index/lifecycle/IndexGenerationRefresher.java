@@ -7,7 +7,7 @@ import org.pangrova.coordinator.index.ddl.IndexSourceAuthority;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildResult;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.spi.connector.index.ColumnValueReader;
 import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.pangrova.spi.index.IndexDescriptor;

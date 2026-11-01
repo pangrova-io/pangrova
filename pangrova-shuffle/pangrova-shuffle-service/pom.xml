@@ -25,7 +25,24 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-core</artifactId>
+            <artifactId>pangrova-shuffle-api</artifactId>
+        </dependency>
+        <!-- Accepted-batch storage backends are selected at runtime by
+             object-storage.type; the executable bundles all three. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-storage-local</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-storage-s3</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-storage-oss</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
@@ -51,10 +68,6 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3</artifactId>
         </dependency>
         <dependency>
             <groupId>org.yaml</groupId>
@@ -118,7 +131,7 @@
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>org.pangrova.shuffle.deployment.PangrovaShuffleServer</mainClass>
+                                    <mainClass>org.pangrova.shuffle.service.deployment.PangrovaShuffleServer</mainClass>
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>

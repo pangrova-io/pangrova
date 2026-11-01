@@ -3,7 +3,7 @@ package org.pangrova.worker.exchange.remote;
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.shuffle.ShufflePartitionManifestChecksum;
+import org.pangrova.shuffle.api.commit.ShufflePartitionManifestChecksum;
 import org.pangrova.worker.exchange.CanonicalBatchChunks;
 
 import java.security.MessageDigest;

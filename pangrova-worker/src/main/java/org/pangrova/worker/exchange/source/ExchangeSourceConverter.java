@@ -4,17 +4,17 @@ import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.shuffle.ShuffleAccess;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
-import org.pangrova.shuffle.ShuffleServiceAddress;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.exchange.ExchangeInputTransport;
-import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
-import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.capability.ShuffleAccess;
+import org.pangrova.shuffle.api.ownership.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.registration.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.registration.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.exchange.DirectExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.api.exchange.ExchangeInput;
+import org.pangrova.shuffle.api.exchange.ExchangeInputTransport;
+import org.pangrova.shuffle.api.exchange.ExternalShuffleTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeAttemptFence;
+import org.pangrova.shuffle.api.exchange.ExchangeTaskAttempt;
 
 import java.util.List;
 

@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.pangrova.operations.bootstrap.BootstrapFailedException;
 import org.pangrova.operations.bootstrap.HealthCheckEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.shuffle.api.exchange.ExchangeTransport;
 import org.pangrova.worker.PangrovaWorker;
 import org.pangrova.worker.WorkerComponents;
 import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
-import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.control.IndexMetadataStore;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.planner.rerank.RerankerValidationException;

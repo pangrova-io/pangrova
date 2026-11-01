@@ -314,11 +314,11 @@ public final class TaskInfo {
         execution.setShufflePort(port);
     }
 
-    public org.pangrova.shuffle.ShuffleServerHandle shuffleServerHandle() {
+    public org.pangrova.shuffle.api.registration.ShuffleServerHandle shuffleServerHandle() {
         return execution.shuffleServerHandle();
     }
 
-    public void setShuffleServerHandle(org.pangrova.shuffle.ShuffleServerHandle handle) {
+    public void setShuffleServerHandle(org.pangrova.shuffle.api.registration.ShuffleServerHandle handle) {
         execution.setShuffleServerHandle(handle);
     }
 }

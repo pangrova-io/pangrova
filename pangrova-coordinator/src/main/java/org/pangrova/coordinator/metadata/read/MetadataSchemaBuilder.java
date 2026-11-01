@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.core.catalog.CatalogRegistry;
+import org.pangrova.metadata.api.MetadataGateway;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.schema.impl.AbstractSchema;
@@ -19,14 +19,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class MetadataSchemaBuilder {
 
-    private final MetadataService metadataService;
+    private final MetadataGateway metadataService;
     private final CatalogRegistry catalogRegistry;
 
-    public MetadataSchemaBuilder(MetadataService metadataService) {
+    public MetadataSchemaBuilder(MetadataGateway metadataService) {
         this(metadataService, null);
     }
 
-    public MetadataSchemaBuilder(MetadataService metadataService, CatalogRegistry catalogRegistry) {
+    public MetadataSchemaBuilder(MetadataGateway metadataService, CatalogRegistry catalogRegistry) {
         this.metadataService = metadataService;
         this.catalogRegistry = catalogRegistry;
     }
@@ -62,7 +62,7 @@ public final class MetadataSchemaBuilder {
             @Override
             protected Map<String, org.apache.calcite.schema.Schema> getSubSchemaMap() {
                 Map<String, org.apache.calcite.schema.Schema> visible = new LinkedHashMap<>();
-                for (String catalog : metadataService.listCatalogs(metadataSession)) {
+                for (String catalog : metadataService.catalogs().listCatalogs(metadataSession)) {
                     visible.put(catalog, catalogSchemas.computeIfAbsent(catalog,
                             name -> catalogSchema(session, metadataSession, name, readBindings)));
                 }
@@ -80,7 +80,7 @@ public final class MetadataSchemaBuilder {
             protected Map<String, org.apache.calcite.schema.Schema> getSubSchemaMap() {
                 ConnectorSession catalogSession = PlanningConnectorSession.bind(session, catalog, null);
                 List<String> names = catalogRegistry == null
-                        ? metadataService.listSchemas(metadataSession, catalog)
+                        ? metadataService.resolution().listSchemas(metadataSession, catalog)
                         : catalogRegistry.getCatalog(catalog).getMetadata(catalogSession)
                                 .listSchemaNames(catalogSession);
                 Map<String, org.apache.calcite.schema.Schema> visible = new LinkedHashMap<>();
