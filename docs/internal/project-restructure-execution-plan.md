@@ -1,5 +1,7 @@
 # 项目目录、模块与内部包重构执行计划
 
+> 本轮目标以 [领域模块化 ADR](../architecture/domain-modularization-adr.md) 为准；最新执行证据见 [本轮实施记录](project-structure-refactoring/domain-modularization-progress.md)。下文保留历史批次，不代表本轮已完成。
+
 当前整体设计与待执行顺序见 [全项目目录与包重构计划](project-structure-refactoring-plan.md)，附全部 649 个起点包的迁移台账和本次结构检查证据。本文继续保留各历史实施批次，不以历史通过记录覆盖新的失败或未完成项。
 
 状态：执行中，尚未完成全模块语义审查和全链验证。审计起点：2026-10-31 当前工作区（包括既有暂存和未暂存迁移）。本文是执行清单；长期蓝图中的历史数量、M 编号和“done”不能代替当前验收证据。

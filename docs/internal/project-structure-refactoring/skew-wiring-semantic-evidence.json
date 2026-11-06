@@ -1,0 +1,62 @@
+{
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/core/skew/MedianSkewDetector.java": {
+    "old_path": "pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/MedianSkewDetector.java",
+    "before_sha256": "021f2c4385316a413fe0d24fd4cc3ed00b3b62c6f6693278bb323155a48ad608",
+    "after_sha256": "fc15a93fdaf8fc745d6fcaf56c8aad31303e865230cf13858899597380fae812",
+    "review": "Move the sole median algorithm to Shuffle Core; byte OR row skew still requires absolute byte minimum. Overflow-safe even median, exact bounded ceil splits, at least two advisory splits and nonzero row target. No I/O, state or lifecycle resources."
+  },
+  "pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/AdaptiveQueryConfig.java": {
+    "old_path": "pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/AdaptiveQueryConfig.java",
+    "before_sha256": "b5d22804a0274658831916b1bf0eebb609dd154395abf1c191feeecf6b6bcb77",
+    "after_sha256": "4a28d348065e6f1c81c3e403227c442c968fa8a7f1e55e5f858f9b0c4828a9fe",
+    "review": "Reject nonfinite or <=1 skew ratio at construction, consistent with the detector contract; no clamping or runtime fallback."
+  },
+  "pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/SkewJoinHandler.java": {
+    "old_path": "pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/SkewJoinHandler.java",
+    "before_sha256": "f0da0b5b0ae31e15aee4628f9d9e66510af8f395aae9bfa9ccd4d31679dc36d5",
+    "after_sha256": "47f5cb750652e01acd933c5443e33a88efb0e2726f803d603e5fe480d3ab1f9b",
+    "review": "Replace duplicate algorithm with explicit SkewDetector dependency. Map actual partition statistics and config to the detector, consume returned partition identities/median/max in planner decision. Split recommendations do not establish execution support."
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/SkewDetector.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/SkewDetector.java",
+    "before_sha256": "f3049b125c71e49df87c91ae37b9b6c1d18a8677dd7519b8b196ba16aacab8fc",
+    "after_sha256": "29984ba981bebcdb49b12caec4a01a7770fb9d94c81b6eccd39412afaeb7429b",
+    "review": "Validate finite ratio; correct obsolete docs claiming statistics ownership and implemented range split. Existing method shapes and owner semantics retained."
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShufflePartitionStats.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShufflePartitionStats.java",
+    "before_sha256": "bfdcf774528a8af9a8296ce9173e4b4d7c17210fd6b3bd5ea83e8db659a7e6f3",
+    "after_sha256": "e82c88eef77fd36b99132c4b236770a22259ea0c26150be9a6a76a32723990bc",
+    "review": "Correct artifact ownership documentation to Shuffle API; value behavior unchanged."
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java": {
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java",
+    "before_sha256": "705cd6bb62081c55f69baee91b4d4102685265e3dc7828080fa089ea01057040",
+    "after_sha256": "bd1e19552fe73150cbeae99796f447d9a0acb3e3c73b907f04a38ec2a4472ba1",
+    "review": "Select MedianSkewDetector exactly at Server assembly; the instance is consumed by the actual evaluator rather than unused side registration."
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/adaptive/AdaptiveStagePlanResolver.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/adaptive/AdaptiveStagePlanResolver.java",
+    "before_sha256": "b05b0c88a5bcabe8d27e2a5288d518f51b9f746ab3b5f126771218a12325bf3d",
+    "after_sha256": "c23a16ef8672e0686cc3acee2b35271d3d3b3950f13f90400e96c08461cfc2dc",
+    "review": "Rename misleading skew-mitigated log to skew-parallelism-heuristic; actual downstream algorithm unchanged, no range execution claimed."
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/adaptive/AdaptiveQueryEvaluator.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/adaptive/AdaptiveQueryEvaluator.java",
+    "before_sha256": "71a3092d0a38cdc5fe8905d56a59fc26b1311f6c305fac4d93827a6c7c43413d",
+    "after_sha256": "6e4334f9cb4418cc383345463dbb2af416a807a3b3fc4aa773d0012e6ed2e624",
+    "review": "Receive explicitly selected detector in both constructors and pass to SkewJoinHandler; actual buildDecision path unchanged. Missing detector fails construction, no internal default implementation."
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java",
+    "before_sha256": "583b4d30e88f4d95d5eafed66cb2c46b1fc04bb56a6020b77869bdd1a0bc3cea",
+    "after_sha256": "6a38ed0adb57c86429d5d7840e6911e098f2c44ecccc04d20e1e282cacb2405f",
+    "review": "Pass the selected detector from immutable construction dependencies to actual stage-completion evaluator."
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcherContext.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcherContext.java",
+    "before_sha256": "3db96d38da94f6c6217552f8477338f9d50c2678d053e10be5292ee081a79c1f",
+    "after_sha256": "49f1ae984c4e6111242d33ec0198b11683aebbeb7ae4a2998b29aecac443e06c",
+    "review": "Borrow explicitly selected detector alongside existing AQE config/executor; validate presence when an evaluator will be created. Compact disabled context does not instantiate a default provider."
+  }
+}

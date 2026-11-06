@@ -2,12 +2,12 @@ package org.pangrova.ai.control.store.jdbc.feature;
 
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
-import org.pangrova.spi.generation.GenerationExecutionKind;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationJobSubmissionTransactions;
+import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.persistence.jdbc.api.generation.GenerationJobSubmissionTransactions;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.ai.control.api.CatalogExportStorageException;
 

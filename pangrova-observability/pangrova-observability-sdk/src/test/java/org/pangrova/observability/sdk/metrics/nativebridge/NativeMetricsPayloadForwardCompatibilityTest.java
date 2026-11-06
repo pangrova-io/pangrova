@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.metrics.nativebridge;
 
-import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
+import org.pangrova.observability.noop.NoOpMetricsProvider;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;

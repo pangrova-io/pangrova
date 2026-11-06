@@ -1,11 +1,15 @@
 package org.pangrova.coordinator.generation.template;
 
-import org.pangrova.spi.generation.execution.GenerationStageGraph.StagePlan;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.planner.SerializedPlanFragment;
-import org.pangrova.planner.SplitSourceDescriptor;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.StagePlanAccess;
+import org.pangrova.generation.core.execution.template.FrozenStageBindings;
+
+import org.pangrova.planner.api.result.ResultColumnModel;
+
+import org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.planner.core.analysis.SplitSourceDescriptor;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.analysis.StagePlanAccess;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
@@ -19,6 +23,11 @@ public final class PersistedStagePlan implements StagePlanAccess {
     /** Uses the canonical graph's executable stage, without a planner node or reconstructed SQL. */
     public PersistedStagePlan(StagePlan stage) {
         this.stage = Objects.requireNonNull(stage, "stage");
+    }
+
+    @Override
+    public java.util.Optional<org.pangrova.planner.api.fragment.StageCoordinates> frozenCoordinates() {
+        return java.util.Optional.of(new org.pangrova.planner.api.fragment.StageCoordinates(stage.stageId(), stage.parallelism(), taskType()));
     }
 
     @Override
@@ -42,7 +51,7 @@ public final class PersistedStagePlan implements StagePlanAccess {
     }
 
     @Override
-    public List<PlanFragment.ResultColumnModel> resultColumnModels() {
+    public List<ResultColumnModel> resultColumnModels() {
         return List.of();
     }
 

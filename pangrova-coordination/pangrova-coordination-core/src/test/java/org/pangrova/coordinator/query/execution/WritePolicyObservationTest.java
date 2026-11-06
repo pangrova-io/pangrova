@@ -9,42 +9,43 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ReadMode;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.rowfilter.RowPolicy;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ReadMode;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.ContainerTestBase;
-
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Actual SQL compilation and PostgreSQL policies, not Native execution or a synthetic observed plan. */
 class WritePolicyObservationTest extends ContainerTestBase {
@@ -56,15 +57,14 @@ class WritePolicyObservationTest extends ContainerTestBase {
     @TempDir private java.nio.file.Path warehouse;
     private org.pangrova.coordinator.metadata.MetadataBootstrap metadata;
     private org.pangrova.coordinator.metadata.PluginConnectorHandleFactory connectorFactory;
-    private final CoordinatorSessionContext actor = new CoordinatorSessionContext("write-observation",
+    private final QuerySession actor = new QuerySession("write-observation",
             Map.of("catalog", "default", "schema", "default"),
-            new UserIdentity("alice", Set.of("external-group"), Map.of(), Instant.EPOCH), "tenant-a");
+            new UserIdentity("alice", Set.of("external-group"), Map.of(), Instant.EPOCH), "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     @BeforeEach
     void initializeCurrentAuthority() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("write_observation");
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of("writer"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "writer"));
         grants = new JdbcGrantStore(dataSource);
@@ -73,7 +73,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
         }
         rowPolicies = new JdbcRowPolicyStore(dataSource);
         masks = new JdbcColumnMaskStore(dataSource);
-        var authority = new org.pangrova.security.authz.DynamicRbacAccessControl(grants, roles,
+        var authority = new org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(rowPolicies), new ColumnMaskingProcessor(masks));
         compiler = compiler(dataSource);
         security = new SecurityPolicyApplier(compiler, new AccessControlEnforcer(authority),
@@ -102,7 +102,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
         installTargetPolicies();
         String sql = "UPDATE target_rows SET tenant = 7 WHERE score = 0";
         var observed = observed(sql);
-        var observation = WritePolicyObservation.capture(observed, compiler, new SqlParser().parse(sql));
+        var observation = WritePolicyObservation.capture(observed, compiler, new AntlrSqlParser().parse(sql));
 
         assertThat(observation.writePrivileges()).containsExactly(Privilege.UPDATE);
         assertThat(observation.reads()).singleElement().satisfies(permission -> {
@@ -172,7 +172,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
         var missing = new SecurityPolicyApplier.ObservedPlan(actual.plan(), Map.of());
 
         assertThatThrownBy(() -> WritePolicyObservation.capture(missing, compiler,
-                new SqlParser().parse("DELETE FROM target_rows WHERE id = 1")))
+                new AntlrSqlParser().parse("DELETE FROM target_rows WHERE id = 1")))
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("observations are incomplete");
     }
 
@@ -210,7 +210,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
     }
 
     private WritePolicyObservation capture(String sql) {
-        return WritePolicyObservation.capture(observed(sql), compiler, new SqlParser().parse(sql));
+        return WritePolicyObservation.capture(observed(sql), compiler, new AntlrSqlParser().parse(sql));
     }
 
     private SecurityPolicyApplier.ObservedPlan observed(String sql) {
@@ -239,15 +239,15 @@ class WritePolicyObservationTest extends ContainerTestBase {
                 catalog.createTable(org.apache.iceberg.catalog.TableIdentifier.of("default", name), columns);
             }
         }
-        var directory = new org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore(dataSource);
+        var directory = new org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository(dataSource);
         directory.saveCatalogDescriptor(new org.pangrova.metadata.api.catalog.CatalogDescriptor(
                 "default", org.pangrova.metadata.api.catalog.CatalogType.CONNECTOR, "iceberg",
                 org.pangrova.metadata.api.catalog.CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()),
                 "", Set.of("tenant-a")));
         connectorFactory = new org.pangrova.coordinator.metadata.PluginConnectorHandleFactory(
-                getClass().getClassLoader(), new org.pangrova.security.secret.SecretResolverRegistry(),
+                getClass().getClassLoader(), new org.pangrova.security.core.secret.SecretResolverRegistry(),
                 ignored -> Optional.empty());
-        metadata = org.pangrova.coordinator.metadata.MetadataBootstrap.initialize(directory, connectorFactory);
+        metadata = org.pangrova.coordinator.metadata.MetadataBootstrap.initialize(directory, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), connectorFactory);
         var root = metadata.buildCalciteSchema(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(actor));
         return new SqlCompiler(new PangrovaPlanner(root, List.of("default", "default")),

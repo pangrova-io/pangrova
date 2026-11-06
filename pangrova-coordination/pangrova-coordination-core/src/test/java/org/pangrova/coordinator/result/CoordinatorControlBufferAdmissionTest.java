@@ -2,9 +2,9 @@ package org.pangrova.coordinator.result;
 
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 
 import java.util.ArrayList;
 import java.util.List;

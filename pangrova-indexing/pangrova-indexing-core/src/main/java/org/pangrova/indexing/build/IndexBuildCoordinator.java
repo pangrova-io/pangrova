@@ -1,13 +1,14 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -16,9 +17,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.indexing.metrics.IndexBuildMetrics;
-import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.connector.spi.index.ColumnValueReader;
+import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,10 +33,10 @@ public final class IndexBuildCoordinator implements AutoCloseable {
     private final boolean ownsExecutor;
     private final int maxConcurrentBuilds;
     private final int batchFlushSize;
-    private final String ownerId;
     private final AtomicInteger activeBuilds = new AtomicInteger();
-    private final Queue<PendingBuild> pendingBuilds = new ConcurrentLinkedQueue<>();
-    private final Set<String> cancelledIndexes = ConcurrentHashMap.newKeySet();
+    private final Object lifecycleLock = new Object();
+    private final Queue<BuildAttempt> pendingBuilds = new ConcurrentLinkedQueue<>();
+    private final Set<BuildAttempt> builds = new HashSet<>();
     private volatile boolean paused;
     private volatile boolean closed;
 
@@ -53,7 +54,6 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                 : context.buildExecutor();
         maxConcurrentBuilds = context.config().buildParallelism();
         batchFlushSize = context.config().batchFlushSize();
-        ownerId = "builder-" + UUID.randomUUID();
     }
 
     /** Submits a build without a mapping callback. */
@@ -75,24 +75,31 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         if (descriptor == null) {
             throw new IllegalArgumentException("descriptor must not be null");
         }
-        if (closed) {
-            return rejectedFuture(descriptor.indexId(), "coordinator_closed");
-        }
         BuildRequest request = new BuildRequest(
                 descriptor,
                 dataFiles == null ? List.of() : List.copyOf(dataFiles),
                 fileSystemAccessor,
                 reader,
                 mappingConsumer);
-        CompletableFuture<IndexBuildResult> future = new CompletableFuture<>();
-        cancelledIndexes.remove(descriptor.indexId());
-        if (paused) {
-            pendingBuilds.add(new PendingBuild(request, future));
-            LOG.info("event=index_build_deferred indexId={} reason=paused", descriptor.indexId());
-            return future;
+        BuildAttempt attempt = new BuildAttempt(request);
+        attempt.future.whenComplete((result, failure) -> {
+            if (attempt.future.isCancelled()) {
+                cancelAttempt(attempt);
+            }
+        });
+        synchronized (lifecycleLock) {
+            if (closed) {
+                return rejectedFuture(descriptor.indexId(), "coordinator_closed");
+            }
+            builds.add(attempt);
+            if (paused) {
+                pendingBuilds.add(attempt);
+                LOG.info("event=index_build_deferred indexId={} reason=paused", descriptor.indexId());
+                return attempt.future;
+            }
         }
-        dispatch(request, future);
-        return future;
+        dispatch(attempt);
+        return attempt.future;
     }
 
     /** Returns whether a new build can be dispatched immediately. */
@@ -105,42 +112,54 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         if (indexId == null) {
             return;
         }
-        cancelledIndexes.add(indexId);
-        pendingBuilds.removeIf(pending -> {
-            boolean matches = pending.request().descriptor().indexId().equals(indexId);
-            if (matches) {
-                pending.future().complete(IndexBuildResult.rejected());
-            }
-            return matches;
-        });
+        List<BuildAttempt> selected;
+        synchronized (lifecycleLock) {
+            selected = builds.stream()
+                    .filter(attempt -> attempt.request.descriptor().indexId().equals(indexId))
+                    .toList();
+        }
+        selected.forEach(this::cancelAttempt);
         LOG.info("event=index_build_cancelled indexId={}", indexId);
     }
 
     /** Pauses dispatch while retaining queued build requests. */
     public void pauseBuilds() {
-        paused = true;
-        LOG.info("event=index_build_paused pendingBuilds={}", pendingBuilds.size());
+        synchronized (lifecycleLock) {
+            if (!closed) {
+                paused = true;
+                LOG.info("event=index_build_paused pendingBuilds={}", pendingBuilds.size());
+            }
+        }
     }
 
-    /** Resumes dispatch of all requests accumulated while paused. */
+    /** Resumes dispatch of the requests already queued when this call acquires the lifecycle lock. */
     public void resumePendingBuilds() {
-        paused = false;
-        int resumed = 0;
-        PendingBuild pending;
-        while ((pending = pendingBuilds.poll()) != null) {
-            dispatch(pending.request(), pending.future());
-            resumed++;
+        List<BuildAttempt> resumed = new ArrayList<>();
+        synchronized (lifecycleLock) {
+            if (closed) {
+                return;
+            }
+            paused = false;
+            BuildAttempt pending;
+            while ((pending = pendingBuilds.poll()) != null) {
+                resumed.add(pending);
+            }
         }
-        LOG.info("event=index_build_resumed resumedBuilds={}", resumed);
+        resumed.forEach(this::dispatch);
+        LOG.info("event=index_build_resumed resumedBuilds={}", resumed.size());
     }
 
     @Override
     public void close() {
-        closed = true;
-        PendingBuild pending;
-        while ((pending = pendingBuilds.poll()) != null) {
-            pending.future().complete(IndexBuildResult.rejected());
+        List<BuildAttempt> selected;
+        synchronized (lifecycleLock) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            selected = List.copyOf(builds);
         }
+        selected.forEach(this::cancelAttempt);
         if (!ownsExecutor) {
             return;
         }
@@ -155,40 +174,74 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         }
     }
 
-    private void dispatch(BuildRequest request, CompletableFuture<IndexBuildResult> future) {
+    private void cancelAttempt(BuildAttempt attempt) {
+        if (attempt.cancel()) {
+            forget(attempt);
+        }
+    }
+
+    private void forget(BuildAttempt attempt) {
+        synchronized (lifecycleLock) {
+            builds.remove(attempt);
+            pendingBuilds.remove(attempt);
+        }
+    }
+
+    private void dispatch(BuildAttempt attempt) {
+        if (attempt.future.isDone()) {
+            forget(attempt);
+            return;
+        }
         activeBuilds.incrementAndGet();
         try {
-            executor.execute(() -> runAndComplete(request, future));
+            executor.execute(() -> runAndComplete(attempt));
         } catch (RejectedExecutionException rejectedExecutionException) {
             activeBuilds.decrementAndGet();
             recordError(0, IndexBuildMetrics.ErrorType.REJECTED);
-            LOG.warn("event=index_build_rejected indexId={} reason=executor_rejected", request.descriptor().indexId());
-            future.complete(IndexBuildResult.rejected());
+            LOG.warn("event=index_build_rejected indexId={} reason=executor_rejected",
+                    attempt.request.descriptor().indexId());
+            attempt.complete(IndexBuildResult.rejected());
+            forget(attempt);
         }
     }
 
-    private void runAndComplete(BuildRequest request, CompletableFuture<IndexBuildResult> future) {
+    private void runAndComplete(BuildAttempt attempt) {
+        if (!attempt.start()) {
+            activeBuilds.decrementAndGet();
+            forget(attempt);
+            return;
+        }
         long startedAt = System.currentTimeMillis();
         buildStarted();
         try {
-            future.complete(runBuild(request, startedAt));
+            IndexBuildResult result = runBuild(attempt, startedAt);
+            if (result.outcome() == IndexBuildResult.Outcome.COMPLETED
+                    || result.outcome() == IndexBuildResult.Outcome.CANCELLED) {
+                recordBuildCompletion(attempt, result, startedAt);
+            }
+            attempt.complete(Thread.currentThread().isInterrupted() ? IndexBuildResult.cancelled() : result);
         } catch (RuntimeException runtimeException) {
             LOG.error(
                     "event=index_build_failed indexId={} error={}",
-                    request.descriptor().indexId(),
+                    attempt.request.descriptor().indexId(),
                     runtimeException.getMessage(),
                     runtimeException);
             recordError(System.currentTimeMillis() - startedAt, IndexBuildMetrics.ErrorType.UNKNOWN);
-            future.completeExceptionally(runtimeException);
+            attempt.fail(runtimeException);
         } finally {
             buildFinished();
             activeBuilds.decrementAndGet();
+            forget(attempt);
         }
     }
 
-    private IndexBuildResult runBuild(BuildRequest request, long startedAt) {
+    private IndexBuildResult runBuild(BuildAttempt attempt, long startedAt) {
+        BuildRequest request = attempt.request;
         IndexDescriptor descriptor = request.descriptor();
-        if (!tryClaim(descriptor)) {
+        if (attempt.stopped()) {
+            return IndexBuildResult.cancelled();
+        }
+        if (!tryClaim(attempt)) {
             LOG.info(
                     "event=index_build_claim_lost indexId={} generation={}",
                     descriptor.indexId(),
@@ -196,7 +249,11 @@ public final class IndexBuildCoordinator implements AutoCloseable {
             recordError(System.currentTimeMillis() - startedAt, IndexBuildMetrics.ErrorType.CLAIM_FAILED);
             return IndexBuildResult.claimFailed();
         }
+        Throwable failure = null;
         try {
+            if (attempt.stopped()) {
+                return IndexBuildResult.cancelled();
+            }
             if (!isGenerationCurrent(descriptor)) {
                 LOG.info(
                         "event=index_build_stale_generation indexId={} generation={}",
@@ -205,29 +262,45 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                 recordError(System.currentTimeMillis() - startedAt, IndexBuildMetrics.ErrorType.STALE_GENERATION);
                 return IndexBuildResult.staleGeneration();
             }
-            return runClaimedBuild(request, startedAt);
+            pinBuildSnapshot(descriptor);
+            return buildFiles(attempt);
+        } catch (RuntimeException | Error buildFailure) {
+            failure = buildFailure;
+            throw buildFailure;
         } finally {
-            releaseClaim(descriptor);
+            try {
+                releaseClaim(attempt);
+            } catch (RuntimeException releaseFailure) {
+                if (failure == null) {
+                    throw releaseFailure;
+                }
+                if (failure != releaseFailure) {
+                    failure.addSuppressed(releaseFailure);
+                }
+            }
         }
     }
 
-    private IndexBuildResult runClaimedBuild(BuildRequest request, long startedAt) {
-        pinBuildSnapshot(request.descriptor());
-        IndexBuildResult result = buildFiles(request);
+    private void recordBuildCompletion(BuildAttempt attempt, IndexBuildResult result, long startedAt) {
+        BuildRequest request = attempt.request;
         long durationMs = System.currentTimeMillis() - startedAt;
         if (metrics != null) {
             metrics.recordBuild(durationMs, result.successCount(), result.failureCount());
         }
         LOG.info(
-                "event=index_build_completed indexId={} succeeded={} failed={} durationMs={}",
+                "event=index_build_completed indexId={} succeeded={} failed={} durationMs={} outcome={}",
                 request.descriptor().indexId(),
                 result.successCount(),
                 result.failureCount(),
-                durationMs);
-        return result;
+                durationMs,
+                result.outcome());
     }
 
-    private IndexBuildResult buildFiles(BuildRequest request) {
+    private IndexBuildResult buildFiles(BuildAttempt attempt) {
+        BuildRequest request = attempt.request;
+        if (attempt.stopped()) {
+            return IndexBuildResult.cancelled();
+        }
         if (request.dataFiles().isEmpty()) {
             LOG.info("event=index_build_no_files indexId={}", request.descriptor().indexId());
             return IndexBuildResult.success(0);
@@ -242,32 +315,45 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         BuildTally tally = new BuildTally();
         List<BuildFileMapping> batch = new ArrayList<>(batchFlushSize);
         for (DataFileInfo file : request.dataFiles()) {
-            if (cancelledIndexes.contains(request.descriptor().indexId())) {
+            if (attempt.stopped()) {
                 LOG.info("event=index_build_stopped indexId={} reason=cancelled", request.descriptor().indexId());
-                break;
+                return IndexBuildResult.cancelled();
             }
-            buildOneFile(request, file, batch, tally);
+            buildOneFile(attempt, file, batch, tally);
+            if (attempt.stopped()) {
+                return IndexBuildResult.cancelled();
+            }
             flushIfFull(request.mappingConsumer(), batch);
         }
+        if (attempt.stopped()) {
+            return IndexBuildResult.cancelled();
+        }
         flush(request.mappingConsumer(), batch);
-        return new IndexBuildResult(tally.succeeded, tally.failed);
+        return attempt.stopped() ? IndexBuildResult.cancelled()
+                : new IndexBuildResult(tally.succeeded, tally.failed);
     }
 
     private void buildOneFile(
-            BuildRequest request, DataFileInfo file, List<BuildFileMapping> batch, BuildTally tally) {
+            BuildAttempt attempt, DataFileInfo file, List<BuildFileMapping> batch, BuildTally tally) {
+        BuildRequest request = attempt.request;
+        BuildFileMapping mapping;
         try {
-            batch.add(fileBuilder.build(
-                    request.descriptor(), file, request.fileSystemAccessor(), request.reader()));
-            tally.succeeded++;
-            heartbeat(request.descriptor());
+            mapping = fileBuilder.build(
+                    request.descriptor(), file, request.fileSystemAccessor(), request.reader(), attempt::stopped);
         } catch (Exception exception) {
             tally.failed++;
             LOG.warn(
                     "event=index_build_file_failed indexId={} file={} error={}",
-                    request.descriptor().indexId(),
-                    file.filePath(),
-                    exception.getMessage());
+                    request.descriptor().indexId(), file.filePath(), exception.getMessage());
+            return;
         }
+        if (attempt.stopped()) {
+            return;
+        }
+        // Ownership failure is terminal, not a recoverable per-file build failure.
+        heartbeat(attempt);
+        batch.add(mapping);
+        tally.succeeded++;
     }
 
     private void flushIfFull(Consumer<List<BuildFileMapping>> consumer, List<BuildFileMapping> batch) {
@@ -283,39 +369,28 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         batch.clear();
     }
 
-    private boolean tryClaim(IndexDescriptor descriptor) {
-        BuildClaimHandler handler = context.claimHandler();
-        return handler == null
-                || handler.tryClaim(descriptor.indexId(), descriptor.generation(), ownerId, Instant.now());
+    private boolean tryClaim(BuildAttempt attempt) {
+        IndexBuildClaimRepository repository = context.claimRepository();
+        IndexDescriptor descriptor = attempt.request.descriptor();
+        return repository == null || repository.tryClaim(
+                descriptor.indexId(), descriptor.generation(), attempt.ownerId, Instant.now());
     }
 
-    private void releaseClaim(IndexDescriptor descriptor) {
-        BuildClaimHandler handler = context.claimHandler();
-        if (handler == null) {
-            return;
-        }
-        try {
-            handler.release(descriptor.indexId(), descriptor.generation());
-        } catch (RuntimeException runtimeException) {
-            LOG.warn(
-                    "event=index_build_claim_release_failed indexId={} error={}",
-                    descriptor.indexId(),
-                    runtimeException.getMessage());
+    private void releaseClaim(BuildAttempt attempt) {
+        IndexBuildClaimRepository repository = context.claimRepository();
+        IndexDescriptor descriptor = attempt.request.descriptor();
+        if (repository != null && !repository.release(
+                descriptor.indexId(), descriptor.generation(), attempt.ownerId)) {
+            throw new IllegalStateException("Index build claim lost before release: " + descriptor.indexId());
         }
     }
 
-    private void heartbeat(IndexDescriptor descriptor) {
-        BuildClaimHandler handler = context.claimHandler();
-        if (handler == null) {
-            return;
-        }
-        try {
-            handler.heartbeat(descriptor.indexId(), descriptor.generation(), Instant.now());
-        } catch (RuntimeException runtimeException) {
-            LOG.debug(
-                    "event=index_build_heartbeat_failed indexId={} error={}",
-                    descriptor.indexId(),
-                    runtimeException.getMessage());
+    private void heartbeat(BuildAttempt attempt) {
+        IndexBuildClaimRepository repository = context.claimRepository();
+        IndexDescriptor descriptor = attempt.request.descriptor();
+        if (repository != null && !repository.heartbeat(
+                descriptor.indexId(), descriptor.generation(), attempt.ownerId, Instant.now())) {
+            throw new IllegalStateException("Index build claim lost before mapping: " + descriptor.indexId());
         }
     }
 
@@ -376,7 +451,78 @@ public final class IndexBuildCoordinator implements AutoCloseable {
             ColumnValueReader reader,
             Consumer<List<BuildFileMapping>> mappingConsumer) {}
 
-    private record PendingBuild(BuildRequest request, CompletableFuture<IndexBuildResult> future) {}
+    /** Owns cancellation intent and serializes it with this submission's terminal result. */
+    private static final class BuildAttempt {
+        private final BuildRequest request;
+        private final String ownerId = "build-attempt-" + UUID.randomUUID();
+        private final CompletableFuture<IndexBuildResult> future = new CompletableFuture<>();
+        private boolean started;
+        private boolean cancelled;
+        private boolean terminalChosen;
+
+        private BuildAttempt(BuildRequest request) {
+            this.request = request;
+        }
+
+        synchronized boolean start() {
+            if (terminalChosen || cancelled || future.isDone()) {
+                return false;
+            }
+            started = true;
+            return true;
+        }
+
+        boolean cancel() {
+            boolean queued;
+            synchronized (this) {
+                if (terminalChosen) {
+                    return !started;
+                }
+                cancelled = true;
+                queued = !started;
+                if (queued) {
+                    terminalChosen = true;
+                }
+            }
+            // CompletableFuture callbacks may reenter the coordinator or other attempts.
+            if (queued) {
+                future.complete(IndexBuildResult.cancelled());
+            }
+            return queued;
+        }
+
+        synchronized boolean stopped() {
+            return cancelled || future.isDone() || Thread.currentThread().isInterrupted();
+        }
+
+        void complete(IndexBuildResult result) {
+            IndexBuildResult terminal;
+            synchronized (this) {
+                if (terminalChosen) {
+                    return;
+                }
+                terminalChosen = true;
+                terminal = cancelled ? IndexBuildResult.cancelled() : result;
+            }
+            future.complete(terminal);
+        }
+
+        void fail(RuntimeException failure) {
+            boolean cancellation;
+            synchronized (this) {
+                if (terminalChosen) {
+                    return;
+                }
+                terminalChosen = true;
+                cancellation = cancelled;
+            }
+            if (cancellation) {
+                future.complete(IndexBuildResult.cancelled());
+            } else {
+                future.completeExceptionally(failure);
+            }
+        }
+    }
 
     private static final class BuildTally {
         private int succeeded;

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.property.query.execution;
 
+import org.pangrova.query.api.stage.StageState;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -14,7 +16,7 @@ import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
+import org.pangrova.query.core.stage.StageStateMachine;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.logical.LogicalValues;
@@ -57,14 +59,14 @@ class AsyncDispatchPropertyTest {
             Stage current = stages.get(i);
             Stage next = stages.get(nextIdx);
             current.stateMachine().addStateChangeListener((stageId, oldState, newState) -> {
-                if (newState == StageStateMachine.State.FINISHED) {
+                if (newState == StageState.FINISHED) {
                     synchronized (scheduledOrder) {
                         scheduledOrder.add(nextIdx);
                     }
-                    next.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-                    next.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-                    next.stateMachine().transitionTo(StageStateMachine.State.FLUSHING);
-                    next.stateMachine().transitionTo(StageStateMachine.State.FINISHED);
+                    next.stateMachine().transitionTo(StageState.SCHEDULING);
+                    next.stateMachine().transitionTo(StageState.RUNNING);
+                    next.stateMachine().transitionTo(StageState.FLUSHING);
+                    next.stateMachine().transitionTo(StageState.FINISHED);
                 }
             });
         }
@@ -93,7 +95,7 @@ class AsyncDispatchPropertyTest {
         // Register failure listener on all stages
         for (Stage stage : stages) {
             stage.stateMachine().addStateChangeListener((stageId, oldState, newState) -> {
-                if (newState == StageStateMachine.State.FAILED) {
+                if (newState == StageState.FAILED) {
                     queryCompletion.completeExceptionally(
                             new RuntimeException("Stage " + stageId + " failed"));
                 }
@@ -102,9 +104,9 @@ class AsyncDispatchPropertyTest {
 
         // Fail the first stage
         Stage first = stages.get(0);
-        first.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        first.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        first.stateMachine().transitionTo(StageStateMachine.State.FAILED);
+        first.stateMachine().transitionTo(StageState.SCHEDULING);
+        first.stateMachine().transitionTo(StageState.RUNNING);
+        first.stateMachine().transitionTo(StageState.FAILED);
 
         // Query completion should be exceptionally completed
         assertThat(queryCompletion).isCompletedExceptionally();
@@ -149,18 +151,18 @@ class AsyncDispatchPropertyTest {
 
         // A finishes → schedule B and C
         a.stateMachine().addStateChangeListener((id, old, nw) -> {
-            if (nw == StageStateMachine.State.FINISHED) {
-                b.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-                c.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
+            if (nw == StageState.FINISHED) {
+                b.stateMachine().transitionTo(StageState.SCHEDULING);
+                c.stateMachine().transitionTo(StageState.SCHEDULING);
             }
         });
 
         // B finishes → check if C also finished, then schedule D
         b.stateMachine().addStateChangeListener((id, old, nw) -> {
-            if (nw == StageStateMachine.State.FINISHED) {
+            if (nw == StageState.FINISHED) {
                 bFinished.countDown();
                 if (cFinished.getCount() == 0) {
-                    d.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
+                    d.stateMachine().transitionTo(StageState.SCHEDULING);
                     dScheduled.set(true);
                 }
             }
@@ -168,10 +170,10 @@ class AsyncDispatchPropertyTest {
 
         // C finishes → check if B also finished, then schedule D
         c.stateMachine().addStateChangeListener((id, old, nw) -> {
-            if (nw == StageStateMachine.State.FINISHED) {
+            if (nw == StageState.FINISHED) {
                 cFinished.countDown();
                 if (bFinished.getCount() == 0) {
-                    d.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
+                    d.stateMachine().transitionTo(StageState.SCHEDULING);
                     dScheduled.set(true);
                 }
             }
@@ -183,7 +185,7 @@ class AsyncDispatchPropertyTest {
         runToFinished(c);
 
         assertThat(dScheduled.get()).isTrue();
-        assertThat(d.stateMachine().getState()).isEqualTo(StageStateMachine.State.SCHEDULING);
+        assertThat(d.stateMachine().getState()).isEqualTo(StageState.SCHEDULING);
     }
 
     /**
@@ -200,7 +202,7 @@ class AsyncDispatchPropertyTest {
         Stage s2 = createStage(1, "q-err");
 
         s2.stateMachine().addStateChangeListener((id, old, nw) -> {
-            if (nw == StageStateMachine.State.FAILED) {
+            if (nw == StageState.FAILED) {
                 RuntimeException ex = new RuntimeException("s2 dispatch failed");
                 captured.set(ex);
                 completion.completeExceptionally(ex);
@@ -209,9 +211,9 @@ class AsyncDispatchPropertyTest {
 
         // s1 finishes, s2 starts but fails
         runToFinished(s1);
-        s2.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        s2.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        s2.stateMachine().transitionTo(StageStateMachine.State.FAILED);
+        s2.stateMachine().transitionTo(StageState.SCHEDULING);
+        s2.stateMachine().transitionTo(StageState.RUNNING);
+        s2.stateMachine().transitionTo(StageState.FAILED);
 
         assertThat(completion).isCompletedExceptionally();
         assertThat(captured.get()).isNotNull();
@@ -237,23 +239,23 @@ class AsyncDispatchPropertyTest {
     private Stage createStage(int stageId, String queryId) {
         List<org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor> empty =
                 java.util.Collections.emptyList();
-        StageNode node = new StageNode(stageId, new org.pangrova.planner.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L), 1, "COMPUTE", empty);
+        StageNode node = new StageNode(stageId, new org.pangrova.planner.core.analysis.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L), 1, "COMPUTE", empty);
         return Stage.create(node, queryId);
     }
 
     private void runToFinished(Stage stage) {
         StageStateMachine sm = stage.stateMachine();
-        if (sm.getState() == StageStateMachine.State.PLANNED) {
-            sm.transitionTo(StageStateMachine.State.SCHEDULING);
+        if (sm.getState() == StageState.PLANNED) {
+            sm.transitionTo(StageState.SCHEDULING);
         }
-        if (sm.getState() == StageStateMachine.State.SCHEDULING) {
-            sm.transitionTo(StageStateMachine.State.RUNNING);
+        if (sm.getState() == StageState.SCHEDULING) {
+            sm.transitionTo(StageState.RUNNING);
         }
-        if (sm.getState() == StageStateMachine.State.RUNNING) {
-            sm.transitionTo(StageStateMachine.State.FLUSHING);
+        if (sm.getState() == StageState.RUNNING) {
+            sm.transitionTo(StageState.FLUSHING);
         }
-        if (sm.getState() == StageStateMachine.State.FLUSHING) {
-            sm.transitionTo(StageStateMachine.State.FINISHED);
+        if (sm.getState() == StageState.FLUSHING) {
+            sm.transitionTo(StageState.FINISHED);
         }
     }
 }

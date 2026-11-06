@@ -2,7 +2,7 @@ package org.pangrova.coordinator.generation;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
+import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,20 +11,20 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.job.GenerationLease;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.spi.generation.GenerationDependencySet;
-import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
-import org.pangrova.spi.generation.GenerationExecutionKind;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
-import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
-import org.pangrova.planner.generation.GenerationPlan;
-import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.page.GenerationLease;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.dependency.GenerationDependencySet;
+import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.planner.core.generation.GenerationPlan;
+import org.pangrova.planner.core.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.ArtifactDependency;
@@ -34,9 +34,9 @@ import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
@@ -79,7 +79,7 @@ class GenerationDispatchDeadlineIntegrationTest extends ContainerTestBase {
         builds = ModelAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures(dataSource);
         factory = new GenerationDispatchRequestFactory(
-                ModelAuthorityFixtures.artifacts().stages(dataSource));
+                ModelAuthorityFixtures.artifacts().stages(dataSource), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 
     @ParameterizedTest
@@ -173,7 +173,7 @@ class GenerationDispatchDeadlineIntegrationTest extends ContainerTestBase {
         var pages = List.of(new GenerationPage(job.jobId(), "page-1", 0, 0, 0,
                 GenerationPageKind.SOURCE_MAP, List.of(split()), List.of(), 3));
         var spec = GenerationDispatchSpecFactory.create(job.jobId(),
-                org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(plan.planBytes(), bindings(plan, dependencies), pages, java.util.List.of()),
+                org.pangrova.generation.core.submission.GenerationStageGraphFactory.forArtifactPages(plan.planBytes(), bindings(plan, dependencies), pages, java.util.List.of()),
                 TENANT, "alice", SCOPE, new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, timeoutMillis));
         builds.createJob(job, spec, pages);
         return builds.claimNextPage(TENANT, job.jobId(), executions.takeOwnership(TENANT, job.jobId(), "coordinator-1", 1), 1, INITIAL_LEASE, NOW).orElseThrow();

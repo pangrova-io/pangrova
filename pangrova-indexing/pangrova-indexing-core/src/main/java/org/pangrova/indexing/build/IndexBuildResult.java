@@ -35,6 +35,11 @@ public final class IndexBuildResult {
         return new IndexBuildResult(0, 0, Outcome.STALE_GENERATION);
     }
 
+    /** A cancelled attempt must never authorize generation publication. */
+    public static IndexBuildResult cancelled() {
+        return new IndexBuildResult(0, 0, Outcome.CANCELLED);
+    }
+
     public static IndexBuildResult rejected() {
         return new IndexBuildResult(0, 0, Outcome.REJECTED);
     }
@@ -83,6 +88,7 @@ public final class IndexBuildResult {
         COMPLETED,
         CLAIM_FAILED,
         STALE_GENERATION,
-        REJECTED
+        REJECTED,
+        CANCELLED
     }
 }

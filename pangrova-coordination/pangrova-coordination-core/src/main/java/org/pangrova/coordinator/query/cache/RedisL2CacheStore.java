@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.cache;
 
-import org.pangrova.planner.cache.CachedResult;
-import org.pangrova.planner.cache.L2CacheStore;
+import org.pangrova.planner.core.cache.CachedResult;
+import org.pangrova.planner.core.cache.L2CacheStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

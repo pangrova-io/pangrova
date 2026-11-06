@@ -1,19 +1,20 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
+import org.pangrova.query.api.stage.StageState;
+
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rex.RexBuilder;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.execution.core.authority.StageExecutionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 
 import java.util.List;
@@ -26,12 +27,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StageRetryOwnershipTest {
     @Test
     void ordinaryControlCancellationDoesNotBecomeAnInternalRetry() {
-        requireDeclined(new ErrorDetail("TASK_CANCELLED", "Cancellation", "Control cancelled"));
+        requireDeclined(new QueryFailure("TASK_CANCELLED", "Cancellation", "Control cancelled"));
     }
 
     @Test
     void unknownErrorDoesNotBecomeAnInternalRetry() {
-        requireDeclined(new ErrorDetail("UNKNOWN_FAILURE", "Unknown", "Unclassified input"));
+        requireDeclined(new QueryFailure("UNKNOWN_FAILURE", "Unknown", "Unclassified input"));
     }
 
     @Test
@@ -41,17 +42,17 @@ class StageRetryOwnershipTest {
 
     @Test
     void missingCodeDoesNotBecomeAnInternalRetry() {
-        requireDeclined(new ErrorDetail(null, "Unknown", "Missing code"));
+        requireDeclined(new QueryFailure(null, "Unknown", "Missing code"));
     }
 
     @Test
     void emptyCodeDoesNotBecomeAnInternalRetry() {
-        requireDeclined(new ErrorDetail("", "Unknown", "Empty code"));
+        requireDeclined(new QueryFailure("", "Unknown", "Empty code"));
     }
 
     @Test
     void actualMemoryPressureCategoryDoesNotRequestTheSameBudgetAgain() {
-        requireDeclined(new ErrorDetail("RUNTIME-0004", "ERROR_CLASS_BUDGET_EXHAUSTED", "Node pressure"));
+        requireDeclined(new QueryFailure("RUNTIME-0004", "ERROR_CLASS_BUDGET_EXHAUSTED", "Node pressure"));
     }
 
     @Test
@@ -63,12 +64,12 @@ class StageRetryOwnershipTest {
             fail(first, exchangeError());
             handler.onFailed(event(first));
             assertThat(first.retryCount()).isEqualTo(i + 1);
-            assertThat(first.stateMachine().getState()).isEqualTo(StageStateMachine.State.PLANNED);
+            assertThat(first.stateMachine().getState()).isEqualTo(StageState.PLANNED);
         }
         fail(second, exchangeError());
         handler.onFailed(event(second));
         assertThat(second.retryCount()).isEqualTo(1);
-        assertThat(second.stateMachine().getState()).isEqualTo(StageStateMachine.State.PLANNED);
+        assertThat(second.stateMachine().getState()).isEqualTo(StageState.PLANNED);
     }
 
     @Test
@@ -81,7 +82,7 @@ class StageRetryOwnershipTest {
         handler.onFailed(event(owner));
         assertThat(owner.retryCount()).isEqualTo(1);
         assertThat(owner.currentGeneration()).isEqualTo(1);
-        assertThat(owner.stateMachine().getState()).isEqualTo(StageStateMachine.State.PLANNED);
+        assertThat(owner.stateMachine().getState()).isEqualTo(StageState.PLANNED);
     }
 
     @Test
@@ -96,7 +97,7 @@ class StageRetryOwnershipTest {
         fail(owner, exchangeError());
         handler.onFailed(event(owner));
         assertThat(owner.retryCount()).isEqualTo(2);
-        assertThat(owner.stateMachine().getState()).isEqualTo(StageStateMachine.State.FAILED);
+        assertThat(owner.stateMachine().getState()).isEqualTo(StageState.FAILED);
     }
 
     @Test
@@ -107,10 +108,10 @@ class StageRetryOwnershipTest {
         var original = event(owner);
         var wrong = new StageLifecycleEvent(owner, original.dag(), "other-query",
                 new StageExecutionContext.Live(
-                        new CoordinatorSessionContext("other-query", Map.of(), null, "tenant")));
+                        new QuerySession("other-query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())));
         assertThatThrownBy(() -> handler.onFailed(wrong)).isInstanceOf(IllegalArgumentException.class);
         assertThat(owner.retryCount()).isZero();
-        assertThat(owner.stateMachine().getState()).isEqualTo(StageStateMachine.State.FAILED);
+        assertThat(owner.stateMachine().getState()).isEqualTo(StageState.FAILED);
     }
 
     @Test
@@ -121,17 +122,17 @@ class StageRetryOwnershipTest {
         var wrong = new StageLifecycleEvent(owner, event(other).dag(), "owned-query", event(owner).execution());
         assertThatThrownBy(() -> handler.onScheduling(wrong)).isInstanceOf(IllegalArgumentException.class);
         assertThat(owner.retryCount()).isZero();
-        assertThat(owner.stateMachine().getState()).isEqualTo(StageStateMachine.State.PLANNED);
+        assertThat(owner.stateMachine().getState()).isEqualTo(StageState.PLANNED);
     }
 
-    private static void requireDeclined(ErrorDetail error) {
+    private static void requireDeclined(QueryFailure error) {
         var handler = new RetryStageHandler(new ResilienceRegistry(Map.of()));
         var owner = stage("declined-query");
         fail(owner, error);
         handler.onFailed(event(owner));
         assertThat(owner.retryCount()).isZero();
         assertThat(owner.currentGeneration()).isZero();
-        assertThat(owner.stateMachine().getState()).isEqualTo(StageStateMachine.State.FAILED);
+        assertThat(owner.stateMachine().getState()).isEqualTo(StageState.FAILED);
         assertThat(owner.lastError()).isSameAs(error);
     }
 
@@ -145,18 +146,18 @@ class StageRetryOwnershipTest {
         String queryId = owner.stateMachine().getQueryId();
         var dag = StageDAG.create(List.of(owner), List.of(owner.plan()), Map.of(), List.of());
         return new StageLifecycleEvent(owner, dag, queryId,
-                new StageExecutionContext.Live(new CoordinatorSessionContext(queryId, Map.of(), null, "tenant")));
+                new StageExecutionContext.Live(new QuerySession(queryId, Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())));
     }
 
-    private static void fail(Stage owner, ErrorDetail error) {
+    private static void fail(Stage owner, QueryFailure error) {
         owner.addTaskId("task-" + owner.currentGeneration());
-        assertThat(owner.stateMachine().tryTransitionTo(StageStateMachine.State.SCHEDULING)).isTrue();
-        assertThat(owner.stateMachine().tryTransitionTo(StageStateMachine.State.RUNNING)).isTrue();
+        assertThat(owner.stateMachine().tryTransitionTo(StageState.SCHEDULING)).isTrue();
+        assertThat(owner.stateMachine().tryTransitionTo(StageState.RUNNING)).isTrue();
         owner.onTaskFailed("task-" + owner.currentGeneration(), error);
-        assertThat(owner.stateMachine().getState()).isEqualTo(StageStateMachine.State.FAILED);
+        assertThat(owner.stateMachine().getState()).isEqualTo(StageState.FAILED);
     }
 
-    private static ErrorDetail exchangeError() {
-        return new ErrorDetail("EXCHANGE-0001", "ExchangeError", "Source unavailable");
+    private static QueryFailure exchangeError() {
+        return new QueryFailure("EXCHANGE-0001", "ExchangeError", "Source unavailable");
     }
 }

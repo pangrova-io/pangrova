@@ -4,12 +4,12 @@ import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.query.state.QueryStateEvent;
-import org.pangrova.spi.query.state.StateJournalConfig;
-import org.pangrova.spi.query.state.TaskStateEvent;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
@@ -133,12 +133,12 @@ class FailoverE2ETest extends SqlE2ETestBase {
             String q2 = "failover-q2-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now, null), q1, "SELECT * FROM t1", "{}", "QUEUED"));
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 1, null), q1, null, null, "RUNNING"));
-            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 2, null), q1, "task-1", "worker-1", "RUNNING", 0, 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now, null), q1, "SELECT * FROM t1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 1, null), q1, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 2, null), q1, "task-1", "worker-1", "RUNNING", 0, 1));
 
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 3, null), q2, "SELECT * FROM t2", "{}", "QUEUED"));
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 4, null), q2, null, null, "SCHEDULING"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 3, null), q2, "SELECT * FROM t2", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 4, null), q2, null, null, "SCHEDULING"));
 
             // Simulate leader kill
             leaderElection.release("coordinator-1");
@@ -165,9 +165,9 @@ class FailoverE2ETest extends SqlE2ETestBase {
             String taskId = "task-recover-1";
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 1, null), queryId, null, null, "RUNNING"));
-            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 2, null), queryId, taskId, "worker-2", "RUNNING", 0, 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 1, null), queryId, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 2, null), queryId, taskId, "worker-2", "RUNNING", 0, 1));
 
             // Failover
             leaderElection.release("coordinator-1");
@@ -192,11 +192,11 @@ class FailoverE2ETest extends SqlE2ETestBase {
             String finished = "failover-done-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now, null), active, "SELECT 1", "{}", "QUEUED"));
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 1, null), active, null, null, "RUNNING"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now, null), active, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 1, null), active, null, null, "RUNNING"));
 
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 2, null), finished, "SELECT 2", "{}", "QUEUED"));
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(now + 3, null), finished, null, null, "FINISHED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 2, null), finished, "SELECT 2", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(now + 3, null), finished, null, null, "FINISHED"));
 
             leaderElection.release("coordinator-1");
             leaderElection.tryAcquire("coordinator-2", LEASE_MS);

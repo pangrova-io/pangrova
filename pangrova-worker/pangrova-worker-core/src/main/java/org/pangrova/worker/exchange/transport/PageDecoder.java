@@ -6,9 +6,8 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -21,7 +20,7 @@ import org.apache.arrow.vector.util.Text;
  * Decodes columnar IPC stream bytes into typed {@link Page} instances.
  *
  * <p>Converts each row in the deserialized {@link VectorSchemaRoot} into a
- * {@link TypedRow} via {@link ColumnValue#of(Object)}, producing a fully
+ * {@link TypedRow} via {@code ColumnValue#of(Object)}, producing a fully
  * typed page suitable for the Java-side data path.</p>
  *
  * <p>Thread safety: stateless utility class, safe for concurrent use

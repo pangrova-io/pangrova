@@ -1,0 +1,54 @@
+[
+  {
+    "report": "pangrova-metadata/pangrova-metadata-core/target/spotbugsXml.xml",
+    "sha256": "38a230d4404d30e2542cf70da057adcb3d7551ed9eb19b429dc4849b9db16215",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "applyAsInt",
+      "applyAsLong",
+      "equals",
+      "execute",
+      "get",
+      "hashCode",
+      "lockPublication",
+      "makeConcatWithConstants",
+      "newThread",
+      "observe",
+      "onChange",
+      "onRemoval",
+      "rejectedExecution",
+      "run",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-indexing-postgresql/target/spotbugsXml.xml",
+    "sha256": "f31ef521c1c36b8303e8cc14860bc0721b0cf3f3aef367f49c24d021f8740ccc",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "applyAsLong",
+      "equals",
+      "get",
+      "hashCode",
+      "makeConcatWithConstants",
+      "run",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-metadata/pangrova-metadata-core/target/checkstyle-result.xml",
+    "sha256": "b9271c014e568702fd64f7b3b69aac72168be867cf578c7561589c53ff910c2e",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-indexing-postgresql/target/checkstyle-result.xml",
+    "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+    "diagnostics": []
+  }
+]

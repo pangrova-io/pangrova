@@ -1,12 +1,14 @@
 package org.pangrova.coordinator.query.execution.dispatch.adaptive;
 
+import org.pangrova.planner.api.adaptive.AdaptiveDecision;
+
 import java.util.List;
 
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.planner.SubPlanReoptimizer;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.planner.core.analysis.SubPlanReoptimizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +27,7 @@ public final class AdaptiveStagePlanResolver {
 
     /** Returns the plan after applying every available upstream decision. */
     public StageNode apply(StageNode initialPlan, StageDAG dag) {
-        if (initialPlan.stagePlan().mode() == org.pangrova.planner.StagePlanAccess.Mode.DURABLE_REPLAY) {
+        if (initialPlan.stagePlan().mode() == org.pangrova.planner.core.analysis.StagePlanAccess.Mode.DURABLE_REPLAY) {
             return initialPlan;
         }
         StageNode plan = initialPlan;
@@ -42,8 +44,8 @@ public final class AdaptiveStagePlanResolver {
 
     /** Production AQE obtains its optimizer from the immutable query scope. */
     public StageNode apply(StageNode initialPlan, StageDAG dag,
-                           org.pangrova.planner.SqlCompiler compiler) {
-        if (initialPlan.stagePlan().mode() == org.pangrova.planner.StagePlanAccess.Mode.DURABLE_REPLAY) {
+                           org.pangrova.planner.core.analysis.SqlCompiler compiler) {
+        if (initialPlan.stagePlan().mode() == org.pangrova.planner.core.analysis.StagePlanAccess.Mode.DURABLE_REPLAY) {
             return initialPlan;
         }
         SubPlanReoptimizer optimizer = subPlanReoptimizer != null
@@ -93,7 +95,8 @@ public final class AdaptiveStagePlanResolver {
         int boosted = Math.min(
                 plan.parallelism() + skewedCount,
                 Math.max(MINIMUM_SKEW_PARALLELISM_CAP, plan.parallelism() * 2));
-        LOG.info("event=aqe_skew_mitigated stageId={} upstreamStageId={}"
+        // This is a parallelism heuristic, not partition range splitting.
+        LOG.info("event=aqe_skew_parallelism_heuristic stageId={} upstreamStageId={}"
                         + " skewedPartitions={} originalParallelism={}"
                         + " adjustedParallelism={}",
                 plan.stageId(), upstreamId, skewedCount,

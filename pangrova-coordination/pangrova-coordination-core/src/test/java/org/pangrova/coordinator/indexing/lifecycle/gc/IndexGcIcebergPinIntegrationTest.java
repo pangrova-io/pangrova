@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.IcebergMetadata;
 import org.pangrova.connector.iceberg.IcebergConnector;
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider;
 import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
 import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
@@ -26,14 +26,14 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -50,8 +50,8 @@ class IndexGcIcebergPinIntegrationTest {
     @Test
     void droppedIndexReleasesAllGenerationTagsAndFilesBeforePurgingPostgresIdentity() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_pin");
-        var indexes = new JdbcIndexMetadataStore(dataSource);
-        var registry = new CatalogRegistry(new JdbcMetadataStore(dataSource));
+        var indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        var registry = new CatalogRegistry(new PostgresCatalogDeploymentRepository(dataSource));
         registry.initialize();
         var resolver = new ConnectorAccessorResolver(registry);
         var lifecycle = new LifecycleConfig(new GcConfig(1, 0), null, null);
@@ -120,7 +120,7 @@ class IndexGcIcebergPinIntegrationTest {
     @Test
     void revokedSourceReadGrantDoesNotBlockDroppedIndexPinCleanup() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_revoked_cleanup");
-        var indexes = new JdbcIndexMetadataStore(dataSource);
+        var indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
         var source = new QualifiedTableName("cat", "db", "items");
         CoordinatorGenerationAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
                 DeferredAuthorizationScope.raw(source, Set.of("id"), source));
@@ -138,7 +138,7 @@ class IndexGcIcebergPinIntegrationTest {
             long snapshot = table.currentSnapshot().snapshotId();
             var connector = new IcebergConnector("cat", catalog, table.io(), Set.of());
             try {
-                var registry = new CatalogRegistry(new JdbcMetadataStore(dataSource),
+                var registry = new CatalogRegistry(new PostgresCatalogDeploymentRepository(dataSource),
                         descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
                 registry.register(new CatalogDescriptor("cat", CatalogType.CONNECTOR,
                         "iceberg", CatalogState.ACTIVE, Map.of(), "", Set.of("tenant-a")));

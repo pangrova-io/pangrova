@@ -1,19 +1,19 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier.WriteAuthorityRequest;
+import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
+import org.pangrova.query.api.write.WriteAuthorityRequest;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -86,7 +86,7 @@ final class GeneratedWriteAuthorityResolver {
         String principal = request.session().getUser();
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate.lockPublication(connection);
+            org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate.lockPublication(connection);
             var models = modelNames.isEmpty() ? List.<DeferredAuthorizationScope.ModelSnapshot>of()
                     : modelAuthority.observe(connection, principal, modelNames);
             var permissions = new ArrayList<>(reads);

@@ -1,17 +1,19 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -48,7 +50,7 @@ class QueryDispatcherUnifiedPathTest {
         worker = new SourceFreeNativeWorkerFixture("w1", nativeDirectory);
         workerHttpServer = worker.httpServer();
 
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
 
         httpDispatcher =
@@ -57,7 +59,7 @@ class QueryDispatcherUnifiedPathTest {
         httpDispatcher.setExecutionOwnerResolver(ignored ->
                 new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
                         "test-coordinator", "test-incarnation", 1L));
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
 
         var tracker = new CoordinatorTaskTracker();
         var deps = QueryDispatcherContext.withDefaults(
@@ -81,7 +83,7 @@ class QueryDispatcherUnifiedPathTest {
     @Test
     void constantQueryReturnsWorkerEndpoint() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext("const-1", Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession("const-1", Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
@@ -90,20 +92,20 @@ class QueryDispatcherUnifiedPathTest {
         assertThat(result.resultEndpoint().host()).isEqualTo("127.0.0.1");
         assertThat(result.resultEndpoint().protocol()).isEqualTo("grpc");
         assertThat(result.taskId()).doesNotStartWith("local-");
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        assertThat(sm.getState()).isEqualTo(QueryState.RUNNING);
         assertOneValue(result, 1L);
     }
 
     @Test
     void multiConstantExpressionUsesWorker() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext("multi-const", Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession("multi-const", Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1+2, 'hello'", session);
 
         assertThat(result).isNotNull();
         assertThat(result.workerHost()).isEqualTo("127.0.0.1");
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        assertThat(sm.getState()).isEqualTo(QueryState.RUNNING);
         assertThat(worker.rows(result)).singleElement().satisfies(row -> {
             assertThat(row).hasSize(2);
             assertThat(((Number) row.get(0)).longValue()).isEqualTo(3L);
@@ -114,8 +116,8 @@ class QueryDispatcherUnifiedPathTest {
     @Test
     void limitZeroUsesWorker() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "limit-zero", Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession(
+                "limit-zero", Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1 LIMIT 0", session);
 
@@ -130,7 +132,7 @@ class QueryDispatcherUnifiedPathTest {
     @Test
     void allPathsReturnNonNullResultEndpoint() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext("endpoint-q", Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession("endpoint-q", Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 42", session);
 
@@ -143,7 +145,7 @@ class QueryDispatcherUnifiedPathTest {
     void resultEndpointTicketScopesTheWorkerTaskId() throws Exception {
         String queryId = "ticket-match";
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession(queryId, Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 

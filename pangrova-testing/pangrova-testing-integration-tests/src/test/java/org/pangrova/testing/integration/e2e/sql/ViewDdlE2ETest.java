@@ -13,7 +13,7 @@
  */
 package org.pangrova.testing.integration.e2e.sql;
 
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -56,6 +56,24 @@ class ViewDdlE2ETest extends PangrovaE2ETestBase {
 
     private String fqn() {
         return FQN_PREFIX + tableName;
+    }
+
+    @Test
+    void createModesAndMissingDropPreserveSqlSemantics() {
+        String view = fqn() + "_mode";
+        executeDdl("CREATE VIEW " + view + " AS SELECT 1 AS id");
+        try {
+            assertThat(executeExpectingError("CREATE VIEW " + view + " AS SELECT 2 AS id"))
+                    .contains("already exists");
+            executeDdl("CREATE VIEW IF NOT EXISTS " + view + " AS SELECT 3 AS id");
+            assertThat(executeQuery("SELECT id FROM " + view).get(0).getLong("id")).isEqualTo(1L);
+            executeDdl("CREATE OR REPLACE VIEW " + view + " AS SELECT 4 AS id");
+            assertThat(executeQuery("SELECT id FROM " + view).get(0).getLong("id")).isEqualTo(4L);
+        } finally {
+            executeDdl("DROP VIEW " + view);
+        }
+        assertThat(executeExpectingError("DROP VIEW " + view)).contains("not found");
+        executeDdl("DROP VIEW IF EXISTS " + view);
     }
 
     @Nested

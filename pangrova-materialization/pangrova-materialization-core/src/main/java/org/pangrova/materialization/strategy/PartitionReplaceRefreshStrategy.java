@@ -15,13 +15,13 @@ import org.pangrova.materialization.domain.StrategyId;
 import org.pangrova.materialization.extension.RefreshContext;
 import org.pangrova.materialization.extension.RefreshStrategy;
 import org.pangrova.materialization.extension.StrategyCompatibility;
-import org.pangrova.spi.connector.materialization.ChangeProof;
-import org.pangrova.spi.connector.materialization.ChangeSetMode;
-import org.pangrova.spi.connector.materialization.ChangeSetPlan;
-import org.pangrova.spi.connector.materialization.PartitionChange;
-import org.pangrova.spi.connector.materialization.PartitionValue;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.connector.api.materialization.ChangeProof;
+import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.materialization.ChangeSetPlan;
+import org.pangrova.connector.api.materialization.PartitionChange;
+import org.pangrova.connector.api.materialization.PartitionValue;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 /**
  * Recomputes only the source partitions the connector reported as changed.

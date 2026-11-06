@@ -1,0 +1,50 @@
+[
+  {
+    "old_fqn": "org.pangrova.indexing.build.IndexBuildCoordinator",
+    "target_fqn": "org.pangrova.indexing.build.IndexBuildCoordinator",
+    "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexBuildCoordinator.java",
+    "artifact": "pangrova-indexing-core",
+    "disposition": "change",
+    "responsibility_and_resource_ownership": "Submission registry, attempt cancellation and callback-safe terminal choice; claim cleanup precedes ordinary completion.",
+    "after_sha256": "f00bff3b8cb4914e74ab993208b9ee7c5b1a1600189de01fff19c499e1948a25",
+    "before_source_capture": "missing: baseline glob excluded source build packages; do not infer equality or a before hash",
+    "verification": "index-cancel.md; index-cancel-validation-summary.json",
+    "callers_wiring": [
+      "Server IndexingBootstrap creates the shared builder",
+      "IndexDdlExecutor submits initial/rebuild work",
+      "IndexGenerationRefresher submits scalar incremental work"
+    ],
+    "persistent_authority": "Unchanged: IndexMetadataStore/PostgreSQL publication transaction; this class does not introduce new persistent authority."
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.build.IndexBuildResult",
+    "target_fqn": "org.pangrova.indexing.build.IndexBuildResult",
+    "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexBuildResult.java",
+    "artifact": "pangrova-indexing-core",
+    "disposition": "change",
+    "responsibility_and_resource_ownership": "Explicit CANCELLED cannot authorize publication.",
+    "after_sha256": "c4606c3a4e33e8c81e8e2f19c543f2132926f9ebd3fc170802cc336f00baad91",
+    "before_source_capture": "missing: baseline glob excluded source build packages; do not infer equality or a before hash",
+    "verification": "index-cancel.md; index-cancel-validation-summary.json",
+    "callers_wiring": [
+      "IndexDdlExecutor.processBuildResult checks isFullySuccessful before publication",
+      "IndexGenerationRefresher.buildAddedFiles rejects unsuccessful/incomplete result"
+    ],
+    "persistent_authority": "Unchanged: IndexMetadataStore/PostgreSQL publication transaction; this class does not introduce new persistent authority."
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.build.IndexFileBuilder",
+    "target_fqn": "org.pangrova.indexing.build.IndexFileBuilder",
+    "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexFileBuilder.java",
+    "artifact": "pangrova-indexing-core",
+    "disposition": "change",
+    "responsibility_and_resource_ownership": "Cancellation checks bound reading, row iteration, encoding and new file writes; borrowed reader/filesystem are not closed.",
+    "after_sha256": "2618abc28c938505422f8a34b97bd95ad2a5a169a365df73324ca2aa3814d102",
+    "before_source_capture": "missing: baseline glob excluded source build packages; do not infer equality or a before hash",
+    "verification": "index-cancel.md; index-cancel-validation-summary.json",
+    "callers_wiring": [
+      "IndexBuildCoordinator.buildOneFile supplies this attempt cancellation predicate"
+    ],
+    "persistent_authority": "Unchanged: IndexMetadataStore/PostgreSQL publication transaction; this class does not introduce new persistent authority."
+  }
+]

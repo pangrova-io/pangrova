@@ -16,6 +16,7 @@
     <description>AI parent for Pangrova: API contracts, control plane, and worker functions</description>
 
     <modules>
+        <module>pangrova-ai-api</module>
 
         <module>pangrova-ai-worker</module>
         <module>pangrova-ai-control</module>

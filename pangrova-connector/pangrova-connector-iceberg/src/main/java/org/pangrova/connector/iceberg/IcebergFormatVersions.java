@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.metadata.DeletionMode;
+import org.pangrova.connector.api.metadata.DeletionMode;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Type;

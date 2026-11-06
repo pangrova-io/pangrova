@@ -7,15 +7,15 @@ import java.util.Map;
 
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.spi.observability.Context;
+import org.pangrova.observability.api.tracing.Context;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.spi.observability.Span;
-import org.pangrova.spi.observability.SpanKind;
-import org.pangrova.spi.observability.TextMapGetter;
-import org.pangrova.spi.observability.TextMapSetter;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.api.tracing.Span;
+import org.pangrova.observability.api.tracing.SpanKind;
+import org.pangrova.observability.api.tracing.TextMapGetter;
+import org.pangrova.observability.api.tracing.TextMapSetter;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.junit.jupiter.api.Test;
 
 /**

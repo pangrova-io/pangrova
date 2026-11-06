@@ -1,8 +1,8 @@
 package org.pangrova.testing.integration.e2e.fixture;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
-import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 
 import java.time.Duration;
 

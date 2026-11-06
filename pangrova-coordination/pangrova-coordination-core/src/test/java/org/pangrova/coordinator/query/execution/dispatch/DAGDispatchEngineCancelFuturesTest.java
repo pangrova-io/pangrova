@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.query.core.task.DispatchResult;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -13,7 +15,7 @@ import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
 import org.pangrova.shuffle.api.ShuffleHandle;
@@ -86,7 +88,7 @@ class DAGDispatchEngineCancelFuturesTest {
 
         @Override
         public ShuffleHandle registerShuffle(ShuffleRegistration registration) {
-            return ShuffleHandle.LOCAL;
+            throw new AssertionError("This Direct-path fixture must not register an external shuffle");
         }
 
         @Override
@@ -119,6 +121,6 @@ class DAGDispatchEngineCancelFuturesTest {
                 new SplitAssignmentManager(),
                 null,  // resilienceRegistry
                 null); // stateJournal
-        return new DAGDispatchEngine(deps, List.of(), null);
+        return new DAGDispatchEngine(deps, List.of(), null, null, null);
     }
 }

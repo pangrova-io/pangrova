@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.indexing.filter;
 
-import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.spi.connector.index.predicate.IndexPredicate;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.index.predicate.EqualTo;
+import org.pangrova.connector.api.index.predicate.IndexPredicate;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

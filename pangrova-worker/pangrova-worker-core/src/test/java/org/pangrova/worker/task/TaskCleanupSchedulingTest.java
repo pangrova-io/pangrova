@@ -72,6 +72,53 @@ class TaskCleanupSchedulingTest {
         }
     }
 
+    @Test
+    void retentionEvictsOnlyTerminalOwnerAndIsIdempotent() {
+        var tasks = new ConcurrentHashMap<String, TaskInfo>();
+        var terminal = finishedTask("terminal");
+        var running = new TaskInfo("running", "other-query", null, null, Instant.now().minusSeconds(3600));
+        running.compareAndSetState(TaskState.RECEIVED, TaskState.RUNNING);
+        tasks.put(terminal.taskId(), terminal);
+        tasks.put(running.taskId(), running);
+        var released = new java.util.ArrayList<TaskInfo>();
+        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, released::add, task -> false))
+                .isEqualTo(1);
+        assertThat(released).containsExactly(terminal);
+        assertThat(tasks).containsOnlyKeys(running.taskId());
+        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, released::add, task -> false))
+                .isZero();
+        assertThat(released).containsExactly(terminal);
+    }
+
+    @Test
+    void failedReleaseRemainsOwnedWhileOtherTasksCanBeCleaned() {
+        var tasks = new ConcurrentHashMap<String, TaskInfo>();
+        var failed = finishedTask("failed-release");
+        var other = finishedTask("other-release");
+        tasks.put(failed.taskId(), failed);
+        tasks.put(other.taskId(), other);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, task -> {
+                    if (task == failed) throw new IllegalStateException("owner has not drained");
+                }, task -> false)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Task resource cleanup sweep failed");
+        assertThat(tasks).containsOnlyKeys(failed.taskId());
+        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, task -> {}, task -> false))
+                .isEqualTo(1);
+        assertThat(tasks).isEmpty();
+    }
+
+    @Test
+    void concurrentReplacementIsNeverRemovedWithRetiredAttempt() {
+        var tasks = new ConcurrentHashMap<String, TaskInfo>();
+        var old = finishedTask("attempt-key");
+        var replacement = new TaskInfo("attempt-key", "other-query", null, null, Instant.now());
+        tasks.put(old.taskId(), old);
+        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO,
+                task -> tasks.put(task.taskId(), replacement), task -> false)).isZero();
+        assertThat(tasks).containsEntry(old.taskId(), replacement);
+    }
+
     private static TaskInfo finishedTask(String id) {
         var info = new TaskInfo(id, "query", null, null, Instant.now());
         assertThat(info.compareAndSetState(TaskState.RECEIVED, TaskState.RUNNING)).isTrue();

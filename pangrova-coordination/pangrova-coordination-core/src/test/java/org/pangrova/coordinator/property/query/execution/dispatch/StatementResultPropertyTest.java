@@ -9,9 +9,9 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Combinators;
 
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

@@ -2,12 +2,12 @@ package org.pangrova.coordinator.metadata.read;
 
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.exception.MetadataResolutionException;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.metadata.api.error.MetadataResolutionException;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.schema.lookup.LikePattern;
@@ -176,8 +176,8 @@ final class LazyMetadataSchema extends AbstractSchema {
     }
 
     private static Optional<String> systemTableSuffix(String name) {
-        return org.pangrova.spi.connector.metadata.MetadataTableKind.fromTableName(name)
-                .map(org.pangrova.spi.connector.metadata.MetadataTableKind::suffix);
+        return org.pangrova.connector.api.metadata.MetadataTableKind.fromTableName(name)
+                .map(org.pangrova.connector.api.metadata.MetadataTableKind::suffix);
     }
 
     /**

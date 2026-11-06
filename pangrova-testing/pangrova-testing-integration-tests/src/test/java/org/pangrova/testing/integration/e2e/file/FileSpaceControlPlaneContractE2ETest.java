@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.file;
 
-import org.pangrova.spi.file.access.FileAccessGrant;
+import org.pangrova.file.api.access.FileAccessGrant;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -25,14 +25,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
-import org.pangrova.file.space.FileSpaceAccessService;
+import org.pangrova.file.core.access.FileSpaceAccessService;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.filesystem.api.object.FileListing;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceType;
 import org.pangrova.filesystem.api.object.FileStat;
 import org.pangrova.worker.file.FileSpaceFileResource;
 import org.pangrova.worker.file.ObjectStoreAccessorFactory;
@@ -60,8 +60,8 @@ class FileSpaceControlPlaneContractE2ETest {
     Path root;
 
     private final ObjectMapper mapper = JsonMapperFactory.create();
-    private org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry spaces;
-    private org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry profiles;
+    private org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry spaces;
+    private org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry profiles;
     private FileSpaceAccessService coordinator;
     private FileSpaceFileResource worker;
 
@@ -77,46 +77,45 @@ class FileSpaceControlPlaneContractE2ETest {
         }
         source.setCurrentSchema(schema);
         org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner.migrate(source);
-        var tenants = new org.pangrova.metadata.tenant.JdbcTenantStore(source);
-        tenants.initSchema();
-        tenants.createTenant(new org.pangrova.spi.security.tenant.Tenant("tenant-a", "File contract tests",
-                org.pangrova.spi.security.tenant.TenantStatus.ACTIVE,
-                new org.pangrova.spi.security.tenant.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
+        var tenants = new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source);
+
+        tenants.createTenant(new org.pangrova.security.api.tenant.Tenant("tenant-a", "File contract tests",
+                org.pangrova.security.api.tenant.TenantStatus.ACTIVE,
+                new org.pangrova.security.api.tenant.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
                 List.of(), List.of(), "", Map.of(), Instant.EPOCH, "fixture"));
-        tenants.addUserToTenant("tenant-a", "alice", org.pangrova.spi.security.tenant.TenantRole.MEMBER);
-        spaces = new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry(source);
-        profiles = new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(source);
+        tenants.addUserToTenant("tenant-a", "alice", org.pangrova.security.api.tenant.TenantRole.MEMBER);
+        spaces = new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry(source);
+        profiles = new org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry(source);
         assertThat(profiles.createIfAbsent(new StorageProfile("local", StorageType.LOCAL, root.toString(), "",
                 "", "", Map.of(), Map.of()))).isTrue();
         for (FileSpaceType type : List.of(FileSpaceType.VOLUME, FileSpaceType.STAGE)) {
             spaces.create(new FileSpaceDefinition(type, "media", "raw", "landing", false,
                     "local", "", type == FileSpaceType.STAGE, "", "alice"), false);
         }
-        var roles = new org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore(source);
-        roles.initSchema();
-        roles.createRole(org.pangrova.spi.security.policy.Role.of("file_contract"));
-        roles.grantRoleToUser(org.pangrova.spi.security.policy.UserRoleAssignment.of("alice", "file_contract"));
-        var grants = new org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore(source);
-        for (var privilege : List.of(org.pangrova.spi.security.policy.Privilege.READ_VOLUME,
-                org.pangrova.spi.security.policy.Privilege.WRITE_VOLUME)) {
-            grants.addGrant(org.pangrova.spi.security.policy.PrivilegeGrant.of("file_contract", privilege,
+        var roles = new org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore(source);
+        roles.createRole(org.pangrova.security.api.policy.Role.of("file_contract"));
+        roles.grantRoleToUser(org.pangrova.security.api.policy.UserRoleAssignment.of("alice", "file_contract"));
+        var grants = new org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore(source);
+        for (var privilege : List.of(org.pangrova.security.api.policy.Privilege.READ_VOLUME,
+                org.pangrova.security.api.policy.Privilege.WRITE_VOLUME)) {
+            grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("file_contract", privilege,
                     "VOLUME", "media", "raw", "landing", null));
         }
-        for (var privilege : List.of(org.pangrova.spi.security.policy.Privilege.USAGE_STAGE,
-                org.pangrova.spi.security.policy.Privilege.READ_STAGE, org.pangrova.spi.security.policy.Privilege.WRITE_STAGE)) {
-            grants.addGrant(org.pangrova.spi.security.policy.PrivilegeGrant.of("file_contract", privilege,
+        for (var privilege : List.of(org.pangrova.security.api.policy.Privilege.USAGE_STAGE,
+                org.pangrova.security.api.policy.Privilege.READ_STAGE, org.pangrova.security.api.policy.Privilege.WRITE_STAGE)) {
+            grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("file_contract", privilege,
                     "STAGE", "media", "raw", "landing", null));
         }
-        var authorization = new org.pangrova.security.authz.DynamicRbacAccessControl(grants, roles,
-                new org.pangrova.security.rowfilter.RowLevelSecurityFilter(
-                        new org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore(source)),
-                new org.pangrova.security.mask.ColumnMaskingProcessor(
-                        new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source)));
+        var authorization = new org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl(grants, roles,
+                new org.pangrova.security.core.rowfilter.RowLevelSecurityFilter(
+                        new org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore(source)),
+                new org.pangrova.security.core.mask.ColumnMaskingProcessor(
+                        new org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore(source)));
         var context = new FileSpaceAccessService.FileSpaceAccessContext("local",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://worker:8080"),
                 new FileSpaceAuditEmitter(null), SECRET,
-                new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(source,
-                        new org.pangrova.metadata.tenant.JdbcTenantStore(source)));
+                new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(source,
+                        new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source)));
         coordinator = new FileSpaceAccessService(spaces, profiles, authorization, context);
         worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, mapper,
                 () -> NOW);

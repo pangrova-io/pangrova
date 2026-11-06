@@ -1,13 +1,15 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.spi.invocation.ClientExchange;
+import org.pangrova.ai.spi.invocation.ExchangeRegistration;
+
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
-import org.pangrova.ai.worker.context.AiProviderCallContext;
 
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -26,7 +28,7 @@ final class AiTaskBudget {
     private final Map<ModelKey, ModelTaskBudget> models = new HashMap<>();
     private final Map<String, OperatorBinding> admittedBindings;
     private final Set<Thread> permitWaiters = new HashSet<>();
-    private final Set<AiProviderCallContext.LocalExchange> exchanges = new HashSet<>();
+    private final Set<ClientExchange> exchanges = new HashSet<>();
     private boolean revoked;
     private boolean retired;
     private int activeAdmissions;
@@ -192,19 +194,19 @@ final class AiTaskBudget {
     }
 
     void revoke() {
-        java.util.List<AiProviderCallContext.LocalExchange> active;
+        java.util.List<ClientExchange> active;
         synchronized (this) {
             revoked = true;
             permitWaiters.forEach(Thread::interrupt);
             active = java.util.List.copyOf(exchanges);
         }
         // Never hold the budget monitor while joining callbacks that charge this budget.
-        active.forEach(AiProviderCallContext.LocalExchange::cancel);
-        active.forEach(AiProviderCallContext.LocalExchange::awaitTermination);
+        active.forEach(ClientExchange::cancel);
+        active.forEach(ClientExchange::awaitTermination);
     }
 
-    synchronized AiProviderCallContext.ExchangeRegistration registerExchange(
-            AiProviderCallContext.LocalExchange exchange) {
+    synchronized ExchangeRegistration registerExchange(
+            ClientExchange exchange) {
         requireActive();
         if (!exchanges.add(java.util.Objects.requireNonNull(exchange))) {
             throw new IllegalStateException("AI client exchange is already registered");

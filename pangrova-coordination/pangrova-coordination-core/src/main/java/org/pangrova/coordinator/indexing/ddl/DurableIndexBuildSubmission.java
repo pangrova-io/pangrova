@@ -1,24 +1,24 @@
 package org.pangrova.coordinator.indexing.ddl;
 
-import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
+import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.GenerationDependencySet;
-import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
-import org.pangrova.spi.generation.GenerationExecutionKind;
-import org.pangrova.planner.generation.GenerationPlan;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.dependency.GenerationDependencySet;
+import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.planner.core.generation.GenerationPlan;
 import org.pangrova.protocol.v2.ArtifactDependency;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 
 import java.time.Instant;
 import java.util.HexFormat;
@@ -45,12 +45,12 @@ record DurableIndexBuildSubmission(
         GenerationJob job = buildJob(
                 definition, sourceId, dependencies, output);
         GenerationDispatchSpec dispatch = GenerationDispatchSpecFactory.create(
-                definition.jobId(), org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
+                definition.jobId(), org.pangrova.generation.core.submission.GenerationStageGraphFactory.forArtifactPages(
                         definition.plan().planBytes(),
                         OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(),
                         definition.pages(), java.util.List.of()),
                 definition.tenantId(), definition.principal(),
-                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(
                         definition.table(), java.util.Set.copyOf(definition.descriptor().columnNames()),
                         definition.table()),
                 definition.resourceGrant());

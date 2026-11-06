@@ -9,20 +9,28 @@ The parent contains api/local/s3/oss artifacts and supplies no runtime JAR.
 | `pangrova-filesystem-local` | Confined LOCAL transfer, byte-derived receipts, durable multipart state and mutation locks | Filesystem API/Common only |
 | `pangrova-filesystem-s3` | S3 transfer, publication, cancellation, owned clients and presigners | Filesystem API/Common plus S3 SDK |
 | `pangrova-filesystem-oss` | OSS governed FILE publication | Filesystem API/Common plus OSS SDK; object transfer/COPY remains pending |
-| `pangrova-spi` | FileSpace definitions, authority and access descriptors, shared Security identities | Shared domain contracts; no Protocol or implementation dependency |
-| `pangrova-file` | Access/URL/directory orchestration and Worker HTTP client adapter | SPI, Filesystem API and Persistence API; no Security runtime/JDBC dependency |
-| `pangrova-persistence-api` | Registry, directory index, COPY claim and query/authority persistence ports | Store contracts organized by domain/capability |
-| `pangrova-persistence-jdbc` | File/Coordination PostgreSQL implementations and Security transaction gate | Implements persistence contracts; migrations remain in `pangrova-schema-migrations` |
+| `pangrova-file-api` | FileSpace definitions, access grants, shared validation and typed authority/access/audit ports | Common, Filesystem API and Security API; no Protocol, HTTP/Jackson or implementation dependency |
+| `pangrova-file-core` | Authorization, URL issuance and directory refresh | Injected File ports and persistence contracts; no Worker adapter or JDBC implementation dependency |
+| `pangrova-file-worker-adapter` | Worker HTTP listing, conditional deletion and signed-URL exchange | File API, Filesystem API, Common and Jackson; no File Core or Worker Core dependency |
+| `pangrova-persistence-file-api` | File space/profile revision, directory attempts and COPY claim/admission ports | Control-plane contracts; no JDBC, backend SDK or Worker dependency |
+| `pangrova-persistence-file-postgresql` | File PostgreSQL implementations | Implements File persistence contracts; Security authority gates are supplied by `pangrova-persistence-security-postgresql`; initialization remains in `pangrova-schema-migrations` |
 
-`pangrova-file` is a single implementation JAR with sources directly under
-`pangrova-file/src/main/java`; the former core child module is retired.
-Its domain package names and service behavior are unchanged.
+`pangrova-file` is an aggregator with API, Core and Worker Adapter child artifacts.
+Server composition selects the adapter, and Core consumes its typed ports. The access and
+URL services share `core.access` to keep their private authorization receipt together;
+directory orchestration lives in `core.directory`. Existing service behavior is preserved.
 
 Object transfer types live in `org.pangrova.filesystem.api.object`, profiles in
-`org.pangrova.filesystem.api.profile`, domain File control in `org.pangrova.spi.file`,
-and stores in `org.pangrova.persistence.{api,jdbc}.file`. Retired package names have
+`org.pangrova.filesystem.api.profile`, domain File contracts in `org.pangrova.file.api`
+and `org.pangrova.file.spi`,
+and stores in `org.pangrova.persistence.file.{api,postgresql}`. Retired package names have
 no forwarding classes. Applications and connector plugins must rebuild against
-the same SPI/artifact cohort and use its ServiceLoader descriptors. Other domain stores are still being migrated into Persistence.
+the same contract/artifact cohort and use its actual provider descriptors. Other domain stores are still being migrated into Persistence.
+
+FileSpaceType now belongs to File API. File-specific RBAC grant matching belongs to the
+built-in Security Policy provider, so Security API does not depend back on File API.
+Shared FileSpaceLayout and CopySourceEndpointPolicy validation keeps control-plane admission
+and Worker enforcement consistent without introducing a dependency on a storage implementation.
 
 Directory refresh depends on `FileDirectoryIndex`, injected by the application.
 The PostgreSQL implementation owns scan attempts, page checkpoints, captured
@@ -30,6 +38,11 @@ Stage-definition checks and terminal publication. Core authorizes the scan and r
 Worker listing pages without opening file bytes. A different metadata provider
 must preserve the same attempt fencing and publication semantics. Relational
 directory scans still use their separate execution adapter.
+
+Worker file endpoints consume Filesystem API and signed File access descriptors, not
+File Persistence API or PostgreSQL. The control-plane service resolves the current profile
+revision and validates the namespace root before signing; Worker verifies the signature
+before selecting the backend. The unused Worker registry resolver has been removed.
 
 Worker file endpoints consume Filesystem API. Its `ObjectStoreAccessorProvider` contract
 lets the host select and own independent backend providers without SDK types in

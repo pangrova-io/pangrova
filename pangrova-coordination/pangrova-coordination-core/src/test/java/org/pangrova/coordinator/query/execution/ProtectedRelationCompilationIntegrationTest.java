@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
+
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -8,31 +10,31 @@ import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.rowfilter.RowPolicy;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.time.Instant;
@@ -50,15 +52,14 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
     private JdbcColumnMaskStore masks;
     private JdbcGrantStore grants;
     private QueryPipelineExecutor pipeline;
-    private final CoordinatorSessionContext actor = new CoordinatorSessionContext(
+    private final QuerySession actor = new QuerySession(
             "protected-compilation", Map.of("catalog", "default", "schema", "default"),
-            new UserIdentity("alice", Set.of("external-group"), Map.of(), Instant.EPOCH), "tenant-a");
+            new UserIdentity("alice", Set.of("external-group"), Map.of(), Instant.EPOCH), "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     @BeforeEach
     void initializeAuthority() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("protected_compile");
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of("feature-reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "feature-reader"));
         grants = new JdbcGrantStore(dataSource);
@@ -108,7 +109,7 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
         assertThat(third.effectivePlanDigest()).isNotEqualTo(second.effectivePlanDigest());
         grants.revokeGrants("feature-reader", Privilege.SELECT, "default", "default", "orders");
         assertThatThrownBy(() -> pipeline.compileAuthorizedRelation("SELECT id FROM orders", actor))
-                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class);
     }
 
     @Test
@@ -124,7 +125,7 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
     @Test
     void rejectsAnonymousAndWriteIntents() {
         assertThatThrownBy(() -> pipeline.compileAuthorizedRelation("SELECT id FROM orders", null))
-                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class);
         assertThatThrownBy(() -> pipeline.compileAuthorizedRelation("DELETE FROM orders", actor))
                 .hasMessageContaining("read-only query");
     }

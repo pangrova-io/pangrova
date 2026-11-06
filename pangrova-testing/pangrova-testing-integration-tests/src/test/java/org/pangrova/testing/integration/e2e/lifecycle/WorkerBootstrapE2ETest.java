@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.lifecycle;
 
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.junit.jupiter.api.AfterEach;

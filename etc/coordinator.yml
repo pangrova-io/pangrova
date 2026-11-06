@@ -71,6 +71,12 @@ coordinator:
     # Maximum number of queries executing concurrently.
     max-concurrent: 200
 
+  # Per-task byte grant. Zero disables task spilling; positive values also
+  # require worker.spill.directory on each executing Worker.
+  task:
+    spill:
+      max-bytes: 0
+
   # ── Worker Management ───────────────────────────────────────
   worker:
     # Mark a worker DEAD if no heartbeat received within this window.

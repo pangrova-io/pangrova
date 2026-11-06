@@ -1,3 +1,4 @@
+#include "CanonicalTestPlan.h"
 // Tests for TaskExecutor::start() — Velox Task creation and execution.
 // Validates plan parsing, VALUES execution, callbacks, and state transitions.
 #include <gtest/gtest.h>
@@ -187,7 +188,7 @@ std::vector<uint8_t> serialize(const google::protobuf::MessageLite& msg) {
 }
 
 std::vector<uint8_t> buildValuesPlan() {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
   root->add_names("value");
@@ -203,7 +204,7 @@ std::vector<uint8_t> buildValuesPlan() {
 }
 
 std::vector<uint8_t> buildTableScanPlan() {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
   root->add_names("value");
@@ -216,7 +217,7 @@ std::vector<uint8_t> buildTableScanPlan() {
 }
 
 std::vector<uint8_t> buildProjectValuesPlan() {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
   auto* project = root->mutable_input()->mutable_project();
@@ -227,7 +228,7 @@ std::vector<uint8_t> buildProjectValuesPlan() {
 }
 
 std::vector<uint8_t> buildEmptyPlan() {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   return serialize(plan);
 }
 
@@ -244,7 +245,7 @@ TEST(TaskExecutorStartTest, ValuesPlanProducesBatchAndFinishes) {
 }
 
 TEST(TaskExecutorStartTest, ValuesPlanMissingNullabilityFailsWithoutPublishingRows) {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   const auto canonical = buildValuesPlan();
   ASSERT_TRUE(plan.ParseFromArray(canonical.data(), static_cast<int>(canonical.size())));
   plan.mutable_relations(0)->mutable_root()->mutable_input()->mutable_read()

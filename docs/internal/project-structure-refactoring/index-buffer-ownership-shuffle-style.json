@@ -1,0 +1,184 @@
+[
+  {
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalFsSpoolReader.java",
+    "diagnostics": [
+      {
+        "line": "101",
+        "column": "21",
+        "severity": "error",
+        "message": "\u7b2c 21 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "101",
+        "column": "38",
+        "severity": "error",
+        "message": "\u7b2c 38 \u4e2a\u5b57\u7b26 '}'\u5e94\u8be5\u4e0e\u5f53\u524d\u591a\u4ee3\u7801\u5757\u7684\u4e0b\u4e00\u90e8\u5206 \uff08if/else-if/else, do/while \u6216 try/catch/finally\uff09\u4f4d\u4e8e\u540c\u4e00\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.RightCurlyCheck"
+      },
+      {
+        "line": "102",
+        "column": "45",
+        "severity": "error",
+        "message": "\u7b2c 45 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      }
+    ]
+  },
+  {
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalFsSpoolWriter.java",
+    "diagnostics": [
+      {
+        "line": "50",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 130\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "line": "87",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 129\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "line": "98",
+        "column": "21",
+        "severity": "error",
+        "message": "\u7b2c 21 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "98",
+        "column": "75",
+        "severity": "error",
+        "message": "\u7b2c 75 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "98",
+        "column": "99",
+        "severity": "error",
+        "message": "\u7981\u6b62\u4e00\u884c\u6709\u591a\u53e5\u4ee3\u7801\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.coding.OneStatementPerLineCheck"
+      },
+      {
+        "line": "101",
+        "column": "21",
+        "severity": "error",
+        "message": "\u7b2c 21 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "101",
+        "column": "56",
+        "severity": "error",
+        "message": "\u7b2c 56 \u4e2a\u5b57\u7b26 '}'\u5e94\u8be5\u4e0e\u5f53\u524d\u591a\u4ee3\u7801\u5757\u7684\u4e0b\u4e00\u90e8\u5206 \uff08if/else-if/else, do/while \u6216 try/catch/finally\uff09\u4f4d\u4e8e\u540c\u4e00\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.RightCurlyCheck"
+      },
+      {
+        "line": "115",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 122\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      }
+    ]
+  },
+  {
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalFsSpoolStore.java",
+    "diagnostics": [
+      {
+        "line": "43",
+        "column": "5",
+        "severity": "error",
+        "message": "\u7f3a\u5c11 Javadoc \u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.javadoc.MissingJavadocMethodCheck"
+      },
+      {
+        "line": "57",
+        "column": "21",
+        "severity": "error",
+        "message": "\u7b2c 21 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "57",
+        "column": "75",
+        "severity": "error",
+        "message": "\u7b2c 75 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "57",
+        "column": "112",
+        "severity": "error",
+        "message": "\u7981\u6b62\u4e00\u884c\u6709\u591a\u53e5\u4ee3\u7801\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.coding.OneStatementPerLineCheck"
+      },
+      {
+        "line": "90",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 122\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "line": "90",
+        "column": "25",
+        "severity": "error",
+        "message": "\u7b2c 25 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "90",
+        "column": "83",
+        "severity": "error",
+        "message": "\u7b2c 83 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "90",
+        "column": "120",
+        "severity": "error",
+        "message": "\u7981\u6b62\u4e00\u884c\u6709\u591a\u53e5\u4ee3\u7801\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.coding.OneStatementPerLineCheck"
+      },
+      {
+        "line": "107",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 126\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "line": "110",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 125\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "line": "161",
+        "column": "21",
+        "severity": "error",
+        "message": "\u7b2c 21 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "line": "161",
+        "column": "41",
+        "severity": "error",
+        "message": "\u7b2c 41 \u4e2a\u5b57\u7b26 '}'\u5e94\u8be5\u4e0e\u5f53\u524d\u591a\u4ee3\u7801\u5757\u7684\u4e0b\u4e00\u90e8\u5206 \uff08if/else-if/else, do/while \u6216 try/catch/finally\uff09\u4f4d\u4e8e\u540c\u4e00\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.RightCurlyCheck"
+      },
+      {
+        "line": "163",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 123\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "line": "208",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 124\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      }
+    ]
+  }
+]

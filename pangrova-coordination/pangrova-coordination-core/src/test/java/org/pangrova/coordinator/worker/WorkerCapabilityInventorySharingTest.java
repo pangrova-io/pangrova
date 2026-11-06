@@ -2,7 +2,7 @@ package org.pangrova.coordinator.worker;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.CapabilityInventory;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 
 import java.util.stream.IntStream;
 

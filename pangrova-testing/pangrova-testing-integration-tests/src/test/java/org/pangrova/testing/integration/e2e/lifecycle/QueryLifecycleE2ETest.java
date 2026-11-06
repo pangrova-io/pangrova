@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.lifecycle;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.client.protocol.SubmitQueryResponse;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;

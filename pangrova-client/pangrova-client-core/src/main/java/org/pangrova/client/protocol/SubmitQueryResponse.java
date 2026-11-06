@@ -1,5 +1,7 @@
 package org.pangrova.client.protocol;
 
+import org.pangrova.transport.api.result.ResultEndpoint;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;

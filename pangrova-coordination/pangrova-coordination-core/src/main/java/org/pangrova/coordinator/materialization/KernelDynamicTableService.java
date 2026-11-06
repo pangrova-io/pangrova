@@ -5,10 +5,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.materialization.domain.CommandId;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
@@ -32,15 +32,15 @@ import org.pangrova.materialization.usecase.ResumeMaterialization;
 import org.pangrova.materialization.usecase.SetRefreshMode;
 import org.pangrova.materialization.usecase.SetTargetLag;
 import org.pangrova.materialization.usecase.SuspendMaterialization;
-import org.pangrova.parser.AstPrinter;
-import org.pangrova.parser.ast.CreateDynamicTableStatement;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.AlterDynamicTableAction;
-import org.pangrova.parser.ast.statement.AlterDynamicTableStatement;
-import org.pangrova.parser.ast.statement.DescribeDynamicTableStatement;
-import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
-import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.core.format.AstPrinter;
+import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableAction;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DescribeDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DropDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.ShowDynamicTablesStatement;
+import org.pangrova.types.value.TypedRow;
 
 /**
  * Dynamic Table DDL and manual refresh served exclusively by the unified
@@ -248,7 +248,7 @@ public final class KernelDynamicTableService {
         return refreshMode(statement.refreshMode());
     }
 
-    static RefreshMode refreshMode(java.util.Optional<org.pangrova.parser.ast.RefreshMode> mode) {
+    static RefreshMode refreshMode(java.util.Optional<org.pangrova.parser.api.ast.RefreshMode> mode) {
         return mode
                 .map(requested -> switch (requested) {
                     case SNAPSHOT, FULL -> RefreshMode.FULL;
@@ -260,9 +260,9 @@ public final class KernelDynamicTableService {
     }
 
     static java.util.Optional<StrategyId> incrementalStrategy(
-            java.util.Optional<org.pangrova.parser.ast.IncrementalStrategy> strategy) {
+            java.util.Optional<org.pangrova.parser.api.ast.IncrementalStrategy> strategy) {
         if (strategy.isEmpty()
-                || strategy.get() == org.pangrova.parser.ast.IncrementalStrategy.AUTO) {
+                || strategy.get() == org.pangrova.parser.api.ast.IncrementalStrategy.AUTO) {
             return java.util.Optional.empty();
         }
         StrategyId resolved = switch (strategy.get()) {
@@ -298,7 +298,7 @@ public final class KernelDynamicTableService {
         return new CommandId("materialization:" + context.queryId());
     }
 
-    private static Map<String, String> boundProperties(CoordinatorSessionContext session,
+    private static Map<String, String> boundProperties(QuerySession session,
             MaterializationId object) {
         Map<String, String> properties = new HashMap<>(session.sessionProperties());
         properties.remove("catalog");

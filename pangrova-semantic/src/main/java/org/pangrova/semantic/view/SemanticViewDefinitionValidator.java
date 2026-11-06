@@ -26,7 +26,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;

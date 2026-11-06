@@ -3,7 +3,7 @@ package org.pangrova.coordinator.indexing.ddl;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.indexing.api.descriptor.IndexType;
 
 import java.util.Map;
 

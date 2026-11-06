@@ -1,13 +1,13 @@
 package org.pangrova.worker.nativebridge.jni;
 
 import org.pangrova.common.api.annotation.ThreadSafe;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.function.aggregate.AggregateFunction;
-import org.pangrova.spi.function.runtime.FunctionCallbackScope;
-import org.pangrova.spi.function.runtime.FunctionFailureProjector;
-import org.pangrova.spi.function.scalar.BatchableScalarFunction;
-import org.pangrova.spi.function.metadata.FunctionMetadata;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.function.spi.aggregate.AggregateFunction;
+import org.pangrova.function.spi.runtime.FunctionCallbackScope;
+import org.pangrova.function.spi.runtime.FunctionFailureProjector;
+import org.pangrova.function.spi.scalar.BatchableScalarFunction;
+import org.pangrova.function.api.metadata.FunctionMetadata;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,7 +28,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <p>This bridge has two responsibilities:
  * <ol>
  *   <li><b>Registration:</b> At worker startup, it collects function descriptors
- *       from {@link org.pangrova.spi.function.registry.FunctionFactory} instances and
+ *       from {@link org.pangrova.function.spi.registry.FunctionFactory} instances and
  *       registers them with the native engine via JNI. The native side creates
  *       proxy functions that route evaluation back to Java.</li>
  *   <li><b>Evaluation callback:</b> When the native engine encounters a registered
@@ -61,7 +61,7 @@ public final class NativeFunctionBridge {
     private final ConcurrentHashMap<String, AggregateFunction> aggregateFunctions =
             new ConcurrentHashMap<>();
 
-    private volatile FunctionCallbackScope callbackScope = FunctionCallbackScope.NONE;
+    private volatile FunctionCallbackScope callbackScope = new UnscopedFunctionCallback();
     private volatile FunctionFailureProjector failureProjector = failure -> null;
 
     /**

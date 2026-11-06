@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.exchange;
 
+import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
+
 import java.io.Closeable;
 
 /**

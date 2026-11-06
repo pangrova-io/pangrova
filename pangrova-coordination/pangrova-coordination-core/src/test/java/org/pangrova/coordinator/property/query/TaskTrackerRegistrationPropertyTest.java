@@ -8,8 +8,8 @@ import java.time.Instant;
 
 import net.jqwik.api.Arbitraries;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -18,22 +18,22 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Property test for CoordinatorTaskTracker registration after dispatch.
@@ -69,7 +69,7 @@ class TaskTrackerRegistrationPropertyTest {
         var dagEngine = orchestrator.dagEngine();
         workerTaskManager.setAutoFinishReporter(report ->
                 dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                        report.state(), report.error()));
+                        report.state(), org.pangrova.coordinator.query.task.TaskReportQueryAdapter.failure(report)));
     }
 
     void tearDown() throws Exception {
@@ -99,8 +99,8 @@ class TaskTrackerRegistrationPropertyTest {
         try {
             setUp();
             QueryStateMachine sm = new QueryStateMachine();
-            CoordinatorSessionContext session = new CoordinatorSessionContext(
-                    queryId, Map.of(), TEST_IDENTITY, "test-tenant");
+            QuerySession session = new QuerySession(
+                    queryId, Map.of(), TEST_IDENTITY, "test-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
             DispatchResult result = orchestrator.execute(sm, "SELECT 1", session);
 
@@ -149,7 +149,7 @@ class TaskTrackerRegistrationPropertyTest {
                 QueryDispatcherContext.withDefaults(
                         new SqlCompiler(), null, null, null,
                         dispatcher,
-                        new TaskScheduler(new WorkerPerformanceScorer()),
+                        new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                         wm,
                         taskTracker,
                         null, null, null, 0L)),

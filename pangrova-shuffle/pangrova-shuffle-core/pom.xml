@@ -12,16 +12,18 @@
 
     <artifactId>pangrova-shuffle-core</artifactId>
     <name>Pangrova Shuffle Core</name>
-    <description>Shuffle SPI, exchange, and spool abstractions for Pangrova distributed query engine</description>
+    <description>Engine exchange orchestration; contracts and concrete local storage have separate owners</description>
 
     <properties>
         <module.name>org.pangrova.shuffle.core</module.name>
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-local</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-batch-api</artifactId>
         </dependency>
 
         <!-- Internal module dependencies (version inherited from parent) -->

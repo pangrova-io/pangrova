@@ -1,33 +1,37 @@
 package org.pangrova.coordinator.speculation;
 
-import org.pangrova.scheduler.speculation.SpeculationConfig;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.speculation.StragglerDetector;
-import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
-import org.pangrova.coordinator.scheduler.SpeculationAdapters;
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.scheduler.core.speculation.SpeculationConfig;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.core.speculation.StragglerDetector;
+import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
 import org.pangrova.scheduler.api.placement.TaskDuration;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.scheduler.SchedulerCancelResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
@@ -65,18 +69,18 @@ class SpeculativeExecutionWiringTest {
         resolver = new DuplicateTaskResolver();
         rec = new Rec();
         handler = new SpeculativeStageHandler(new SpeculationConfig(true, 5_000L),
-                new StragglerDetector(), launcher, SpeculationAdapters.taskRegistry(tracker));
-        wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+                new StragglerDetector(), launcher, new CoordinatorSpeculativeTaskRegistry(tracker));
+        wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         wm.registerWorker(w(WA, "ha"));
         wm.registerWorker(w(WB, "hb"));
         launcher.setDispatchDependencies(
-                SpeculationAdapters.dispatcher(rec),
-                SpeculationAdapters.workerInventory(wm),
-                SpeculationAdapters.taskRegistry(tracker));
-        launcher.setCancelRetrier(SpeculationAdapters.canceller(
+                new CoordinatorSpeculativeAttemptDispatcher(rec),
+                new CoordinatorSpeculativeWorkerInventory(wm),
+                new CoordinatorSpeculativeTaskRegistry(tracker));
+        launcher.setCancelRetrier(new CoordinatorSpeculativeAttemptCanceller(
                 new org.pangrova.coordinator.task.TaskCancelRetrier(rec, tracker)));
         tracker.addExecutionDrainListener(launcher::executionDrained);
-        receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(            qm(), tracker, wm, launcher, resolver, rec, null, null, null, null, null, null));
+        receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(            qm(), tracker, wm, launcher, resolver, rec, null, null, null, null, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
     }
     @Test void slowTask_specLaunched_winnerKept_loserCancelled() {
         // t1-t3 start 1s ago (fast tasks); ts starts 60s ago (straggler: duration >> median*1.5)
@@ -101,7 +105,7 @@ class SpeculativeExecutionWiringTest {
     }
     @Test void disabled_noDetection() {
         var d = new SpeculativeStageHandler(SpeculationConfig.DISABLED,
-                new StragglerDetector(), launcher, SpeculationAdapters.taskRegistry(tracker));
+                new StragglerDetector(), launcher, new CoordinatorSpeculativeTaskRegistry(tracker));
         run("t1");
         d.evaluateStragglers(QID, SID);
         assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
@@ -126,7 +130,7 @@ class SpeculativeExecutionWiringTest {
         var stageCallback = new org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback() {
             @Override public void onTaskTerminal(
                     String queryId, String taskId, String state,
-                    org.pangrova.client.error.ErrorDetail error) {
+                    org.pangrova.query.api.error.QueryFailure error) {
                 completedTask.set(taskId);
             }
 
@@ -137,7 +141,7 @@ class SpeculativeExecutionWiringTest {
         };
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(
                 qm(), tracker, wm, launcher, resolver, rec,
-                null, null, null, stageCallback, null, null));
+                null, null, null, stageCallback, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
         run("to");
         tracker.assignWorker("to", WA);
         String copy = launcher.launchSpeculative("to", WA, QID);
@@ -188,7 +192,7 @@ class SpeculativeExecutionWiringTest {
         fragments.registerWriteContext(
                 QID,
                 "catalog",
-                new org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle() { },
+                new org.pangrova.connector.api.metadata.ConnectorOutputTableHandle() { },
                 new org.pangrova.coordinator.query.statement.StatementConnectorSession(
                         "catalog", "default"),
                 new byte[]{42},
@@ -212,7 +216,7 @@ class SpeculativeExecutionWiringTest {
         };
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(
                 qm(), tracker, wm, launcher, concurrentResolver, rec,
-                null, null, fragments, null, null, null));
+                null, null, fragments, null, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
         run("to");
         tracker.assignWorker("to", WA);
         String copy = launcher.launchSpeculative("to", WA, QID);
@@ -234,9 +238,9 @@ class SpeculativeExecutionWiringTest {
     @Test void launchSpeculative_withDispatchDeps_actuallyDispatchesToDifferentWorker() {
         // Wire dispatch dependencies so the launcher actually dispatches
         launcher.setDispatchDependencies(
-                SpeculationAdapters.dispatcher(rec),
-                SpeculationAdapters.workerInventory(wm),
-                SpeculationAdapters.taskRegistry(tracker));
+                new CoordinatorSpeculativeAttemptDispatcher(rec),
+                new CoordinatorSpeculativeWorkerInventory(wm),
+                new CoordinatorSpeculativeTaskRegistry(tracker));
 
         // Register the original task and store its request in the tracker
         Instant fastStart = Instant.now().minusSeconds(1);
@@ -283,9 +287,9 @@ class SpeculativeExecutionWiringTest {
 
     @Test void launchSpeculative_noOriginalRequest_doesNotInventCopy() {
         launcher.setDispatchDependencies(
-                SpeculationAdapters.dispatcher(rec),
-                SpeculationAdapters.workerInventory(wm),
-                SpeculationAdapters.taskRegistry(tracker));
+                new CoordinatorSpeculativeAttemptDispatcher(rec),
+                new CoordinatorSpeculativeWorkerInventory(wm),
+                new CoordinatorSpeculativeTaskRegistry(tracker));
         tracker.registerTask(QID, "to");
         tracker.markScheduled(QID, "to");
         tracker.updateTaskState(QID, "to", "RUNNING");
@@ -303,10 +307,10 @@ class SpeculativeExecutionWiringTest {
             }
         };
         launcher.setDispatchDependencies(
-                SpeculationAdapters.dispatcher(rejectingDispatcher),
-                SpeculationAdapters.workerInventory(wm),
-                SpeculationAdapters.taskRegistry(tracker));
-        launcher.setCancelRetrier(SpeculationAdapters.canceller(
+                new CoordinatorSpeculativeAttemptDispatcher(rejectingDispatcher),
+                new CoordinatorSpeculativeWorkerInventory(wm),
+                new CoordinatorSpeculativeTaskRegistry(tracker));
+        launcher.setCancelRetrier(new CoordinatorSpeculativeAttemptCanceller(
                 new org.pangrova.coordinator.task.TaskCancelRetrier(rejectingDispatcher, tracker)));
         run("to");
         tracker.assignWorker("to", WA);
@@ -449,10 +453,10 @@ class SpeculativeExecutionWiringTest {
                         request.taskRequest().getAttempt()), status.toByteArray());
     }
     private QueryManager qm() {
-        var s = new TaskScheduler(new WorkerPerformanceScorer());
+        var s = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         var h = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
         var d = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, h, s, wm, tracker, null, null, null, 0L);
-        return new QueryManager(QueryManagerContext.minimal(new QueryDispatcher(d, null, null), new NoOpTracingProvider()));
+        return new QueryManager(QueryManagerTestContexts.minimal(new QueryDispatcher(d, null, null), new NoOpTracingProvider()));
     }
     private static WorkerInfo w(String id, String host) {
         return new WorkerInfo(id, host, 8080, 8081, 0, HealthState.ACTIVE,

@@ -1,22 +1,22 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.statement.StatementTestSessions;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.security.authz.InMemoryRoleStore;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.security.authz.StaticGrantStore;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
+import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.file.api.space.FileSpaceType;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -26,7 +26,36 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Uses the real RBAC implementation and direct principal-role assignments, not permission mocks. */
 class PermissionCheckerAuthorizationTest {
-    private static final CoordinatorSessionContext SESSION = session("secured", "source_schema");
+    private static final QuerySession SESSION = session("secured", "source_schema");
+
+    @Test
+    void viewsRequireExactCreateReplaceAndDropAuthority() {
+        var parser = new AntlrSqlParser();
+        var create = parser.parse("CREATE VIEW docs AS SELECT 1 AS id");
+        var replace = parser.parse("CREATE OR REPLACE VIEW docs AS SELECT 2 AS id");
+        var drop = parser.parse("DROP VIEW IF EXISTS docs");
+        var tableCreator = accessControl(grant(Privilege.CREATE_TABLE, "secured", "source_schema", "docs"));
+        var viewCreator = accessControl(grant(Privilege.CREATE_VIEW, "secured", "source_schema", "docs"));
+        assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, tableCreator))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_VIEW");
+        assertThatCode(() -> PermissionChecker.check(create, SESSION, viewCreator)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> PermissionChecker.check(replace, SESSION, viewCreator))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("ALTER");
+        assertThatThrownBy(() -> PermissionChecker.check(drop, SESSION, viewCreator))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("DROP");
+        var editor = accessControl(grant(Privilege.CREATE_VIEW, "secured", "source_schema", "docs"),
+                grant(Privilege.ALTER, "secured", "source_schema", "docs"));
+        assertThatCode(() -> PermissionChecker.check(replace, SESSION, editor)).doesNotThrowAnyException();
+        assertThatCode(() -> PermissionChecker.check(drop, SESSION,
+                accessControl(grant(Privilege.DROP, "secured", "source_schema", "docs"))))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, null))
+                .hasMessageContaining("Authenticated view");
+        assertThatThrownBy(() -> PermissionChecker.check(create, null, viewCreator))
+                .hasMessageContaining("Authenticated view");
+        assertThatThrownBy(() -> PermissionChecker.check(parser.parse("CREATE VIEW other.docs AS SELECT 1"),
+                SESSION, viewCreator)).isInstanceOf(AuthorizationDeniedException.class);
+    }
 
     @Test
     void maintenanceAndCallRequirePrivilegesOnTheirActualTarget() {
@@ -34,24 +63,24 @@ class PermissionCheckerAuthorizationTest {
         var alter = accessControl(grant(Privilege.ALTER, "secured", "source_schema", "docs"));
         for (String sql : new String[]{"COMPACT docs", "VACUUM docs", "OPTIMIZE docs",
                 "CALL secured.compact('source_schema.docs')"}) {
-            var statement = new SqlParser().parse(sql);
+            var statement = new AntlrSqlParser().parse(sql);
             assertThatThrownBy(() -> PermissionChecker.check(statement, SESSION, selectOnly))
                     .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("ALTER");
             assertThatCode(() -> PermissionChecker.check(statement, SESSION, alter)).doesNotThrowAnyException();
         }
-        var warmup = new SqlParser().parse("CALL secured.warmup_table('source_schema', 'docs')");
+        var warmup = new AntlrSqlParser().parse("CALL secured.warmup_table('source_schema', 'docs')");
         assertThatCode(() -> PermissionChecker.check(warmup, SESSION, selectOnly)).doesNotThrowAnyException();
         assertThatThrownBy(() -> PermissionChecker.check(warmup, SESSION, alter))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("SELECT");
-        var other = new SqlParser().parse("CALL another.compact('source_schema.docs')");
+        var other = new AntlrSqlParser().parse("CALL another.compact('source_schema.docs')");
         assertThatThrownBy(() -> PermissionChecker.check(other, SESSION, alter))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("another");
     }
 
     @Test
     void createAndCtasRequireCreatePrivilegeOnTheActualQueryDefaultTarget() {
-        var create = new SqlParser().parse("CREATE TABLE docs (id BIGINT)");
-        var ctas = new SqlParser().parse("CREATE TABLE docs AS SELECT 1 AS id");
+        var create = new AntlrSqlParser().parse("CREATE TABLE docs (id BIGINT)");
+        var ctas = new AntlrSqlParser().parse("CREATE TABLE docs AS SELECT 1 AS id");
         var alterOnly = accessControl(grant(Privilege.ALTER, "secured", "source_schema", "docs"));
         assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, alterOnly))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_TABLE");
@@ -67,10 +96,10 @@ class PermissionCheckerAuthorizationTest {
 
     @Test
     void dynamicTableLifecycleUsesCreateAlterAndDropPrivilegesOnQualifiedName() {
-        var create = new SqlParser().parse("CREATE DYNAMIC TABLE secured.source_schema.rollup "
+        var create = new AntlrSqlParser().parse("CREATE DYNAMIC TABLE secured.source_schema.rollup "
                 + "AS SELECT 1 AS id");
-        var refresh = new SqlParser().parse("ALTER DYNAMIC TABLE secured.source_schema.rollup REFRESH");
-        var drop = new SqlParser().parse("DROP DYNAMIC TABLE secured.source_schema.rollup");
+        var refresh = new AntlrSqlParser().parse("ALTER DYNAMIC TABLE secured.source_schema.rollup REFRESH");
+        var drop = new AntlrSqlParser().parse("DROP DYNAMIC TABLE secured.source_schema.rollup");
         var createOnly = accessControl(grant(Privilege.CREATE_TABLE,
                 "secured", "source_schema", "rollup"));
         assertThatCode(() -> PermissionChecker.check(create, SESSION, createOnly)).doesNotThrowAnyException();
@@ -88,29 +117,29 @@ class PermissionCheckerAuthorizationTest {
                 "DROP TABLE secured.source_schema.__pg_dt_spoof",
                 "INSERT INTO secured.source_schema.__pg_dt_spoof VALUES (1)",
                 "ALTER TABLE secured.source_schema.docs RENAME TO __pg_dt_spoof"}) {
-            assertThatThrownBy(() -> PermissionChecker.check(new SqlParser().parse(sql), SESSION, broad))
-                    .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+            assertThatThrownBy(() -> PermissionChecker.check(new AntlrSqlParser().parse(sql), SESSION, broad))
+                    .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class)
                     .hasMessageContaining("reserved");
         }
     }
 
     @Test
     void createSchemaRequiresItsExactCatalogAndSchemaPrivilege() {
-        var create = new SqlParser().parse("CREATE SCHEMA new_schema");
+        var create = new AntlrSqlParser().parse("CREATE SCHEMA new_schema");
         var selectOnly = accessControl(grant(Privilege.SELECT, "secured", "new_schema", null));
         assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, selectOnly))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_SCHEMA");
         var allowed = accessControl(grant(Privilege.CREATE_SCHEMA, "secured", "new_schema", null));
         assertThatCode(() -> PermissionChecker.check(create, SESSION, allowed)).doesNotThrowAnyException();
-        var other = new SqlParser().parse("CREATE SCHEMA other_catalog.new_schema");
+        var other = new AntlrSqlParser().parse("CREATE SCHEMA other_catalog.new_schema");
         assertThatThrownBy(() -> PermissionChecker.check(other, SESSION, allowed))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("other_catalog");
     }
 
     @Test
     void catalogMutationsRequireTheirOwnPrivilegeOnTheExactCatalog() {
-        var create = new SqlParser().parse("CREATE CATALOG fresh WITH ('type' = 'lance')");
-        var drop = new SqlParser().parse("DROP CATALOG fresh");
+        var create = new AntlrSqlParser().parse("CREATE CATALOG fresh WITH ('type' = 'lance')");
+        var drop = new AntlrSqlParser().parse("DROP CATALOG fresh");
         var selectOnly = accessControl(grant(Privilege.SELECT, "fresh", null, null));
         assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, selectOnly))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_CATALOG");
@@ -129,9 +158,9 @@ class PermissionCheckerAuthorizationTest {
 
     @Test
     void storageProfileMutationsRequireTheirOwnScopedManagementGrant() {
-        var create = new SqlParser().parse("CREATE STORAGE PROFILE staging "
+        var create = new AntlrSqlParser().parse("CREATE STORAGE PROFILE staging "
                 + "WITH ('type'='S3', 'bucket'='example')");
-        var drop = new SqlParser().parse("DROP STORAGE PROFILE IF EXISTS staging");
+        var drop = new AntlrSqlParser().parse("DROP STORAGE PROFILE IF EXISTS staging");
         var tableAdmin = accessControl(grant(Privilege.ALL, "*", "*", "*"));
         assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, tableAdmin))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("MANAGE_STORAGE_PROFILE");
@@ -142,7 +171,7 @@ class PermissionCheckerAuthorizationTest {
                 "STORAGE_PROFILE", "staging", null, null, null));
         assertThatCode(() -> PermissionChecker.check(create, SESSION, granted)).doesNotThrowAnyException();
         assertThatCode(() -> PermissionChecker.check(drop, SESSION, granted)).doesNotThrowAnyException();
-        var other = new SqlParser().parse("DROP STORAGE PROFILE IF EXISTS unrelated");
+        var other = new AntlrSqlParser().parse("DROP STORAGE PROFILE IF EXISTS unrelated");
         assertThatThrownBy(() -> PermissionChecker.check(other, SESSION, granted))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("unrelated");
         assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, null))
@@ -153,11 +182,11 @@ class PermissionCheckerAuthorizationTest {
 
     @Test
     void volumeDdlUsesSchemaScopedCreationAndExactManagementPrivileges() {
-        var managed = new SqlParser().parse("CREATE VOLUME media.raw.landing");
-        var external = new SqlParser().parse("CREATE EXTERNAL VOLUME media.raw.landing "
+        var managed = new AntlrSqlParser().parse("CREATE VOLUME media.raw.landing");
+        var external = new AntlrSqlParser().parse("CREATE EXTERNAL VOLUME media.raw.landing "
                 + "LOCATION 's3://acme/landing/' STORAGE_PROFILE 'prod-s3'");
-        var alter = new SqlParser().parse("ALTER VOLUME media.raw.landing SET COMMENT 'x'");
-        var drop = new SqlParser().parse("DROP VOLUME IF EXISTS media.raw.landing");
+        var alter = new AntlrSqlParser().parse("ALTER VOLUME media.raw.landing SET COMMENT 'x'");
+        var drop = new AntlrSqlParser().parse("DROP VOLUME IF EXISTS media.raw.landing");
 
         var managedCreate = accessControl(spaceGrant(Privilege.CREATE_VOLUME,
                 FileSpaceType.VOLUME, "media", "raw", null));
@@ -203,9 +232,9 @@ class PermissionCheckerAuthorizationTest {
 
     @Test
     void stageDdlRequiresItsOwnCreationUsageAndOwnershipPrivileges() {
-        var create = new SqlParser().parse("CREATE STAGE media.raw.stage_landing");
-        var refresh = new SqlParser().parse("ALTER STAGE media.raw.stage_landing REFRESH");
-        var drop = new SqlParser().parse("DROP STAGE media.raw.stage_landing");
+        var create = new AntlrSqlParser().parse("CREATE STAGE media.raw.stage_landing");
+        var refresh = new AntlrSqlParser().parse("ALTER STAGE media.raw.stage_landing REFRESH");
+        var drop = new AntlrSqlParser().parse("DROP STAGE media.raw.stage_landing");
 
         var volumeCreate = accessControl(spaceGrant(Privilege.CREATE_VOLUME,
                 FileSpaceType.VOLUME, "media", "raw", null));
@@ -238,7 +267,7 @@ class PermissionCheckerAuthorizationTest {
 
     @Test
     void renameRequiresSourceRenameAndExactDestinationCreatePrivileges() {
-        var rename = new SqlParser().parse("ALTER TABLE secured.source_schema.docs RENAME TO target_schema.renamed");
+        var rename = new AntlrSqlParser().parse("ALTER TABLE secured.source_schema.docs RENAME TO target_schema.renamed");
         var sourceOnly = accessControl(grant(Privilege.RENAME_TABLE, "secured", "source_schema", "docs"));
         assertThatThrownBy(() -> PermissionChecker.check(rename, SESSION, sourceOnly))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_TABLE")
@@ -246,15 +275,38 @@ class PermissionCheckerAuthorizationTest {
         var allowed = accessControl(grant(Privilege.RENAME_TABLE, "secured", "source_schema", "docs"),
                 grant(Privilege.CREATE_TABLE, "secured", "target_schema", "renamed"));
         assertThatCode(() -> PermissionChecker.check(rename, SESSION, allowed)).doesNotThrowAnyException();
-        var crossCatalog = new SqlParser().parse("ALTER TABLE secured.source_schema.docs RENAME TO other.target.renamed");
+        var crossCatalog = new AntlrSqlParser().parse("ALTER TABLE secured.source_schema.docs RENAME TO other.target.renamed");
         assertThatThrownBy(() -> PermissionChecker.check(crossCatalog, SESSION, allowed))
                 .hasMessageContaining("cannot move a table between catalogs");
     }
 
-    private static CoordinatorSessionContext session(String catalog, String schema) {
+    @Test
+    void standaloneBranchAndTagDdlRequireAlterOnTheirActualTable() {
+        var selectOnly = accessControl(grant(Privilege.SELECT, "secured", "source_schema", "docs"));
+        var alter = accessControl(grant(Privilege.ALTER, "secured", "source_schema", "docs"));
+        for (String sql : new String[]{"CREATE BRANCH dev ON docs", "DROP BRANCH dev ON docs",
+                "CREATE TAG release ON docs", "DROP TAG release ON docs"}) {
+            var statement = new AntlrSqlParser().parse(sql);
+            assertThatThrownBy(() -> PermissionChecker.check(statement, SESSION, selectOnly))
+                    .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("ALTER");
+            assertThatCode(() -> PermissionChecker.check(statement, SESSION, alter)).doesNotThrowAnyException();
+        }
+    }
+
+    @Test
+    void extraWarmupArgumentsCannotAuthorizeOneTableAndReadAnother() {
+        var allowed = accessControl(grant(Privilege.SELECT, "secured", "source_schema", "docs"));
+        var malformed = new AntlrSqlParser().parse(
+                "CALL secured.warmup_table('source_schema.docs', 'victim', 'ignored')");
+        assertThatThrownBy(() -> PermissionChecker.check(malformed, SESSION, allowed))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("warmup_table requires");
+    }
+
+    private static QuerySession session(String catalog, String schema) {
         var authenticated = StatementTestSessions.context();
-        return new CoordinatorSessionContext(authenticated.queryId(), Map.of("catalog", catalog, "schema", schema),
-                authenticated.userIdentity(), authenticated.tenantId());
+        return new QuerySession(authenticated.queryId(), Map.of("catalog", catalog, "schema", schema),
+                authenticated.userIdentity(), authenticated.tenantId(), java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static PrivilegeGrant grant(Privilege privilege, String catalog, String schema, String table) {

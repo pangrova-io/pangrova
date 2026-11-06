@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.scheduler.failure.TaskDispatchException;
-import org.pangrova.scheduler.failure.ErrorCategory;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.scheduler.api.error.TaskDispatchException;
+import org.pangrova.scheduler.api.error.ErrorCategory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -20,7 +20,7 @@ import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;

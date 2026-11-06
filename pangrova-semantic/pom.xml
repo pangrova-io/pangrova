@@ -19,19 +19,23 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-common</artifactId>
+            <artifactId>pangrova-persistence-jdbc-support</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-common</artifactId>
         </dependency>
 
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+
+        <!-- JsonMapperFactory requires JavaTimeModule at runtime; do not borrow it from Metadata test fixtures. -->
+        <dependency><groupId>com.fasterxml.jackson.datatype</groupId><artifactId>jackson-datatype-jsr310</artifactId><scope>runtime</scope></dependency>
 
         <!-- Test -->
         <dependency>
@@ -67,7 +71,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-metadata</artifactId>
+            <artifactId>pangrova-schema-migrations</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

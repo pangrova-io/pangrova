@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.task.file;
 
+import org.pangrova.metadata.core.resolution.QualifiedTableNames;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -8,26 +9,25 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.statement.TableResolver;
-import org.pangrova.parser.ast.statement.AlterVolumeAction;
-import org.pangrova.parser.ast.statement.AlterVolumeStatement;
-import org.pangrova.parser.ast.statement.CreateVolumeStatement;
-import org.pangrova.parser.ast.statement.DescribeVolumeStatement;
-import org.pangrova.parser.ast.statement.DropVolumeStatement;
-import org.pangrova.parser.ast.statement.ShowVolumesStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.spi.file.space.FileSpaceMutation;
-import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.api.ast.statement.AlterVolumeAction;
+import org.pangrova.parser.api.ast.statement.AlterVolumeStatement;
+import org.pangrova.parser.api.ast.statement.CreateVolumeStatement;
+import org.pangrova.parser.api.ast.statement.DescribeVolumeStatement;
+import org.pangrova.parser.api.ast.statement.DropVolumeStatement;
+import org.pangrova.parser.api.ast.statement.ShowVolumesStatement;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.persistence.file.api.space.FileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpaceType;
 
 /** Registers the Volume metadata tasks; all operations share one registry row model. */
 public final class VolumeTasks {
@@ -58,7 +58,7 @@ public final class VolumeTasks {
 
     private static StatementResult create(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             CreateVolumeStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
         FileSpaceDefinition definition = new FileSpaceDefinition(FileSpaceType.VOLUME,
                 ref.catalog(), ref.schema(), ref.table(), statement.external(),
@@ -69,7 +69,7 @@ public final class VolumeTasks {
                 ref.table()).isPresent();
         FileSpace space = registry.create(definition, statement.ifNotExists());
         if (!existed) {
-            audit.created(context, space);
+            audit.created(context.auditAttribution(), space);
         }
         String message = existed && statement.ifNotExists()
                 ? "Volume already exists: " + space.qualifiedName()
@@ -79,7 +79,7 @@ public final class VolumeTasks {
 
     private static StatementResult alter(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             AlterVolumeStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
         FileSpace current = FileSpaceTaskSupport.require(registry, FileSpaceType.VOLUME, ref);
         AlterVolumeAction action = statement.action();
@@ -103,7 +103,7 @@ public final class VolumeTasks {
         }
         FileSpace updated = registry.mutate(FileSpaceType.VOLUME, ref.catalog(), ref.schema(),
                 ref.table(), mutation);
-        audit.altered(context, updated, actionName, extra);
+        audit.altered(context.auditAttribution(), updated, actionName, extra);
         return new StatementResult(List.of(), List.of(),
                 "Volume altered: " + updated.qualifiedName(), StatementCategory.DDL);
     }
@@ -111,14 +111,14 @@ public final class VolumeTasks {
     private static StatementResult rename(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             AlterVolumeStatement statement, StatementExecutionContext context,
             QualifiedTableName ref, FileSpace current, AlterVolumeAction.Rename rename) {
-        QualifiedTableName target = TableResolver.resolveRenameTarget(rename.newName().parts(), ref);
+        QualifiedTableName target = QualifiedTableNames.resolveRenameTarget(rename.newName().parts(), ref);
         if (!target.schema().equals(ref.schema())) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "ALTER VOLUME RENAME cannot move a volume between schemas");
         }
         FileSpace renamed = registry.rename(FileSpaceType.VOLUME, ref.catalog(), ref.schema(),
                 ref.table(), target.table());
-        audit.altered(context, renamed, "RENAME", Map.of("previous_name", current.name()));
+        audit.altered(context.auditAttribution(), renamed, "RENAME", Map.of("previous_name", current.name()));
         return new StatementResult(List.of(), List.of(),
                 "Volume renamed: " + renamed.qualifiedName(), StatementCategory.DDL);
     }
@@ -136,14 +136,14 @@ public final class VolumeTasks {
                     "Volume does not exist: " + ref, StatementCategory.DDL);
         }
         registry.drop(FileSpaceType.VOLUME, ref.catalog(), ref.schema(), ref.table(), false);
-        audit.dropped(context, existing.get());
+        audit.dropped(context.auditAttribution(), existing.get());
         return new StatementResult(List.of(), List.of(),
                 "Volume dropped: " + existing.get().qualifiedName(), StatementCategory.DDL);
     }
 
     private static StatementResult show(FileSpaceRegistry registry, AccessControl accessControl,
             ShowVolumesStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         UserIdentity user = FileSpaceTaskSupport.requireUser(session);
         AccessControl ac = FileSpaceTaskSupport.requireAccessControl(accessControl);
         FileSpaceTaskSupport.Scope scope =
@@ -167,7 +167,7 @@ public final class VolumeTasks {
 
     private static StatementResult describe(FileSpaceRegistry registry, AccessControl accessControl,
             DescribeVolumeStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
         FileSpace space = FileSpaceTaskSupport.require(registry, FileSpaceType.VOLUME, ref);
         UserIdentity user = FileSpaceTaskSupport.requireUser(session);

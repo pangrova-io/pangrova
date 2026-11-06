@@ -20,7 +20,7 @@
 set -euo pipefail
 
 ROLE="coordinator"
-MAIN_CLASS="org.pangrova.coordinator.bootstrap.PangrovaCoordinatorMain"
+MAIN_CLASS="org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANGROVA_HOME="${PANGROVA_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -71,29 +71,10 @@ if [[ "$JAVA_VERSION" -lt 17 ]]; then
     exit 1
 fi
 
-# --- Build classpath ---
-CLASSPATH=""
-if [[ -d "$PANGROVA_HOME/lib" ]]; then
-    for jar in "$PANGROVA_HOME"/lib/*.jar; do
-        [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-    done
-fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    echo "WARN: No lib/ directory, using Maven target/ (dev mode)" >&2
-    for module_dir in "$PANGROVA_HOME"/pangrova-*/target; do
-        if [[ -d "$module_dir" ]]; then
-            for jar in "$module_dir"/*.jar; do
-                [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-            done
-        fi
-    done
-fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    echo "ERROR: No JARs found. Run 'mvn clean package -DskipTests' first." >&2
-    exit 1
-fi
+# --- Resolve the packaged runtime for this role ---
+# shellcheck source=pangrova-classpath.sh
+source "$SCRIPT_DIR/pangrova-classpath.sh"
+CLASSPATH="$(pangrova_runtime_classpath "$ROLE")"
 
 # --- Load JVM options (three-level priority) ---
 DEFAULT_JAVA_OPTS="-Xms2g -Xmx8g -XX:+UseG1GC -XX:G1HeapRegionSize=32m -XX:+ExitOnOutOfMemoryError -Djava.net.preferIPv4Stack=true"

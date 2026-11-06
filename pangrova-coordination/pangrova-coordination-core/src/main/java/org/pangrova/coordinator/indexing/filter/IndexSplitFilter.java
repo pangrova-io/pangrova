@@ -3,24 +3,24 @@ package org.pangrova.coordinator.indexing.filter;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.coordinator.indexing.IndexDescriptorCache;
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
-import org.pangrova.indexing.store.IndexMetadataStore;
+import org.pangrova.indexing.core.descriptor.IndexDescriptorCache;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.indexing.eval.IndexEvaluationFailures;
-import org.pangrova.indexing.planner.IndexHint;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexEvaluator;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.connector.index.IndexEvalResult;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.indexing.eval.IndexEvalHint;
-import org.pangrova.spi.indexing.eval.IndexEvaluatedSplit;
-import org.pangrova.spi.indexing.eval.SplitIndexEvalResult;
-import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.spi.connector.index.predicate.IndexPredicate;
-import org.pangrova.spi.connector.index.predicate.InList;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.indexing.api.pruning.IndexHint;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.spi.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.evaluation.IndexEvalHint;
+import org.pangrova.indexing.api.evaluation.IndexEvaluatedSplit;
+import org.pangrova.indexing.api.evaluation.SplitIndexEvalResult;
+import org.pangrova.connector.api.index.predicate.EqualTo;
+import org.pangrova.connector.api.index.predicate.IndexPredicate;
+import org.pangrova.connector.api.index.predicate.InList;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -220,7 +220,7 @@ public final class IndexSplitFilter implements AutoCloseable {
                         catalogName);
             }
             return evaluator;
-        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.security.api.error.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             IndexEvaluationFailures.propagateIfTerminal(e);
@@ -238,7 +238,7 @@ public final class IndexSplitFilter implements AutoCloseable {
             String catalogName, ConnectorAccessorResolver resolver) {
         try {
             return resolver.resolveNativeCapabilities(catalogName);
-        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.security.api.error.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             IndexEvaluationFailures.propagateIfTerminal(e);

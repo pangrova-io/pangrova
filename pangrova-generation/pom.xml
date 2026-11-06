@@ -13,6 +13,8 @@
     <name>Pangrova Generation</name>
     <description>Derived-data graph construction, canonical codecs and publication routing</description>
     <modules>
+        <module>pangrova-generation-api</module>
+        <module>pangrova-generation-codec</module>
         <module>pangrova-generation-core</module>
     </modules>
 </project>

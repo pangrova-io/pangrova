@@ -2,10 +2,10 @@ package org.pangrova.coordinator.dynamictable;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures;
-import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.planner.parse.PangrovaParserFactory;
-import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.planner.core.mv.DynamicTableRewriter;
+import org.pangrova.planner.core.parse.PangrovaParserFactory;
+import org.pangrova.planner.core.rewrite.DynamicTableSqlRewriter;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.util.List;
 
@@ -21,7 +21,8 @@ class DurableDynamicTableResolverTest {
                 "lake.analytics.rollup", "SELECT 1");
         var reporting = DynamicTablePublicationFixtures.create(catalog, "tenant",
                 "lake.reporting.rollup", "SELECT 1");
-        var resolver = new DurableDynamicTableResolver(catalog, "tenant", "lake", "analytics");
+        var pins = new java.util.ArrayList<org.pangrova.materialization.port.PublishedMaterialization>();
+        var resolver = new DurableDynamicTableResolver(catalog, "tenant", "lake", "analytics", pins::add);
 
         var local = resolver.resolve(List.of("rollup")).orElseThrow();
         assertThat(local.logical()).isEqualTo(new QualifiedTableName("lake", "analytics", "rollup"));
@@ -33,8 +34,10 @@ class DurableDynamicTableResolverTest {
                 .isEqualTo(reporting.physicalTable().qualifiedName());
         assertThat(resolver.resolve(List.of("lake.reporting", "rollup"))).isEmpty();
         assertThat(resolver.resolve(List.of("other", "analytics", "rollup"))).isEmpty();
-        assertThat(new DurableDynamicTableResolver(catalog, "other-tenant", "lake", "analytics")
+        assertThat(new DurableDynamicTableResolver(catalog, "other-tenant", "lake", "analytics", pins::add)
                 .resolve(List.of("rollup"))).isEmpty();
+
+        assertThat(pins).containsExactly(analytics, reporting);
 
         var sqlRewriter = new DynamicTableSqlRewriter(new PangrovaParserFactory(),
                 new DynamicTableRewriter(resolver));

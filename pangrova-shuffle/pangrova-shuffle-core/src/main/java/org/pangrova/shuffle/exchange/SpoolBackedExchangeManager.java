@@ -1,80 +1,81 @@
 package org.pangrova.shuffle.exchange;
 
+import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
+
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
-import org.pangrova.shuffle.spool.SpoolReader;
-import org.pangrova.shuffle.spool.SpoolStore;
-import org.pangrova.shuffle.spool.SpoolWriter;
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.pangrova.shuffle.spi.spool.SpoolReader;
+import org.pangrova.shuffle.api.spool.SpoolReadSelection;
+import java.util.function.Function;
+import org.pangrova.shuffle.spi.spool.SpoolStore;
+import org.pangrova.shuffle.spi.spool.SpoolWriter;
+import org.pangrova.batch.api.page.BatchFormat;
+import org.pangrova.batch.api.page.NativePage;
 
 /**
  * {@link ExchangeChannelManager} backed by a {@link SpoolStore} (ADR-002 D4).
  *
- * <p>Used by both the {@code local-spill} and {@code object-store} shuffle providers.
- * The write path (sink) spools data to the SpoolStore, while the read path (source)
- * reads committed segments back from the SpoolStore.
- *
- * <p>For native execution with D2-egress enabled, the primary write path is through
- * {@code DefaultShuffleByteEgress} (JNI callback). The sink here serves as a fallback
- * for JVM-to-JVM writes and for coordinator-level metrics collection.
+ * <p>The sink writes Java pages to the supplied store; the source reads its committed segments.
+ * This manager is not wired into Native execution. Local spool integration requires an explicit
+ * producer-attempt selection and exchange publication protocol before it can claim Native or
+ * retry support. The production remote egress is a separate provider path.
  *
  * <p>Thread-safe: SpoolStore implementations are required to be thread-safe.
  */
 public final class SpoolBackedExchangeManager implements ExchangeChannelManager {
 
-    private static final Logger LOG = LoggerFactory.getLogger(SpoolBackedExchangeManager.class);
-
     private final SpoolStore spoolStore;
-    /** Default number of map tasks; used as endMapIndex for full-partition reads. */
-    private final int defaultMapCount;
+    private final Function<ExchangeChannelContext, SpoolReadSelection> selections;
 
-    public SpoolBackedExchangeManager(SpoolStore spoolStore) {
-        this(spoolStore, Integer.MAX_VALUE);
-    }
-
-    public SpoolBackedExchangeManager(SpoolStore spoolStore, int defaultMapCount) {
+    /** The exchange owner supplies an exact selection; there is no latest-attempt default. */
+    public SpoolBackedExchangeManager(SpoolStore spoolStore,
+            Function<ExchangeChannelContext, SpoolReadSelection> selections) {
         this.spoolStore = Objects.requireNonNull(spoolStore, "spoolStore");
-        this.defaultMapCount = defaultMapCount;
+        this.selections = Objects.requireNonNull(selections, "selections");
     }
 
     @Override
     public ExchangeSink createSink(ExchangeChannelContext context) {
         Objects.requireNonNull(context, "context");
-        // For native execution, D2-egress handles the write path.
-        // This sink exists for JVM-to-JVM fallback and test scenarios.
+        // This is the Java-page write path. Native producer integration is not installed.
         return new SpoolBackedExchangeSink(spoolStore, context);
     }
 
     @Override
     public ExchangeSource createSource(ExchangeChannelContext context, ExchangeReadMode readMode) {
         Objects.requireNonNull(context, "context");
-        // Read all committed segments for this partition across all map tasks.
-        return new SpoolBackedExchangeSource(spoolStore, context, defaultMapCount);
+        Objects.requireNonNull(readMode, "readMode");
+        if (readMode != ExchangeReadMode.BLOCKING) {
+            throw new UnsupportedOperationException("Local spool storage does not implement streaming reads");
+        }
+        var selected = Objects.requireNonNull(selections.apply(context), "selection");
+        if (!selected.queryId().equals(context.queryId()) || selected.stageId() != context.stageId()
+                || selected.partitionId() != context.exchangePartitionId()) {
+            throw new IllegalArgumentException("Spool selection belongs to another exchange partition");
+        }
+        return new SpoolBackedExchangeSource(spoolStore, selected);
     }
 
     @Override
     public void close() {
-        try {
-            spoolStore.close();
-        } catch (Exception e) {
-            LOG.warn("event=spool_backed_exchange_manager_close_failed error={}", e.getMessage());
-        }
+        spoolStore.close();
     }
 
     // --- Inner classes ---
 
     /**
      * ExchangeSink that writes pages to a SpoolStore.
-     * Each page is written as a separate segment (open-write-commit).
+     * Each page is framed within one attempt/partition segment, completed only at finish.
      */
     private static final class SpoolBackedExchangeSink implements ExchangeSink {
         private final SpoolStore store;
         private final ExchangeChannelContext context;
-        private volatile boolean sealed;
+        private Status status = Status.OPEN;
+        private RuntimeException failure;
+
+        private enum Status { OPEN, FINISHED, ABORTED }
+
         private SpoolWriter writer;
 
         SpoolBackedExchangeSink(SpoolStore store, ExchangeChannelContext context) {
@@ -84,32 +85,47 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
 
         @Override
         public synchronized void addNativePage(NativePage page) {
-            if (sealed) {
-                throw new IllegalStateException("Sink sealed");
+            requireOpen();
+            if (page.format() != BatchFormat.ARROW_IPC) {
+                throw new UnsupportedOperationException("Java spool exchange requires ARROW_IPC batches");
             }
             byte[] data = page.serializedBatch();
-            writer().write(ByteBuffer.wrap(data));
+            try {
+                writer().write(ByteBuffer.wrap(data));
+            } catch (RuntimeException writeFailure) {
+                failure = writeFailure;
+                throw writeFailure;
+            }
         }
 
         @Override
         public synchronized void finish() {
-            if (sealed) {
-                return;
+            if (status == Status.FINISHED) return;
+            requireOpen();
+            try {
+                writer().commit();
+                status = Status.FINISHED;
+            } catch (RuntimeException commitFailure) {
+                failure = commitFailure;
+                throw commitFailure;
             }
-            writer().commit();
-            sealed = true;
         }
 
         @Override
         public synchronized void abort() {
+            if (status != Status.FINISHED) status = Status.ABORTED;
             closeWriter();
-            sealed = true;
         }
 
         @Override
         public synchronized void close() {
+            if (status != Status.FINISHED) status = Status.ABORTED;
             closeWriter();
-            sealed = true;
+        }
+
+        private void requireOpen() {
+            if (failure != null) throw failure;
+            if (status != Status.OPEN) throw new IllegalStateException("Spool sink is not open");
         }
 
         private SpoolWriter writer() {
@@ -132,70 +148,52 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
 
     /**
      * ExchangeSource that reads pages from a SpoolStore.
-     * Reads all committed segments for a partition in map-index order.
+     * Reads the exact selected attempt segments in producer order.
      */
     private static final class SpoolBackedExchangeSource implements ExchangeSource {
         private final SpoolStore store;
-        private final ExchangeChannelContext context;
-        private final int endMapIndex;
-        private volatile SpoolReader reader;
+        private final SpoolReadSelection selection;
+        private SpoolReader reader;
+        private RuntimeException failure;
         private boolean finished;
 
         SpoolBackedExchangeSource(
-                SpoolStore store, ExchangeChannelContext context, int endMapIndex) {
+                SpoolStore store, SpoolReadSelection selection) {
             this.store = store;
-            this.context = context;
-            this.endMapIndex = endMapIndex;
+            this.selection = selection;
         }
 
         @Override
-        public NativePage getNextNativePage() {
-            if (finished) {
-                return null;
-            }
-            SpoolReader r = reader;
-            if (r == null) {
-                synchronized (this) {
-                    r = reader;
-                    if (r == null) {
-                        // Lazy init: read all map segments for this partition.
-                        r = store.read(
-                                context.queryId(), context.stageId(),
-                                context.exchangePartitionId(), 0, endMapIndex);
-                        reader = r;
-                    }
-                }
-            }
+        public synchronized NativePage getNextNativePage() {
+            if (failure != null) throw failure;
+            if (finished) return null;
             try {
-                if (!r.hasNext()) {
+                if (reader == null) reader = store.read(selection);
+                if (!reader.hasNext()) {
                     finished = true;
                     return null;
                 }
-                ByteBuffer buf = r.next();
-                byte[] bytes = new byte[buf.remaining()];
-                buf.get(bytes);
+                ByteBuffer buffer = reader.next();
+                byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
                 return new NativePage(bytes, -1, -1, BatchFormat.ARROW_IPC);
-            } catch (Exception e) {
+            } catch (RuntimeException readFailure) {
+                failure = readFailure;
                 finished = true;
-                throw new RuntimeException("SpoolBackedExchangeSource read failed", e);
+                throw readFailure;
             }
         }
 
         @Override
-        public boolean isFinished() {
+        public synchronized boolean isFinished() {
             return finished;
         }
 
         @Override
-        public void close() {
+        public synchronized void close() {
             finished = true;
             if (reader != null) {
-                try {
-                    reader.close();
-                } catch (Exception e) {
-                    LOG.warn("event=spool_backed_exchange_source_close_failed error={}",
-                            e.getMessage());
-                }
+                reader.close();
             }
         }
     }

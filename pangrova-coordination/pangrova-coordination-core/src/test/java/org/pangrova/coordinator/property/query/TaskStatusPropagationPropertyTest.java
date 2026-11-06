@@ -1,17 +1,21 @@
 package org.pangrova.coordinator.property.query;
 
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import net.jqwik.api.*;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -25,11 +29,9 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.task.UnregisteredWorkerException;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,20 +56,20 @@ class TaskStatusPropagationPropertyTest {
             @ForAll("terminalStates") String state) {
 
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         workerManager.registerWorker(
                 TestWorkerInfoBuilder.active(WORKER_ID, "localhost", 8080, 9090));
 
         QueryManager qm = buildMinimalQueryManager(tracker, workerManager);
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, workerManager));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, workerManager, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         // Pre-register a QueryStateMachine so onAllTasksFinished/onTaskFailed can find it
         QueryStateMachine sm = new QueryStateMachine();
         qm.registerStateMachine(queryId, sm);
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
 
         // Register and schedule the task in the tracker
         tracker.registerTask(queryId, taskId);
@@ -95,14 +97,14 @@ class TaskStatusPropagationPropertyTest {
                     .isTrue();
             assertThat(sm.getState())
                     .as("QueryStateMachine should reach FINISHED")
-                    .isEqualTo(QueryStateMachine.State.FINISHED);
+                    .isEqualTo(QueryState.FINISHED);
         } else if ("FAILED".equals(state)) {
             assertThat(tracker.hasFailedTask(queryId))
                     .as("Should have failed task for queryId=%s", queryId)
                     .isTrue();
             assertThat(sm.getState())
                     .as("QueryStateMachine should reach FAILED")
-                    .isEqualTo(QueryStateMachine.State.FAILED);
+                    .isEqualTo(QueryState.FAILED);
         }
     }
 
@@ -112,11 +114,11 @@ class TaskStatusPropagationPropertyTest {
             @ForAll("taskIds") String taskId) {
 
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
 
         QueryManager qm = buildMinimalQueryManager(tracker, workerManager);
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, workerManager));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, workerManager, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         TaskStatusReport report = buildReport(
                 taskId, queryId, "unknown-worker", "RUNNING", null, null);
@@ -192,13 +194,13 @@ class TaskStatusPropagationPropertyTest {
             CoordinatorTaskTracker tracker, WorkerManager workerManager) {
         var dispatcher = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
-        var scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        var scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, dispatcher, scheduler,
                 workerManager, tracker, null, null, null, 0L);
         var queryDispatcher = new QueryDispatcher(
                 deps, null, null);
         return new QueryManager(
-                QueryManagerContext.minimal(queryDispatcher, new NoOpTracingProvider()));
+                QueryManagerTestContexts.minimal(queryDispatcher, new NoOpTracingProvider()));
     }
 }

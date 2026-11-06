@@ -1,0 +1,7 @@
+{
+  "source": "serial integration run; no reachability gate change",
+  "remaining_failure": "Expecting empty but was: [\"org.pangrova.coordinator.query.execution.dispatch.shuffle.InMemoryShuffleDataInventory\",\n    \"org.pangrova.coordinator.query.execution.dispatch.shuffle.SpoolingExchangeManager\",\n    \"org.pangrova.shuffle.spool.LocalSpillLifecycleManager\",\n    \"org.pangrova.worker.shuffle.DefaultShuffleByteEgress\"]",
+  "resolved": "org.pangrova.shuffle.core.skew.MedianSkewDetector",
+  "actual_entry": "Server QueryExecutionBootstrap -> QueryDispatcher -> AdaptiveQueryEvaluator -> SkewJoinHandler -> SkewDetector.detect",
+  "remaining_count": 4
+}

@@ -9,32 +9,30 @@ import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.file.storage.FileStorageException;
-import org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.security.authz.InMemoryRoleStore;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.security.authz.StaticGrantStore;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
+import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
@@ -65,12 +63,6 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
     @BeforeEach
     void setUp() throws Exception {
         DataSource source = SharedPostgresContainer.migratedDataSource("file_space_tasks");
-        new JdbcRoleStore(source).initSchema();
-        try (var connection = source.getConnection()) {
-            connection.setAutoCommit(false);
-            AuthorizationTransactionGate.initialize(connection);
-            connection.commit();
-        }
         grants = new JdbcGrantStore(source);
         grants.addGrant(grant(Privilege.CREATE_VOLUME, FileSpaceType.VOLUME, "media", "raw", null));
         grants.addGrant(grant(Privilege.CREATE_EXTERNAL_VOLUME,
@@ -154,6 +146,13 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
                 .extracting(AuditEvent::eventType)
                 .containsExactly(AuditEventType.VOLUME_CREATED, AuditEventType.VOLUME_ALTERED,
                         AuditEventType.VOLUME_ALTERED, AuditEventType.VOLUME_DROPPED));
+        assertThat(events).allSatisfy(event -> {
+            assertThat(event.queryId()).isEqualTo("file-space-query");
+            assertThat(event.principal()).isEqualTo("alice");
+            assertThat(event.properties()).containsEntry("tenant_id", "tenant-a");
+            assertThat(event.sql()).isNull();
+            assertThat(event.toString()).doesNotContain("credential-that-must-not-be-audited");
+        });
         assertThat(events.get(2).properties()).containsEntry("previous_name", "landing");
         assertThat(events.get(1).properties()).containsEntry("previous_owner", "alice");
     }
@@ -204,13 +203,14 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
     }
 
     private StatementResult execute(String sql) {
-        Statement statement = new SqlParser().parse(sql);
+        Statement statement = new AntlrSqlParser().parse(sql);
         return factory.execute(statement, context());
     }
 
     private static StatementExecutionContext context() {
-        CoordinatorSessionContext session = new CoordinatorSessionContext("file-space-query",
-                Map.of("catalog", "media", "schema", "raw"), ALICE, "tenant-a");
+        QuerySession session = new QuerySession("file-space-query",
+                Map.of("catalog", "media", "schema", "raw",
+                        "credential", "credential-that-must-not-be-audited"), ALICE, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         return new StatementExecutionContext(null, session.queryId(), session, null, null);
     }
 

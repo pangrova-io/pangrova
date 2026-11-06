@@ -1,19 +1,19 @@
 package org.pangrova.coordinator.indexing.ddl;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
-import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.planner.core.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.OperatorBindingSet;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 
 import java.time.Instant;
 import java.util.List;

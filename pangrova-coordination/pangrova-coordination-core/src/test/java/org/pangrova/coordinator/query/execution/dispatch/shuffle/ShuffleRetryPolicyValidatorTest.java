@@ -1,72 +1,61 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-import org.pangrova.shuffle.api.ShuffleCapabilities;
-import org.pangrova.shuffle.api.ShuffleDurability;
+import org.pangrova.shuffle.api.capability.ShuffleCapability;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
 import org.junit.jupiter.api.Test;
 
-/**
- * ADR-002 D3 acceptance: task-level retry is bound to {@link ShuffleCapabilities#supportsTaskRetry()}
- * and fails fast on an EPHEMERAL provider instead of silently degrading to whole-query retry.
- */
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.pangrova.shuffle.api.capability.ShuffleCapability.*;
+
 class ShuffleRetryPolicyValidatorTest {
-
     @Test
-    void taskRetryOnEphemeralProviderFailsFast() {
-        ShuffleCapabilities caps = ShuffleCapabilities.of(ShuffleDurability.EPHEMERAL);
-        assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validate(true, caps))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("EPHEMERAL")
-                .hasMessageContaining("task retry");
+    void unknownCapabilitiesCannotEnableTaskRetry() {
+        assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(true, ShuffleCapabilityDescriptor.none()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("CONSUMER_RETRY");
     }
 
     @Test
-    void taskRetryOnLocalSpillProviderIsAccepted() {
-        ShuffleCapabilities caps = ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL);
-        assertThatCode(() -> ShuffleRetryPolicyValidator.validate(true, caps))
-                .doesNotThrowAnyException();
-    }
-
-    @Test
-    void taskRetryOnDurableProviderIsAccepted() {
-        ShuffleCapabilities caps = ShuffleCapabilities.of(ShuffleDurability.DURABLE);
-        assertThatCode(() -> ShuffleRetryPolicyValidator.validate(true, caps))
-                .doesNotThrowAnyException();
-    }
-
-    @Test
-    void queryLevelRetryIsAcceptedOnEveryDurabilityTier() {
-        for (ShuffleDurability durability : ShuffleDurability.values()) {
-            ShuffleCapabilities caps = ShuffleCapabilities.of(durability);
-            assertThatCode(() -> ShuffleRetryPolicyValidator.validate(false, caps))
-                    .doesNotThrowAnyException();
+    void onlyExplicitConsumerRetrySatisfiesTheRequirement() {
+        for (ShuffleCapability capability : ShuffleCapability.values()) {
+            var descriptor = ShuffleCapabilityDescriptor.of(capability);
+            if (capability == CONSUMER_RETRY) {
+                assertThatCode(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(true, descriptor)).doesNotThrowAnyException();
+            } else {
+                assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(true, descriptor))
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("CONSUMER_RETRY");
+            }
         }
     }
 
     @Test
-    void nullCapabilitiesRejected() {
-        assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validate(true, null))
-                .isInstanceOf(NullPointerException.class);
+    void deploymentOrExchangeRestrictionsCannotBeBypassedByProviderSupport() {
+        var provider = ShuffleCapabilityDescriptor.of(CONSUMER_RETRY, READ_AFTER_COMPUTE_WORKER_EXIT);
+        var deployment = ShuffleCapabilityDescriptor.of(CONSUMER_RETRY);
+        var unpublished = ShuffleCapabilityDescriptor.of(PRODUCER_RETRY);
+        assertThatCode(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(true, provider.intersect(deployment)))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(
+                true, provider.intersect(deployment).intersect(unpublished)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(
+                true, provider.intersect(ShuffleCapabilityDescriptor.of(READ_AFTER_COMPUTE_WORKER_EXIT))))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
-    void bindsToCapabilityNotProviderName() {
-        // A custom EPHEMERAL provider that nonetheless claims task-retry support is honored:
-        // the validator reads supportsTaskRetry(), never the durability tier directly.
-        ShuffleCapabilities lyingButCapable = new ShuffleCapabilities() {
-            @Override
-            public ShuffleDurability durability() {
-                return ShuffleDurability.EPHEMERAL;
-            }
-
-            @Override
-            public boolean supportsTaskRetry() {
-                return true;
-            }
-        };
-        assertThatCode(() -> ShuffleRetryPolicyValidator.validate(true, lyingButCapable))
+    void noTaskRetryRequirementDoesNotRequireAnUnrelatedGuarantee() {
+        for (ShuffleCapability capability : ShuffleCapability.values()) {
+            assertThatCode(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(false, ShuffleCapabilityDescriptor.of(capability)))
+                    .doesNotThrowAnyException();
+        }
+        assertThatCode(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(false, ShuffleCapabilityDescriptor.none()))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void nullCapabilitiesRejectedEvenWithoutRetryRequirement() {
+        assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(true, null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> ShuffleRetryPolicyValidator.validateConsumerRetry(false, null)).isInstanceOf(NullPointerException.class);
     }
 }

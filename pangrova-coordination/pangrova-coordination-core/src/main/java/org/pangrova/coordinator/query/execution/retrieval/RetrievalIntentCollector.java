@@ -8,14 +8,14 @@ import java.util.Map;
 import com.google.protobuf.ByteString;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.execution.DispatchQueryContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RerankIntent;
-import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalGenerationIntent;
-import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
-import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
+import org.pangrova.indexing.adapter.planner.vector.VectorSearchNode;
+import java.util.Optional;
+import org.pangrova.query.core.stage.binding.RerankIntent;
+import org.pangrova.query.core.stage.binding.RetrievalGenerationIntent;
+import org.pangrova.query.core.stage.binding.RetrievalMergeIntent;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
-import org.pangrova.planner.rerank.RerankerPlanNode;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.planner.core.rerank.RerankerPlanNode;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.retrieval.RetrievalMergeBinding;
 import org.pangrova.protocol.v2.CapabilityRef;
@@ -40,16 +40,16 @@ public final class RetrievalIntentCollector {
 
     /** Builds immutable artifact intents for indexed vector and full-text sources. */
     public List<RetrievalGenerationIntent> collectRetrievalArtifactIntents(
-            DispatchQueryContext ctx, String tenantId) {
+            Optional<VectorSearchNode> vectorSearch, Optional<RerankerPlanNode> rerankerPlan, String tenantId) {
         Map<String, RetrievalGenerationIntent> intents = new java.util.LinkedHashMap<>();
-        ctx.vectorSearchNode().ifPresent(node -> {
+        vectorSearch.ifPresent(node -> {
             if (node.indexId() != null && !node.indexId().isBlank()
                     && node.indexGeneration() >= 0
                     && !node.indexSnapshot().isBlank()
                     && (node.serializedPreFilters().isEmpty()
                         || node.retrievalCapability().getCapabilityId().equals(
                                 BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID))) {
-                int candidateLimit = vectorCandidateLimit(ctx, node);
+                int candidateLimit = vectorCandidateLimit(vectorSearch, rerankerPlan, node);
                 String sourceKey = "VECTOR:" + node.vectorColumn();
                 intents.put(sourceKey, new RetrievalGenerationIntent(
                         tenantId,
@@ -64,10 +64,10 @@ public final class RetrievalIntentCollector {
                         candidateLimit));
             }
         });
-        ctx.rerankerPlan().ifPresent(plan -> plan.sources().stream()
-                .filter(org.pangrova.planner.rerank.RerankerPlanNode.FullTextSource.class::isInstance)
-                .map(org.pangrova.planner.rerank.RerankerPlanNode.FullTextSource.class::cast)
-                .map(org.pangrova.planner.rerank.RerankerPlanNode.FullTextSource::scoringNode)
+        rerankerPlan.ifPresent(plan -> plan.sources().stream()
+                .filter(org.pangrova.planner.core.rerank.RerankerPlanNode.FullTextSource.class::isInstance)
+                .map(org.pangrova.planner.core.rerank.RerankerPlanNode.FullTextSource.class::cast)
+                .map(org.pangrova.planner.core.rerank.RerankerPlanNode.FullTextSource::scoringNode)
                 .filter(node -> !node.indexId().isBlank()
                         && node.indexGeneration() >= 0
                         && !node.indexSnapshot().isBlank()
@@ -82,19 +82,19 @@ public final class RetrievalIntentCollector {
                             node.indexSnapshot(),
                             BuiltInCapabilityCatalog.bm25RetrievalPlanRef(),
                             bm25InvocationOptions(node.queryText()),
-                            fullTextCandidateLimit(ctx, node.column())));
+                            fullTextCandidateLimit(vectorSearch, rerankerPlan, node.column())));
                 }));
         return List.copyOf(intents.values());
     }
 
     /** Builds the global Native merge contract for a hybrid retrieval plan. */
     public java.util.Optional<RetrievalMergeIntent>
-            collectRetrievalMergeIntent(DispatchQueryContext ctx) {
-        if (ctx.rerankerPlan().isEmpty()
-                || !ctx.rerankerPlan().orElseThrow().isHybrid()) {
+            collectRetrievalMergeIntent(Optional<VectorSearchNode> vectorSearch, Optional<RerankerPlanNode> rerankerPlan) {
+        if (rerankerPlan.isEmpty()
+                || !rerankerPlan.orElseThrow().isHybrid()) {
             return java.util.Optional.empty();
         }
-        RerankerPlanNode plan = ctx.rerankerPlan().orElseThrow();
+        RerankerPlanNode plan = rerankerPlan.orElseThrow();
         if (plan.isMultiVector()) {
             throw new PangrovaException(
                     PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
@@ -126,7 +126,7 @@ public final class RetrievalIntentCollector {
         List<RetrievalMergeIntent.Source> sources = new java.util.ArrayList<>();
         for (int index = 0; index < plan.sources().size(); ++index) {
             RerankerPlanNode.RetrievalSource source = plan.sources().get(index);
-            int candidateLimit = hybridCandidateLimit(ctx, plan, source);
+            int candidateLimit = hybridCandidateLimit(vectorSearch, plan, source);
             if (source instanceof RerankerPlanNode.VectorSource vector) {
                 sources.add(new RetrievalMergeIntent.Source(
                         "VECTOR:" + vector.column(),
@@ -147,11 +147,11 @@ public final class RetrievalIntentCollector {
 
     /** Resolves and fences an optional Cross-Encoder model for Native reranking. */
     public java.util.Optional<RerankIntent> collectRerankIntent(
-            DispatchQueryContext ctx) {
-        if (ctx.rerankerPlan().isEmpty()) {
+            Optional<RerankerPlanNode> rerankerPlan) {
+        if (rerankerPlan.isEmpty()) {
             return java.util.Optional.empty();
         }
-        RerankerPlanNode plan = ctx.rerankerPlan().orElseThrow();
+        RerankerPlanNode plan = rerankerPlan.orElseThrow();
         java.util.Optional<RerankerPlanNode.CrossEncoderStrategy> cross =
                 crossEncoderStrategy(plan);
         if (cross.isEmpty()) {
@@ -193,7 +193,7 @@ public final class RetrievalIntentCollector {
         org.pangrova.protocol.v2.VersionedRef model = availability.getModel();
         org.pangrova.protocol.v2.CapabilityLimits limits = availability.getLimits();
         LogicalType outputType = availability.getCapabilityContractsList().stream()
-                .filter(contract -> WorkerCapabilityMatcher.matchesCapabilityRef(
+                .filter(contract -> org.pangrova.protocol.capability.CapabilityIdentities.matches(
                         contract.getCapability(),
                         BuiltInCapabilityCatalog.crossEncoderRerankPlanRef()))
                 .map(org.pangrova.protocol.v2.ModelCapabilityContract::getOutputType)
@@ -215,35 +215,15 @@ public final class RetrievalIntentCollector {
 
     private org.pangrova.protocol.v2.ModelAvailability resolveRerankModel(
             String modelName) {
-        var required = BuiltInCapabilityCatalog.crossEncoderRerankPlanRef();
-        List<org.pangrova.protocol.v2.ModelAvailability> matches =
-                workerManager.getActiveWorkers().stream()
-                        .flatMap(worker -> worker.capabilityInventory()
-                                .getModelsList().stream())
-                        .filter(availability -> availability.getModel().getId()
-                                .equals(modelName))
-                        .filter(availability -> availability
-                                .getCapabilityContractsList().stream()
-                                .map(org.pangrova.protocol.v2.ModelCapabilityContract
-                                        ::getCapability)
-                                .anyMatch(advertised -> WorkerCapabilityMatcher
-                                        .matchesCapabilityRef(advertised, required)))
-                        .distinct()
-                        .toList();
-        if (matches.isEmpty()) {
-            throw new PangrovaException(
-                    PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "No active Worker advertises exact Cross-Encoder model '"
-                            + modelName + "'");
+        try {
+            return org.pangrova.scheduler.core.placement.ExactModelResolver.resolve(
+                    workerManager.getActiveWorkers().stream()
+                            .map(org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList(),
+                    modelName, BuiltInCapabilityCatalog.crossEncoderRerankPlanRef());
+        } catch (org.pangrova.scheduler.api.error.NoAvailableWorkerException unavailable) {
+            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Cannot bind Cross-Encoder: " + unavailable.getMessage(), unavailable);
         }
-        if (matches.size() != 1) {
-            throw new PangrovaException(
-                    PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "Cross-Encoder model '" + modelName
-                            + "' resolves to multiple active versions/signatures; "
-                            + "publish one exact model identity before dispatch");
-        }
-        return matches.get(0);
     }
 
     private static RerankerPlanNode.RerankerStrategy fusionStrategy(
@@ -291,7 +271,7 @@ public final class RetrievalIntentCollector {
     }
 
     private static int hybridCandidateLimit(
-            DispatchQueryContext ctx,
+            Optional<VectorSearchNode> vectorSearch,
             RerankerPlanNode plan,
             RerankerPlanNode.RetrievalSource source) {
         int sourceCount = plan.sources().size();
@@ -307,7 +287,7 @@ public final class RetrievalIntentCollector {
                 Math.addExact((long) mergeLimit, 1_000L));
         long desired = Math.min(expanded, perSourceLimit);
         if (source instanceof RerankerPlanNode.VectorSource vector) {
-            desired = Math.max(desired, ctx.vectorSearchNode()
+            desired = Math.max(desired, vectorSearch
                     .filter(node -> node.vectorColumn().equals(vector.column()))
                     .map(node -> (long) node.hybridStrategy().effectiveK())
                     .orElse((long) mergeLimit));
@@ -316,39 +296,39 @@ public final class RetrievalIntentCollector {
     }
 
     private static int vectorCandidateLimit(
-            DispatchQueryContext ctx,
-            org.pangrova.indexing.planner.vector.VectorSearchNode node) {
-        if (ctx.rerankerPlan().isEmpty()
-                || !ctx.rerankerPlan().orElseThrow().isHybrid()) {
+            Optional<VectorSearchNode> vectorSearch, Optional<RerankerPlanNode> rerankerPlan,
+            org.pangrova.indexing.adapter.planner.vector.VectorSearchNode node) {
+        if (rerankerPlan.isEmpty()
+                || !rerankerPlan.orElseThrow().isHybrid()) {
             return node.hybridStrategy().effectiveK();
         }
-        RerankerPlanNode plan = ctx.rerankerPlan().orElseThrow();
+        RerankerPlanNode plan = rerankerPlan.orElseThrow();
         return plan.sources().stream()
                 .filter(RerankerPlanNode.VectorSource.class::isInstance)
                 .map(RerankerPlanNode.VectorSource.class::cast)
                 .filter(source -> source.column().equals(node.vectorColumn()))
                 .findFirst()
-                .map(source -> hybridCandidateLimit(ctx, plan, source))
+                .map(source -> hybridCandidateLimit(vectorSearch, plan, source))
                 .orElseThrow(() -> new PangrovaException(
                         PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                         "Vector retrieval source is absent from the hybrid merge contract"));
     }
 
     private static int fullTextCandidateLimit(
-            DispatchQueryContext ctx, String column) {
-        if (ctx.rerankerPlan().isEmpty()) {
+            Optional<VectorSearchNode> vectorSearch, Optional<RerankerPlanNode> rerankerPlan, String column) {
+        if (rerankerPlan.isEmpty()) {
             throw new PangrovaException(
                     PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Full-text retrieval artifact has no reranker source contract");
         }
-        RerankerPlanNode plan = ctx.rerankerPlan().orElseThrow();
+        RerankerPlanNode plan = rerankerPlan.orElseThrow();
         return plan.sources().stream()
                 .filter(RerankerPlanNode.FullTextSource.class::isInstance)
                 .map(RerankerPlanNode.FullTextSource.class::cast)
                 .filter(source -> source.scoringNode().column().equals(column))
                 .findFirst()
                 .map(source -> plan.isHybrid()
-                        ? hybridCandidateLimit(ctx, plan, source)
+                        ? hybridCandidateLimit(vectorSearch, plan, source)
                         : preRerankLimit(plan))
                 .orElseThrow(() -> new PangrovaException(
                         PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
@@ -381,7 +361,7 @@ public final class RetrievalIntentCollector {
 
     private static List<NamedValue> vectorInvocationOptions(
             float[] queryVector, CapabilityRef retrievalCapability, int searchBudget,
-            org.pangrova.spi.indexing.vector.DistanceMetric distanceMetric) {
+            org.pangrova.indexing.api.vector.DistanceMetric distanceMetric) {
         ByteBuffer packed = ByteBuffer.allocate(Math.multiplyExact(
                 queryVector.length, Float.BYTES)).order(ByteOrder.LITTLE_ENDIAN);
         for (float value : queryVector) {

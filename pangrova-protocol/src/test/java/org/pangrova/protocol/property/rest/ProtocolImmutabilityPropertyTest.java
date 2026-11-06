@@ -1,6 +1,8 @@
 package org.pangrova.protocol.property.rest;
 
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -8,6 +10,7 @@ import java.io.File;
 import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
 import java.net.URL;
+import java.net.JarURLConnection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * in {@code org.pangrova.protocol.rest}, the shared execution identity package,
  * and the public client DTO packages
  * {@code org.pangrova.client.protocol} and {@code org.pangrova.client.api}
- * and their sub-packages.
+ * and Transport API result addresses, including their sub-packages.
  *
  * <p>Uses reflection to discover all classes at test time, ensuring
  * newly added DTOs are automatically covered without manual updates.</p>
@@ -31,6 +34,7 @@ class ProtocolImmutabilityPropertyTest {
 
     /** Packages scanned for DTO classes. */
     private static final List<String> DTO_PACKAGES = List.of(
+            "org.pangrova.transport.api.result",
             "org.pangrova.protocol.rest",
             "org.pangrova.protocol.execution.identity",
             "org.pangrova.client.protocol",
@@ -41,6 +45,7 @@ class ProtocolImmutabilityPropertyTest {
      * error package is scanned only by reference (its exception types are not DTOs).
      */
     private static final List<String> DTO_TYPE_ROOTS = List.of(
+            "org.pangrova.transport.api.result",
             "org.pangrova.protocol.rest",
             "org.pangrova.protocol.execution.identity",
             "org.pangrova.client.protocol",
@@ -58,6 +63,11 @@ class ProtocolImmutabilityPropertyTest {
     );
 
     private static final List<Class<?>> ALL_DTO_CLASSES = discoverDtoClasses();
+
+    @Test
+    void transportedResultAddressIsIncludedInTheImmutableDtoAudit() {
+        assertThat(ALL_DTO_CLASSES).contains(ResultEndpoint.class);
+    }
 
     /**
      * Property 8: REST DTO classes use an immutable representation.
@@ -171,7 +181,8 @@ class ProtocolImmutabilityPropertyTest {
             return true;
         }
         // Another protocol record is immutable by induction
-        if (type.isRecord() && DTO_TYPE_ROOTS.stream().anyMatch(type.getPackageName()::startsWith)) {
+        if (type.isRecord() && DTO_TYPE_ROOTS.stream().anyMatch(root -> type.getPackageName().equals(root)
+                || type.getPackageName().startsWith(root + "."))) {
             return true;
         }
         return false;
@@ -192,13 +203,27 @@ class ProtocolImmutabilityPropertyTest {
                     URL resource = resources.nextElement();
                     if ("file".equals(resource.getProtocol())) {
                         scanDirectory(new File(resource.toURI()), basePackage, classes);
+                    } else if ("jar".equals(resource.getProtocol())) {
+                        var connection = (JarURLConnection) resource.openConnection();
+                        connection.setUseCaches(false);
+                        try (var jar = connection.getJarFile()) {
+                            var entries = jar.entries();
+                            while (entries.hasMoreElements()) {
+                                String name = entries.nextElement().getName();
+                                if (name.startsWith(path + "/") && name.endsWith(".class")) {
+                                    addDtoClass(name.substring(0, name.length() - 6).replace('/', '.'), classes);
+                                }
+                            }
+                        }
+                    } else {
+                        throw new IllegalStateException("Unsupported DTO classpath resource: " + resource);
                     }
                 }
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to scan REST DTO classes", e);
         }
-        return List.copyOf(classes);
+        return classes.stream().distinct().toList();
     }
 
     private static boolean isTestClass(Class<?> clazz) {
@@ -211,7 +236,8 @@ class ProtocolImmutabilityPropertyTest {
         return enclosing != null && isTestClass(enclosing);
     }
 
-    private static void scanDirectory(File dir, String packageName, List<Class<?>> result) {
+    private static void scanDirectory(File dir, String packageName, List<Class<?>> result)
+            throws ClassNotFoundException {
         File[] files = dir.listFiles();
         if (files == null) {
             return;
@@ -222,20 +248,17 @@ class ProtocolImmutabilityPropertyTest {
             } else if (file.getName().endsWith(".class")) {
                 String className = packageName + "."
                         + file.getName().substring(0, file.getName().length() - 6);
-                try {
-                    Class<?> clazz = Class.forName(className);
-                    if (!clazz.isInterface()
-                            && !clazz.isEnum()
-                            && !clazz.isSynthetic()
-                            && !isTestClass(clazz)
-                            && !isConverterUtility(clazz)
-                            && !isConstantsUtility(clazz)) {
-                        result.add(clazz);
-                    }
-                } catch (ClassNotFoundException ignored) {
-                    // skip unloadable classes
-                }
+                addDtoClass(className, result);
             }
+        }
+    }
+
+    private static void addDtoClass(String className, List<Class<?>> result)
+            throws ClassNotFoundException {
+        Class<?> clazz = Class.forName(className, false, Thread.currentThread().getContextClassLoader());
+        if (!clazz.isInterface() && !clazz.isEnum() && !clazz.isSynthetic()
+                && !isTestClass(clazz) && !isConverterUtility(clazz) && !isConstantsUtility(clazz)) {
+            result.add(clazz);
         }
     }
 

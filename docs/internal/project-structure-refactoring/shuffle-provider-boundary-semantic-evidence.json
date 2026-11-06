@@ -1,0 +1,202 @@
+{
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use Protocol logical producer checksum; stage registration and owner unchanged.",
+    "before_sha256": "66220fd5f816a154390163649d975233cb26f9f8c3094c014745803b03a58e4f",
+    "after_sha256": "da446ee6819421f2200e630c81d36a331e7b1d321e8261380c29b17857c09fb4"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/DurableStageShuffleEvidence.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/DurableStageShuffleEvidence.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use Protocol logical producer checksum; generation evidence and authority unchanged.",
+    "before_sha256": "7474a8176e9c43bc9f63844fda0ec7fa7b9d37c66f528bb8afa17d0e18e1532d",
+    "after_sha256": "64124545108818f56cd0c0b75dc2bcacb68ae3ca1cd996c454eca6edffc6e5c1"
+  },
+  "pangrova-protocol/src/main/java/org/pangrova/protocol/shuffle/codec/ShufflePartitionManifestChecksum.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/core/ShufflePartitionManifestChecksum.java",
+    "action": "move",
+    "token_body_identical": true,
+    "review": "Move canonical wire manifest accumulator to Protocol; domain separator, byte order, batch sequencing and empty partition behavior unchanged.",
+    "before_sha256": "54c5572a355809e9bfbcac08682e71ac1e35fc87a3d04d6272cfe1020a6c6a53",
+    "after_sha256": "fea7ea4a1dabf30daf3b69e76074792659c074954ea6a31aadb5ce2d2fa5988d"
+  },
+  "pangrova-protocol/src/main/java/org/pangrova/protocol/shuffle/codec/ShuffleProducerSetChecksum.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/core/ShuffleProducerSetChecksum.java",
+    "action": "move",
+    "token_body_identical": true,
+    "review": "Move canonical wire logical producer-set digest to Protocol; byte encoding and retry-independent identity unchanged.",
+    "before_sha256": "ef33dae944c1babd9ff466745622bf4b0ae0a14ec150b4949d0f6e056d3f5748",
+    "after_sha256": "0c17627b92f25c20ff00a6e28cbbfec4f1eecd581ce8cf5d10b468004c407157"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/identity/ExchangeAttemptFence.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeAttemptFence.java",
+    "action": "move",
+    "token_body_identical": true,
+    "review": "Unified API owns existing plan epoch, attempt and fencing token value; validation unchanged.",
+    "before_sha256": "72b5f9ac5dc39e1b386bb0b4c1433ccaf8276289a7e2f2af863a02aa5d672e82",
+    "after_sha256": "612f054e1ac604e1a5f1daa49722f3f518cfb85115ca9f27d9ad1d141d95ab94"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/identity/ExchangeChannelContext.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeChannelContext.java",
+    "action": "move",
+    "token_body_identical": true,
+    "review": "Unified API owns existing channel partition/deadline identity; fields and accessors unchanged.",
+    "before_sha256": "b149872442fee667d56827085e6942a17730cd9e30892e8d28cc912d7b2a4434",
+    "after_sha256": "5a1a7dfd90bf89851cb6cd52ab09a85c5aafba21d6addddce02ccfe55e9b9b0e"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeChannelManager.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeChannelManager.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API channel identity; legacy synchronous Java channel factory unchanged.",
+    "before_sha256": "b10b4d02818178838416867fd6e6e9b0293d2bd4ce22154c44fe896f4411b28d",
+    "after_sha256": "e8182945ba6cf88d0b271ceb8bffc411ec5ade53602975fa50dd5ed8384c9358"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/identity/ExchangeTaskAttempt.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeTaskAttempt.java",
+    "action": "move",
+    "token_body_identical": true,
+    "review": "Unified API owns existing fenced task, execution owner and Worker incarnation identity; validation and fields unchanged.",
+    "before_sha256": "98b21d7472e7fa98fdbf4d3f26d1d4f7fc93cdf062dd7d1b44cc5fc63ec110f7",
+    "after_sha256": "c7026e19cf7b1edb4767ca142f7495b5807108db84152ae24d942159278e0cd6"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeTransport.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeTransport.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API task identity; legacy Native handle contract still requires later Native adapter ownership work.",
+    "before_sha256": "96822c35caaeca27eb2d457dedfa6ac394091203008be9db21f3d3e0e411293e",
+    "after_sha256": "4f5541508f51b9dcab5b1c3ae2c6e95f9bf824c3380ed3880f939a994ec8a949"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExternalShuffleTransport.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExternalShuffleTransport.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API consumer attempt; legacy Native transport binding remains in Core and is not promoted into generic API.",
+    "before_sha256": "5a2abcd021322f993ddf294b98e7af787a5f8e490520426dbf334ffab7037a66",
+    "after_sha256": "bccbf52d2e24e68ebb9c64257c94350d5818c37620203fcfaa41cbe4cd2f7a46"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/SpoolBackedExchangeManager.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/SpoolBackedExchangeManager.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API channel identity; Local storage behavior unchanged.",
+    "before_sha256": "94b72d19858d0217e7e9a239dc5615239c8c73473db13446bffc481ebaf8389b",
+    "after_sha256": "dbbcf1c05088e5759c9bed032312e3acc0bc8f90536986b2b290b66f92f7fac2"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/PangrovaPartitionRead.java": {
+    "old_path": null,
+    "action": "add",
+    "token_body_identical": false,
+    "review": "New immutable provider read request with selected channel and exact expected service terminal evidence; defensive checksum, content equality, validation; no credentials/SDK/Native handle or resource ownership.",
+    "before_sha256": null,
+    "after_sha256": "8dcdfbf9b734b3a63f91c0d73c3f485f1d7464b87b39fdf0d748a3738a3d6180"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleClient.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleClient.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API channel/task identity; RPC requests and access/fencing unchanged.",
+    "before_sha256": "2975782b075cca3ab726a9f0c2a8231d794bfdd85d4bde6b46d24ced171c000f",
+    "after_sha256": "baddcd4fd5b7eeba9e4ab85cc1cf40fb4296d1c34df8035c81b2d22e6a583808"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleByteEgress.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleByteEgress.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API task/fence identities; Native callbacks and producer registration unchanged.",
+    "before_sha256": "abd8fe66120ba09f59d2cffd8f81b28431b8721508c23f6fcec2c285d3a1ff14",
+    "after_sha256": "f7d8b93af899ea3dbfb1983fbf22c81840e4f582a703e991a9adae6c078b40a8"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleExchangeSource.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleExchangeSource.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Accept provider-specific in-process read parameters and separate access; preserve terminal verification and renewal; constructor now owns and releases supplied lease for early validation failures as well as RPC failures.",
+    "before_sha256": "7f93d7d4b937e497b2bd5ffac54ecc3fc76f3e520226add3d3b81a3216fd0552",
+    "after_sha256": "19a166e3b5fee96e3cf9d755b9b2ea8994a32d3c61dfc81bb8c6955c2cf223d6"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShufflePartitionStats.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShufflePartitionStats.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use Protocol manifest accumulator; counters and completed batch semantics unchanged.",
+    "before_sha256": "b89be3c4e617603309251e8ecfef8e96a0c4cb7270642510b873f141e145b7f5",
+    "after_sha256": "7f1261a9f1681d35c3d243a496b39de896c4aa08cf3b29f45081886f2f45bc61"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API task identity; push stream lifecycle unchanged.",
+    "before_sha256": "6bdedd320d4828b6e7be97ce2fbd0e6ccdec800e5d750eab11a5b28d9b56c5e9",
+    "after_sha256": "ceea302ea6b97d228541a129187d16cda2e2b470102fcd11bcec086775406767"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleTaskEgress.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleTaskEgress.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API task identity; producer and resource lifecycle unchanged.",
+    "before_sha256": "ee4a81f7e88890000e265b756d9f7d86feaa60201285d78ba1641165c6e7f397",
+    "after_sha256": "8a4f793faf60c165f88f6b01155273e32c869aae4e883a67e19c4c0552aaf456"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RenewableShuffleAccess.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RenewableShuffleAccess.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API task identity; renewal and authority checks unchanged.",
+    "before_sha256": "51f927304ed7c040b2a2db62aceadc764a6c8f50bc791263c8e415316774c61e",
+    "after_sha256": "8101892c1dd97fcd521bde9c2199d906652a4ce809306ec288984019284f02a1"
+  },
+  "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use Protocol manifest accumulator; sequence, checksum and terminal validation unchanged.",
+    "before_sha256": "513624a878c93dfc5d0133b36be77f34ef893db2e530950f186184f4d981d9e7",
+    "after_sha256": "8d0eb367c7235df7170df5100c87029c6d16b73173cb54272bee6ba5921f0974"
+  },
+  "pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/ShuffleServiceEngine.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/ShuffleServiceEngine.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Service uses shared Protocol checksums and no longer depends on Core; SQL, authority, commit and read state transitions unchanged.",
+    "before_sha256": "f891e3aa46525979c7391c7c6434476fae297a65fdf06a8e7dd5d0439d1ae2d4",
+    "after_sha256": "d5510d3f4d5b858b4b20eea0fcd10d21a9e2524de75e9440141bd4f4053a0b22"
+  },
+  "pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/TestExchangeTransport.java": {
+    "old_path": "pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/TestExchangeTransport.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Test kit fixture uses API identity; no production execution behavior added.",
+    "before_sha256": "135a185b60f620efc5d17dfa9609c1e51ddd120c5a1e66719108a33d27607a59",
+    "after_sha256": "7ab97d8f301ca8c88ec63986c1303023953a5f147c0702a011bfbb263a6e09fb"
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/ExchangeProtocolMapper.java": {
+    "old_path": "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/ExchangeProtocolMapper.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Worker adapter translates legacy Native binding into provider read parameters without credentials, endpoints or Native handles; existing Proto mapping unchanged.",
+    "before_sha256": "e3d1a8925fc7568a111a2f684df2f3de3faf400dc7844814f3f2b111ac59e0bc",
+    "after_sha256": "1d977ff224868ef0fd43781babad0391cfec82c576e8eac22e6b6c76139d7be9"
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/NativeExchangeTransport.java": {
+    "old_path": "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/NativeExchangeTransport.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Pass provider read parameters, separate current access and actual borrowed channel to remote reader; Native commands, ingress and lifecycle unchanged.",
+    "before_sha256": "58188c7c82e3f677ce5c954fa28657a684487e676e9ee11bddf15988c07126fb",
+    "after_sha256": "d7257e40395665316346918d67b44daf58fee9dfb87e75f78f11107afee5c590"
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceConverter.java": {
+    "old_path": "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceConverter.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use API task/fence identity; incoming protocol validation and Native binding mapping unchanged.",
+    "before_sha256": "89c41937a2a29bd2d9c2d465cad831da4da18b72bbb132d74e2fd115b2f70318",
+    "after_sha256": "29421856747501ae02218fb020b1a51760465e7e2303bbd305e13a1a77df6d0c"
+  }
+}

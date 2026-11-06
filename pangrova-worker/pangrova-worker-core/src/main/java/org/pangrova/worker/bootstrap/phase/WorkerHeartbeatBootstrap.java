@@ -62,6 +62,7 @@ public final class WorkerHeartbeatBootstrap {
                 refs.taskManager().observeControlEpoch(epoch);
             }
         });
+        sender.setFencedCallback(() -> refs.taskManager().fenceAdmission());
         sender.setReRegistrationCallback(() -> {
             try {
                 register(config, refs);
@@ -169,7 +170,7 @@ public final class WorkerHeartbeatBootstrap {
         }
         return new HeartbeatPayload(config.workerId(), pressure, 0.0,
                 runningTasks, availableMemory, nativeSnapshot.usedBytes, nativeSnapshot.capacityBytes,
-                cachedFilePaths, 0L, 0L, 0L, 0L, tenantMemoryBytes, tenantActiveQueries);
+                cachedFilePaths, 0L, 0L, 0L, 0L, tenantMemoryBytes, tenantActiveQueries, refs.taskManager().workerExecutionIdentity());
     }
 
     private static NativeMemorySnapshot collectNativeMemorySnapshot() {

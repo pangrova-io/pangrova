@@ -1,8 +1,10 @@
 package org.pangrova.coordinator.indexing.ddl;
 
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.config.IndexingConfig;
@@ -12,22 +14,22 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.AlterIndexStatement;
-import org.pangrova.parser.ast.statement.CreateIndexStatement;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.AlterIndexStatement;
+import org.pangrova.parser.api.ast.statement.CreateIndexStatement;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.lang.reflect.Proxy;
 import java.time.Instant;
@@ -44,8 +46,8 @@ class IndexDdlReadAuthorizationTest {
 
     private static final Identifier TABLE = Identifier.of("cat", "sch", "tbl");
     private static final UserIdentity USER = new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH);
-    private static final CoordinatorSessionContext SESSION =
-            new CoordinatorSessionContext("q-index", Map.of(), USER, "tenant-a");
+    private static final QuerySession SESSION =
+            new QuerySession("q-index", Map.of(), USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     private IndexDdlExecutor executor;
     private IndexBuildCoordinator builder;

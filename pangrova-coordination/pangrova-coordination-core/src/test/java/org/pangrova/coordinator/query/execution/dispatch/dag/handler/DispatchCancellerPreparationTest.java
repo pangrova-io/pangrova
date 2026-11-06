@@ -2,10 +2,10 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.v2.TaskKind;
 
 import static org.assertj.core.api.Assertions.assertThat;

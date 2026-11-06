@@ -1,35 +1,35 @@
 package org.pangrova.coordinator.query.execution.dispatch.task.file;
 
+import org.pangrova.query.core.session.SessionTableNames;
 import java.util.List;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.statement.TableResolver;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.persistence.file.api.space.FileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpaceType;
 
 /** Shared resolution rules for Volume and Stage metadata tasks. */
 final class FileSpaceTaskSupport {
 
     private FileSpaceTaskSupport() {}
 
-    static QualifiedTableName resolve(Identifier name, CoordinatorSessionContext session) {
-        return TableResolver.resolveTableRef(name.parts(), session);
+    static QualifiedTableName resolve(Identifier name, QuerySession session) {
+        return SessionTableNames.resolveTableRef(name.parts(), session);
     }
 
     /** SHOW accepts no qualifier, a schema, or catalog.schema. */
-    static Scope resolveScope(List<String> parts, CoordinatorSessionContext session) {
+    static Scope resolveScope(List<String> parts, QuerySession session) {
         return switch (parts.size()) {
-            case 0 -> new Scope(TableResolver.defaultCatalog(session),
-                    TableResolver.defaultSchema(session));
-            case 1 -> new Scope(TableResolver.defaultCatalog(session), parts.get(0));
+            case 0 -> new Scope(SessionTableNames.defaultCatalog(session),
+                    SessionTableNames.defaultSchema(session));
+            case 1 -> new Scope(SessionTableNames.defaultCatalog(session), parts.get(0));
             case 2 -> new Scope(parts.get(0), parts.get(1));
             default -> throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "SHOW accepts an optional schema or catalog.schema qualifier");
@@ -48,7 +48,7 @@ final class FileSpaceTaskSupport {
                         + ref.table());
     }
 
-    static UserIdentity requireUser(CoordinatorSessionContext session) {
+    static UserIdentity requireUser(QuerySession session) {
         UserIdentity user = session == null ? null : session.userIdentity();
         if (user == null) {
             throw new AccessDeniedException("Authenticated volume or stage principal is required");

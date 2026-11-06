@@ -289,7 +289,7 @@ DESCRIBE prod.analytics.orders;
 ### CREATE VIEW
 
 ```sql
-CREATE VIEW [IF NOT EXISTS] view_name AS
+CREATE [OR REPLACE] VIEW [IF NOT EXISTS] view_name AS
 SELECT ...;
 ```
 
@@ -302,6 +302,17 @@ FROM prod.analytics.users
 WHERE created_at >= TIMESTAMP '2024-01-01 00:00:00';
 ```
 
+Creation requires `CREATE_VIEW` on the target relation (normally granted on its schema).
+`CREATE OR REPLACE` additionally requires `ALTER` on that relation, even if it is currently
+absent. `OR REPLACE` cannot be combined with `IF NOT EXISTS`. Plain CREATE fails on an
+existing name; IF NOT EXISTS atomically preserves its definition. Only OR REPLACE may
+replace it. Source queries retain invoker authorization; creation does not grant access
+to source tables.
+
+Current Iceberg view definitions are scoped to the live connector instance and are lost
+when it closes or restarts. This is limited, non-durable view support; it does not publish
+Iceberg catalog view metadata. Paimon and Lance view creation remain unsupported.
+
 ### DROP VIEW
 
 ```sql
@@ -313,6 +324,10 @@ DROP VIEW [IF EXISTS] view_name;
 ```sql
 DROP VIEW IF EXISTS prod.analytics.active_users;
 ```
+
+DROP requires `DROP` privilege on the target, including `IF EXISTS`. Missing names fail
+unless IF EXISTS is specified. Authentication and an access-control provider are required
+for both CREATE and DROP; the optional clauses never bypass authorization.
 
 ### SHOW VIEWS
 
@@ -547,3 +562,28 @@ FROM prod.analytics.orders
 GROUP BY user_id
 HAVING SUM(amount) > 10000;
 ```
+
+## Tenant membership
+
+```sql
+GRANT TENANT "Tenant.One" TO "user@example.com";
+REVOKE TENANT "Tenant.One" FROM "user@example.com";
+```
+
+The tenant identifier is its exact ID, not its display name or a catalog/schema name.
+Both names are single identifiers; quote dots or other punctuation. A statement changes
+one principal. GRANT adds MEMBER access; an existing membership in the same tenant is
+preserved. REVOKE removes MEMBER access only. Both return `tenant_id`, `principal` and
+`changed`; a successful authorized replay returns `changed=false`.
+
+The authenticated actor must currently be OWNER or ADMIN of that exact ACTIVE tenant.
+Checks and mutations are atomic. Caller group claims and a previously resolved session
+role do not establish authority. Cross-tenant transfer and removal of OWNER/ADMIN are
+rejected; tenant bootstrap/ownership administration remains a separate trusted operation.
+Namespace restrictions, quotas and tenant properties are unchanged.
+
+Production SQL administration requires authentication and configured PostgreSQL persistence.
+Disabled security, NOOP authentication and an absent database do not select a memory fallback.
+A lost commit acknowledgement is reported as an unknown outcome: confirm current membership
+before another action. Unlike privilege mutation receipts, membership operations do not expose
+a historical per-request receipt; current membership is not proof of a particular request.

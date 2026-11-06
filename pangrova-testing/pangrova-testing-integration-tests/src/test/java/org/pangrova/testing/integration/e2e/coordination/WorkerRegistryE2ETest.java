@@ -4,10 +4,10 @@ import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.TopologyListener;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.persistence.jdbc.coordination.JdbcWorkerRegistry;
-import org.pangrova.metadata.store.jdbc.catalog.EmbeddedDataSource;
+import org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry;
+import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.coordination.WorkerSnapshot;
+import org.pangrova.coordination.api.membership.WorkerSnapshot;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.integration.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.integration.e2e.fixture.RegistryTestSchemaHelper;
@@ -54,7 +54,7 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
     @BeforeEach
     void setUp() throws Exception {
         var pg = RegistryTestSchemaHelper.requirePostgres();
-        dataSource = new EmbeddedDataSource(
+        dataSource = new DriverManagerDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
         MetadataSchemaInitializer.createSchema(dataSource);
         RegistryTestSchemaHelper.truncateAll(dataSource, "worker_registry");
@@ -114,7 +114,7 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
             manager.registerWorker(worker);
 
             // Send heartbeat with updated metrics
-            manager.onHeartbeat("worker-hb", new WorkerManager.HeartbeatData(
+            manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("worker-hb", manager.getWorker("worker-hb").workerExecutionIdentity().admissionDomainId(), manager.getWorker("worker-hb").workerExecutionIdentity().incarnationId()), new WorkerManager.HeartbeatData(
                     MemoryPressure.HIGH, 0.85, 5, 1024L * 1024 * 512));
 
             // Verify DB fields updated

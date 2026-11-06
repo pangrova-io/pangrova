@@ -1,11 +1,11 @@
 package org.pangrova.worker.resource.spill;
 
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -213,7 +213,7 @@ class SpillMetricsTest {
                                                   Supplier<Double> supplier) {
             gaugeNames.add(name);
             gaugeSuppliers.add(supplier);
-            return new ObservableDoubleGauge() {};
+            return () -> gaugeSuppliers.remove(supplier);
         }
 
         @Override

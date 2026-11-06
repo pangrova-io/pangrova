@@ -8,10 +8,10 @@ import org.pangrova.common.exception.StreamQuotaExceededException;
 import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
-import org.pangrova.parser.ast.statement.stream.CreateStreamStatement;
-import org.pangrova.parser.ast.statement.stream.AlterStreamAction;
-import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
-import org.pangrova.parser.ast.statement.stream.DropStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.AlterStreamAction;
+import org.pangrova.parser.api.ast.statement.stream.AlterStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.DropStreamStatement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -312,7 +312,7 @@ public final class StreamDdlExecutor {
         }
     }
 
-    private static String extractName(org.pangrova.parser.ast.Identifier id) {
+    private static String extractName(org.pangrova.parser.api.ast.Identifier id) {
         List<String> parts = id.parts();
         return parts.get(parts.size() - 1);
     }

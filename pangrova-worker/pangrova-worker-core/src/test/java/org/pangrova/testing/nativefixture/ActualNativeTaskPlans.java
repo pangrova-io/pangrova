@@ -2,6 +2,7 @@ package org.pangrova.testing.nativefixture;
 
 import io.substrait.proto.Expression;
 import io.substrait.proto.Plan;
+import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 import io.substrait.proto.Rel;
 import io.substrait.proto.SetRel;
 import io.substrait.proto.Type;
@@ -15,7 +16,7 @@ public final class ActualNativeTaskPlans {
         if (batches < 0 || rowsPerBatch < 0) {
             throw new IllegalArgumentException("Batch and row counts must be nonnegative");
         }
-        var root = Plan.newBuilder().addRelationsBuilder().getRootBuilder().addNames("value");
+        var root = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build()).addRelationsBuilder().getRootBuilder().addNames("value");
         if (batches <= 1) {
             root.setInput(valuesInput(0, batches == 0 ? 0 : rowsPerBatch));
         } else {
@@ -24,7 +25,7 @@ public final class ActualNativeTaskPlans {
                 union.addInputs(valuesInput(Math.multiplyExact(batch, rowsPerBatch), rowsPerBatch));
             }
         }
-        return Plan.newBuilder().addRelations(io.substrait.proto.PlanRel.newBuilder().setRoot(root))
+        return Plan.newBuilder().setVersion(SubstraitProtocolVersion.build()).addRelations(io.substrait.proto.PlanRel.newBuilder().setRoot(root))
                 .build().toByteArray();
     }
 
@@ -44,7 +45,7 @@ public final class ActualNativeTaskPlans {
     /** A small canonical input expands at the actual Native CrossNode, not in Java. */
     public static byte[] largeCross(int sideRows) {
         if (sideRows <= 0) throw new IllegalArgumentException("Cross input must have positive rows");
-        var plan = Plan.newBuilder();
+        var plan = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build());
         var cross = plan.addRelationsBuilder().getRootBuilder().addNames("value")
                 .getInputBuilder().getCrossBuilder();
         cross.setLeft(valuesInput(0, sideRows)).setRight(valuesInput(0, sideRows));
@@ -60,7 +61,7 @@ public final class ActualNativeTaskPlans {
     /** Includes actual successful source batches before the failing CAST source. */
     public static byte[] failingCast(int successfulSources) {
         if (successfulSources < 0) throw new IllegalArgumentException("Successful source count must be nonnegative");
-        var plan = Plan.newBuilder();
+        var plan = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build());
         var project = plan.addRelationsBuilder().getRootBuilder().addNames("value")
                 .getInputBuilder().getProjectBuilder();
         var read = project.getInputBuilder().getReadBuilder();
@@ -77,7 +78,7 @@ public final class ActualNativeTaskPlans {
         selection.getDirectReferenceBuilder().getStructFieldBuilder().setField(0);
         project.getCommonBuilder().getEmitBuilder().addOutputMapping(1);
         if (successfulSources == 0) return plan.build().toByteArray();
-        var combined = Plan.newBuilder();
+        var combined = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build());
         var union = combined.addRelationsBuilder().getRootBuilder().addNames("value")
                 .getInputBuilder().getSetBuilder().setOp(SetRel.SetOp.SET_OP_UNION_ALL);
         for (int source = 0; source < successfulSources; source++) union.addInputs(valuesInput(source, 1));

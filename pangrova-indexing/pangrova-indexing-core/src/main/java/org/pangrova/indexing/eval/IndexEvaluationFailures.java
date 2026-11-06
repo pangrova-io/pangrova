@@ -1,6 +1,6 @@
 package org.pangrova.indexing.eval;
 
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.security.api.error.AccessDeniedException;
 
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;

@@ -13,11 +13,11 @@
  */
 package org.pangrova.coordinator.query.security;
 
-import org.pangrova.planner.DmlWriteTarget;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.DmlWriteTarget;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.util.List;
 import java.util.Map;
@@ -257,7 +257,7 @@ public final class AccessControlEnforcer {
 
     /** Metadata-table contents belong to the base table, never a separate grant. */
     private static String authorizedReadTable(String table) {
-        return org.pangrova.spi.connector.metadata.MetadataTableKind.baseTableName(table);
+        return org.pangrova.connector.api.metadata.MetadataTableKind.baseTableName(table);
     }
 
     private void rejectAnonymous(UserIdentity identity) {

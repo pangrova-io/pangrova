@@ -1,13 +1,14 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.*;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.query.api.statement.StatementCategory;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -23,11 +24,11 @@ class StatementDispatcherAccessControlTest {
     private static final UserIdentity TEST_USER = new UserIdentity(
             "alice", Set.of("analysts"), Map.of(), Instant.now());
 
-    private static final CoordinatorSessionContext SESSION_WITH_USER =
-            new CoordinatorSessionContext("q-ac", Map.of(), TEST_USER, null);
+    private static final QuerySession SESSION_WITH_USER =
+            new QuerySession("q-ac", Map.of(), TEST_USER, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
-    private static final CoordinatorSessionContext SESSION_NO_USER =
-            new CoordinatorSessionContext("q-ac-null", Map.of(), null, null);
+    private static final QuerySession SESSION_NO_USER =
+            new QuerySession("q-ac-null", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     @Test
     void dropTableDeniedByAccessControl() {
@@ -75,6 +76,14 @@ class StatementDispatcherAccessControlTest {
     }
 
     private static final class DenyAllAccessControl implements AccessControl {
+        @Override
+        public void checkCanCreateView(UserIdentity u, String c, String s, String v, boolean replace) {
+            throw new org.pangrova.security.api.error.AccessDeniedException("view creation denied");
+        }
+        @Override
+        public void checkCanDropView(UserIdentity u, String c, String s, String v) {
+            throw new org.pangrova.security.api.error.AccessDeniedException("view drop denied");
+        }
         @Override public void checkCanUpdateTable(UserIdentity u, String c, String s, String t) {
             throw new AccessDeniedException("denied");
         }

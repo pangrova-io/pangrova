@@ -1,15 +1,19 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.coordinator.query.admission.QueryRejectedException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 
 import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.planner.throttle.QueryThrottlingService;
-import org.pangrova.planner.throttle.ThrottlePermit;
+import org.pangrova.planner.core.throttle.QueryThrottlingService;
+import org.pangrova.planner.core.throttle.ThrottlePermit;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
-import org.pangrova.scheduler.api.resource.ClusterAdmissionController;
+import org.pangrova.scheduler.spi.admission.ClusterAdmissionController;
 
 /** Owns query admission reservations until dependent physical execution has drained. */
 @ThreadSafe
@@ -35,9 +39,9 @@ final class QueryAdmission {
                     for (var state : queries) {
                         if (state.physicalCleanupApplied() || !tenantId.equals(state.getTenantId())) continue;
                         concurrent++;
-                        if (state.getState() == QueryStateMachine.State.QUEUED) queued++;
+                        if (state.getState() == QueryState.QUEUED) queued++;
                     }
-                    return new org.pangrova.security.tenant.TenantUsage(concurrent, queued, 0L, 0L);
+                    return new org.pangrova.security.core.tenant.TenantUsage(concurrent, queued, 0L, 0L);
                 });
     }
 
@@ -73,7 +77,7 @@ final class QueryAdmission {
         }
     }
 
-    void checkThrottle(String queryId, CoordinatorSessionContext session) {
+    void checkThrottle(String queryId, QuerySession session) {
         if (throttle == null) return;
         String tenantId = session.tenantId() != null ? session.tenantId() : "default";
         String userId = session.userIdentity() != null ? session.userIdentity().principal() : "anonymous";

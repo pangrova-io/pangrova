@@ -32,12 +32,12 @@ public record DatasetRef(
     public record ColumnLineage(
         String outputColumn,
         List<SourceColumnRef> sourceColumns,
-        org.pangrova.spi.observability.event.QueryLineageMetadata.DerivationKind derivation
+        org.pangrova.query.api.lineage.QueryLineageMetadata.DerivationKind derivation
     ) {
         /** A two-argument direct column reference has identity semantics. */
         public ColumnLineage(String outputColumn, List<SourceColumnRef> sourceColumns) {
             this(outputColumn, sourceColumns,
-                    org.pangrova.spi.observability.event.QueryLineageMetadata.DerivationKind.DIRECT);
+                    org.pangrova.query.api.lineage.QueryLineageMetadata.DerivationKind.DIRECT);
         }
 
         public ColumnLineage {

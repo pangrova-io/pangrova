@@ -6,12 +6,14 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.pangrova.scheduler.admission.StageScheduler;
+import org.pangrova.scheduler.core.admission.StageScheduler;
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger;
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger.RepartitionDecision;
 import org.pangrova.scheduler.api.placement.FaultTolerancePolicy;
 import org.pangrova.scheduler.api.placement.RetryBudget;
-import org.pangrova.shuffle.api.ShuffleCapabilities;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
+
+import static org.pangrova.shuffle.api.capability.ShuffleCapability.CONSUMER_RETRY;
 import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,17 +24,20 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * Extends the base {@link StageScheduler} with fault-tolerant execution (FTE)
  * and adaptive repartitioning capabilities.
  *
- * <p>When a task fails, this scheduler consults the configured
- * {@link FaultTolerancePolicy} and {@link ShuffleCapabilities} to decide
+ * <p>When a consumer fails, this policy helper consults the configured
+ * {@link FaultTolerancePolicy} and {@link ShuffleCapabilityDescriptor} to decide
  * whether to retry the task, recompute the upstream stage, or fail the query.
+ *
+ * <p>This policy helper is not assembled into production DAG execution. Its caller must supply
+ * exchange-specific effective guarantees; it does not validate a receipt or own the live Stage.
  *
  * <h3>Decision matrix</h3>
  * <pre>
- * Policy       | supportsTaskRetry() | Action
+ * Policy       | CONSUMER_RETRY | Action
  * -------------|---------------------|-----------------------------------
  * NONE         | any                 | Fail query immediately
  * TASK_RETRY   | true                | Retry task (up to budget)
- * TASK_RETRY   | false               | Fail query (shuffle too ephemeral)
+ * TASK_RETRY   | false               | Fail query (consumer retry unsupported)
  * STAGE_RETRY  | true                | Retry task first, then stage
  * STAGE_RETRY  | false               | Retry entire upstream stage
  * </pre>
@@ -51,7 +56,7 @@ public class FaultTolerantStageScheduler {
     private final StageScheduler stageScheduler;
     private final FaultTolerancePolicy policy;
     private final RetryBudget retryBudget;
-    private final ShuffleCapabilities shuffleCapabilities;
+    private final ShuffleCapabilityDescriptor shuffleCapabilities;
     private final AdaptiveRepartitionTrigger repartitionTrigger;
 
     // Retry counters: taskId -> attempt count
@@ -67,14 +72,14 @@ public class FaultTolerantStageScheduler {
      * @param stageScheduler       the underlying DAG scheduler for topological ordering
      * @param policy               the fault-tolerance policy to apply
      * @param retryBudget          retry limits and backoff configuration
-     * @param shuffleCapabilities  capabilities of the active shuffle provider
+     * @param shuffleCapabilities  effective guarantees for the exchange, after deployment and publication checks
      * @param repartitionTrigger   optional AQE trigger (nullable — no AQE if null)
      */
     public FaultTolerantStageScheduler(
             StageScheduler stageScheduler,
             FaultTolerancePolicy policy,
             RetryBudget retryBudget,
-            ShuffleCapabilities shuffleCapabilities,
+            ShuffleCapabilityDescriptor shuffleCapabilities,
             AdaptiveRepartitionTrigger repartitionTrigger) {
         this.stageScheduler = checkNotNull(stageScheduler, "stageScheduler must not be null");
         this.policy = checkNotNull(policy, "policy must not be null");
@@ -102,13 +107,15 @@ public class FaultTolerantStageScheduler {
     }
 
     /**
-     * Handles a task failure according to the configured policy and shuffle capabilities.
+     * Evaluates recovery of a consumer against unchanged committed input.
+     * This does not authorize re-execution of a producer or a task that has published output;
+     * those require separate producer-attempt and publication checks.
      *
-     * @param taskId  the failed task identifier
+     * @param taskId  the failed consumer identifier
      * @param stageId the stage containing the failed task
      * @return the recovery action the caller should take
      */
-    public FailureAction handleTaskFailure(String taskId, String stageId) {
+    public FailureAction handleConsumerFailure(String taskId, String stageId) {
         checkNotNull(taskId, "taskId must not be null");
         checkNotNull(stageId, "stageId must not be null");
 
@@ -127,12 +134,12 @@ public class FaultTolerantStageScheduler {
     }
 
     private FailureAction handleTaskRetryPolicy(String taskId, String stageId) {
-        if (!shuffleCapabilities.supportsTaskRetry()) {
+        if (!shuffleCapabilities.supports(CONSUMER_RETRY)) {
             LOG.warn("event=query_fail_no_task_retry taskId={} stageId={} "
-                    + "reason=shuffle_does_not_support_task_retry durability={}",
-                    taskId, stageId, shuffleCapabilities.durability());
+                    + "reason=shuffle_does_not_support_consumer_retry capabilities={}",
+                    taskId, stageId, shuffleCapabilities.capabilities());
             return FailureAction.failQuery(
-                    "Shuffle durability " + shuffleCapabilities.durability()
+                    "Shuffle capabilities " + shuffleCapabilities.capabilities()
                     + " does not support task retry");
         }
         return attemptTaskRetry(taskId, stageId);
@@ -140,7 +147,7 @@ public class FaultTolerantStageScheduler {
 
     private FailureAction handleStageRetryPolicy(String taskId, String stageId) {
         // STAGE_RETRY: try task retry first if shuffle supports it
-        if (shuffleCapabilities.supportsTaskRetry()) {
+        if (shuffleCapabilities.supports(CONSUMER_RETRY)) {
             FailureAction taskAction = attemptTaskRetry(taskId, stageId);
             if (taskAction.type() != FailureActionType.FAIL_QUERY) {
                 return taskAction;

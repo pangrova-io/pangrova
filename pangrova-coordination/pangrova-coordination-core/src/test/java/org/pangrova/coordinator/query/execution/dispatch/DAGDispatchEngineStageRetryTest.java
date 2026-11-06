@@ -1,12 +1,14 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.query.api.stage.StageState;
+
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.RetryStageHandler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.core.stage.StageStateMachine;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig;
 import org.junit.jupiter.api.Test;
@@ -44,12 +46,12 @@ class DAGDispatchEngineStageRetryTest {
         handler.onScheduling(event(stage, "q-retry-1"));
 
         transitionToFailed(stage,
-                new ErrorDetail("EXCHANGE-0001", "ExchangeError", "Exchange source unavailable"));
+                new QueryFailure("EXCHANGE-0001", "ExchangeError", "Exchange source unavailable"));
 
         handler.onFailed(event(stage, "q-retry-1"));
 
         assertThat(stage.retryCount()).isEqualTo(1);
-        assertThat(stage.stateMachine().getState()).isEqualTo(StageStateMachine.State.PLANNED);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.PLANNED);
     }
 
     @Test
@@ -61,7 +63,7 @@ class DAGDispatchEngineStageRetryTest {
         handler.onScheduling(event(stage, "q-noretry"));
 
         transitionToFailed(stage,
-                new ErrorDetail("PARSER-0001", "ParserError", "Syntax error"));
+                new QueryFailure("PARSER-0001", "ParserError", "Syntax error"));
 
         handler.onFailed(event(stage, "q-noretry"));
 
@@ -71,23 +73,23 @@ class DAGDispatchEngineStageRetryTest {
     @Test
     void stageStateMachineResetAllowsRetryFromFailed() {
         StageStateMachine sm = new StageStateMachine("s-1", "q-reset");
-        sm.transitionTo(StageStateMachine.State.SCHEDULING);
-        sm.transitionTo(StageStateMachine.State.RUNNING);
-        sm.transitionTo(StageStateMachine.State.FAILED);
+        sm.transitionTo(StageState.SCHEDULING);
+        sm.transitionTo(StageState.RUNNING);
+        sm.transitionTo(StageState.FAILED);
 
         assertThat(sm.isTerminal()).isTrue();
         assertThat(sm.reset()).isTrue();
-        assertThat(sm.getState()).isEqualTo(StageStateMachine.State.PLANNED);
+        assertThat(sm.getState()).isEqualTo(StageState.PLANNED);
         assertThat(sm.isTerminal()).isFalse();
     }
 
     @Test
     void stageStateMachineResetFailsFromNonTerminal() {
         StageStateMachine sm = new StageStateMachine("s-1", "q-reset-fail");
-        sm.transitionTo(StageStateMachine.State.SCHEDULING);
+        sm.transitionTo(StageState.SCHEDULING);
 
         assertThat(sm.reset()).isFalse();
-        assertThat(sm.getState()).isEqualTo(StageStateMachine.State.SCHEDULING);
+        assertThat(sm.getState()).isEqualTo(StageState.SCHEDULING);
     }
 
     // -- helpers --
@@ -101,26 +103,26 @@ class DAGDispatchEngineStageRetryTest {
         StageNode node = stage.plan();
         StageDAG dag = StageDAG.create(List.of(stage), List.of(node), Map.of(), List.of());
         return new StageLifecycleEvent(stage, dag, queryId,
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext(queryId, Map.of(), null, "tenant-test")));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(
+                        new org.pangrova.query.api.session.QuerySession(queryId, Map.of(), null, "tenant-test", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())));
     }
 
-    private static void transitionToFailed(Stage stage, ErrorDetail error) {
+    private static void transitionToFailed(Stage stage, QueryFailure error) {
         stage.addTaskId("task-1");
-        stage.stateMachine().tryTransitionTo(StageStateMachine.State.SCHEDULING);
-        stage.stateMachine().tryTransitionTo(StageStateMachine.State.RUNNING);
+        stage.stateMachine().tryTransitionTo(StageState.SCHEDULING);
+        stage.stateMachine().tryTransitionTo(StageState.RUNNING);
         stage.onTaskFailed("task-1", error);
         // onTaskFailed may skip FAILED transition if shouldRetry() is true,
         // so force the terminal state for test setup.
-        stage.stateMachine().tryTransitionTo(StageStateMachine.State.FAILED);
+        stage.stateMachine().tryTransitionTo(StageState.FAILED);
     }
 
-    private static org.pangrova.planner.PlanFragment dummyPlan() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyPlan() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

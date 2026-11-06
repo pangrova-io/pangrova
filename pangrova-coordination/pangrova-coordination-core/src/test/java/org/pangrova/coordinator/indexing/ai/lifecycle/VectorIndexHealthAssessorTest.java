@@ -13,9 +13,9 @@
  */
 package org.pangrova.coordinator.indexing.ai.lifecycle;
 
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

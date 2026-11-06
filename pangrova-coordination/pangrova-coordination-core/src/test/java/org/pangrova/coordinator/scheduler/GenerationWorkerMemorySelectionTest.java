@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.OperatorBinding;
@@ -38,11 +38,11 @@ class GenerationWorkerMemorySelectionTest {
                 .setCapability(capability)
                 .setOutputArtifact(ArtifactWriteBinding.newBuilder().setFormat(format))
                 .build();
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
 
         assertThat(scheduler.selectWorkerWithBindings(
-                GIB, List.of(worker), List.of(binding))).contains(worker);
+                GIB, List.of(worker), List.of(binding), WorkerInfo::capabilityInventory)).contains(worker);
         assertThat(scheduler.selectWorkerWithBindings(
-                2 * GIB, List.of(worker), List.of(binding))).isEmpty();
+                2 * GIB, List.of(worker), List.of(binding), WorkerInfo::capabilityInventory)).isEmpty();
     }
 }

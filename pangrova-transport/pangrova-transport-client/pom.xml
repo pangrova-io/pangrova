@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.pangrova</groupId>
+        <artifactId>pangrova-transport</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pangrova-transport-client</artifactId>
+    <name>Pangrova Transport Client</name>
+    <properties>
+        <module.name>org.pangrova.transport.client</module.name>
+    </properties>
+    <description>Arrow IPC decoding and Arrow Flight result fetching for Pangrova clients.
+        Owns the existing REST and result client lifecycle; CLI/JDBC signatures remain Arrow-free.
+        The role-independent Flight server lives in pangrova-transport-flight.</description>
+
+    <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-batch-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
+        </dependency>
+
+        <!-- SPI types: Page, TypedRow, NativePage, PangrovaType (used by BatchSerializer) -->
+
+        <!-- Protocol DTOs (ResultEndpoint) -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-protocol</artifactId>
+        </dependency>
+
+        <!-- Shared utilities used directly by the transport layer -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
+
+        <!-- Public client wire values (ResultEndpoint, ResultProtocol) -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-client-core</artifactId>
+        </dependency>
+
+        <!-- Arrow Flight client for result streaming -->
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-core</artifactId>
+        </dependency>
+
+        <!-- Arrow vector for IPC decoding -->
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+        </dependency>
+
+        <!-- Arrow Netty allocator (runtime) -->
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-netty</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- JSON mapping for the lightweight REST client implementation -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Test dependencies -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-testing-kit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

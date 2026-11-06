@@ -1,14 +1,18 @@
 package org.pangrova.coordinator.query.session;
 
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.api.session.QuerySession;
+
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.connector.api.session.ConnectorSession;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Converts coordinator-internal {@link CoordinatorSessionContext} to other session representations.
+ * Converts coordinator-internal {@link QuerySession} to other session representations.
  *
  * <p>Provides conversion paths:
  * <ul>
@@ -26,7 +30,7 @@ public final class SessionContextConverter {
      * Converts coordinator SessionContext to ConnectorSession SPI interface.
      * Extracts user principal from UserIdentity; catalog/schema from session properties.
      */
-    public static ConnectorSession toConnectorSession(CoordinatorSessionContext ctx) {
+    public static ConnectorSession toConnectorSession(QuerySession ctx) {
         return toConnectorSession(ctx, extractProperty(ctx, "catalog"),
                 extractProperty(ctx, "schema"), false);
     }
@@ -37,12 +41,12 @@ public final class SessionContextConverter {
      * or the session may have no default catalog at all.
      */
     public static ConnectorSession toConnectorSession(
-            CoordinatorSessionContext ctx, String catalog, String schema) {
+            QuerySession ctx, String catalog, String schema) {
         return toConnectorSession(ctx, Optional.of(catalog), Optional.of(schema), true);
     }
 
     private static ConnectorSession toConnectorSession(
-            CoordinatorSessionContext ctx, Optional<String> catalog, Optional<String> schema,
+            QuerySession ctx, Optional<String> catalog, Optional<String> schema,
             boolean bindResolvedTable) {
         String user = extractUser(ctx);
         Map<String, String> props = new HashMap<>(ctx.sessionProperties());
@@ -58,12 +62,12 @@ public final class SessionContextConverter {
         }
         props.remove("tenant_id");
         props.remove("pangrova.tenant_id");
-        props.remove(org.pangrova.planner.mv.DynamicTableRewriter.INTERNAL_EXECUTION_PROPERTY);
+        props.remove(org.pangrova.planner.core.mv.DynamicTableRewriter.INTERNAL_EXECUTION_PROPERTY);
         if (ctx.tenantId() != null && !ctx.tenantId().isBlank()) {
             props.put("tenant_id", ctx.tenantId());
         }
         if (ctx.internalMaterializationExecution()) {
-            props.put(org.pangrova.planner.mv.DynamicTableRewriter.INTERNAL_EXECUTION_PROPERTY, "true");
+            props.put(org.pangrova.planner.core.mv.DynamicTableRewriter.INTERNAL_EXECUTION_PROPERTY, "true");
         }
         ConnectorSession session = new ConnectorSessionAdapter(user, catalog, schema, props,
                 ctx.queryAuthority());
@@ -81,7 +85,7 @@ public final class SessionContextConverter {
      * Converts coordinator SessionContext to metadata SessionContext.
      * Maps coordinator fields to metadata record fields, preserving queryId and tenantId.
      */
-    public static MetadataSessionContext toMetadataSessionContext(CoordinatorSessionContext ctx) {
+    public static MetadataSessionContext toMetadataSessionContext(QuerySession ctx) {
         String user = extractUser(ctx);
         String catalog = ctx.sessionProperties().getOrDefault("catalog", null);
         String schema = ctx.sessionProperties().getOrDefault("schema", null);
@@ -97,23 +101,24 @@ public final class SessionContextConverter {
      * Converts SPI SessionContext to coordinator SessionContext.
      * Preserves user/catalog/schema from SPI into session properties for downstream propagation.
      */
-    public static CoordinatorSessionContext fromSpiSessionContext(
-            String queryId, org.pangrova.common.session.SessionContext spiSession) {
+    public static QuerySession fromSpiSessionContext(
+            String queryId, org.pangrova.common.session.SessionContext spiSession,
+            ExecutionTraceContextFactory traceContexts) {
         Map<String, String> props = new java.util.HashMap<>(spiSession.getProperties());
         spiSession.getCatalog().ifPresent(c -> props.putIfAbsent("catalog", c));
         spiSession.getSchema().ifPresent(s -> props.putIfAbsent("schema", s));
         props.putIfAbsent("user", spiSession.getUser());
-        return new CoordinatorSessionContext(queryId, props, null, null);
+        return new QuerySession(queryId, props, null, null, java.util.Optional.empty(), traceContexts.capture());
     }
 
-    private static String extractUser(CoordinatorSessionContext ctx) {
+    private static String extractUser(QuerySession ctx) {
         if (ctx.userIdentity() != null) {
             return ctx.userIdentity().principal();
         }
         return ctx.sessionProperties().getOrDefault("user", "anonymous");
     }
 
-    private static Optional<String> extractProperty(CoordinatorSessionContext ctx, String key) {
+    private static Optional<String> extractProperty(QuerySession ctx, String key) {
         String value = ctx.sessionProperties().get(key);
         return Optional.ofNullable(value);
     }
@@ -126,7 +131,7 @@ public final class SessionContextConverter {
             Optional<String> catalog,
             Optional<String> schema,
             Map<String, String> properties,
-            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority
+            Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> queryAuthority
     ) implements ConnectorSession {
 
         ConnectorSessionAdapter {
@@ -154,7 +159,7 @@ public final class SessionContextConverter {
         }
 
         @Override
-        public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return queryAuthority;
         }
     }

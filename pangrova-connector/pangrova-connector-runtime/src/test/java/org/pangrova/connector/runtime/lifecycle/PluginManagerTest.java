@@ -71,7 +71,7 @@ class PluginManagerTest {
     private static void writePluginJar(Path jarPath) throws IOException {
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath))) {
             jar.putNextEntry(new JarEntry(
-                    "META-INF/services/org.pangrova.spi.connector.plugin.ConnectorFactory"));
+                    "META-INF/services/org.pangrova.connector.spi.plugin.ConnectorFactory"));
             jar.write((TestConnectorFactory.class.getName() + "\n")
                     .getBytes(StandardCharsets.UTF_8));
             jar.closeEntry();

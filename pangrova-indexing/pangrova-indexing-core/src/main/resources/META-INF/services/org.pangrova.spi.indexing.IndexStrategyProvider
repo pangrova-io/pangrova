@@ -1,9 +1,0 @@
-org.pangrova.indexing.engine.bloom.provider.BloomFilterStrategyProvider
-org.pangrova.indexing.engine.btree.provider.BTreeStrategyProvider
-org.pangrova.indexing.engine.hash.provider.HashStrategyProvider
-org.pangrova.indexing.engine.sparse.provider.SparseStrategyProvider
-org.pangrova.indexing.engine.rtree.provider.RTreeStrategyProvider
-org.pangrova.indexing.engine.gin.provider.GinStrategyProvider
-org.pangrova.indexing.engine.bitmap.provider.BitmapStrategyProvider
-org.pangrova.indexing.engine.prefix.provider.PrefixStrategyProvider
-org.pangrova.indexing.engine.ngram.provider.NGramBloomStrategyProvider

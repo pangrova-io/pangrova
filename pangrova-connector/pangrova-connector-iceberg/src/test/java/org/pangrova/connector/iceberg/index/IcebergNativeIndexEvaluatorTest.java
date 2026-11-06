@@ -2,11 +2,11 @@ package org.pangrova.connector.iceberg.index;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexType;
-import org.pangrova.spi.connector.index.IndexEvalResult;
-import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.spi.connector.index.predicate.RangeQuery;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.api.index.NativeIndexType;
+import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.index.predicate.EqualTo;
+import org.pangrova.connector.api.index.predicate.RangeQuery;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;

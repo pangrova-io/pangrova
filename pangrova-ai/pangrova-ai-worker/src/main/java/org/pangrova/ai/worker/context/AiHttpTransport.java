@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.context;
 
-import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.ai.api.error.AiInvocationException;
 
 import java.io.IOException;
 import java.net.http.HttpClient;

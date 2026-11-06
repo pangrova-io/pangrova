@@ -1,10 +1,12 @@
 package org.pangrova.coordinator.indexing.ddl;
 
-import org.pangrova.persistence.api.generation.job.GenerationJobStore;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.spi.connector.index.SnapshotPinProvider;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
+
+import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.connector.spi.index.SnapshotPinProvider;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.security.api.error.AccessDeniedException;
 
 import java.util.List;
 import java.util.Objects;

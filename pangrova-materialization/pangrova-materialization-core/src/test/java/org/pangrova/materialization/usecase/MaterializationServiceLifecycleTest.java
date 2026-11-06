@@ -20,7 +20,6 @@ import org.pangrova.materialization.domain.CommandId;
 import org.pangrova.materialization.domain.Dependency;
 import org.pangrova.materialization.domain.DependencyKind;
 import org.pangrova.materialization.domain.ExecutionFence;
-import org.pangrova.materialization.domain.Generation;
 import org.pangrova.materialization.domain.GenerationId;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
@@ -54,8 +53,8 @@ import org.pangrova.materialization.port.MaterializationEventType;
 import org.pangrova.materialization.port.PlannedDefinition;
 import org.pangrova.materialization.port.PlanningRequest;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.spi.connector.materialization.MaterializationSourceException;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.api.materialization.SourceRef;
 
 class MaterializationServiceLifecycleTest {
 

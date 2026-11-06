@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.lifecycle;
 
+import org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions;
+
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
@@ -38,12 +40,12 @@ import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
 import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
-import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
-import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
-import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
+import org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions;
+import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceResponse;
@@ -53,24 +55,24 @@ import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.security.authn.AuthenticationManager;
-import org.pangrova.security.authn.oauth2.OAuth2Authenticator;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.security.tenant.ResourceQuota;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.auth.oauth2.OAuth2Authenticator;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.testing.testkit.ContainerTestBase;
@@ -114,7 +116,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
     private static final org.pangrova.shuffle.exchange.ExchangeTransport NO_EXCHANGE =
             new org.pangrova.shuffle.exchange.ExchangeTransport() {
                 @Override public void bindInputs(long executorHandle,
-                        org.pangrova.shuffle.exchange.ExchangeTaskAttempt attempt,
+                        org.pangrova.shuffle.api.identity.ExchangeTaskAttempt attempt,
                         List<org.pangrova.shuffle.exchange.ExchangeInput> inputs) {
                     throw new AssertionError("COPY staging must not bind Native exchange");
                 }
@@ -176,7 +178,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                         var ticket = fixture.admissions.issue(scope, fixture.identity, fixture.anchor);
                         var wireScope = fixture.wire(scope);
                         assertThat(wireScope.commandSha256())
-                                .isEqualTo(JdbcCopySourceReadAdmissions.commandSha256(scope));
+                                .isEqualTo(CopySourceReadAdmissions.commandSha256(scope));
                         var client = CopySourceReadClient.forLoopbackTest(
                                 fixture.baseUri(), authority.secret());
                         var command = CopySourceStagingCommand.forLoopbackTest(
@@ -194,7 +196,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                             var redirected = CopySourceStagingCommand.forLoopbackTest(
                                     client, credentials(), otherBackend, stagingRoot, 1024 * 1024);
                             assertThatThrownBy(() -> redirected.execute(ticket.nonce(), wireScope, preparationBudget(wireScope)))
-                                    .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                                    .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class)
                                     .hasMessageContaining("admitted backend");
                         }
 
@@ -203,7 +205,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                 .redeem(ticket.nonce(), wireScope))
                                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 401");
                         assertThatThrownBy(() -> client.redeem(ticket.nonce(),
-                                fixture.wire(new JdbcCopySourceReadAdmissions.Scope(scope.tenantId(),
+                                fixture.wire(new CopySourceReadAdmissions.Scope(scope.tenantId(),
                                         scope.principal(), scope.profileName(), scope.profileIncarnationId(),
                                         scope.profileRevision(), scope.canonicalSourceUrl(),
                                         "s3://untrusted/copy-managed",
@@ -274,7 +276,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                 var frozenProof = proof;
                                 try (var dispatcher = new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                                        new org.pangrova.observability.sdk.noop.NoOpTracingProvider(), authority.secret())) {
+                                        new org.pangrova.observability.noop.NoOpTracingProvider(), authority.secret())) {
                                     dispatcher.setCopySourceBinder(new org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder(
                                             fixture.admissions, execution -> fixture.anchor));
                                     var wrongSource = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, 0)
@@ -332,7 +334,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                     "s3://copy-source-secret/data/part.parquet", "s3://managed/copy-managed");
             assertThatThrownBy(() -> fixture.admissions.issue(
                     scope, fixture.identity, fixture.anchor))
-                    .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                    .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class)
                     .hasMessageNotContaining(secret);
         }
     }
@@ -552,7 +554,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
         private final OAuth2Authenticator oauth;
         private final AuthenticationManager authentication;
         private final Server server;
-        private final org.pangrova.spi.query.coordination.ExecutionAnchor anchor;
+        private final org.pangrova.query.api.ownership.ExecutionAnchor anchor;
 
         Fixture(BootstrapSecurityAuthority authority) throws Exception {
             var config = authority.config("coordinator-one");
@@ -561,7 +563,6 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
             source.setPassword(config.metadataJdbcConfig().password());
             SchemaMigrationRunner.migrate(source);
             var roles = new JdbcRoleStore(source);
-            roles.initSchema();
             var tenants = new JdbcTenantStore(source);
             tenants.createTenant(new Tenant("tenant-a", "Tenant A", TenantStatus.ACTIVE,
                     new ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0), List.of(), List.of(), null,
@@ -575,10 +576,10 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                     new RowLevelSecurityFilter(new JdbcRowPolicyStore(source)),
                     new ColumnMaskingProcessor(new JdbcColumnMaskStore(source)));
             admissions = JdbcCopySourceReadAdmissions.forLoopbackTest(source, access,
-                    new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
+                    new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence());
             processAuthority = new CoordinatorExecutionAuthority(new JdbcExecutionAnchorStore(source),
                     "coordinator-one", "incarnation-one", Duration.ofMinutes(5));
-            coordination = new HighAvailabilityCoordinationService(new JdbcDistributedLease(source));
+            coordination = new HighAvailabilityCoordinationService(new JdbcDistributedLease(source), processAuthority.backend());
             coordination.bindExecutionAuthority(processAuthority);
             coordination.start("coordinator-one");
             assertThat(coordination.acquireQueryOwnership("copy-http-execution", "coordinator-one")).isTrue();
@@ -610,22 +611,22 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                     "STORAGE_PROFILE", name, null, null, null));
         }
 
-        JdbcCopySourceReadAdmissions.Scope scope(String incarnation, long revision,
+        CopySourceReadAdmissions.Scope scope(String incarnation, long revision,
                                                  String sourceUrl, String managedRoot,
                                                  String managedBackendIdentitySha256) {
             return scope("incoming", incarnation, revision, sourceUrl, managedRoot,
                     managedBackendIdentitySha256);
         }
 
-        JdbcCopySourceReadAdmissions.Scope scope(String name, String incarnation, long revision,
+        CopySourceReadAdmissions.Scope scope(String name, String incarnation, long revision,
                                                  String sourceUrl, String managedRoot) {
             return scope(name, incarnation, revision, sourceUrl, managedRoot, "a".repeat(64));
         }
 
-        JdbcCopySourceReadAdmissions.Scope scope(String name, String incarnation, long revision,
+        CopySourceReadAdmissions.Scope scope(String name, String incarnation, long revision,
                                                  String sourceUrl, String managedRoot,
                                                  String managedBackendIdentitySha256) {
-            return new JdbcCopySourceReadAdmissions.Scope("tenant-a", "alice", name,
+            return new CopySourceReadAdmissions.Scope("tenant-a", "alice", name,
                     incarnation, revision, sourceUrl, managedRoot, managedBackendIdentitySha256,
                     "copy-http-execution",
                     "staging-one", anchor.ownerId(), anchor.ownerIncarnation(),
@@ -633,7 +634,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                     System.currentTimeMillis() + 60_000);
         }
 
-        CopySourceReadHttp.Scope wire(JdbcCopySourceReadAdmissions.Scope scope) {
+        CopySourceReadHttp.Scope wire(CopySourceReadAdmissions.Scope scope) {
             return new CopySourceReadHttp.Scope(scope.tenantId(), scope.principal(),
                     scope.profileName(), scope.profileIncarnationId(), scope.profileRevision(),
                     scope.canonicalSourceUrl(), scope.managedStorageRootUri(),

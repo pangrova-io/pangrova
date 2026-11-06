@@ -15,6 +15,14 @@ All worker-side configuration keys, as defined by `WorkerOptions` in the
 > mapping, see [System Overview §4.6](../architecture/overview.md#46-canonical-protocol-mapping).
 
 
+The internal Java `WorkerHttpConfig` distinguishes `bindHost` (listening interface)
+from `workerHost` (advertised identity). Existing process assembly retains the
+wildcard bind default; native loopback fixtures explicitly bind `127.0.0.1` and
+advertise the actual assigned port. This is not a new YAML configuration key.
+A failed HTTP startup releases acquired endpoint resources and preserves the
+original startup exception, with cleanup failures suppressed. An unstarted Jetty
+context is stopped directly instead of attempting graceful request drain.
+
 ## worker (root)
 
 | Key | Type | Default | Description |
@@ -63,7 +71,7 @@ claim publication, and Iceberg commit reconciliation are connected.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `worker.task.result-retention-seconds` | int | `300` | Seconds to retain query results before expiration. Clients must fetch results before this window expires |
+| `worker.task.result-retention-seconds` | int | `300` | Terminal task retention in seconds, measured from terminal state; already consumed/released results or expired result authority may be cleaned earlier |
 
 ## worker.shuffle
 
@@ -435,3 +443,9 @@ upgrading LOCAL writers, drain or abort existing multipart sessions and deploy a
 consistent writer cohort. Legacy unbound sessions cannot complete. An uncertain
 completion must not be replayed over a later writer; inspect the published object
 and start a new authorized upload when needed.
+
+Task retention is handled by the Worker task registry cleanup owner. The retention sweep runs
+every `min(60, worker.task.result-retention-seconds)` seconds; cleanup occurs on a sweep after
+the retention age is exceeded. This setting does not extend result authorization deadlines
+or impose a new timeout on running tasks. Resource release must succeed before registry removal.
+The timer is closed with the task subsystem, including partial bootstrap failure.

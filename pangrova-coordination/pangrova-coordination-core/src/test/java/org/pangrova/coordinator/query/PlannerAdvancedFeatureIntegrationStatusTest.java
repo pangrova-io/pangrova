@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.planner.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -127,7 +127,7 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
         @DisplayName("MaterializedViewRewritePass delegates to CalciteMaterializedViewRewriter")
         void rewritePassUsesCalciteRewriter() {
             Set<String> fieldTypeNames = Arrays.stream(
-                            org.pangrova.planner.optimization.MaterializedViewRewritePass.class
+                            org.pangrova.planner.core.optimization.MaterializedViewRewritePass.class
                                     .getDeclaredFields())
                     .map(f -> f.getType().getSimpleName())
                     .collect(Collectors.toSet());
@@ -158,30 +158,30 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
         @Test
         @DisplayName("AQE classes are loadable")
         void adaptiveQueryClassesExist() throws ClassNotFoundException {
-            Class.forName("org.pangrova.planner.adaptive.AdaptiveQueryExecutor");
-            Class.forName("org.pangrova.planner.adaptive.PartitionCoalescer");
-            Class.forName("org.pangrova.planner.adaptive.SkewJoinHandler");
-            Class.forName("org.pangrova.planner.adaptive.ShuffleStageStats");
-            Class.forName("org.pangrova.planner.adaptive.ReOptimizationResult");
+            Class.forName("org.pangrova.planner.core.adaptive.AdaptiveQueryExecutor");
+            Class.forName("org.pangrova.planner.core.adaptive.PartitionCoalescer");
+            Class.forName("org.pangrova.planner.core.adaptive.SkewJoinHandler");
+            Class.forName("org.pangrova.planner.core.adaptive.ShuffleStageStats");
+            Class.forName("org.pangrova.planner.api.adaptive.ReOptimizationResult");
         }
 
         @Test
         @DisplayName("DPP classes are loadable")
         void dynamicPartitionPruningClassesExist() throws ClassNotFoundException {
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilterGenerator");
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilterApplicator");
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilterRegistry");
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilter");
-            Class.forName("org.pangrova.planner.runtimefilter.PartitionRange");
+            Class.forName("org.pangrova.planner.core.runtimefilter.RuntimeFilterGenerator");
+            Class.forName("org.pangrova.planner.core.runtimefilter.RuntimeFilterApplicator");
+            Class.forName("org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry");
+            Class.forName("org.pangrova.planner.core.runtimefilter.RuntimeFilter");
+            Class.forName("org.pangrova.planner.core.runtimefilter.PartitionRange");
         }
 
         @Test
         @DisplayName("Materialized View classes are loadable")
         void materializedViewClassesExist() throws ClassNotFoundException {
-            Class.forName("org.pangrova.planner.mv.CalciteMaterializedViewRewriter");
-            Class.forName("org.pangrova.planner.mv.MaterializedViewPlanEligibility");
-            Class.forName("org.pangrova.planner.mv.MaterializedViewRewriteCatalog");
-            Class.forName("org.pangrova.planner.optimization.MaterializedViewRewritePass");
+            Class.forName("org.pangrova.planner.core.mv.CalciteMaterializedViewRewriter");
+            Class.forName("org.pangrova.planner.core.mv.MaterializedViewPlanEligibility");
+            Class.forName("org.pangrova.planner.core.mv.MaterializedViewRewriteCatalog");
+            Class.forName("org.pangrova.planner.core.optimization.MaterializedViewRewritePass");
         }
     }
 }

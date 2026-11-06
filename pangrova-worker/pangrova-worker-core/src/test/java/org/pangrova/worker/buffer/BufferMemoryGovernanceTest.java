@@ -14,7 +14,6 @@ import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 import org.pangrova.worker.task.ActualTaskManagerFixture;
 import org.pangrova.worker.task.TaskInfo;
-import org.pangrova.worker.task.TaskManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

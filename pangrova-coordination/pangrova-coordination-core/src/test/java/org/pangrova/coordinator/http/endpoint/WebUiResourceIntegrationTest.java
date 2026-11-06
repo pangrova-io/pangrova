@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.http.endpoint;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -7,7 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -46,7 +48,7 @@ class WebUiResourceIntegrationTest {
 
     @BeforeAll
     static void startServer() throws Exception {
-        workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         queryManager = org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture.create(
                 workerManager, new org.pangrova.coordinator.task.CoordinatorTaskTracker());
 
@@ -89,9 +91,9 @@ class WebUiResourceIntegrationTest {
         String queryId = "test-query-001";
         QueryStateMachine sm = new QueryStateMachine();
         sm.setTenantId("test-user");
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine(queryId, sm);
 
         try {
@@ -111,8 +113,8 @@ class WebUiResourceIntegrationTest {
             assertThat(query.get("durationMs")).isNotNull();
             assertThat(query.get("createdAt")).isNotNull();
         } finally {
-            sm.tryTransition(QueryStateMachine.State.FINISHING);
-            sm.tryTransition(QueryStateMachine.State.FINISHED);
+            sm.tryTransition(QueryState.FINISHING);
+            sm.tryTransition(QueryState.FINISHED);
         }
     }
 

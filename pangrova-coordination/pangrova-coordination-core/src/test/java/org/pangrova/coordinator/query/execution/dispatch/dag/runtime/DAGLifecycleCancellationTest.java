@@ -5,14 +5,14 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
+import org.pangrova.execution.core.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
-import org.pangrova.shuffle.spool.LocalShuffleLifecycleManager;
+import org.pangrova.coordinator.query.execution.dispatch.shuffle.UnavailableExternalShuffleLifecycle;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestObservability;
 
 import java.util.List;
@@ -199,7 +199,7 @@ class DAGLifecycleCancellationTest {
     private static DAGLifecycleController lifecycle(RemoteTaskDispatcher dispatcher) {
         return new DAGLifecycleController(dispatcher,
                 new DispatchCanceller(dispatcher, new CoordinatorTaskTracker()),
-                LocalShuffleLifecycleManager.INSTANCE, null, List.of());
+                UnavailableExternalShuffleLifecycle.INSTANCE, null, List.of());
     }
 
     private static void assertCancelled(DAGExecutionState state) {

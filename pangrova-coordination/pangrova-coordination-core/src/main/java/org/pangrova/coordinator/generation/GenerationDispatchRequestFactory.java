@@ -1,8 +1,10 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
-import org.pangrova.spi.generation.job.GenerationLease;
-import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
+import org.pangrova.generation.api.page.GenerationLease;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.OperatorBinding;
 
@@ -12,9 +14,11 @@ import java.util.Objects;
 
 /** Binds an issued page through current-authority preparation and the ordinary leaf request path. */
 final class GenerationDispatchRequestFactory {
+    private final ExecutionTraceContextFactory traceContexts;
     private final GenerationStageExecutionStore stages;
 
-    GenerationDispatchRequestFactory(GenerationStageExecutionStore stages) {
+    GenerationDispatchRequestFactory(GenerationStageExecutionStore stages, ExecutionTraceContextFactory traceContexts) {
+        this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.stages = Objects.requireNonNull(stages, "stages");
     }
 
@@ -27,7 +31,7 @@ final class GenerationDispatchRequestFactory {
             }
             var request = DurablePartitionRequest.prepare(evidence,
                     new DurablePartitionRequest.ExchangeAccess(lease.executionAnchor().fencingToken(),
-                            List.of(), null, null), now);
+                            List.of(), null, null), now, traceContexts.capture());
             return new PreparedRequest(request.taskRequest().getAttempt().getTaskId(),
                     evidence.authority().dispatchSpec().maxMemoryBytes(),
                     request.taskRequest().getOperatorBindingsList(), request);

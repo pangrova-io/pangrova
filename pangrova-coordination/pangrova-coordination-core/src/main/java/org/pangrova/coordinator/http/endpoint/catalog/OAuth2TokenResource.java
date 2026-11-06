@@ -7,9 +7,9 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
-import org.pangrova.security.authn.AuthenticationManager;
-import org.pangrova.spi.security.authn.AuthenticationRequest;
-import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.api.authentication.AuthenticationRequest;
+import org.pangrova.security.api.authentication.AuthenticationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

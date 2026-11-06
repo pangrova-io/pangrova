@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.property.query.execution.split;
 
+import org.pangrova.query.api.task.QuerySplit;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,8 +14,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.split.SplitFetchResult;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -90,7 +91,7 @@ class SplitFetchFailFastPropertyTest {
 
     @Property(tries = 10)
     void successResultCarriesSplitsAndNoFailure(@ForAll("splitCounts") int count) {
-        List<SplitFetcher.SplitWithPaths> splits = createSplitWithPathsList(count);
+        List<QuerySplit> splits = createSplitWithPathsList(count);
 
         SplitFetchResult result = SplitFetchResult.success(splits);
 
@@ -112,7 +113,7 @@ class SplitFetchFailFastPropertyTest {
     void limitReachedResultCarriesPartialSplitsAndReason(
             @ForAll("splitCounts") int count,
             @ForAll("failureReasons") String reason) {
-        List<SplitFetcher.SplitWithPaths> splits = createSplitWithPathsList(count);
+        List<QuerySplit> splits = createSplitWithPathsList(count);
 
         SplitFetchResult result =
                 SplitFetchResult.limitReached(splits, reason);
@@ -171,10 +172,10 @@ class SplitFetchFailFastPropertyTest {
         return splits;
     }
 
-    private static List<SplitFetcher.SplitWithPaths> createSplitWithPathsList(int count) {
-        List<SplitFetcher.SplitWithPaths> splits = new ArrayList<>(count);
+    private static List<QuerySplit> createSplitWithPathsList(int count) {
+        List<QuerySplit> splits = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            splits.add(new SplitFetcher.SplitWithPaths("data-" + i, List.of()));
+            splits.add(new QuerySplit("data-" + i, List.of()));
         }
         return splits;
     }

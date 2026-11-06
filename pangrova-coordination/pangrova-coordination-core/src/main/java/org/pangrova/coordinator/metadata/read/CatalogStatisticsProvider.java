@@ -1,15 +1,15 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.table.statistics.TableControlStatisticsService;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.planner.stats.StatisticsCollector.ConnectorStatisticsProvider;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.table.core.statistics.TableControlStatisticsService;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.planner.core.statistics.StatisticsCollector.ConnectorStatisticsProvider;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Bridges query-local {@link PlanningReadBindings} to {@link ConnectorStatisticsProvider},
- * enabling the planner's {@link org.pangrova.planner.stats.StatisticsCollector}
+ * enabling the planner's {@link org.pangrova.planner.core.statistics.StatisticsCollector}
  * to read real statistics from Iceberg/Paimon connectors.
  *
  * <p>Statistics collected by {@code ANALYZE TABLE} take precedence while they still

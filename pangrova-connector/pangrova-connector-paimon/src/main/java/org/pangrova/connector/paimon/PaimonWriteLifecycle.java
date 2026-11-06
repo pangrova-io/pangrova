@@ -14,10 +14,10 @@ import org.pangrova.connector.paimon.write.PaimonNativePhysicalWriteProvider;
 import org.pangrova.connector.paimon.write.PaimonPhysicalWriteAllocations;
 import org.pangrova.protocol.write.PhysicalFileWriteReceipts;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.util.List;
 import java.util.Map;
@@ -38,7 +38,7 @@ final class PaimonWriteLifecycle {
 
     PaimonNativePhysicalWriteProvider physical() { return physical; }
 
-    PaimonOutputTableHandle create(org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata metadata) {
+    PaimonOutputTableHandle create(org.pangrova.connector.api.metadata.table.ConnectorTableMetadata metadata) {
         PaimonTableHandleFactory.requireWriteDeclarationSupported(metadata.properties());
         var schema = org.pangrova.connector.paimon.schema.PaimonSchemaBuilder.buildPaimonSchema(metadata);
         var id = Identifier.create(metadata.table().schema(), metadata.table().table());
@@ -58,7 +58,7 @@ final class PaimonWriteLifecycle {
         }
     }
 
-    void deleteByFilter(PaimonTableHandle handle, org.pangrova.spi.connector.metadata.DeleteFilter filter) {
+    void deleteByFilter(PaimonTableHandle handle, org.pangrova.connector.api.metadata.DeleteFilter filter) {
         PaimonDeleteByFilterExecutor.execute(load(handle.schemaName(), handle.tableName()),
                 filter, handle.schemaName(), handle.tableName());
     }
@@ -166,8 +166,8 @@ final class PaimonWriteLifecycle {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon commit context does not match the bound write handle");
         }
-        String expected = org.pangrova.spi.connector.coordination.WriteCommitFingerprint.compute(
-                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(context.executionId(),
+        String expected = org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.compute(
+                new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(context.executionId(),
                         context.tenantId(), catalogName,
                         new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
                         handle.writeMode(), handle.baseSnapshotId(), context.writeOutputBinding(),

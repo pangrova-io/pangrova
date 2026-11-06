@@ -17,13 +17,13 @@ import static org.pangrova.ai.worker.invocation.AiInvocationFailures.invalidInpu
 
 import java.util.List;
 
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
-import org.pangrova.spi.ai.invocation.AiInvocationResult;
-import org.pangrova.spi.ai.embedding.BlobReference;
-import org.pangrova.spi.ai.embedding.EmbeddingBatchResult;
-import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
-import org.pangrova.spi.ai.invocation.EmbeddingProvider;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.invocation.AiInvocationResult;
+import org.pangrova.ai.api.embedding.BlobReference;
+import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
+import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
+import org.pangrova.ai.spi.embedding.EmbeddingProvider;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 import org.pangrova.ai.worker.embedding.EmbeddingResultValidator;
 

@@ -15,7 +15,6 @@ package org.pangrova.ai.control.store.jdbc.embedding;
 
 import org.pangrova.ai.control.embedding.DimensionMismatchException;
 import org.pangrova.ai.control.embedding.EmbeddingModelAlterTarget;
-import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
 import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.ai.control.embedding.EmbeddingModelRevision;
 import org.pangrova.ai.control.embedding.ModelAlreadyExistsException;
@@ -23,14 +22,14 @@ import org.pangrova.ai.control.embedding.ModelDropUnavailableException;
 import org.pangrova.ai.control.embedding.ModelNotFoundException;
 import org.pangrova.ai.control.embedding.ModelUpdateRequest;
 import org.pangrova.ai.control.embedding.VersionConflictException;
-import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import javax.sql.DataSource;
 
@@ -71,7 +70,6 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
     void setUp() throws Exception {
         dataSource = MigratedPostgres.create();
         roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of(ADMIN_GROUP));
         roles.createRole(Role.of(USAGE_GROUP));
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));
@@ -111,7 +109,6 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
         org.flywaydb.core.Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration").load().migrate();
         roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of(ADMIN_GROUP));
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));
         registry = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_GROUP, USAGE_GROUP);

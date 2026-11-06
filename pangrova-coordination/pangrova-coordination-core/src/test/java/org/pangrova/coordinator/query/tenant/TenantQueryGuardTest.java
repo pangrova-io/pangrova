@@ -2,16 +2,16 @@ package org.pangrova.coordinator.query.tenant;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.security.tenant.ResourceQuota;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.security.tenant.QuotaChecker;
-import org.pangrova.security.tenant.TenantQuotaExceededException;
-import org.pangrova.security.tenant.TenantUsage;
-import org.pangrova.security.tenant.TenantResolver;
-import org.pangrova.security.tenant.InMemoryTenantStore;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.core.tenant.QuotaChecker;
+import org.pangrova.security.core.tenant.TenantQuotaExceededException;
+import org.pangrova.security.core.tenant.TenantUsage;
+import org.pangrova.security.core.tenant.TenantResolver;
+import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

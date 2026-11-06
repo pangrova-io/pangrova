@@ -15,7 +15,7 @@ namespace {
 namespace proto = pangrova::protocol::v2;
 
 substrait::Plan scalarPlan(const std::string& name) {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* declaration = plan.add_extensions()->mutable_extension_function();
   declaration->set_function_anchor(0);
   declaration->set_name(name);

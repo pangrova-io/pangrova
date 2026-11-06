@@ -1,0 +1,168 @@
+--- pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PangrovaCoordinatorMain.java before
++++ pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PangrovaCoordinatorMain.java
+@@ -9,6 +9,7 @@
+ import org.pangrova.config.PangrovaConfiguration;
+ import org.pangrova.config.ConfigValidator;
+ import org.pangrova.config.CoordinatorOptions;
++import org.pangrova.scheduler.api.resource.SpillBudget;
+ import org.pangrova.config.YamlConfigLoader;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+@@ -137,7 +138,11 @@
+         var queryConfig = new CoordinatorBootstrapConfig.QueryConfig(
+                 config.getDuration(CoordinatorOptions.QUERY_TIMEOUT).toSeconds(),
+                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TIMEOUT_CHECK_INTERVAL_SECONDS,
+-                CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TASK_TIMEOUT_SECONDS);
++                CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TASK_TIMEOUT_SECONDS,
++                CoordinatorBootstrapConfig.QueryConfig.DEFAULT_QUERY_RETENTION_SECONDS,
++                CoordinatorBootstrapConfig.QueryConfig.DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS,
++                new SpillBudget(
++                        config.getLong(CoordinatorOptions.TASK_SPILL_MAX_BYTES)));
+         return new CoordinatorBootstrapConfig(
+                 core, buildFeatureFlags(config), queryConfig,
+                 loadTransportConfig(config),
+--- pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java before
++++ pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java
+@@ -221,7 +221,7 @@
+     public record QueryConfig(
+             long queryTimeoutSeconds, long timeoutCheckIntervalSeconds, long taskTimeoutSeconds,
+             long queryRetentionSeconds, long queryCleanupIntervalSeconds,
+-            SpillConfig spillConfig) {
++            SpillBudget spillBudget) {
+ 
+         public static final long DEFAULT_QUERY_TIMEOUT_SECONDS = 300;
+         public static final long DEFAULT_TIMEOUT_CHECK_INTERVAL_SECONDS = 10;
+@@ -231,23 +231,23 @@
+         public static final long DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS = 60;
+ 
+         public QueryConfig {
+-            if (spillConfig == null) spillConfig = SpillConfig.DISABLED;
+-        }
+-
+-        /** Backward-compatible constructor without retention/cleanup/spill params. */
++            if (spillBudget == null) spillBudget = SpillBudget.DISABLED;
++        }
++
++        /** Uses default retention, cleanup, and disabled task spilling. */
+         public QueryConfig(long queryTimeoutSeconds, long timeoutCheckIntervalSeconds,
+                            long taskTimeoutSeconds) {
+             this(queryTimeoutSeconds, timeoutCheckIntervalSeconds, taskTimeoutSeconds,
+                     DEFAULT_QUERY_RETENTION_SECONDS, DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS,
+-                    SpillConfig.DISABLED);
+-        }
+-
+-        /** Backward-compatible constructor without spill config. */
++                    SpillBudget.DISABLED);
++        }
++
++        /** Uses disabled task spilling. */
+         public QueryConfig(long queryTimeoutSeconds, long timeoutCheckIntervalSeconds,
+                            long taskTimeoutSeconds, long queryRetentionSeconds,
+                            long queryCleanupIntervalSeconds) {
+             this(queryTimeoutSeconds, timeoutCheckIntervalSeconds, taskTimeoutSeconds,
+-                    queryRetentionSeconds, queryCleanupIntervalSeconds, SpillConfig.DISABLED);
++                    queryRetentionSeconds, queryCleanupIntervalSeconds, SpillBudget.DISABLED);
+         }
+ 
+         /** Returns the default query execution configuration. */
+@@ -258,7 +258,7 @@
+                     DEFAULT_TASK_TIMEOUT_SECONDS,
+                     DEFAULT_QUERY_RETENTION_SECONDS,
+                     DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS,
+-                    SpillConfig.DISABLED);
++                    SpillBudget.DISABLED);
+         }
+     }
+ 
+@@ -383,20 +383,6 @@
+         }
+     }
+ 
+-    /** Spill budget configuration for worker task resource limits. */
+-    public record SpillConfig(long maxSpillBytes, String spillDirectory) {
+-        public static final SpillConfig DISABLED = new SpillConfig(0, "");
+-
+-        public SpillConfig {
+-            if (maxSpillBytes < 0) {
+-                throw new IllegalArgumentException("maxSpillBytes must be >= 0, got " + maxSpillBytes);
+-            }
+-            if (spillDirectory == null) {
+-                spillDirectory = "";
+-            }
+-        }
+-    }
+-
+     /**
+      * L2 result cache configuration.
+      * When {@code redisUrl} is non-null, Redis is used as the L2 cache backend.
+@@ -443,8 +429,7 @@
+ 
+     /** Returns the spill budget derived from query config, defaulting to disabled. */
+     public SpillBudget spillBudget() {
+-        SpillConfig spill = query.spillConfig();
+-        return new SpillBudget(spill.maxSpillBytes(), spill.spillDirectory());
++        return query.spillBudget();
+     }
+ 
+     // -- Legacy constants for backward compatibility in tests --
+--- pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/resource/SpillBudget.java before
++++ pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/resource/SpillBudget.java
+@@ -3,20 +3,21 @@
+ import org.pangrova.common.api.annotation.Experimental;
+ 
+ /**
+- * Immutable spill budget configuration propagated from coordinator to workers.
++ * Immutable per-task spill byte grant. Zero disables task spilling.
+  *
+- * @param maxSpillBytes  maximum bytes a task may spill to disk (0 = spill disabled)
+- * @param spillDirectory directory path for spill files (empty = spill disabled)
++ * <p>A positive grant permits spilling only when the Worker enables its local spill policy.
++ * The Worker owns the directory and may enforce a smaller positive node limit. This value
++ * neither selects a remote filesystem path nor reserves disk space.</p>
++ *
++ * @param maxSpillBytes maximum bytes one task may spill; non-negative, zero disables spilling
+  */
+-@Experimental(reason = "Task spill budget value; deployment-specific path policy is validated by process assembly")
+-public record SpillBudget(long maxSpillBytes, String spillDirectory) {
++@Experimental(reason = "Per-task spill grant; Worker-local policy determines the effective limit")
++public record SpillBudget(long maxSpillBytes) {
++    public static final SpillBudget DISABLED = new SpillBudget(0);
+ 
+     public SpillBudget {
+         if (maxSpillBytes < 0) {
+             throw new IllegalArgumentException("maxSpillBytes must be >= 0, got " + maxSpillBytes);
+         }
+-        if (spillDirectory == null) {
+-            spillDirectory = "";
+-        }
+     }
+ }
+--- pangrova-config/src/main/java/org/pangrova/config/CoordinatorOptions.java before
++++ pangrova-config/src/main/java/org/pangrova/config/CoordinatorOptions.java
+@@ -204,6 +204,15 @@
+             .withDescription("Maximum number of concurrently executing queries")
+             .build();
+ 
++    /** Per-task disk grant; the Worker independently owns the local directory. */
++    public static final ConfigOption<Long> TASK_SPILL_MAX_BYTES =
++            ConfigOptions.key("coordinator.task.spill.max-bytes")
++                    .longType()
++                    .defaultValue(0L)
++                    .withDescription("Maximum spill bytes per task; zero disables task spilling. "
++                            + "Requires worker.spill.directory and is bounded by Worker-local policy.")
++                    .build();
++
+     // ---- Worker Management ----
+ 
+     public static final ConfigOption<Duration> WORKER_HEARTBEAT_TIMEOUT =
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java before
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java
+@@ -340,7 +340,7 @@
+         return new DefaultWorkerSelector(
+                 deps.workerManager(), deps.taskScheduler(), splitMgr.cacheAffinityAssigner(),
+                 deps.spillBudget() != null
+-                        ? deps.spillBudget() : new SpillBudget(0, ""),
++                        ? deps.spillBudget() : new SpillBudget(0),
+                 deps.embeddingModelRegistry());
+     }
+ 

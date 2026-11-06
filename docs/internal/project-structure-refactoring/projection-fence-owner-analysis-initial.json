@@ -1,0 +1,52 @@
+{
+  "stage": "owner-analysis",
+  "scope": "Report generation only, not a passed full verify gate; all selected 53 tests passed. Schema normalization later changed to end in explicit List.copyOf and has separate ownership regression.",
+  "modules": [
+    {
+      "module": "pangrova-metadata-api",
+      "bugs": [],
+      "errors": {
+        "missingClasses": "5",
+        "errors": "0"
+      }
+    },
+    {
+      "module": "pangrova-persistence-catalog-api",
+      "bugs": [
+        {
+          "type": "EI_EXPOSE_REP",
+          "class": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation$ObserveSchemas",
+          "message": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation$ObserveSchemas.schemas() may expose internal representation by returning MetadataProjectionMutation$ObserveSchemas.schemas"
+        }
+      ],
+      "errors": {
+        "missingClasses": "4",
+        "errors": "0"
+      }
+    },
+    {
+      "module": "pangrova-persistence-catalog-postgresql",
+      "bugs": [],
+      "errors": {
+        "missingClasses": "5",
+        "errors": "0"
+      }
+    },
+    {
+      "module": "pangrova-metadata-core",
+      "bugs": [],
+      "errors": {
+        "missingClasses": "18",
+        "errors": "0"
+      }
+    },
+    {
+      "module": "pangrova-testing-kit",
+      "bugs": [],
+      "errors": {
+        "missingClasses": "13",
+        "errors": "0"
+      }
+    }
+  ]
+}

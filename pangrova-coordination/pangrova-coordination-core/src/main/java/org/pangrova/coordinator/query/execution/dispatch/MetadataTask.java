@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.api.ast.Statement;
 
 /**
  * Executes a single metadata operation (CREATE TABLE, DROP TABLE, SHOW TABLES, etc.).

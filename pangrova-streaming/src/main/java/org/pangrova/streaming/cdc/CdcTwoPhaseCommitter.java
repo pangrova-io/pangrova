@@ -1,6 +1,6 @@
 package org.pangrova.streaming.cdc;
 
-import org.pangrova.spi.connector.data.write.model.WriteResult;
+import org.pangrova.connector.api.write.WriteResult;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcWriteResult;
 import org.pangrova.streaming.commit.CdcCommitCoordinator;

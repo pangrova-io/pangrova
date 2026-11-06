@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.context;
 
+import org.pangrova.ai.spi.invocation.PhysicalAttempt;
+
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -9,7 +11,7 @@ import java.util.concurrent.Flow;
 
 /** Charges delivered entity buffers before the accumulating subscriber retains them. */
 final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<String> {
-    private final AiProviderCallContext.PhysicalAttempt attempt;
+    private final PhysicalAttempt attempt;
     private final HttpResponse.BodySubscriber<String> delegate =
             HttpResponse.BodySubscribers.mapping(
                     HttpResponse.BodySubscribers.ofByteArray(),
@@ -18,7 +20,7 @@ final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<Strin
     private boolean finished;
     private Thread delivering;
 
-    AiBoundedBodySubscriber(AiProviderCallContext.PhysicalAttempt attempt) {
+    AiBoundedBodySubscriber(PhysicalAttempt attempt) {
         this.attempt = attempt;
     }
 

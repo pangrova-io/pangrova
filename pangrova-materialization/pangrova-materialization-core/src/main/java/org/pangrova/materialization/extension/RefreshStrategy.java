@@ -3,7 +3,7 @@ package org.pangrova.materialization.extension;
 import org.pangrova.materialization.domain.RefreshKind;
 import org.pangrova.materialization.domain.StrategyId;
 import org.pangrova.materialization.domain.RefreshPlan;
-import org.pangrova.spi.connector.materialization.ChangeProof;
+import org.pangrova.connector.api.materialization.ChangeProof;
 
 /**
  * Pluggable strategy that decides whether, and how, a refresh can execute.

@@ -55,29 +55,49 @@ sidebar_label: "Connector Design"
 
 ### 1.2 Core SPI Interfaces
 
-Plugin construction and capability aggregation live in `spi.plugin`:
-`Connector`, `ConnectorFactory` and `ConnectorContext`. Bundled connector JARs
-register the new `org.pangrova.connector.spi.plugin.ConnectorFactory` service name.
-Connector SPI keeps row and cell values in `data.value`; page/block adapters and
-metadata contracts depend on those values without depending on page-source or
-page-sink factories. `coordination` owns `DistributedWriteCommitContext` and
-`NativeWriteFinalization` together with commit journal contracts. The metadata
-facade consumes those commit values; the journal does not depend on the facade.
+All Connector contracts are owned by **`pangrova-connector-api`**. The artifact
+contains `org.pangrova.connector.api` caller values and `org.pangrova.connector.spi`
+implementation contracts. `Connector` and `ConnectorFactory` are in `.spi.plugin`;
+`ConnectorContext` is in `.api.plugin`. Provider JARs register
+`META-INF/services/org.pangrova.connector.spi.plugin.ConnectorFactory`.
+The old `org.pangrova.spi.connector` classes are removed, without forwarding wrappers.
+
+The API artifact depends only on Common, Types and Batch API. Engine types and scalar
+values belong to `org.pangrova.types`; pages, blocks and `RowPageConverter` belong to
+`org.pangrova.batch.api`. SDK types and complex codecs do not enter the contract closure.
+`FixedSplitSource`, `PartitionDiscoveryCache`, `ConnectorExceptionTranslator` and
+`ConnectorBinaryPageCodec` belong to Connector Runtime. Only fixed splits and the
+binary codec currently have production callers; the cache/error helpers are not
+proof of a wired capability. `IndexPredicateCodec` belongs to `indexing-codec` and
+is not currently used by a production transport.
 
 `ConnectorQueryAuthority` owns operation admission and drain evidence without
-depending on metadata. `metadata.ConnectorMetadataScope` adds retained metadata
+depending on metadata. `.spi.metadata.ConnectorMetadataScope` adds retained metadata
 and cleanup to the same state-bound query owner. Metadata consumers require that
 capability from the exact session authority; they cannot derive it from a query ID
 or a raw task-issuance authority. Cleanup retains failed resources for retry and
 continues to require closed admission and physical operation drain.
 
-`data.type` defines type values and signatures. Conversion to concrete primitive
-types lives in `data.type.mapping.PangrovaTypeMapping`. SQL type-name conversion
-uses locale-independent casing; parameterized VECTOR parsing rejects extra type
-name characters and trailing text. These source-package changes require consumers
-to rebuild against the matching SPI artifact; persisted protocol fields are unchanged.
-Block region checks reject overflowing offset/length combinations before copying
-or creating an encoded region; an empty region at the end remains valid.
+External commit receipts and declarations belong to `.api.commit`. Query-owned
+`WriteCommitJournal`, `WriteCommitOutbox`, `WriteCommitEntry`, `WriteCommitFingerprint`
+and `JournalWriteException` belong to `persistence-query-api`. The same-connection
+`ExecutionTransactionFence` is in `persistence-jdbc-api`, not the Connector API.
+`SourceCatalogDeployment`, `SourceTableKey`, `SourceTableState` and `SourceSnapshot`
+are standalone API values; the `ManagedSourceCatalog` extension consumes them.
+This split preserves the original validation, authority checks and SQL transaction owners.
+
+`FixedSplitSource` snapshots its input, returns at most the positive requested batch
+size, and supports idempotent close. `ConnectorBinaryPageCodec` uses **CUSTOM_BINARY**,
+not Arrow IPC. It supports null/string/int/long/double/boolean; unsupported values
+fail explicitly instead of becoming strings. Decoding rejects wrong format, dimensions,
+version, truncation, excessive counts/lengths, invalid UTF-8/booleans and trailing bytes.
+Nonempty rows require at least one distinct column name. It borrows the input page; its caller closes that page. Columnar row conversion preserves
+binary values as typed array entries because an untyped slice cannot distinguish bytes
+from strings. General Arrow encoding remains in Batch Arrow.
+
+Factory compatibility/role negotiation and generic Plugin Runtime extraction remain
+separate work. The design diagrams below are conceptual; their version/conflict-management
+boxes do not constitute evidence that those target capabilities are implemented.
 
 ```java
 // ConnectorFactory - connector factory

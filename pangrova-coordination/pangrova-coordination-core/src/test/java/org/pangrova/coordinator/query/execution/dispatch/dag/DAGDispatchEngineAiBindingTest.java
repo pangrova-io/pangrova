@@ -1,12 +1,15 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
+
+
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
 
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.planner.AiInvocationPlanHint;
-import org.pangrova.planner.SerializedPlanFragment;
+import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.protocol.v2.CapabilityLimits;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.LogicalType;
@@ -15,7 +18,7 @@ import org.pangrova.protocol.v2.ModelCapabilityContract;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.VersionedRef;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;

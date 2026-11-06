@@ -13,8 +13,8 @@ import org.pangrova.shuffle.exchange.ExchangeEndpoint;
 import org.pangrova.shuffle.exchange.ExchangeInput;
 import org.pangrova.shuffle.exchange.ExchangeInputTransport;
 import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
-import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 
 import java.util.List;
 

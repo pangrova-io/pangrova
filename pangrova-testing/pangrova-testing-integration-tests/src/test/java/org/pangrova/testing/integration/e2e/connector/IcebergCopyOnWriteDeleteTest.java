@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.connector;
 
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.iceberg.IcebergMetadata;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

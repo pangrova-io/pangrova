@@ -1,26 +1,30 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
+import org.pangrova.execution.core.authority.StageExecutionContext;
+
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
 import org.pangrova.coordinator.generation.template.PersistedStagePlan;
-import org.pangrova.coordinator.generation.template.FrozenStageBindings;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
+import org.pangrova.generation.core.execution.template.FrozenStageBindings;
+import org.pangrova.query.core.task.DispatchResult;
+import org.pangrova.query.core.stage.QueryExecutionScope;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.spi.generation.job.GenerationJobKey;
-import org.pangrova.spi.generation.job.GenerationLease;
-import org.pangrova.spi.generation.execution.GenerationStageGraph;
-import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
-import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PreparedExecution;
-import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PartitionProgress;
-import org.pangrova.persistence.api.generation.exchange.GenerationStageExchangeStore;
-import org.pangrova.planner.ShuffleType;
-import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.SerializedPlanFragment;
-import org.pangrova.planner.StageTransfer;
+import org.pangrova.generation.api.identity.GenerationJobKey;
+import org.pangrova.generation.api.page.GenerationLease;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedExecution;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionProgress;
+import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
+import org.pangrova.planner.core.analysis.ShuffleType;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.planner.core.analysis.StageTransfer;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.BatchSerde;
@@ -51,8 +55,9 @@ public final class DurableStageRuntime {
     public record Dependencies(GenerationStageExecutionStore stages, WorkerManager workers,
             TaskScheduler scheduler, LongSupplier controlTerm, Duration leaseDuration,
             BiConsumer<PreparedTask, CompletableFuture<DispatchResult>> dispatched,
-            GenerationStageExchangeStore exchanges) {
+            GenerationStageExchangeStore exchanges, ExecutionTraceContextFactory traceContexts) {
         public Dependencies {
+            java.util.Objects.requireNonNull(traceContexts, "traceContexts");
             java.util.Objects.requireNonNull(stages, "stages");
             java.util.Objects.requireNonNull(workers, "workers");
             java.util.Objects.requireNonNull(scheduler, "scheduler");
@@ -81,7 +86,7 @@ public final class DurableStageRuntime {
         var epochs = new HashMap<Integer, Long>();
         execution.exchanges().forEach(value -> epochs.put(value.registration().producerStageId(),
                 value.registration().planEpoch()));
-        control = new StageExecutionContext.Durable(execution.authority(), epochs);
+        control = new StageExecutionContext.Durable(execution.authority(), epochs, dependencies.traceContexts().capture());
     }
 
     /** Immutable authority and allocation epochs owning this exact replay, not a synthetic query session. */
@@ -90,16 +95,16 @@ public final class DurableStageRuntime {
     }
 
     /** Hooks real register/finalize RPCs into the existing current-authority metadata barrier. */
-    public org.pangrova.coordinator.generation.DurableStageShuffleEvidence shuffleEvidence() {
-        return new org.pangrova.coordinator.generation.DurableStageShuffleEvidence(dependencies.exchanges(),
+    public org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.DurableStageShuffleEvidence shuffleEvidence() {
+        return new org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.DurableStageShuffleEvidence(dependencies.exchanges(),
                 execution.authority().dispatchSpec(), execution.job().sourceSnapshot(),
-                () -> org.pangrova.spi.generation.execution.GenerationExecutionOwner.from(
+                () -> org.pangrova.generation.api.execution.GenerationExecutionOwner.from(
                         execution.authority().executionAnchor()));
     }
 
     /** No live SQL, time-travel override, write declaration or discovery intent is admitted during replay. */
-    public DAGQueryContext queryContext() {
-        return new DAGQueryContext(control, Map.of(), null, List.of(), null, List.of(),
+    public QueryExecutionScope queryContext() {
+        return new QueryExecutionScope(control, Map.of(), null, List.of(), null, List.of(),
                 Optional.empty(), Optional.empty());
     }
 
@@ -166,8 +171,9 @@ public final class DurableStageRuntime {
             var request = DurablePartitionRequest.prepare(evidence, exchange, now, control.traceContext());
             var bindings = request.taskRequest().getOperatorBindingsList();
             long memory = request.taskRequest().getResourceGrant().getNativeMemoryBytes();
-            var selected = bindings.isEmpty() ? dependencies.scheduler().selectWorker(memory, snapshot)
-                    : dependencies.scheduler().selectWorkerWithBindings(memory, snapshot, bindings);
+            var eligible = dependencies.scheduler().eligibleWorkersForTenant(memory, snapshot, job.tenantId());
+            var selected = bindings.isEmpty() ? dependencies.scheduler().selectWorker(memory, eligible)
+                    : dependencies.scheduler().selectWorkerWithBindings(memory, eligible, bindings, WorkerInfo::capabilityInventory);
             var worker = selected.orElseThrow(() -> new IllegalStateException(
                     "No actual Worker satisfies the frozen stage capabilities and admitted resource grant"));
             return new PreparedTask(evidence.lease(), worker, request);

@@ -22,8 +22,8 @@ package org.pangrova.streaming.cdc;
  *
  * <h2>Implementations</h2>
  * <ul>
- *   <li>Production: backed by {@link org.pangrova.persistence.api.coordination.DistributedLease},
- *       reading the current epoch from the lease store.</li>
+ *   <li>Lease-backed validation must be supplied by process assembly. This contract
+ *       does not construct or select a lease provider.</li>
  *   <li>Test: {@link #NOOP} for pipelines that do not require fencing.</li>
  * </ul>
  *

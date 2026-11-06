@@ -2,7 +2,7 @@ package org.pangrova.streaming.store.jdbc.checkpoint;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.StaleEpochException;
-import org.pangrova.common.jdbc.JdbcSupport;
+import org.pangrova.persistence.jdbc.support.JdbcSupport;
 import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;

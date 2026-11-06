@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.query.cache;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,33 +15,29 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.SplitProperties;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.SplitProperties;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -67,7 +62,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CacheWarmupServiceTest {
 
-    private static org.pangrova.coordinator.query.session.CoordinatorSessionContext statementSession() {
+    private static org.pangrova.query.api.session.QuerySession statementSession() {
         return context();
     }
 
@@ -328,7 +323,7 @@ class CacheWarmupServiceTest {
     private static CatalogRegistry buildRegistry(MemTableStore store) {
         ConnectorHandleFactory chf = desc ->
                 new ConnectorCatalogHandle(desc, new MemConnector(store));
-        CatalogRegistry reg = new CatalogRegistry(new EmptyMetadataStore(), chf, null, null);
+        CatalogRegistry reg = new CatalogRegistry(new EmptyCatalogDeployments(), chf, null, null);
         reg.register(new CatalogDescriptor(
                 CATALOG, CatalogType.CONNECTOR, "memory",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -465,18 +460,17 @@ class CacheWarmupServiceTest {
         }
     }
 
-    private static final class EmptyMetadataStore implements MetadataStore {
-        @Override public void saveTable(TableMetadata m) { }
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) { }
-        @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String n) { }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) { }
-        @Override public void recordSyncHistory(SyncResult r) { }
-        @Override public void saveSchemas(String c, List<String> s) { }
+
     }
 }

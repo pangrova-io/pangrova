@@ -1,0 +1,1004 @@
+[
+  {
+    "artifact": "pangrova-metadata-api",
+    "class_count": 74,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/metadata/spi/cache/L2CacheStore.class",
+        "sha256": "0f4a10d6ee0b687ad625c1e906e789f21203bfe292aeb35b813b15651499c27c"
+      },
+      {
+        "class": "org/pangrova/metadata/spi/cache/InvalidationProgressRegistry.class",
+        "sha256": "c05ff18e25f023ec0d7b5ee08fae2b4e12beaa1e4285016be7afda33286ae684"
+      },
+      {
+        "class": "org/pangrova/metadata/spi/catalog/ConnectorHandleFactory.class",
+        "sha256": "a942cf5a94f6acc1b0df4c725bfdc26b7584c7cb8d03ebe8e32b01e717923615"
+      },
+      {
+        "class": "org/pangrova/metadata/spi/catalog/FederationHandleFactory.class",
+        "sha256": "4db7183141c75b5a0d4f1550b548c10091337e9a079bbc5e02a5372c8b14b767"
+      },
+      {
+        "class": "org/pangrova/metadata/spi/dependency/MetadataMaintenanceHook.class",
+        "sha256": "7986b31695de9c48d295c1d4983f7e8ea23bec41f8570c66f0fcd04d6e3c7b57"
+      },
+      {
+        "class": "org/pangrova/metadata/spi/event/MetadataEventListener.class",
+        "sha256": "8c9e078aa63a1eadfb3a37fb9f150a53c6d7a79a6a7de89d53adfdd8a9e2355b"
+      },
+      {
+        "class": "org/pangrova/metadata/api/relation/ObjectKind.class",
+        "sha256": "0eea8da9d512cb8fd937df4eb9d6dd22ed814262ac679afe5b666438b1b301ee"
+      },
+      {
+        "class": "org/pangrova/metadata/api/relation/DependencyViolationException.class",
+        "sha256": "5e9d521a05158f35dca4d2eccc5fee830a393a6144083adc4b5bdef0888acbf8"
+      },
+      {
+        "class": "org/pangrova/metadata/api/relation/ObjectDependency.class",
+        "sha256": "0aa2a9122c1dd3657efac2bbad3c6cf062da9152e11325a06c7a935c0f8f559a"
+      },
+      {
+        "class": "org/pangrova/metadata/api/relation/ObjectRef.class",
+        "sha256": "4c1b4663b35b142d5fdc94902ed756f1ac2df9ebf8411fb895157db55429d088"
+      },
+      {
+        "class": "org/pangrova/metadata/api/relation/CascadePolicy.class",
+        "sha256": "0ee0d3129539b8e2f0d466b1e1b87e462adab7493093c17717c2c25147a53045"
+      },
+      {
+        "class": "org/pangrova/metadata/api/cache/InvalidationEntry$InvalidationType.class",
+        "sha256": "0fe414fe7de3732c98424e964a9a57dba80889d974d829fee158af28b41eb45b"
+      },
+      {
+        "class": "org/pangrova/metadata/api/cache/CacheStats.class",
+        "sha256": "221ba8eb705b87044e61281a25b27bfa3bed484e2da2ada7d4fb03b24b449305"
+      },
+      {
+        "class": "org/pangrova/metadata/api/cache/TableInvalidationListener.class",
+        "sha256": "5ad4fae178b3bbb62fb87d4a96c15f9ef953bfc0174a47412b104ef1ae41ad04"
+      },
+      {
+        "class": "org/pangrova/metadata/api/cache/MetadataCache.class",
+        "sha256": "9a0fd13a92be437aae74b8cb32d4fbe0f41a577f56266911ab81fdf4e79fbf76"
+      },
+      {
+        "class": "org/pangrova/metadata/api/cache/InvalidationEntry.class",
+        "sha256": "96a58174adaedcf03f375adb8037312d9679c8d06e9fb0ee0e9d0f22d38c761b"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/MetadataChange$ChangeType.class",
+        "sha256": "847720136cc6d39574cd6e2e7fbc9760bb89887a635daff165e6822a43eeed0f"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/CatalogState.class",
+        "sha256": "81bef10357272984fb3dcd166803be05cce950fb18e8eeae0deae8283d2ca76a"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/SyncResult.class",
+        "sha256": "face5c4b522bf5a6da2e4c6e30ad441f7c94bace5487436732cb044e572049aa"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/CatalogHealthStatus.class",
+        "sha256": "ddbb4da14f1816198a28c8baf58fdfb3da3b5c4412bdcb66a26c80d043de0014"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/MetadataChangeBatch.class",
+        "sha256": "535433cf31678e1960b1ef389cfbc049161b5d33a98f125ec73d8b5fab6fcee4"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/CatalogDescriptor.class",
+        "sha256": "6c9a1e842974c48cfd67f20b8b56bc2b20b64a1d4c22045e2fd5a1252db2a8eb"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/MetadataChange.class",
+        "sha256": "3209fa43f8391f1f87d7237458cfc17a4f3ed22f3edafd7ef8c6098c069ce86d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/CatalogType.class",
+        "sha256": "fb9f04f86ee3c082607648fdf30d7154a214dc60be5954ffc4342225fd87e6be"
+      },
+      {
+        "class": "org/pangrova/metadata/api/catalog/CatalogHandle.class",
+        "sha256": "dc735192b98ac57c7fb7d2f8b2d365361d4f4ff9a041c2010f5c675a10039bde"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/SchemaValidationResult.class",
+        "sha256": "fe5d83cc742fd058b98f18f89441e63129068020635c29ac2355649e44ba1961"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/StrictnessLevel.class",
+        "sha256": "1ae708895a6906fc91ad224128162092fdb329f4cbe9748febc3e72badc19442"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/SchemaChange$DropColumn.class",
+        "sha256": "5625c8a8c40c240dfb178d1d017f49ee102441bb0934def203c1b80f8f520419"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/SchemaChange$ChangeNullability.class",
+        "sha256": "f5779ba49d1afd7d2523c100ab2e25c625ed12ede4d95e7a3a34086e1ad1698a"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/SchemaChange$RenameColumn.class",
+        "sha256": "b9f1828716702c45ee3250746f30029d2eaac0b3fff3f6b622c8aead30aa8eeb"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/SchemaChange.class",
+        "sha256": "ee77769fdee3346fb7bb6594c6a778da3caa0995c5b06b452cc83c99737e6050"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/SchemaChange$ChangeType.class",
+        "sha256": "1ebab21cfc98cfbaddb257acc0aa075414ed038ce412db2c2d54f228b5e03554"
+      },
+      {
+        "class": "org/pangrova/metadata/api/schema/SchemaChange$AddColumn.class",
+        "sha256": "a46bcb230d3aafd9530373fe2f9284893f5642cd19e175c89eef7b544e83afed"
+      },
+      {
+        "class": "org/pangrova/metadata/api/resolution/ResolvedTable.class",
+        "sha256": "958ca57e0d965acf4261f52d9b5aff1f1de06464a93f80e47fdb7c04683676d3"
+      },
+      {
+        "class": "org/pangrova/metadata/api/resolution/MetadataService.class",
+        "sha256": "4ea6dceba635d05271eb026a92e1d6aee9d8fef2c43e3089115acc807180571f"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/TableAsset.class",
+        "sha256": "0f95b97b98751f3972416ff0027bc302a9f7ee458437cd5370cf2731e29e6180"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/FunctionAsset$Parameter.class",
+        "sha256": "5a77c4ba16ca13c45ee2d688aae06260f579fd4493f1e71d43bcaf70cfa38577"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/TableMetadata.class",
+        "sha256": "636694b0f3bab30c4f48e75400eeb5f4b64adffb2345e7acb4bed40e73466f7d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/VolumeAsset.class",
+        "sha256": "2ad56dc1dbdaa8764918d09cab7805350f6e0afcca75244252b53bb91aa5a4e8"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/ModelAsset.class",
+        "sha256": "8f6ab8cc19f153e384a84158291ffce2a9466ae30f6fea62e60df3ee0db5c15d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/ColumnMetadata.class",
+        "sha256": "99a9ef0de6a3bd1cd8e4cbb2b5bf16a8a451f0fea16c9d9516a7bbc33f5d8c61"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/FunctionAsset.class",
+        "sha256": "26715461ef9dd6271f3a29f72cc5edc076c9e92dba250dcda07e4fd20b821975"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/VolumeAsset$VolumeType.class",
+        "sha256": "c66740e9f5a23c1e6e8e67d8729dec00e8fc29c79d63a31c5c62e5cd355a3abd"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/AssetType.class",
+        "sha256": "a0ef5eb64df878e3715b4e0522d591fce5b5ff50b6fb543af723e6434ad608ed"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/ViewAsset$ViewSecurityMode.class",
+        "sha256": "6c58add615c14b1420966c9de52090e3aa9e88511a7552708452aed3307b6d91"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/QualifiedTableRef.class",
+        "sha256": "3d6c0c5caee2a5d73f84e1cd60f0193b18f62a25d2d326bca84ca4939ac88548"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/ViewAsset.class",
+        "sha256": "e3a0bf691140ab0bd5c2ba4899c4e9c8c32e3e1561cf5dd8d3fef2a016b3077a"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/FunctionAsset$Kind.class",
+        "sha256": "583a70752c7289941280c39bd768cc02542bc109a94c67c998a495ed1af06f9b"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/Asset.class",
+        "sha256": "ddce70b8c0d57d03827a22fbf2e0f329e51ee0446c9cff40a57e79783790d960"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/MaterializedViewAsset.class",
+        "sha256": "995c90112855f8b721cfe026c46008183e0114e676d6a679a16e19a51893a665"
+      },
+      {
+        "class": "org/pangrova/metadata/api/object/ColumnType.class",
+        "sha256": "64567d3c5c70db913360995a04b388a5a35c3fb4bd6040670fc4a83f0b024866"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/MetadataException.class",
+        "sha256": "6ab904ebd12ba6e1cc75291dfa7758a39abbf068c3319bf2d2b24ffe6520b5de"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/MetadataSyncException.class",
+        "sha256": "3a20780e02de63332bfa5e1a6f8a655e7182d1bed3c97626208544d4599da41d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/MetadataResolutionException.class",
+        "sha256": "9ae4241591ce8c901f04e20c4ebe12f8643c15e74a22af94bb248b8c74556b0d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/TableNotFoundException.class",
+        "sha256": "81d1e74d4b2bd42706a43f90c58474dfef967ce37fbefc24a8ea727fbea55eda"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/MetadataSerializationException.class",
+        "sha256": "0bc93be742ade01a2670923b676774ee9f8ab3989b1bcd9e985051c92550933d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/catalog/CatalogNotFoundException.class",
+        "sha256": "7c33b75235ceefff1ebf83c2fa8dca23164aa54e8d2ade08c922a103b08c984d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/catalog/CatalogProviderNotFoundException.class",
+        "sha256": "d71debbdcda0cdf86d3ffe8726b1d05cdba63f868e44eb8e8194d3a4547606e6"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/catalog/CatalogSuspendedException.class",
+        "sha256": "ee2c7fe246de348f7f4761160011813f473d256192f5c2e76a15b294eb15f4ac"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/catalog/CatalogBackendException.class",
+        "sha256": "7fe1bff41a80255929dff9234f0e3c733cb9f014fdc6bbc947d685af18d14f1b"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/catalog/CatalogAccessDeniedException.class",
+        "sha256": "eefcc7896c5e24bd7c7f6809d393bccb74a02106831c355550433ac744d28be3"
+      },
+      {
+        "class": "org/pangrova/metadata/api/error/catalog/CatalogAlreadyExistsException.class",
+        "sha256": "62a1f8e927c08c4939249ef04b29f7dc26c25c4d1e70e500e628e3e40fd3b815"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$MetadataSyncedEvent.class",
+        "sha256": "f51dffae4221e01b202a4c7087d943328700d5ddbc167267f04aa1116f4b0f16"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$CatalogCreatedEvent.class",
+        "sha256": "804976a1ec02b193703d39ca70042e6e81281c756ab8b884f058ca074cbf4cae"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$TableAlteredEvent.class",
+        "sha256": "e433c3f5bf9991e8dec96767e735739ecddc31dfef59508b9e882d50b85446eb"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$TenantImpactScope.class",
+        "sha256": "b9625783fec74fee13a4666186e472076dd1c9f3c5d5bd2ea1c2055076886c88"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$CatalogDroppedEvent.class",
+        "sha256": "2c4e292479ed0226ad3521ccf55fbfacb1845c41dd8eefa52beaaf132ae1f5e2"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$TableCreatedEvent.class",
+        "sha256": "59fbf35188e46748b54979b6ae62a2b54cec02b54981710b4b2db065bab09b2e"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$CatalogStateChangedEvent.class",
+        "sha256": "89f4418934e07ddd8afbe0a859d8300f06755e652448c80f8a6a956247bbad1c"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$ExternalCommitObservedEvent.class",
+        "sha256": "4228b1c8269566bcb3e19143e32a832bc96c277d6956c51ca9944dd3b963ae25"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$TableDroppedEvent.class",
+        "sha256": "9bab2c0aac2c32fc12b7fc10312bf209abab69e9dbb7853d4ac7818d16265653"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent.class",
+        "sha256": "36c3c0db186bb0592a6f97545f146680b0a0ba106080e9bdc8c9168055504ada"
+      },
+      {
+        "class": "org/pangrova/metadata/api/event/MetadataEvent$SchemaEvolutionEvent.class",
+        "sha256": "28690beeca544369d88608d588042d9e800ab2537cec73373e4e97285a31cf2d"
+      },
+      {
+        "class": "org/pangrova/metadata/api/session/MetadataSessionContext.class",
+        "sha256": "e93b134358eb48f6729884bc678ec1b3c2a468737ce15f7715cad7af1756ac8a"
+      }
+    ]
+  },
+  {
+    "artifact": "pangrova-metadata-codec",
+    "class_count": 2,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/metadata/codec/json/MetadataJsonMapper.class",
+        "sha256": "2d353b7ec15c32cf09a7f3dd4da6d8eda9a2de0c76ab04a018881a384819dfec"
+      },
+      {
+        "class": "org/pangrova/metadata/codec/table/TableMetadataSerializer.class",
+        "sha256": "3b57feea4cb0a0f4b811e46b2adc23e19607e6865ac2bad75f7a746e54fc7c6b"
+      }
+    ]
+  },
+  {
+    "artifact": "pangrova-metadata-core",
+    "class_count": 96,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/metadata/outbox/MetadataSyncService.class",
+        "sha256": "f15230cc3a9a3fdeb53b0d747a2b73de3fbc3497c10bb94b8255e8a1f809764a"
+      },
+      {
+        "class": "org/pangrova/metadata/outbox/TableVersionObserver$ReportBuilder.class",
+        "sha256": "d0542fdbefc956402c7f5ee94949ef25d566c8b5369c67ebb741b3f2944eba8e"
+      },
+      {
+        "class": "org/pangrova/metadata/outbox/TableVersionObservationReport.class",
+        "sha256": "1716a387cbfb23877008e9ecbd80a97653078daf545f8b5e817319c2d7bcdd3c"
+      },
+      {
+        "class": "org/pangrova/metadata/outbox/TableVersionObserver$1.class",
+        "sha256": "4a7354acacf75833ea439aa314b598f99ed320e5dc0ac2474f567140192344ec"
+      },
+      {
+        "class": "org/pangrova/metadata/outbox/TableVersionObserver.class",
+        "sha256": "ef89a2103909f455a6bf9b92a9f3b850cea0b8ce23cfc463323eb813f6d1a5a9"
+      },
+      {
+        "class": "org/pangrova/metadata/outbox/MetadataSyncService$SyncAccumulator.class",
+        "sha256": "64a64a3216a2fbb18c378e2e0cb36e3ba69f3162ca543c76da31e76e173944a9"
+      },
+      {
+        "class": "org/pangrova/metadata/outbox/MetadataSyncMetrics.class",
+        "sha256": "a8f31bf6e8f3278a72a546603a25bfc407cda523615345eb9d12792546f8de16"
+      },
+      {
+        "class": "org/pangrova/metadata/relation/ObjectDependencyOrder$Frame.class",
+        "sha256": "18020d23a7e18cbaaa23e115afce01621e87948585f687f56b1cd1b6f3bbdf37"
+      },
+      {
+        "class": "org/pangrova/metadata/relation/ObjectDependencyService.class",
+        "sha256": "1f0ec31234df86b84e9769bf5b3a19ec41aa278b00114819222216556e4fdbd9"
+      },
+      {
+        "class": "org/pangrova/metadata/relation/ObjectDependencyOrder.class",
+        "sha256": "56ca5be8137c4894992048998baed4eb113178a69441743014b6644080d8cb5e"
+      },
+      {
+        "class": "org/pangrova/metadata/relation/ObjectDependencyKey.class",
+        "sha256": "e97bffa4b575cca8fcfcb16d93a8fef20cdbaf8677387fbeb433e59bea773466"
+      },
+      {
+        "class": "org/pangrova/metadata/relation/ObjectDependencyService$1.class",
+        "sha256": "e0079534ab02484307d7f02bfa9a4d38dd9f84af3d5cb87b2b6be1c9742f387d"
+      },
+      {
+        "class": "org/pangrova/metadata/checkpoint/JdbcCheckpointStore.class",
+        "sha256": "589388b57eb024aa6b3a247fd6a256f77db000d78b278c38beecec82c5a6e5f4"
+      },
+      {
+        "class": "org/pangrova/metadata/core/resolution/QualifiedTableNames.class",
+        "sha256": "8a15aaef47812b610433ed67e156d42d57a7325f3b4f95dafdda99e444565d2c"
+      },
+      {
+        "class": "org/pangrova/metadata/core/resolution/ConnectorTableLookup.class",
+        "sha256": "17bc166b44e19729ed8383547e0adab8d96f59a46efce07ce419ea1b3e78bbb5"
+      },
+      {
+        "class": "org/pangrova/metadata/memory/relation/InMemoryObjectDependencyStore.class",
+        "sha256": "65161efdaf37ae8c0ee902275dc76b4c41a46a77c64c79a1fe6cdc7371315aef"
+      },
+      {
+        "class": "org/pangrova/metadata/cache/InvalidationMetrics.class",
+        "sha256": "615726d5899bf55820970cf921100110f3253ff67c6476edbc52809ac6be534b"
+      },
+      {
+        "class": "org/pangrova/metadata/cache/TieredMetadataCache.class",
+        "sha256": "9b087bb4278fc6de9f929b6567b05d19539c864dfb27e7825ec2aac99f9bed48"
+      },
+      {
+        "class": "org/pangrova/metadata/cache/DisabledL2CacheStore.class",
+        "sha256": "9d8fa615da4c2285767247edfaa7484dff3bda0082cb4864cea0c9639cad4f1e"
+      },
+      {
+        "class": "org/pangrova/metadata/cache/TieredMetadataCache$L1Entry.class",
+        "sha256": "ca22ee664f07a3c256b8608b36857c9dcfc9a616876f6051e776a03c461cc294"
+      },
+      {
+        "class": "org/pangrova/metadata/cache/InMemoryL2CacheStore.class",
+        "sha256": "6bf2a0f3322826a9da17c780d6401ed2c544c35907d82b28732d45a3a4bdcf73"
+      },
+      {
+        "class": "org/pangrova/metadata/assembly/security/ColumnMaskStoreWiring.class",
+        "sha256": "2a9bead85b83076ebdbbb908a69dfe05b7b9ee3fa681bc528df5c80071cbc661"
+      },
+      {
+        "class": "org/pangrova/metadata/assembly/generation/GenerationStores.class",
+        "sha256": "f8612304f850aa4a813ace43105be6cfc82557d2b8598f53d3510ebf32cc129b"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/handle/internal/InternalCatalogHandle.class",
+        "sha256": "95672b9d4b86750a832b94e41ccae603942e30dbcdb71e417f8ff622a3ede2c4"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/handle/federation/FederationCatalogHandle.class",
+        "sha256": "081b5da25a435a280d003152340eb9411e27a6908da4ad0aa788fc7d3fb6541b"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/handle/connector/ConnectorCatalogHandle.class",
+        "sha256": "7e952ece0cb0dddebaf065d7d32712fef09e0b4d707b0463046f4c9f9411c792"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/registry/CatalogRegistry$CatalogDeploymentResolver.class",
+        "sha256": "11e6980cb812e9d595ae2cb13f416ff72e4248586b9406a09931bb4a92524dcd"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/registry/CatalogRegistry.class",
+        "sha256": "d39a6864c0c429b5f68de065694a84c983412fc3a58f7d3644856e285a8b3a53"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/registry/CatalogRegistry$DivergenceReport.class",
+        "sha256": "c8ae99ae901b77a181d541c479917fec5ba6044ecb57c46053ad8c230903e915"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/registry/CatalogRegistry$1.class",
+        "sha256": "0b2c0c4d616d94365cf6ac5c3ad0880438ad9c38a59ea277a5a601a4a8b418f5"
+      },
+      {
+        "class": "org/pangrova/metadata/catalog/registry/CatalogHealthMonitor.class",
+        "sha256": "de14a3b3b669038a1e4142cd2054aa460f7e1e14833575b7381930afb377ef23"
+      },
+      {
+        "class": "org/pangrova/metadata/source/jdbc/JdbcSourceObjectRegistration.class",
+        "sha256": "e101e6099f35d6b9127ab3a9bff41b13a88cc04756c5bdaab4bfecebdbd6de12"
+      },
+      {
+        "class": "org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.class",
+        "sha256": "c091b638becfcfb10f429810ca158d58041d665931ec9b517d00435ce024dc9b"
+      },
+      {
+        "class": "org/pangrova/metadata/source/jdbc/JdbcSourceObjectCleanup.class",
+        "sha256": "cb202894428068775a5f33d734e798010c6a1086944291e10e6012210c48e1d9"
+      },
+      {
+        "class": "org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog$SqlOperation.class",
+        "sha256": "06890ae0a1cb230040b219b3bbf166cbd45d7ecf30c52f541ee6dd8d09354500"
+      },
+      {
+        "class": "org/pangrova/metadata/source/jdbc/JdbcSourcePreparationInvocations.class",
+        "sha256": "31e4902b2788793d62f09fb0df19f07b3eb6248f9de09f79703e5a2e3212b048"
+      },
+      {
+        "class": "org/pangrova/metadata/source/jdbc/JdbcSourceNamespace.class",
+        "sha256": "dabe6b7ce85bff4ccadbfac38e4ff63ca44a26de67b3757c743a95dceb13a833"
+      },
+      {
+        "class": "org/pangrova/metadata/source/jdbc/JdbcSourceNamespace$Location.class",
+        "sha256": "0e59be2b4d23754887d2785aef9ddbae9f80cafe8e0bf8b74cf6978f7bed6b39"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/FederationColumnHandle.class",
+        "sha256": "218e11e924ac1c172f14a56e2b52a6dc0f27a8f64ad139d357372621499c8955"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/FederationConnectorMetadata.class",
+        "sha256": "5f2fd8a42b88866a9d46e74b5b164881d247b2c6201ccd3f980fe2279895fb0c"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/FederatedCatalogFactory.class",
+        "sha256": "2b52260a3006e42733749b4e419bba0190d72aa2c0dbeec20aa4de3cc41c1880"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/FederatedCatalog.class",
+        "sha256": "0b9f7911e996def898e7c8af0987ae65e04719a6e1a7720804b2658a99da513a"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/ChangeListener.class",
+        "sha256": "d50c52b4823ca0c47da65860c836f0a7acb92188d226c27f03ec2dd0d060c64b"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/FederationTableHandle.class",
+        "sha256": "7c401540c4cf15c1c49d5fef8969d1f1835372e91a0715e61d940556816c5c80"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/CachingFederatedCatalog.class",
+        "sha256": "4af2f1f6aa3beaa1883497a75abffa99f4632e4a71023d02c1dfc6e1575bb958"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/security/TableControlColumnMaskStore.class",
+        "sha256": "002445d7531ede614605d371052e461a2d08516f51c6419e545d3b4e91f0cfb9"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/governance/QualityRuleStoreWiring.class",
+        "sha256": "453e921becf06ac0055b320807e1d875e2fc5e4b9e3ceae2bbcf3d3459da8be0"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/governance/TableControlQualityRuleStore.class",
+        "sha256": "9f7acd014496b61db88051052933637bed48d1a174444428bcd15686f6b839b4"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/generation/MetadataGenerationTransactionAuthority.class",
+        "sha256": "5f53972e18ae7f73ae6a157e80bfd34cd6419fa18224dee46775571099d73901"
+      },
+      {
+        "class": "org/pangrova/metadata/adapter/generation/MetadataGenerationPublicationCandidates.class",
+        "sha256": "0d7f3002c0fd671d47dea2785c9499d72d183f60e49a450f343636b8161d74de"
+      },
+      {
+        "class": "org/pangrova/metadata/schema/SchemaEvolutionValidator.class",
+        "sha256": "3fb83ad8ee99a75ef9e7e2d6ad99015a790cc937ee1a93091232a11098641146"
+      },
+      {
+        "class": "org/pangrova/metadata/service/DefaultMetadataService.class",
+        "sha256": "94d600911dbaa29aa2fd9052e5d8c0d3daa8bd85bf6ac2d46509d60f64c7c884"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataTagOperations.class",
+        "sha256": "4ca699512bbbd7ff4adbcc78a4ef0725ee772a37bd3a2a2b66349e3918076ec3"
+      },
+      {
+        "class": "org/pangrova/metadata/service/DefaultConnectorSession.class",
+        "sha256": "550304eac2c4193738473e4dd35e9ede131e84f3ef4f4302ddab86ae5a6ae631"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataQueryLifecycles$Owner.class",
+        "sha256": "e86e52bf06c4ccf27ea3ba26b5b900324df53d2b06a68d443fab25e73b397877"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataResolutionCacheKey.class",
+        "sha256": "65c153d63a31b90f7ec770d8097506a80245da0db1a80850ffb2fe4f50eb3925"
+      },
+      {
+        "class": "org/pangrova/metadata/service/TableControlRowPolicyStore.class",
+        "sha256": "0ca96399ce397fbd48e6430d9e0f00f9ec73e82b18e3767cd7c462ef1e8d3027"
+      },
+      {
+        "class": "org/pangrova/metadata/service/QueryLifecycleReport$Operation.class",
+        "sha256": "54723df00ed90f95cc87cdab392a3fdc657b259b243709bd6451d564601c0c43"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataCleanupScheduler.class",
+        "sha256": "e089d8abbe5e71f944b2c3d45cd385b7ec7d3eff822bd59565886e8f2b21d332"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataCleanupConfig.class",
+        "sha256": "0a73978b72e7b4776fe1b2ef97207cdcde5a251d995656fda27d2019531a0247"
+      },
+      {
+        "class": "org/pangrova/metadata/service/TableControlDeferredPolicy.class",
+        "sha256": "3ea453dad41b88ff638cf5c294cfb128c94446adeb9a1ffa5d39174d2be71f96"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataColumnDeclarations.class",
+        "sha256": "1397123826d9925e59efe2ce8d78b653a481c455215c47a359a195a189f45fbb"
+      },
+      {
+        "class": "org/pangrova/metadata/service/RegistryTablePolicyAuthority.class",
+        "sha256": "03fa33695a9447854be4f63a985ae50700491e97a134435c706c2c93fc681cb4"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataColumnTagTarget.class",
+        "sha256": "3b5b5837cf9ea988300638dae5ff6b7139a9e4a7b832be537809803b9cd04e7f"
+      },
+      {
+        "class": "org/pangrova/metadata/service/MetadataQueryLifecycles.class",
+        "sha256": "ebc13d840e6e920cad0ae8fcee7ba1225fe4ee77ea23c41a17ee7be3db72bbc0"
+      },
+      {
+        "class": "org/pangrova/metadata/service/DefaultMetadataService$1.class",
+        "sha256": "c4fac55fe89dd76217e8c8d2c384ae42396c0bc721672612aa9dfa1180e77193"
+      },
+      {
+        "class": "org/pangrova/metadata/service/QueryLifecycleReport.class",
+        "sha256": "3261f82c0a5f2804dae1f102e6faa72e640a388ea11c294fe31a31799395da1f"
+      },
+      {
+        "class": "org/pangrova/metadata/event/MetadataEventDispatcher.class",
+        "sha256": "8ef0f48c4a36868e149b404430815e7d1e280b53fa6a98fc2b1b1b38a6adecca"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/GeneratedValueBuildMetadataStore.class",
+        "sha256": "6b09e77addde38430c3cad7deb753283d9007859e7f5a47c50ce6c473aa393c0"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/GeneratedValueBuildSubmission.class",
+        "sha256": "41e4d39c31da91de8e37afa7898282a4721c18f114dadb61b86f700b912b422d"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/GeneratedValueBuildSubmissionStore.class",
+        "sha256": "d3e4ef8275c460e761ae4bb4f3e4bb048ec41a29c7420ddf1912e4debc141340"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/GeneratedValueBuildDescriptor.class",
+        "sha256": "46ae3310a2092b22ec334021203c67f314776871a8b4373a4ff665363502d31a"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/GeneratedValueGenerationReference.class",
+        "sha256": "d01b95f164c54854c7934f48a8389f2725980cdf6c8fc1eebfd29d0cc9712e74"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/GenerationPublicationJob.class",
+        "sha256": "30c982a6a17da5502a576d501d8f73ac0ecf7c7af2b8cda8260c40026aef961f"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore$JobRow.class",
+        "sha256": "f01e2ca626c95248543512adaada1f3db15e0144e3ea81f26e43e5a4e00f9fcc"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcGeneratedValuePublicationStore$Aggregate.class",
+        "sha256": "bccff0979fd7c06cf709926decfce7708465a897066f4d0a524c7a5bfd29b663"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcGeneratedValuePublicationStore.class",
+        "sha256": "7178cc44e12739ac779badfb92b1cfe243034f6ced54c749dae3508fd7a3cc9f"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcGeneratedValueDescriptorStore$GeneratedDescriptor.class",
+        "sha256": "db1c765d722f20027c9416a4a10065ec076458154038e932a39db6c84c844205"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcTabularExportPublicationStore$JobRow.class",
+        "sha256": "d8b5b1eac2a0c0561689e5dfc35d22d7b2d753eb92fb5f486fc3eb66c4cd5a9f"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore$PublicationMode.class",
+        "sha256": "79a6861237c7b9ddcbd35c1144ed83602352da6dcb6a109f2489f27bd1e07cd8"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore$DescriptorFence.class",
+        "sha256": "bca4242834c6146d885005658c08918f3a7379f841124609e985feb8f5bcadb2"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcGeneratedValuePublicationStore$JobRow.class",
+        "sha256": "a1beeb5cffabda6d795c0c8c8c2e3c94b3308f26e18c1330b11e01f6f2908655"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/GenerationPublicationOutputValidator$PublishedBundles.class",
+        "sha256": "e6921f7eb9f71746e0c95ab79b1084cc11a2e8fb59512ca1899c258ff16912c2"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/GenerationPublicationManifestDigest.class",
+        "sha256": "abc1c8a2fc390d4d7a1c9d4934e87ddcd1486269af0392e62222f0e8145f06ce"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore.class",
+        "sha256": "4dc62331ba4da1afa5a3286792c526ff9973e53c900677bcc2270d75949ea7c6"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/GenerationPublicationOutputValidator.class",
+        "sha256": "81f5122870faf2e760ae2589afc0d87b81b6ed45e7d1b1f092738cbd2c118115"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcGeneratedValueDescriptorStore.class",
+        "sha256": "5847b12b42639d3cb088377f6314803a38bef94408f8c155ffea81a38c813f62"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/GenerationPublicationOutputValidator$1.class",
+        "sha256": "0c562524ec5366c2329e5bf79954fb58d71c8e8e5301676b0c35d2c087d84ca0"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcTabularExportPublicationStore.class",
+        "sha256": "c7ed82282944185e402a8951997080b3c19094f16132c2ea08836613d71e21da"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore$Aggregate.class",
+        "sha256": "0472f036cd4cb9a30149d075242e2489017267ea086022d169a149265062bd5d"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/GenerationPublicationOutputValidator$PageOutput.class",
+        "sha256": "3a290e440e14746cdf7d1f48f0d31104d17cee5c457f4216e76f72d0fca6ec9f"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/JdbcTabularExportPublicationStore$Aggregate.class",
+        "sha256": "cde73c03fb5b7c8c573b5f79f6d5e0488c3707dd402e4009615ea7e6dabdd78d"
+      },
+      {
+        "class": "org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.class",
+        "sha256": "c002625d043d4f108125d3c9c3208fb4ddc71474c2319294861a77108a35073c"
+      },
+      {
+        "class": "org/pangrova/metadata/store/jdbc/catalog/SchemaMigrationRunner.class",
+        "sha256": "b741cfb28c37c170ce9acabc26e66711afab0773936e1b60691e1f8c7c162a95"
+      },
+      {
+        "class": "org/pangrova/metadata/store/jdbc/catalog/PooledDataSourceFactory.class",
+        "sha256": "0d3e1872f04d3f05d3c170f2fc5f989200d06008bbbc2351f84b3610a729bd32"
+      },
+      {
+        "class": "org/pangrova/metadata/store/jdbc/object/JdbcObjectDependencyStore.class",
+        "sha256": "42b45924c8272a36d12e7908e26af6775c8131fcd503171fe27ff77ebe686f6b"
+      }
+    ]
+  },
+  {
+    "artifact": "pangrova-persistence-catalog-api",
+    "class_count": 11,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/persistence/catalog/api/synchronization/MetadataSyncRepository.class",
+        "sha256": "f24795559a2012649cbf6a4caf45d26b81aba803b4a6ca042d8fdb91a9e03795"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/synchronization/MetadataSyncCompletion.class",
+        "sha256": "06f969db540b8f76d44414994d9b8064e1b2619c111c4fe3b5e7c23e74d5f0bb"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/synchronization/MetadataSyncConflictException.class",
+        "sha256": "934d3286c49a72d2c8c53ffff16af12be34539556b19263a0477055d8a18ae46"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/synchronization/MetadataSyncOutcomeUnknownException.class",
+        "sha256": "8b275aa1c4b7e5811a7d96de89e4e0700b0cbfee25a4dbc872c45dafd1d2a372"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/synchronization/MetadataSyncScope.class",
+        "sha256": "b6bc8374100061993fc8ab8206159458fc922f7635777ae165dc0b80e2e9e1fe"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/catalog/CatalogDeploymentRepository.class",
+        "sha256": "ec6e4020a444dab5d20eba42ed27df112af11273900bdc313419588a91fc3381"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/dependency/ObjectDependencyStore.class",
+        "sha256": "8f4ddc4394028d8cdafc0ab4f9b8b04368c89f712cfab9debd6f2c49d5b2b4a4"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/invalidation/InvalidationLogMaintenance.class",
+        "sha256": "8a2dcfc712b7ef759d65c416c15b279f745ae7ca700a6d76db0142952980935b"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/error/MetastoreException.class",
+        "sha256": "0335d1d22aaad11ddba75d76a739ccdaf02b7d434ac39195ca03634d54ac920a"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/projection/SchemaProjectionRepository.class",
+        "sha256": "401f69f539c9e99fa3a8b917e37b0f49b11b8f1290df174e7de28387e3e388ff"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/api/projection/TableProjectionRepository.class",
+        "sha256": "2ab8d38812716b0f197c5fec707485aa5e8f83a264aee844df7904ea0a71b94a"
+      }
+    ]
+  },
+  {
+    "artifact": "pangrova-persistence-catalog-postgresql",
+    "class_count": 10,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/transaction/PostgresCatalogPersistenceSupport.class",
+        "sha256": "5f573c2f1ce6ab9f600bb0c9f69923a52aa276e76031e76cc5315d986fba3acb"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/synchronization/PostgresMetadataSyncRepository$1.class",
+        "sha256": "f6d6f29bd12cd6b2595a89df0a63bdf71c26f2abdfb37e75dfd7354026002716"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/synchronization/PostgresMetadataSyncRepository.class",
+        "sha256": "2ceb0ca1481c03fe692efc1ef2fad2973f78bb536f1151879c9914e38bf32a91"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/catalog/PostgresCatalogDeploymentRepository.class",
+        "sha256": "39bab96fe064f5b2cf473d010ca00d96a48a340c7f87f1915139ff754ec07252"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/catalog/PostgresCatalogDeploymentRepository$1.class",
+        "sha256": "92c862d0593de2aa2d3a3df771b78bc38196b25f0f0266c32f09c1123390245e"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/catalog/PostgresCatalogDeploymentRepository$2.class",
+        "sha256": "aa8ec0fbe84aab701f02277560e183359273997ee425b6c1ee318351e28abe5d"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/invalidation/PostgresInvalidationPoller$1.class",
+        "sha256": "f12710e1c57d4ae0bf4f410ba4dc37a7f0607879ef4d3830eba37462f9d23906"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/invalidation/PostgresInvalidationPoller.class",
+        "sha256": "08028be4b7aa78cc731621184ff80315d2c8664df70213c3f691bd706e311ee7"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/projection/PostgresSchemaProjectionRepository.class",
+        "sha256": "4d5d76ba55cdbb8d75131b8cded55c39fc0f50affd3c02f167d1ef7cf14dce09"
+      },
+      {
+        "class": "org/pangrova/persistence/catalog/postgresql/projection/PostgresTableProjectionRepository.class",
+        "sha256": "80e053c49988af64ab1472609757efbe124a0c29ee662cfc2e19c1520d95f7c9"
+      }
+    ]
+  },
+  {
+    "artifact": "pangrova-indexing-api",
+    "class_count": 47,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/indexing/spi/publication/IndexAvailabilityPublisher.class",
+        "sha256": "42eb465f8676eea76e23edabd82fa1b7cf174602257a3f445296aa1747326c70"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/publication/IndexAvailabilityPublisher$IndexReadyEvent.class",
+        "sha256": "a5cd2278d544f9b259ff26b4d0ef36e53a4d8baff36ffd2812512c9fc0488652"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/codec/TypeSerializer.class",
+        "sha256": "77fefd1f8acc1a5037271a8a6c391199dd9e2c53e2548aa6f5d9b7aca0fa372e"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/pruning/TopKBoundaryListener.class",
+        "sha256": "38bfd4e69883885e2167eea1c57715af27f0846f7cb14cbf21bd08f0240460b9"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/pruning/RowGroupStatisticsProvider.class",
+        "sha256": "02f837f32cfb87058126d60ad2da025fa11ffeb1c104639e769c7f03b0710927"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/vector/RecallEstimationHint.class",
+        "sha256": "a0919fb165301023501c49473bd73e09cb487d335749db2b335645951317dd6f"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/strategy/IndexStrategyProvider.class",
+        "sha256": "db4aa67dca87c7d17f04ff7d4242f3fb12ee21f8fa8350a1ced83ba790559d64"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/DynamicFilterSummary$ColumnRangeSummary.class",
+        "sha256": "c946dcfd603239e0a4334e56e9e0512932230d81c5a6ce9e713984550087bba2"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupSkipInfo.class",
+        "sha256": "7468d240585f61c21852308eb3fa33b28c622ea6ae2d7666b7b5d19185b5e773"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupStatistics$1.class",
+        "sha256": "e294ebc38325a1238efbda98003e6d8c92db35a48f90176981dde13a6d794047"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupStatistics.class",
+        "sha256": "ba6d0288eefbf34e556a150451b7628f6dce5ff11c2602d6c786061d813f07f4"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/DynamicFilterSummary.class",
+        "sha256": "df0b9e14d3a153d042a0dcd06f483fcd45095cb2e26c05dc42be39e37917fab5"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupStatistics$ColumnStats.class",
+        "sha256": "c4aedf97b1a391ce68a87c906bdf0c7e797e7ba0565fe77e5be8ec64c79dd52d"
+      },
+      {
+        "class": "org/pangrova/indexing/api/lifecycle/IndexState.class",
+        "sha256": "d62ab3a454f23d166475ee52b156c85776693e3e527fc9d840d72311814c1bc2"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/JoinPruningSummary.class",
+        "sha256": "5380b51bfd7ec57c4d83dd471cae59ae693ae4bb8cf56190cd18a9236d901bea"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/RowGroupPruningSummary.class",
+        "sha256": "314def3094ed40084645ed7f7dd554749c388358f06718e0058f2125c18fa699"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/IndexHint.class",
+        "sha256": "3bdd4ee5bf5f016e7b9fda3ab6b6f8b634d4c06632f934909d80788027cab9ba"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/LimitPruningResult.class",
+        "sha256": "2616f084259b6299aac01313664b36646c7a8ac405df5671cd19c7cdef07e6f2"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/TopKBoundary.class",
+        "sha256": "0bc052cd0d623f959d1749fe2bf402ff094efb151e7b916249fad1294850105f"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexCoverageWindow.class",
+        "sha256": "954719610f58dff49d98424c37f17137165eb04004529abe6012cb240f16ac4e"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexCostEstimate.class",
+        "sha256": "d6e51433adef8ea832fcda67bea428385255573ffe7b4f5705913ae52731cc2c"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexDescriptor.class",
+        "sha256": "e6d9e82954171f28bb6acc48a3051b140f4b2bf0fdcbf8def9aead4d7561551c"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexCoverageStats.class",
+        "sha256": "88fe8113e6ee34a52235ebed8a40e58e4d3f870ee02b69befea08cdf0b4f86f0"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexType.class",
+        "sha256": "53a6607103eaf4e4f15a3c5ad8e13cc35dee05e4feb244d04526f91a72d4bc34"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/IndexEvaluatedSplit.class",
+        "sha256": "a4e41e03fa6ea8bb73100cf695275670e261622f3d305303f0774cb96f717173"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/SplitIndexEvalResult.class",
+        "sha256": "683d7942b659f11d3a4678c79fbfecb1bc7d7286b9d3ca028fd5076e0b30f436"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/IndexEvalHint.class",
+        "sha256": "3d7ffdf68d9d267f8d56ce0dd15188599f3e4bcd9e5bc149b3679ad67ec69414"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/IndexEvalDescriptor.class",
+        "sha256": "bba9ea7eba94f94368a7797dcd0c690bc558ac05d7e8719eb22295e50bf42e74"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/BTreeIndexData.class",
+        "sha256": "73e31d9c664e95c526dec6d77860bdd9d3ec8d7720c1ea0e419415730a37ba0a"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/HashIndexData.class",
+        "sha256": "136f4d6dfd836fbb5a6fe5dbbf4034a91ff1d71ac5690236f820233427f0d605"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/BloomFilterIndexData.class",
+        "sha256": "d43d4deb29e76e8fca787bbc005e4459d4f8be5288b024fffd46d9089b9d88b9"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/IndexData.class",
+        "sha256": "53a9e43bc243d4349569d2b6ca0bdbd80d0b45df5ccc4816bcab5086e762d22e"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/BTreePage.class",
+        "sha256": "6df8b9b5df6ee0e136444e00aeb1b10e6720ec832c534a0c6fe2cbea3b117355"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/bitmap/BitmapIndexData.class",
+        "sha256": "b93687dbcdab5beeeebb2e9044806cc0749a508ce7a77d18d342e6dfc082cdb6"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/PrefixEntry.class",
+        "sha256": "931fa8a35b4fdc1e3f831e0c6a561073560358123d1b6da63b3648a4efc536f9"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/PrefixIndexData.class",
+        "sha256": "99d7df09ae81c96f026ffa62138e6cf3805c6dee69b7631de1a689c499315ca1"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/NGramBloomIndexData.class",
+        "sha256": "fea62d7f0772f90ecf3891b8885cf21c627abc0ab5cdac1ceef48a7ae6951cf3"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/GinIndexData.class",
+        "sha256": "4cb63fbc5f854a76432eceacd40e112e37ad8cfb4eec80bf5d24d2c9e0049857"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/RTreeNode.class",
+        "sha256": "bec654536950f764b317010ac15b94d26b16a35accb14bf3c3eb4452fb8eaf1d"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/BoundingBox.class",
+        "sha256": "322e9dc481200093cbcf774d76d1f867266c70b71b41273e64f1977f3d82e24f"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/SparseEntry.class",
+        "sha256": "2f62b7f8ea7196f37b512e4110b68b814415314bbf5c24a683838c4a0f4e041b"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/RTreeIndexData.class",
+        "sha256": "6a9162ea3520744345a7c76887166eefef7c83664a6ffe52100f7c202f96d411"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/SparseIndexData.class",
+        "sha256": "ed0f3f666b07df2a277afb9c6f5164c11b626ebf07322152f1b153eeaae0a087"
+      },
+      {
+        "class": "org/pangrova/indexing/api/error/IndexAlreadyExistsException.class",
+        "sha256": "3f67e62b68878acf20a2dcc25f46c13da3e4dc5979078b44e4d6c8467ca16cfb"
+      },
+      {
+        "class": "org/pangrova/indexing/api/vector/DistanceMetric.class",
+        "sha256": "648d770d3fad444aafec61a8f8812b27c6053cf833bc58a2a04e0fefae541139"
+      },
+      {
+        "class": "org/pangrova/indexing/api/vector/VectorHybridSearchStrategy$Mode.class",
+        "sha256": "3a71a7a745174cea99e07eadf155053efc323d483639de741d5be227ec4991b0"
+      },
+      {
+        "class": "org/pangrova/indexing/api/vector/VectorHybridSearchStrategy.class",
+        "sha256": "38d12e5519f8ddbc65c4930df63a4e29a36d345b5f801659d5f9245f4576287c"
+      }
+    ]
+  }
+]

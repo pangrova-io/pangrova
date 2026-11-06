@@ -3,8 +3,8 @@ package org.pangrova.coordinator.query.execution.dispatch;
 import java.util.List;
 
 import org.pangrova.coordinator.result.CoordinatorResultService;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.AccessControl;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.spi.authorization.AccessControl;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

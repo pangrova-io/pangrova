@@ -1,0 +1,60 @@
+{
+  "retired_baseline_classes": [
+    "org.pangrova.worker.file.FileSpaceObjectStoreTest"
+  ],
+  "retirement_evidence": "worker-file-boundary-test-coverage-map.tsv",
+  "stages": [
+    {
+      "stage": "baseline",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-worker-core,:pangrova-coordination-core -am -Pnative-runtime,full-regression -Dtest=FileSpaceObjectStoreTest,FileSpaceAccessServiceTest,ObjectStoreAccessorFactoryIdentityTest,ObjectStoreAccessorFactoryLifecycleTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 50.26,
+      "cases": 24,
+      "passed": 24,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "boundary-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-kit -am -Pnative-runtime,full-regression '-Dtest=ModuleDependencyPropertyTest#filePersistenceBackendIsSelectedOnlyByAssembly' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 17.78,
+      "cases": 1,
+      "passed": 0,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-worker-core,:pangrova-coordination-core,:pangrova-file-api -am -Pnative-runtime,full-regression '-Dtest=FileSpaceLayoutTest,FileSpaceAccessServiceTest,ObjectStoreAccessorFactoryIdentityTest,ObjectStoreAccessorFactoryLifecycleTest,ModuleDependencyPropertyTest#filePersistenceBackendIsSelectedOnlyByAssembly' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 55.59,
+      "cases": 27,
+      "passed": 27,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -Dtest=FileSpaceLayoutTest,FileSpaceAccessServiceTest,ObjectStoreAccessorFactoryIdentityTest,ObjectStoreAccessorFactoryLifecycleTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,FileApiIsolationTest,WorkerHttpStartupTest,FileSpaceFileResourceTest,FileSpaceHttpReadTest,FileSpaceS3MultipartIntegrationTest,FileSpaceMultipartHttpTest,FileSpaceReadAdmissionDeadlineTest,FileSpaceBlockedReadDeadlineTest,FileSpaceControlPlaneContractE2ETest,FileSpaceDdlE2ETest,ActivationSmokeE2ETest -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 146.42,
+      "cases": 127,
+      "passed": 127,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 127,
+    "passed": 127,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest selected reports, excluding retired baseline tests; their replacement coverage is mapped separately. Full regression is not implied."
+}

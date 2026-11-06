@@ -4,7 +4,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.coordinator.query.stage.Stage;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.error.QueryFailure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,7 +13,6 @@ public final class TaskTerminalRegistry {
     private static final Logger LOG =
             LoggerFactory.getLogger(TaskTerminalRegistry.class);
 
-    private final TaskFaultHandler taskFaultHandler = new TaskFaultHandler();
     private final ConcurrentHashMap<String, TaskSlot> taskSlots =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Set<String>> queryTaskIndex =
@@ -36,7 +35,7 @@ public final class TaskTerminalRegistry {
             String queryId,
             String taskId,
             String state,
-            ErrorDetail error) {
+            QueryFailure error) {
         Stage[] route = new Stage[1];
         taskSlots.compute(taskId, (key, existing) ->
                 terminalSlot(queryId, state, error, existing, route));
@@ -50,7 +49,6 @@ public final class TaskTerminalRegistry {
 
     /** Clears all terminal correlation state for a query. */
     public void clear(String queryId) {
-        taskFaultHandler.clearQuery(queryId);
         Set<String> taskIds = queryTaskIndex.remove(queryId);
         if (taskIds != null) {
             taskIds.forEach(taskSlots::remove);
@@ -71,7 +69,7 @@ public final class TaskTerminalRegistry {
     private static TaskSlot terminalSlot(
             String queryId,
             String state,
-            ErrorDetail error,
+            QueryFailure error,
             TaskSlot existing,
             Stage[] route) {
         if (existing == null || existing.stage() == null) {
@@ -103,7 +101,7 @@ public final class TaskTerminalRegistry {
             String taskId,
             String queryId,
             String state,
-            ErrorDetail error) {
+            QueryFailure error) {
         switch (state) {
             case "FINISHED" -> stage.onTaskFinished(taskId);
             case "FAILED" -> routeFailure(stage, taskId, queryId, error);
@@ -118,8 +116,8 @@ public final class TaskTerminalRegistry {
     }
 
     private void routeFailure(
-            Stage stage, String taskId, String queryId, ErrorDetail error) {
-        if (taskFaultHandler.isShuffleFetchFailure(error)) {
+            Stage stage, String taskId, String queryId, QueryFailure error) {
+        if (error != null && "EXCHANGE-0004".equals(error.errorCode())) {
             LOG.info("event=shuffle_fetch_failure_detected queryId={}"
                             + " taskId={} stageId={}",
                     queryId, taskId, stage.stageId());
@@ -127,14 +125,14 @@ public final class TaskTerminalRegistry {
         stage.onTaskFailed(taskId, error);
     }
 
-    private static ErrorDetail cancellationError(ErrorDetail error) {
+    private static QueryFailure cancellationError(QueryFailure error) {
         return error != null ? error
-                : new ErrorDetail(
+                : new QueryFailure(
                         "TASK_CANCELLED", "TaskCancelled", "Task was cancelled");
     }
 
     private record EarlyTerminalEvent(
-            String queryId, String state, ErrorDetail error) {}
+            String queryId, String state, QueryFailure error) {}
 
     private record TaskSlot(
             Stage stage, EarlyTerminalEvent earlyEvent, boolean replayed) {}

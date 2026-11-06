@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.util.List;

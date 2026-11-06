@@ -1,5 +1,10 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
+
+
+import org.pangrova.query.api.stage.StageState;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -8,7 +13,7 @@ import java.util.Set;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
+import org.pangrova.query.core.stage.StageStateMachine;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -32,8 +37,8 @@ class StageBarrierSchedulingTest {
     @DisplayName("collectActiveStageIds includes RUNNING stages")
     void activeIdsIncludesRunningStages() {
         StageDAG dag = buildLinearDAG();
-        transitionTo(dag, 0, StageStateMachine.State.SCHEDULING);
-        transitionTo(dag, 0, StageStateMachine.State.RUNNING);
+        transitionTo(dag, 0, StageState.SCHEDULING);
+        transitionTo(dag, 0, StageState.RUNNING);
 
         Set<Integer> activeIds = DAGCompletionEvaluator.collectActiveStageIds(dag);
         assertTrue(activeIds.contains(0), "RUNNING stage must be in active set");
@@ -43,14 +48,14 @@ class StageBarrierSchedulingTest {
     @DisplayName("Pipeline does not start a consumer before producer task records exist")
     void schedulingProducerDoesNotMakeConsumerReady() {
         StageDAG dag = buildLinearDAG();
-        transitionTo(dag, 0, StageStateMachine.State.SCHEDULING);
+        transitionTo(dag, 0, StageState.SCHEDULING);
 
         Set<Integer> activeIds = DAGCompletionEvaluator.collectActiveStageIds(dag);
         assertFalse(activeIds.contains(0));
         assertTrue(dag.readyStageEntities(activeIds).stream()
                 .noneMatch(stage -> stage.stageId() == 1));
 
-        transitionTo(dag, 0, StageStateMachine.State.RUNNING);
+        transitionTo(dag, 0, StageState.RUNNING);
         assertTrue(dag.readyStageEntities(
                 DAGCompletionEvaluator.collectActiveStageIds(dag)).stream()
                 .anyMatch(stage -> stage.stageId() == 1));
@@ -81,8 +86,8 @@ class StageBarrierSchedulingTest {
     @DisplayName("Barrier: RUNNING stage is NOT in finished-only set")
     void barrierExcludesRunning() {
         StageDAG dag = buildLinearDAG();
-        transitionTo(dag, 0, StageStateMachine.State.SCHEDULING);
-        transitionTo(dag, 0, StageStateMachine.State.RUNNING);
+        transitionTo(dag, 0, StageState.SCHEDULING);
+        transitionTo(dag, 0, StageState.RUNNING);
 
         Set<Integer> finishedIds = collectFinishedStageIds(dag);
         assertFalse(finishedIds.contains(0),
@@ -94,8 +99,8 @@ class StageBarrierSchedulingTest {
     void barrierIncludesOnlyFinished() {
         StageDAG dag = buildLinearDAG();
         finishStage(dag, 0);
-        transitionTo(dag, 1, StageStateMachine.State.SCHEDULING);
-        transitionTo(dag, 1, StageStateMachine.State.RUNNING);
+        transitionTo(dag, 1, StageState.SCHEDULING);
+        transitionTo(dag, 1, StageState.RUNNING);
 
         Set<Integer> finishedIds = collectFinishedStageIds(dag);
         assertTrue(finishedIds.contains(0), "FINISHED stage must be in finished set");
@@ -109,8 +114,8 @@ class StageBarrierSchedulingTest {
     @DisplayName("Pipeline: downstream IS ready when upstream is RUNNING")
     void pipelineDownstreamReadyWhenUpstreamRunning() {
         StageDAG dag = buildLinearDAG();
-        transitionTo(dag, 0, StageStateMachine.State.SCHEDULING);
-        transitionTo(dag, 0, StageStateMachine.State.RUNNING);
+        transitionTo(dag, 0, StageState.SCHEDULING);
+        transitionTo(dag, 0, StageState.RUNNING);
 
         // Pipeline uses collectActiveStageIds which includes RUNNING
         Set<Integer> activeIds = DAGCompletionEvaluator.collectActiveStageIds(dag);
@@ -124,8 +129,8 @@ class StageBarrierSchedulingTest {
     @DisplayName("Barrier: downstream NOT ready when upstream is RUNNING")
     void barrierDownstreamNotReadyWhenUpstreamRunning() {
         StageDAG dag = buildLinearDAG();
-        transitionTo(dag, 0, StageStateMachine.State.SCHEDULING);
-        transitionTo(dag, 0, StageStateMachine.State.RUNNING);
+        transitionTo(dag, 0, StageState.SCHEDULING);
+        transitionTo(dag, 0, StageState.RUNNING);
 
         // Barrier uses only FINISHED stages
         Set<Integer> finishedIds = collectFinishedStageIds(dag);
@@ -158,8 +163,8 @@ class StageBarrierSchedulingTest {
 
         // Stage 0 FINISHED, stage 1 only RUNNING
         finishStage(dag, 0);
-        transitionTo(dag, 1, StageStateMachine.State.SCHEDULING);
-        transitionTo(dag, 1, StageStateMachine.State.RUNNING);
+        transitionTo(dag, 1, StageState.SCHEDULING);
+        transitionTo(dag, 1, StageState.RUNNING);
 
         Set<Integer> finishedIds = collectFinishedStageIds(dag);
         List<Stage> ready = dag.readyStageEntities(finishedIds);
@@ -169,8 +174,8 @@ class StageBarrierSchedulingTest {
                 "Downstream must wait for ALL upstreams to FINISH, not just one");
 
         // Now finish stage 1 as well
-        transitionTo(dag, 1, StageStateMachine.State.FLUSHING);
-        transitionTo(dag, 1, StageStateMachine.State.FINISHED);
+        transitionTo(dag, 1, StageState.FLUSHING);
+        transitionTo(dag, 1, StageState.FINISHED);
 
         finishedIds = collectFinishedStageIds(dag);
         ready = dag.readyStageEntities(finishedIds);
@@ -183,9 +188,9 @@ class StageBarrierSchedulingTest {
     @DisplayName("Barrier: FLUSHING upstream does NOT satisfy downstream")
     void barrierFlushingDoesNotSatisfy() {
         StageDAG dag = buildLinearDAG();
-        transitionTo(dag, 0, StageStateMachine.State.SCHEDULING);
-        transitionTo(dag, 0, StageStateMachine.State.RUNNING);
-        transitionTo(dag, 0, StageStateMachine.State.FLUSHING);
+        transitionTo(dag, 0, StageState.SCHEDULING);
+        transitionTo(dag, 0, StageState.RUNNING);
+        transitionTo(dag, 0, StageState.FLUSHING);
 
         Set<Integer> finishedIds = collectFinishedStageIds(dag);
         List<Stage> ready = dag.readyStageEntities(finishedIds);
@@ -221,7 +226,7 @@ class StageBarrierSchedulingTest {
     private static Set<Integer> collectFinishedStageIds(StageDAG dag) {
         Set<Integer> ids = new HashSet<>();
         for (Stage s : dag.stageEntities()) {
-            if (s.stateMachine().getState() == StageStateMachine.State.FINISHED) {
+            if (s.stateMachine().getState() == StageState.FINISHED) {
                 ids.add(s.stageId());
             }
         }
@@ -256,7 +261,7 @@ class StageBarrierSchedulingTest {
         ).withStages(QUERY_ID);
     }
 
-    private static void transitionTo(StageDAG dag, int stageId, StageStateMachine.State target) {
+    private static void transitionTo(StageDAG dag, int stageId, StageState target) {
         Stage stage = dag.findStage(stageId);
         assertNotNull(stage, "Stage " + stageId + " must exist in DAG");
         assertTrue(stage.stateMachine().tryTransitionTo(target),
@@ -268,28 +273,28 @@ class StageBarrierSchedulingTest {
         Stage stage = dag.findStage(stageId);
         assertNotNull(stage, "Stage " + stageId + " must exist in DAG");
         StageStateMachine sm = stage.stateMachine();
-        if (sm.getState() == StageStateMachine.State.PLANNED) {
-            sm.tryTransitionTo(StageStateMachine.State.SCHEDULING);
+        if (sm.getState() == StageState.PLANNED) {
+            sm.tryTransitionTo(StageState.SCHEDULING);
         }
-        if (sm.getState() == StageStateMachine.State.SCHEDULING) {
-            sm.tryTransitionTo(StageStateMachine.State.RUNNING);
+        if (sm.getState() == StageState.SCHEDULING) {
+            sm.tryTransitionTo(StageState.RUNNING);
         }
-        if (sm.getState() == StageStateMachine.State.RUNNING) {
-            sm.tryTransitionTo(StageStateMachine.State.FLUSHING);
+        if (sm.getState() == StageState.RUNNING) {
+            sm.tryTransitionTo(StageState.FLUSHING);
         }
-        if (sm.getState() == StageStateMachine.State.FLUSHING) {
-            sm.tryTransitionTo(StageStateMachine.State.FINISHED);
+        if (sm.getState() == StageState.FLUSHING) {
+            sm.tryTransitionTo(StageState.FINISHED);
         }
-        assertEquals(StageStateMachine.State.FINISHED, sm.getState(),
+        assertEquals(StageState.FINISHED, sm.getState(),
                 "Stage " + stageId + " must be FINISHED after finishStage()");
     }
 
-    private static org.pangrova.planner.PlanFragment dummyPlan() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyPlan() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

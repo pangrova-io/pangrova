@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.query.task.write;
 
-import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
-import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitQuarantineStore;
-import org.pangrova.spi.query.transaction.QuarantinedWriteCommit;
-import org.pangrova.persistence.api.query.transaction.WriteCommitQuarantineStore;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
+import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitQuarantineStore;
+import org.pangrova.query.api.write.QuarantinedWriteCommit;
+import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -25,7 +25,7 @@ class WriteCommitRecoveryServiceTest {
     private static WriteCommitEntry pending(String queryId) {
         var fragments = List.of(new byte[]{1, 2, 3});
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
                         queryId,
                         "tenant-a",
                         "iceberg",
@@ -278,7 +278,7 @@ class WriteCommitRecoveryServiceTest {
     }
 
     private static WriteCommitRecoveryService service(
-            org.pangrova.spi.connector.coordination.WriteCommitJournal journal,
+            org.pangrova.persistence.query.api.commit.WriteCommitJournal journal,
             WriteCommitReconciler reconciler) {
         return new WriteCommitRecoveryService(journal, reconciler,
                 new InMemoryWriteCommitQuarantineStore());

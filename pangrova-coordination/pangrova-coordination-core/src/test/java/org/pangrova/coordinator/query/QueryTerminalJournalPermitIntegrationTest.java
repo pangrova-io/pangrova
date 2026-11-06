@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -30,7 +32,7 @@ class QueryTerminalJournalPermitIntegrationTest {
             fixture.submit("SELECT 42");
             fixture.store.denyFinishedQueryInsert();
             fixture.consume();
-            fixture.awaitLogicalTerminal(QueryStateMachine.State.FINISHED);
+            fixture.awaitLogicalTerminal(QueryState.FINISHED);
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
                     assertThat(fixture.store.terminalWrites(fixture.queryId, "FINISHED")).isZero());
             assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);

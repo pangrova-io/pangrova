@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.file;
 
-import org.pangrova.spi.file.access.FileAccessGrant;
+import org.pangrova.file.api.access.FileAccessGrant;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -16,22 +16,22 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.FileSpaceAccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.spi.authorization.FileSpaceAccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.spi.file.space.FileSpaceMutation;
-import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
-import org.pangrova.common.file.FileSpaceType;
-import org.pangrova.spi.file.access.FileUrlClient;
-import org.pangrova.file.space.FileSpaceAccessService;
-import org.pangrova.file.space.FileUrlService;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.persistence.file.api.space.FileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.spi.access.FileUrlClient;
+import org.pangrova.file.core.access.FileSpaceAccessService;
+import org.pangrova.file.core.access.FileUrlService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,8 +44,8 @@ class FileUrlServiceTest {
             new UserIdentity("alice", Set.of("analysts"), Map.of("tenant_id", "tenant-a"), Instant.EPOCH);
 
     private final FakeSpaces spaces = new FakeSpaces();
-    private final org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry profiles =
-            new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
+    private final org.pangrova.testing.testkit.file.InMemoryStorageProfileRegistry profiles =
+            new org.pangrova.testing.testkit.file.InMemoryStorageProfileRegistry();
     private final RecordingAccessControl access = new RecordingAccessControl();
     private final RecordingUrlClient client = new RecordingUrlClient();
     private final List<AuditEvent> events = new CopyOnWriteArrayList<>();

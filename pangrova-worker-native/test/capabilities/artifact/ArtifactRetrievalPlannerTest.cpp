@@ -425,6 +425,28 @@ void buildBm25Artifacts(const std::filesystem::path& root) {
 
 }  // namespace
 
+TEST(ArtifactRetrievalPlannerTest, RejectsIncompatibleVersionBeforeRetrievalInspection) {
+  // No valid retrieval binding is provided: version rejection must precede
+  // inspecting any relation or resolving an external artifact.
+  for (int invalid = 0; invalid < 3; ++invalid) {
+    substrait::Plan plan;
+    plan.add_relations()->mutable_rel()->mutable_extension_single();
+    if (invalid != 0) plan.mutable_version()->set_major_number(0);
+    if (invalid == 2) {
+      plan.mutable_version()->set_producer("future-producer");
+      plan.mutable_version()->set_major_number(1);
+    }
+    const auto wire = plan.SerializeAsString();
+    try {
+      ArtifactRetrievalPlanner::prepare(std::vector<uint8_t>(wire.begin(), wire.end()), {}, {}, 0);
+      FAIL() << "Incompatible plan reached retrieval preparation";
+    } catch (const std::runtime_error& failure) {
+      const char* expected[] = {"missing required Version", "producer is empty", "major-version mismatch"};
+      EXPECT_NE(std::string(failure.what()).find(expected[invalid]), std::string::npos);
+    }
+  }
+}
+
 TEST(ArtifactRetrievalPlannerTest, MaterializesSearchesAndReusesImmutableCache) {
   TestDirectory directory;
   buildArtifacts(directory.path());

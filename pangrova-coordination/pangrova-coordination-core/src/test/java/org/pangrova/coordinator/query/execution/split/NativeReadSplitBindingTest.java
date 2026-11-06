@@ -6,16 +6,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.paimon.PaimonConnectorFactory;
 import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.v2.DataSplit;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -89,7 +89,7 @@ class NativeReadSplitBindingTest {
 
     private static ConnectorSession session(String tenant) {
         var identity = new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH);
-        var actor = new CoordinatorSessionContext("read", Map.of("tenant_id", "forged"), identity, tenant);
+        var actor = new QuerySession("read", Map.of("tenant_id", "forged"), identity, tenant, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         return SessionContextConverter.toConnectorSession(actor, "lake", "default");
     }
 }

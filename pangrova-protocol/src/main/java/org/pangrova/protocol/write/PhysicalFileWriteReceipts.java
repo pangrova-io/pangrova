@@ -8,8 +8,8 @@ import org.pangrova.protocol.v2.PhysicalFileReceipt;
 import org.pangrova.protocol.v2.PhysicalFileWriteBinding;
 import org.pangrova.protocol.v2.PhysicalFileWriteFragment;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.spi.connector.metadata.NativePhysicalFileAllocation;
-import org.pangrova.spi.connector.metadata.NativePhysicalFileReceipt;
+import org.pangrova.connector.api.metadata.NativePhysicalFileAllocation;
+import org.pangrova.connector.api.metadata.NativePhysicalFileReceipt;
 
 import java.util.ArrayList;
 import java.util.HashSet;

@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.streaming.coordinator.StreamDdlExecutor;
-import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
-import org.pangrova.parser.ast.statement.stream.CreateStreamStatement;
-import org.pangrova.parser.ast.statement.stream.DescribeStreamStatement;
-import org.pangrova.parser.ast.statement.stream.DropStreamStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.statement.stream.AlterStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.DescribeStreamStatement;
+import org.pangrova.parser.api.ast.statement.stream.DropStreamStatement;
+import org.pangrova.types.value.TypedRow;
 
 import java.util.List;
 
@@ -21,7 +21,7 @@ final class StreamStatementExecutor {
 
     static List<TypedRow> create(StreamDdlExecutor executor,
                                  CreateStreamStatement stmt,
-                                 CoordinatorSessionContext ctx) {
+                                 QuerySession ctx) {
         String tenantId = ctx != null ? ctx.tenantId() : "";
         String creator = ctx != null && ctx.userIdentity() != null
                 ? ctx.userIdentity().principal() : "anonymous";
@@ -31,7 +31,7 @@ final class StreamStatementExecutor {
 
     static List<TypedRow> alter(StreamDdlExecutor executor,
                                 AlterStreamStatement stmt,
-                                CoordinatorSessionContext ctx) {
+                                QuerySession ctx) {
         String tenantId = ctx != null ? ctx.tenantId() : "";
         executor.alter(stmt, tenantId);
         return List.of(TypedRow.builder().putString("result", "ALTER STREAM succeeded").build());
@@ -39,13 +39,13 @@ final class StreamStatementExecutor {
 
     static List<TypedRow> drop(StreamDdlExecutor executor,
                                DropStreamStatement stmt,
-                               CoordinatorSessionContext ctx) {
+                               QuerySession ctx) {
         String tenantId = ctx != null ? ctx.tenantId() : "";
         executor.drop(stmt, tenantId);
         return List.of(TypedRow.builder().putString("result", "DROP STREAM succeeded").build());
     }
 
-    static List<TypedRow> show(StreamDdlExecutor executor, CoordinatorSessionContext ctx) {
+    static List<TypedRow> show(StreamDdlExecutor executor, QuerySession ctx) {
         String tenantId = ctx != null ? ctx.tenantId() : "";
         return executor.show(tenantId).stream()
                 .map(state -> TypedRow.builder()
@@ -61,7 +61,7 @@ final class StreamStatementExecutor {
 
     static List<TypedRow> describe(StreamDdlExecutor executor,
                                    DescribeStreamStatement stmt,
-                                   CoordinatorSessionContext ctx) {
+                                   QuerySession ctx) {
         String tenantId = ctx != null ? ctx.tenantId() : "";
         String streamName = stmt.name().parts().get(stmt.name().parts().size() - 1);
         return executor.describe(streamName, tenantId)

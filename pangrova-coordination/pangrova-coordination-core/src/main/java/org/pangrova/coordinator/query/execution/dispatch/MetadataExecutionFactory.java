@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.api.ast.Statement;
 
 /**
  * Consolidated factory for direct metadata operations (DDL, SHOW, INSERT VALUES,

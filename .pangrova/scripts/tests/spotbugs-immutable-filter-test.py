@@ -94,16 +94,137 @@ public final class ImmutableFilterBoundary {
         verifyImmutableAccessors(args[9], args[6]);
         verifyIndexingBorrowed(args[6]);
         verifyManagedSourceBorrowed(args[6]);
+        verifyImmutableResourceGrants(args[6]);
+        verifyParserBorrowing(args[6]);
+        verifyQueryOwnership(args[6]);
+        verifyPolicyStoreConstructor(args[6]);
+        verifyTableStoreBorrowing(args[6]);
+    }
+
+    private static void verifyTableStoreBorrowing(String path) throws Exception {
+        Filter full = Filter.parseFilter(path);
+        String[] stores = {"control.JdbcTableControlStore", "maintenance.JdbcTableControlMaintenanceStore",
+                "statistics.JdbcTableControlStatisticsStore", "governancebinding.JdbcTableControlGovernanceBindingStore"};
+        String type = "Ljavax/sql/DataSource;";
+        for (String store : stores) {
+            String owner = "org.pangrova.persistence.table.postgresql." + store;
+            check(full, owner, "<init>", type, "V", "dataSource", type, "EI_EXPOSE_REP2", true);
+            check(full, owner + "Other", "<init>", type, "V", "dataSource", type, "EI_EXPOSE_REP2", false);
+            check(full, owner, "create", type, "V", "dataSource", type, "EI_EXPOSE_REP2", false);
+            check(full, owner, "<init>", type + "I", "V", "dataSource", type, "EI_EXPOSE_REP2", false);
+            check(full, owner, "<init>", type, "V", "other", type, "EI_EXPOSE_REP2", false);
+            check(full, owner, "<init>", type, "V", "dataSource", "[B", "EI_EXPOSE_REP2", false);
+            check(full, owner, "<init>", type, "V", "dataSource", type, "EI_EXPOSE_REP", false);
+            check(full, owner, "<init>", type, "V", "dataSource", type, "SQL_INJECTION_JDBC", false);
+            check(full, "org.pangrova.persistence.jdbc.table." + store, "<init>", type, "V",
+                    "dataSource", type, "EI_EXPOSE_REP2", false);
+        }
+    }
+
+    private static void verifyPolicyStoreConstructor(String path) throws Exception {
+        Filter full = Filter.parseFilter(path);
+        String owner = "org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport";
+        String signature = "(Ljavax/sql/DataSource;)V";
+        command(full, owner, "<init>", signature, "CT_CONSTRUCTOR_THROW", true);
+        command(full, owner + "Other", "<init>", signature, "CT_CONSTRUCTOR_THROW", false);
+        command(full, owner, "create", signature, "CT_CONSTRUCTOR_THROW", false);
+        command(full, owner, "<init>", "(Ljava/sql/Connection;)V", "CT_CONSTRUCTOR_THROW", false);
+        command(full, owner, "<init>", "()V", "CT_CONSTRUCTOR_THROW", false);
+        command(full, owner, "<init>", signature, "SQL_INJECTION_JDBC", false);
+        command(full, owner, "execute", "(Ljava/lang/String;)V", "SQL_INJECTION_JDBC", false);
+        command(full, "org.pangrova.persistence.jdbc.security.support.JdbcPolicyStoreSupport",
+                "<init>", signature, "CT_CONSTRUCTOR_THROW", false);
+    }
+
+    private static void verifyQueryOwnership(String fullFilterPath) throws Exception {
+        Filter full = Filter.parseFilter(fullFilterPath);
+        String[][] cases = {
+            {"org.pangrova.query.core.lifecycle.QueryTerminalCleanup$Context", "state", "", "org.pangrova.query.core.lifecycle.QueryStateMachine", "state", "org.pangrova.query.core.lifecycle.QueryStateMachine", "EI_EXPOSE_REP"},
+            {"org.pangrova.query.core.lifecycle.QueryTerminalCleanup$Context", "<init>", "java.lang.String,org.pangrova.query.core.lifecycle.QueryStateMachine,java.lang.String", "void", "state", "org.pangrova.query.core.lifecycle.QueryStateMachine", "EI_EXPOSE_REP2"},
+            {"org.pangrova.query.core.retention.QueryRetentionScheduler", "<init>", "java.util.concurrent.ConcurrentHashMap,java.util.function.Predicate,java.lang.Runnable", "void", "queries", "java.util.concurrent.ConcurrentHashMap", "EI_EXPOSE_REP2"},
+            {"org.pangrova.query.core.stage.binding.RerankIntent", "modelLimits", "", "org.pangrova.protocol.v2.CapabilityLimits", "modelLimits", "org.pangrova.protocol.v2.CapabilityLimits", "EI_EXPOSE_REP"},
+            {"org.pangrova.query.core.stage.binding.RerankIntent", "<init>", "int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String", "void", "modelLimits", "org.pangrova.protocol.v2.CapabilityLimits", "EI_EXPOSE_REP2"},
+            {"org.pangrova.query.core.stage.binding.RerankIntent", "modelOutputType", "", "org.pangrova.protocol.v2.LogicalType", "modelOutputType", "org.pangrova.protocol.v2.LogicalType", "EI_EXPOSE_REP"},
+            {"org.pangrova.query.core.stage.binding.RerankIntent", "<init>", "int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String", "void", "modelOutputType", "org.pangrova.protocol.v2.LogicalType", "EI_EXPOSE_REP2"},
+            {"org.pangrova.query.core.stage.binding.RetrievalGenerationIntent", "capability", "", "org.pangrova.protocol.v2.CapabilityRef", "capability", "org.pangrova.protocol.v2.CapabilityRef", "EI_EXPOSE_REP"},
+            {"org.pangrova.query.core.stage.binding.RetrievalGenerationIntent", "<init>", "java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,org.pangrova.protocol.v2.CapabilityRef,java.util.List,int", "void", "capability", "org.pangrova.protocol.v2.CapabilityRef", "EI_EXPOSE_REP2"}
+        };
+        for (String[] c : cases) {
+            String sig = SignatureUtil.createMethodSignature(c[2], c[3]);
+            int end = sig.indexOf(')');
+            String params = sig.substring(1, end), result = sig.substring(end + 1);
+            String type = SignatureUtil.createFieldSignature(c[5]);
+            check(full, c[0], c[1], params, result, c[4], type, c[6], true);
+            check(full, c[0] + "Other", c[1], params, result, c[4], type, c[6], false);
+            check(full, c[0], c[1] + "Other", params, result, c[4], type, c[6], false);
+            check(full, c[0], c[1], params + "I", result, c[4], type, c[6], false);
+            check(full, c[0], c[1], params, "[B", c[4], type, c[6], false);
+            check(full, c[0], c[1], params, result, "otherField", type, c[6], false);
+            check(full, c[0], c[1], params, result, c[4], "[B", c[6], false);
+            check(full, c[0], c[1], params, result, c[4], type, "HARD_CODE_KEY", false);
+            check(full, c[0], c[1], params, result, c[4], type,
+                    c[6].equals("EI_EXPOSE_REP") ? "EI_EXPOSE_REP2" : "EI_EXPOSE_REP", false);
+        }
+        String rerank = "org.pangrova.query.core.stage.binding.RerankIntent";
+        check(full, rerank, "modelSignature", "", "[B", "modelSignature", "[B", "EI_EXPOSE_REP", false);
+        check(full, "org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RerankIntent",
+                "modelLimits", "", "Lorg/pangrova/protocol/v2/CapabilityLimits;", "modelLimits",
+                "Lorg/pangrova/protocol/v2/CapabilityLimits;", "EI_EXPOSE_REP", false);
+    }
+
+    private static void verifyParserBorrowing(String fullFilterPath) throws Exception {
+        Filter full = Filter.parseFilter(fullFilterPath);
+        String tree = "Lorg/antlr/v4/runtime/tree/ParseTree;";
+        String tokens = "Lorg/antlr/v4/runtime/CommonTokenStream;";
+        String[][] cases = {
+            {"org.pangrova.parser.core.diagnostic.RecoveryParseDetails", "partialTree", "", tree,
+                "partialTree", tree, "EI_EXPOSE_REP"},
+            {"org.pangrova.parser.core.diagnostic.RecoveryParseDetails", "<init>",
+                "Lorg/pangrova/parser/api/parse/ParseResult;" + tree, "V", "partialTree", tree, "EI_EXPOSE_REP2"},
+            {"org.pangrova.parser.core.build.AstBuilder", "<init>",
+                tokens + "Lorg/pangrova/parser/api/parse/SqlDialect;", "V", "tokenStream", tokens, "EI_EXPOSE_REP2"}
+        };
+        for (String[] c : cases) {
+            check(full, c[0], c[1], c[2], c[3], c[4], c[5], c[6], true);
+            check(full, c[0] + "Other", c[1], c[2], c[3], c[4], c[5], c[6], false);
+            check(full, c[0], c[1] + "Other", c[2], c[3], c[4], c[5], c[6], false);
+            check(full, c[0], c[1], c[2] + "I", c[3], c[4], c[5], c[6], false);
+            check(full, c[0], c[1], c[2], "[B", c[4], c[5], c[6], false);
+            check(full, c[0], c[1], c[2], c[3], "otherField", c[5], c[6], false);
+            check(full, c[0], c[1], c[2], c[3], c[4], "[B", c[6], false);
+            check(full, c[0], c[1], c[2], c[3], c[4], c[5], "HARD_CODE_KEY", false);
+            check(full, c[0], c[1], c[2], c[3], c[4], c[5],
+                    c[6].equals("EI_EXPOSE_REP") ? "EI_EXPOSE_REP2" : "EI_EXPOSE_REP", false);
+        }
+    }
+
+    private static void verifyImmutableResourceGrants(String fullFilterPath) throws Exception {
+        Filter full = Filter.parseFilter(fullFilterPath);
+        String type = "Lorg/pangrova/protocol/v2/StageResourceGrant;";
+        for (String record : new String[]{"LeafTask", "DmlWriteTask"}) {
+            String owner = "org.pangrova.execution.core.binding.TaskRequestFactory$" + record;
+            check(full, owner, "resourceGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP", true);
+            check(full, owner + "Other", "resourceGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP", false);
+            check(full, owner, "otherGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP", false);
+            check(full, owner, "resourceGrant", "I", type, "resourceGrant", type, "EI_EXPOSE_REP", false);
+            check(full, owner, "resourceGrant", "", "[B", "resourceGrant", type, "EI_EXPOSE_REP", false);
+            check(full, owner, "resourceGrant", "", type, "otherGrant", type, "EI_EXPOSE_REP", false);
+            check(full, owner, "resourceGrant", "", type, "resourceGrant", "[B", "EI_EXPOSE_REP", false);
+            check(full, owner, "resourceGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP2", false);
+            check(full, owner, "resourceGrant", "", type, "resourceGrant", type, "HARD_CODE_KEY", false);
+        }
+        check(full, "org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory$LeafTask",
+                "resourceGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP", false);
     }
 
     private static void verifyManagedSourceBorrowed(String fullFilterPath) throws Exception {
         Filter full = Filter.parseFilter(fullFilterPath);
         String owner = "org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog";
         String oldParams = "Ljavax/sql/DataSource;"
-                + "Lorg/pangrova/spi/connector/metadata/ManagedSourceCatalog$Deployment;"
+                + "Lorg/pangrova/connector/api/metadata/SourceCatalogDeployment;"
                 + "Ljava/util/function/Function;";
-        String previousParams = oldParams + "Lorg/pangrova/persistence/api/query/transaction/ExecutionTransactionFence;";
-        String params = previousParams + "Lorg/pangrova/security/spi/jdbc/CurrentModelAuthority;";
+        String previousParams = oldParams + "Lorg/pangrova/persistence/jdbc/api/query/ExecutionTransactionFence;";
+        String params = previousParams + "Lorg/pangrova/persistence/jdbc/api/security/model/CurrentModelAuthority;";
         String sourceType = "Ljavax/sql/DataSource;";
         check(full, owner, "<init>", params, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", true);
         check(full, owner, "<init>", oldParams, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
@@ -121,20 +242,20 @@ public final class ImmutableFilterBoundary {
         String manager = "org.pangrova.indexing.storage.IndexStorageManager";
         String context = "org.pangrova.indexing.build.IndexBuildContext";
         String evaluation = "org.pangrova.indexing.eval.IndexEvaluationService";
-        String cached = "org.pangrova.indexing.storage.CachedBloomFilterIndexData";
+        String cached = "org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData";
         String bloom = "org.pangrova.common.bloom.SplitBlockBloomFilter";
         verifyIndexingMatch(full, context, "storageManager", "", manager,
                 "storageManager", manager, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, context, "<init>",
                 "org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.registry.IndexEngineRegistry,"
-                + manager + ",org.pangrova.indexing.serde.IndexSerializer,"
-                + "org.pangrova.indexing.build.BuildClaimHandler,"
+                + manager + ",org.pangrova.indexing.codec.data.IndexSerializer,"
+                + "org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository,"
                 + "org.pangrova.indexing.build.GenerationChecker,"
-                + "org.pangrova.spi.connector.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
+                + "org.pangrova.connector.spi.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
                 "void", "storageManager", manager, "EI_EXPOSE_REP2");
         String evaluationParams = "org.pangrova.indexing.registry.IndexEngineRegistry,"
                 + "org.pangrova.indexing.storage.IndexCache," + manager + ","
-                + "org.pangrova.indexing.serde.IndexSerializer,"
+                + "org.pangrova.indexing.codec.data.IndexSerializer,"
                 + "org.pangrova.indexing.eval.IndexEvalCircuitBreaker";
         verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
                 "storageManager", manager, "EI_EXPOSE_REP2");
@@ -143,7 +264,7 @@ public final class ImmutableFilterBoundary {
         verifyIndexingMatch(full, cached, "filter", "", bloom,
                 "deserializedFilter", bloom, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, cached, "<init>",
-                "org.pangrova.spi.indexing.data.BloomFilterIndexData," + bloom,
+                "org.pangrova.indexing.api.data.BloomFilterIndexData," + bloom,
                 "void", "deserializedFilter", bloom, "EI_EXPOSE_REP2");
     }
 
@@ -340,6 +461,44 @@ def main():
                             and any(child.tag.endswith('Field') for child in match)]
         if len(borrowed_matches) != 19:
             raise RuntimeError('Expected 19 exact borrowed Paimon service classifications')
+        deployment = 'org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository'
+        dispatcher = 'org.pangrova.metadata.event.MetadataEventDispatcher'
+        cache = 'org.pangrova.metadata.api.cache.MetadataCache'
+        registry_params = ','.join((deployment, 'org.pangrova.metadata.spi.catalog.ConnectorHandleFactory',
+                                    'org.pangrova.metadata.spi.catalog.FederationHandleFactory', dispatcher))
+        sync_params = ','.join(('org.pangrova.persistence.catalog.api.projection.TableProjectionRepository',
+                               'org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions',
+                               'org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository',
+                               cache, dispatcher))
+        registry = 'org.pangrova.metadata.catalog.registry.CatalogRegistry'
+        sync = 'org.pangrova.metadata.outbox.MetadataSyncService'
+        support = 'org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceSupport'
+        expected_projection_di = {
+            (registry, registry_params, 'store', deployment),
+            (registry, registry_params, 'eventDispatcher', dispatcher),
+            (sync, sync_params, 'cache', cache),
+            (sync, sync_params, 'eventDispatcher', dispatcher),
+            (support, 'javax.sql.DataSource', 'dataSource', 'javax.sql.DataSource'),
+        }
+        projection_matches = [match for match in full_filter.getroot()
+                              if any(child.tag.endswith('Class') and child.get('name') in
+                                     {registry, sync, support} for child in match)
+                              and any(child.tag.endswith('Bug') and child.get('pattern') ==
+                                      'EI_EXPOSE_REP2' for child in match)]
+        actual_projection_di = set()
+        for match in projection_matches:
+            elements = {child.tag.rsplit('}', 1)[-1]: child for child in match}
+            if len(match) != 4 or set(elements) != {'Class', 'Method', 'Field', 'Bug'}:
+                raise RuntimeError('Catalog projection ownership classification is not exact')
+            owner, method, field = (elements[key] for key in ('Class', 'Method', 'Field'))
+            case = (owner.attrib['name'], method.attrib['params'], field.attrib['name'], field.attrib['type'])
+            if (case not in expected_projection_di or case in actual_projection_di
+                    or method.attrib['name'] != '<init>' or method.attrib['returns'] != 'void'):
+                raise RuntimeError(f'Unexpected or duplicate catalog projection classification: {case}')
+            actual_projection_di.add(case)
+        if actual_projection_di != expected_projection_di:
+            raise RuntimeError('Missing catalog projection borrowed-ownership classifications')
+        borrowed_matches += projection_matches
         borrowed_cases = []
         for index, match in enumerate(borrowed_matches):
             elements = {child.tag.rsplit('}', 1)[-1]: child for child in match}
@@ -359,7 +518,7 @@ def main():
         borrowed_manifest.write_text('\n'.join(borrowed_cases), encoding='utf-8')
         jdbc_matches = [match for match in full_filter.getroot()
                         if any(child.tag.endswith('Class') and child.get('name', '').startswith(
-                            ('org.pangrova.client.jdbc.', 'org.pangrova.persistence.jdbc.generation.')) for child in match)
+                            ('org.pangrova.client.jdbc.', 'org.pangrova.persistence.generation.postgresql.')) for child in match)
                         and any(child.tag.endswith('Bug') and child.get('pattern') == 'SQL_INJECTION_JDBC'
                                 for child in match)]
         expected_jdbc = {
@@ -372,16 +531,16 @@ def main():
             for params in ('java.lang.String,int', 'java.lang.String,int[]', 'java.lang.String,java.lang.String[]')
         }
         expected_jdbc |= {
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadOutputsForPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.List'),
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadPublishedSourceSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List', 'java.util.Map'),
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadSourceOutputs', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List', 'void'),
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadStoredSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map', 'void'),
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection$Selection', 'java.util.Optional'),
-            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
-            ('org.pangrova.persistence.jdbc.generation.exchange.PostgresGenerationStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.spi.generation.job.GenerationJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
-            ('org.pangrova.persistence.jdbc.generation.exchange.PostgresGenerationStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.spi.generation.job.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationOutputQueries', 'loadOutputsForPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.List'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationOutputQueries', 'loadPublishedSourceSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List', 'java.util.Map'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationOutputQueries', 'loadSourceOutputs', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List', 'void'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationOutputQueries', 'loadStoredSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map', 'void'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.persistence.generation.postgresql.job.PostgresGenerationPageSelection$Selection', 'java.util.Optional'),
+            ('org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.generation.api.identity.GenerationJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
+            ('org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.generation.api.identity.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
         }
         if len(jdbc_matches) != len(expected_jdbc):
             raise RuntimeError('Expected 21 exact JDBC forwarding/Artifact SQL classifications')
@@ -444,13 +603,13 @@ def main():
         identity_manifest = temporary / 'jdbc-identity-cases.txt'
         identity_manifest.write_text('\n'.join(identity_cases), encoding='utf-8')
         expected_metadata = {
-            ('org.pangrova.spi.generation.execution.GenerationExchangeFinalization', 'partitions', 'java.util.List'),
-            ('org.pangrova.spi.generation.execution.GenerationExchangeRegistration', 'endpoints', 'java.util.List'),
-            ('org.pangrova.spi.generation.execution.GenerationStageGraph', 'stages', 'java.util.List'),
-            ('org.pangrova.spi.generation.execution.GenerationStageGraph', 'exchanges', 'java.util.List'),
-            ('org.pangrova.spi.generation.execution.GenerationStageGraph', 'modelSnapshots', 'java.util.List'),
-            ('org.pangrova.spi.generation.execution.template.GenerationStageTemplate', 'publicationReads', 'java.util.List'),
-            ('org.pangrova.spi.generation.GenerationDependencySet', 'dependencies', 'java.util.List'),
+            ('org.pangrova.generation.api.exchange.GenerationExchangeFinalization', 'partitions', 'java.util.List'),
+            ('org.pangrova.generation.api.exchange.GenerationExchangeRegistration', 'endpoints', 'java.util.List'),
+            ('org.pangrova.generation.api.graph.GenerationStageGraph', 'stages', 'java.util.List'),
+            ('org.pangrova.generation.api.graph.GenerationStageGraph', 'exchanges', 'java.util.List'),
+            ('org.pangrova.generation.api.graph.GenerationStageGraph', 'modelSnapshots', 'java.util.List'),
+            ('org.pangrova.generation.api.graph.template.GenerationStageTemplate', 'publicationReads', 'java.util.List'),
+            ('org.pangrova.generation.api.dependency.GenerationDependencySet', 'dependencies', 'java.util.List'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'columns', 'java.util.List'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'partitionSpec', 'java.util.Map'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'sortOrder', 'java.util.List'),
@@ -487,7 +646,7 @@ def main():
                                            field.attrib['name'], field.attrib['type']]))
         metadata_manifest = temporary / 'metadata-collection-cases.txt'
         metadata_manifest.write_text('\n'.join(metadata_cases), encoding='utf-8')
-        vector_owner = 'org.pangrova.planner.type.StorageVectorRelDataType'
+        vector_owner = 'org.pangrova.planner.core.type.StorageVectorRelDataType'
         vector_matches = [match for match in full_filter.getroot()
                           if any(child.tag.endswith('Class') and child.get('name') == vector_owner
                                  for child in match)]
@@ -525,6 +684,7 @@ def main():
     print('PASS: exact keytool runner classified; this Match rejects 7 class/method/signature/bug changes.')
     print('PASS: exact non-security retry jitter classified; this Match rejects 7 owner/method/signature/bug changes.')
     print('PASS: 19 exact borrowed Paimon services classified; each Match rejects 9 signature/field/type/bug changes.')
+    print('PASS: five migrated catalog ownership classifications match current constructors and reject 9 changed boundaries.')
     print('PASS: 21 exact JDBC forwarding/Artifact methods classified; each rejects 7 changed boundaries, Artifact also in full filter.')
     print('PASS: complete filter does not exclude PreparedStatement SQL construction or Boolean-null finding.')
     print('PASS: four JDBC identity getters classified; isolated/full filters each reject 12 changed boundaries.')
@@ -533,6 +693,7 @@ def main():
     print('PASS: canonical immutable VECTOR getter classified; isolated/full filters reject 12 changed boundaries.')
     print('PASS: six exact indexing ownership classifications each reject changed owner/method/field/type/bug.')
     print('PASS: managed-source DataSource classification matches only the new constructor; old and altered boundaries remain checked.')
+    print('PASS: two immutable StageResourceGrant getters reject 8 changed boundaries each and the retired owner.')
 
 
 if __name__ == '__main__':

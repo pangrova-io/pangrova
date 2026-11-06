@@ -7,11 +7,19 @@ terminal effect: FINISHED maps to COMPLETE, FAILED to FAIL, CANCELLED to ABORT. 
 write commit finishes before the task completion owner can signal logical success.
 Task completion and query dispatch do not publish another logical query event.
 
-The `QueryEventDispatcher` SPI carries immutable dataset and column metadata captured
-from the authorized plan. A manager attaches its listener through `withListener`; a
-borrowed parent retains its dynamic registrations and never retains a child's listener.
-A lifecycle callback error remains observable and fault isolated. Other SPI listeners
-receive the same query events regardless of whether the optional audit writer exists.
+`pangrova-query-api` owns immutable query/split events (`org.pangrova.query.api.event`)
+and `org.pangrova.query.spi.event.QueryEventListener`. Query Core owns
+`org.pangrova.query.core.event.QueryEventDispatcher`; it invokes observers synchronously
+on the publisher thread and isolates `java.lang.RuntimeException` from each listener. It does
+not provide durable delivery, replay, deduplication, or exactly-once guarantees.
+
+The actual `QueryAuditDispatcher` publishes admission/terminal observations and records
+lineage facts directly through `LineageEventEmitter`. It does not install a second
+`LineageQueryEventListener`. The independently tested listener adapter remains available
+for explicit integrations; the borrowed-parent behavior of `withListener` is tested but
+is not the production lineage publication path. A parent never retains a child's listener.
+The JDBC event listener and split-completion publication are not wired by production
+assembly. Their class presence must not be interpreted as an enabled audit pipeline.
 
 Terminal inputs/outputs supplement admission metadata, as permitted by the OpenLineage
 object model. Dataset and column identifiers remain structured even when they contain
@@ -62,7 +70,7 @@ Prepare a native Java 17 image before running these tests:
 ```bash
 python3.12 .pangrova/scripts/prepare-lineage-test-image.py \
   --runtime-image eclipse-temurin:17-jre
-mvn -pl pangrova-metadata -am \
+mvn -pl :pangrova-metadata-core -am \
   -Dtest=QueryLineageHttpRecoveryIntegrationTest \
   -Dsurefire.failIfNoSpecifiedTests=false \
   -Dpangrova.test.marquez.image=<image-tag-from-preparation> test

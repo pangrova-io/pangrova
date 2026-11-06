@@ -4,12 +4,12 @@ import java.util.List;
 
 import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
-import org.pangrova.parser.ast.statement.DropIndexStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.query.core.statement.StatementTableTargets;
+import org.pangrova.parser.api.ast.statement.DropIndexStatement;
+import org.pangrova.types.value.TypedRow;
 
 /**
  * Executes DROP INDEX by delegating to {@link IndexDdlExecutor#executeDropIndex}.
@@ -26,7 +26,7 @@ public final class DropIndexTask implements MetadataTask<DropIndexStatement> {
     public StatementResult execute(DropIndexStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeDropIndex(
                 statement, context.session());
-        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
+        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
     }
 

@@ -1,7 +1,7 @@
 package org.pangrova.testing.testkit;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 
 import java.util.ArrayList;
 import java.util.List;

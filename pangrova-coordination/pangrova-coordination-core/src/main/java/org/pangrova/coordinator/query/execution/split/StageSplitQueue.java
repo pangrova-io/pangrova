@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
+
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;

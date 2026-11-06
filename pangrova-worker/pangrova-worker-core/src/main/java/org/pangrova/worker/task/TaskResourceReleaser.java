@@ -1,6 +1,6 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.shuffle.api.ShuffleTransport;
+import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,7 +18,7 @@ final class TaskResourceReleaser {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskResourceReleaser.class);
 
-    private final ShuffleTransport shuffleTransport;
+    private final NativeShuffleTransport shuffleTransport;
     private final TaskManagerContext deps;
     private final Consumer<TaskInfo> memoryReleaser;
 
@@ -30,7 +30,7 @@ final class TaskResourceReleaser {
      * @param memoryReleaser releases the task memory budget
      */
     TaskResourceReleaser(
-            ShuffleTransport shuffleTransport,
+            NativeShuffleTransport shuffleTransport,
             TaskManagerContext deps,
             Consumer<TaskInfo> memoryReleaser) {
         this.shuffleTransport = shuffleTransport;
@@ -74,10 +74,10 @@ final class TaskResourceReleaser {
             validateFinalReceipt(info, receipt);
             return;
         }
-        if (shuffleTransport instanceof org.pangrova.worker.shuffle.NativeShuffleTransport nst) {
+        if (shuffleTransport != null) {
             long handle = info.executorHandle();
             if (handle != 0) {
-                nst.stopServer(handle);
+                shuffleTransport.stopServer(handle);
             }
         }
     }

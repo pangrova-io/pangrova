@@ -6,16 +6,16 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
@@ -236,7 +236,7 @@ class BatchLoggingReductionTest {
         }
 
         @Override
-        public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(
+        public Map<String, org.pangrova.connector.api.metadata.table.ColumnHandle> getColumnHandles(
                 ConnectorSession session, ConnectorTableHandle table) {
             return Map.of();
         }
@@ -254,7 +254,7 @@ class BatchLoggingReductionTest {
 
     private static final class StubSession implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

@@ -2,16 +2,16 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -34,7 +34,7 @@ class StatementDispatcherDdlDisabledTest {
     void createTableIsRoutable() {
         Statement stmt = new CreateTableStatement(
                 new Identifier(List.of("db", "orders")),
-                List.of(new CreateTableStatement.ColumnDefinition("id", DataTypeSpec.fromRawTypeString("BIGINT"))),
+                List.of(new CreateTableStatement.ColumnDefinition("id", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT"))),
                 false, List.of(), List.of(), Optional.empty(), Map.of());
         assertThat(dispatcher.isRoutable(stmt)).isTrue();
     }
@@ -57,7 +57,7 @@ class StatementDispatcherDdlDisabledTest {
     void isRoutableDetectsCreateTable() {
         Statement stmt = new CreateTableStatement(
                 new Identifier(List.of("db", "t")),
-                List.of(new CreateTableStatement.ColumnDefinition("id", DataTypeSpec.fromRawTypeString("BIGINT"))),
+                List.of(new CreateTableStatement.ColumnDefinition("id", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT"))),
                 false, List.of(), List.of(), Optional.empty(), Map.of());
         assertThat(dispatcher.isRoutable(stmt)).isTrue();
     }

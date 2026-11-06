@@ -1,0 +1,45 @@
+{
+  "roles": [
+    {
+      "role": "coordinator",
+      "launcher_exit": 0,
+      "classpath_entries": 249,
+      "api_entries": [
+        "pangrova-shuffle/pangrova-shuffle-api/target/pangrova-shuffle-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_task_identity": true,
+      "local_provider_entries": []
+    },
+    {
+      "role": "worker",
+      "launcher_exit": 0,
+      "classpath_entries": 187,
+      "api_entries": [
+        "pangrova-shuffle/pangrova-shuffle-api/target/pangrova-shuffle-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_task_identity": true,
+      "local_provider_entries": [],
+      "provider_entries": [
+        "pangrova-shuffle/pangrova-shuffle-pangrova/target/pangrova-shuffle-pangrova-0.1.0-SNAPSHOT.jar"
+      ],
+      "provider_sha256": "f270dffc12c8f8122d4b1e9f6097477aa548777c1335621ea22a461d7d41ed93"
+    },
+    {
+      "role": "standalone",
+      "launcher_exit": 0,
+      "classpath_entries": 312,
+      "api_entries": [
+        "pangrova-shuffle/pangrova-shuffle-api/target/pangrova-shuffle-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_task_identity": true,
+      "local_provider_entries": [],
+      "provider_entries": [
+        "pangrova-shuffle/pangrova-shuffle-pangrova/target/pangrova-shuffle-pangrova-0.1.0-SNAPSHOT.jar"
+      ],
+      "provider_sha256": "f270dffc12c8f8122d4b1e9f6097477aa548777c1335621ea22a461d7d41ed93"
+    }
+  ],
+  "api_sha256": "079965436743210bc5273b98a450dd12c6359cb1c3268310d7d99055cb161899",
+  "failures": [],
+  "scope": "Actual packaged local launcher closures; Local provider intentionally not yet assembled into runtime roles. No image build, role isolation completion or deployment claimed."
+}

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -8,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.persistence.query.api.commit.JournalWriteException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -29,7 +31,7 @@ class QueryTerminalJournalIntegrationTest {
                     .rootCause()
                     .satisfies(error -> assertThat(((SQLException) error).getSQLState()).isEqualTo("42501"))
                     .hasMessageContaining("permission denied for table query_state_journal");
-            assertThat(control.manager.getQueryState(id)).contains(QueryStateMachine.State.FINISHED);
+            assertThat(control.manager.getQueryState(id)).contains(QueryState.FINISHED);
             assertThat(control.manager.getActiveQueryCount()).isEqualTo(1);
             assertThat(store.terminalWrites(id, "FINISHED")).isZero();
             assertThat(control.manager.awaitAllQueries(1)).isFalse();

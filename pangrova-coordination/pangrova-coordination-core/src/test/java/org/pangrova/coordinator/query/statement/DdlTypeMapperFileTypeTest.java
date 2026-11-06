@@ -4,9 +4,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.types.RowType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

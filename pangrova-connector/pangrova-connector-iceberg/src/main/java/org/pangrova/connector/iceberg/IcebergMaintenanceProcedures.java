@@ -2,9 +2,9 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.write.IcebergCompactionExecutor;
-import org.pangrova.spi.connector.CacheEvictionListener;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.connector.spi.cache.CacheEvictionListener;
+import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.types.value.TypedRow;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;

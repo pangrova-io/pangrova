@@ -18,9 +18,9 @@ import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.CommandRecord;
 import org.pangrova.materialization.port.MaterializationEvent;
 
-import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
-import static org.pangrova.common.jdbc.JdbcSupport.setJson;
-import static org.pangrova.common.jdbc.JdbcSupport.setNullableInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setNullableInstant;
 
 /**
  * Insert and update statements shared by the materialization repository.

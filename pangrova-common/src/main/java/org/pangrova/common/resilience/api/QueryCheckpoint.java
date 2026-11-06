@@ -17,15 +17,14 @@ import java.util.Optional;
  * <p>The recovery floor for a query is determined by the combination of:</p>
  * <ul>
  *   <li>This checkpoint SPI (stage-boundary metadata)</li>
- *   <li>Durable shuffle (shuffle data survives worker failure — see
- *       {@link org.pangrova.shuffle.api.ShuffleDurability})</li>
+ *   <li>Verified reachability and selected-attempt publication of Shuffle data</li>
  *   <li>The FTE stage scheduler's retry budget</li>
  * </ul>
  *
  * <p>Without durable shuffle, checkpoints alone are insufficient: the stage output
  * data would be lost even though the metadata says the stage completed. The FTE
- * scheduler checks {@code ShuffleCapabilities.supportsTaskRetry()} before attempting
- * checkpoint-based resume.</p>
+ * recovery owner must verify the current exchange receipt, selected attempts and effective
+ * consumer-retry guarantees before checkpoint-based resume. This SPI supplies no such proof.</p>
  *
  * <h3>Checkpoint granularity</h3>
  * <p>The current granularity is <b>stage boundary</b> (coarse): all tasks in a stage

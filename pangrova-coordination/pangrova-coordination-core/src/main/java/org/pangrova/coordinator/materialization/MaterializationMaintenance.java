@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.materialization;
 
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -16,9 +20,9 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.materialization.domain.CommandId;
 import org.pangrova.materialization.domain.DefinitionRevision;
@@ -37,9 +41,9 @@ import org.pangrova.materialization.usecase.MaterializationReconciler;
 import org.pangrova.materialization.usecase.MaterializationScheduler;
 import org.pangrova.materialization.usecase.RefreshMaterialization;
 import org.pangrova.materialization.usecase.SourcePinSweeper;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,6 +58,7 @@ import org.slf4j.LoggerFactory;
  * recovery tick owns its own short-lived anchor for publication fences.
  */
 public final class MaterializationMaintenance implements AutoCloseable {
+    private final ExecutionTraceContextFactory traceContexts;
 
     private static final Logger LOG = LoggerFactory.getLogger(MaterializationMaintenance.class);
 
@@ -94,7 +99,8 @@ public final class MaterializationMaintenance implements AutoCloseable {
     public MaterializationMaintenance(MaterializationKernelFactory kernels,
             HighAvailabilityCoordinationService coordination, String coordinatorId,
             QueryManager queryManager, SqlCompiler compiler, CoordinatorResultService results,
-            CommitRecovery recovery, Dependencies dependencies) {
+            CommitRecovery recovery, Dependencies dependencies, ExecutionTraceContextFactory traceContexts) {
+        this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.kernels = java.util.Objects.requireNonNull(kernels, "kernels");
         this.coordination = java.util.Objects.requireNonNull(coordination, "coordination");
         this.coordinatorId = java.util.Objects.requireNonNull(coordinatorId, "coordinatorId");
@@ -297,11 +303,11 @@ public final class MaterializationMaintenance implements AutoCloseable {
         try {
             queryManager.registerStateMachine(queryId, state);
             registered = true;
-            CoordinatorSessionContext session = new CoordinatorSessionContext(
+            QuerySession session = new QuerySession(
                     queryId, definition.sessionProperties(),
                     new UserIdentity(header.definer().name(), definition.definerGroups(),
                             Map.of(), Instant.now()),
-                    object.tenant().value());
+                    object.tenant().value(), java.util.Optional.empty(), traceContexts.capture());
             StatementExecutionContext context = new StatementExecutionContext(
                     state, queryId, session, compiler, results);
             kernels.service(context).refresh(new RefreshMaterialization(
@@ -324,8 +330,8 @@ public final class MaterializationMaintenance implements AutoCloseable {
     }
 
     private void finish(QueryStateMachine state, String queryId) {
-        state.tryTransition(QueryStateMachine.State.FINISHING);
-        if (!state.tryTransition(QueryStateMachine.State.FINISHED)) {
+        state.tryTransition(QueryState.FINISHING);
+        if (!state.tryTransition(QueryState.FINISHED)) {
             throw new IllegalStateException(
                     "materialization refresh did not reach FINISHED for " + queryId);
         }
@@ -346,11 +352,11 @@ public final class MaterializationMaintenance implements AutoCloseable {
         }
     }
 
-    private static ErrorDetail error(RuntimeException failure) {
+    private static QueryFailure error(RuntimeException failure) {
         PangrovaErrorCode code = failure instanceof PangrovaException known
                 && known.getErrorCode() != null
                 ? known.getErrorCode() : PangrovaErrorCode.MATERIALIZATION_REPOSITORY_FAILURE;
-        return new ErrorDetail(code.getCode(), "MATERIALIZATION_ERROR",
+        return new QueryFailure(code.getCode(), "MATERIALIZATION_ERROR",
                 failure.getMessage() == null ? code.getDescription() : failure.getMessage(), null);
     }
 

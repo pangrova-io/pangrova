@@ -1,32 +1,33 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.*;
-import org.pangrova.parser.ast.CreateMaterializedViewStatement;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.InsertStatement;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.security.authz.StaticGrantStore;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.query.api.statement.StatementCategory;
+import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DropMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.statement.RefreshMaterializedViewStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
+import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -171,7 +172,7 @@ class StatementPermissionMappingTest {
     // ── Helpers ──
 
     private void executeDirect(StatementDispatcher dispatcher, Statement stmt) {
-        var session = new CoordinatorSessionContext("q-perm", Map.of(), USER, null);
+        var session = new QuerySession("q-perm", Map.of(), USER, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         dispatcher.executeDirect(stmt, null, "q-perm", session);
     }
 
@@ -228,7 +229,7 @@ class StatementPermissionMappingTest {
 
     private static CreateTableStatement createTableStmt() {
         return new CreateTableStatement(TABLE,
-                List.of(new CreateTableStatement.ColumnDefinition("id", DataTypeSpec.fromRawTypeString("INTEGER"))),
+                List.of(new CreateTableStatement.ColumnDefinition("id", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("INTEGER"))),
                 false, List.of(), List.of(), Optional.empty(), Map.of());
     }
 
@@ -237,17 +238,17 @@ class StatementPermissionMappingTest {
     }
 
     private static CreateMaterializedViewStatement createMvStmt() {
-        return (CreateMaterializedViewStatement) new SqlParser().parse(
+        return (CreateMaterializedViewStatement) new AntlrSqlParser().parse(
                 "CREATE MATERIALIZED VIEW cat.sch.tbl AS SELECT 1");
     }
 
     private static RefreshMaterializedViewStatement refreshMvStmt() {
-        return (RefreshMaterializedViewStatement) new SqlParser().parse(
+        return (RefreshMaterializedViewStatement) new AntlrSqlParser().parse(
                 "REFRESH MATERIALIZED VIEW cat.sch.tbl");
     }
 
     private static DropMaterializedViewStatement dropMvStmt() {
-        return (DropMaterializedViewStatement) new SqlParser().parse(
+        return (DropMaterializedViewStatement) new AntlrSqlParser().parse(
                 "DROP MATERIALIZED VIEW cat.sch.tbl");
     }
 }

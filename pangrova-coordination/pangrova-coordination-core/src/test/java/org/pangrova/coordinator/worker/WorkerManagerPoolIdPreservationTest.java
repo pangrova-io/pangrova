@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.List;
 
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +33,7 @@ class WorkerManagerPoolIdPreservationTest {
                 org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("w-pool"));
         manager.registerWorker(registered);
 
-        manager.onHeartbeat("w-pool", new WorkerManager.HeartbeatData(
+        manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("w-pool", manager.getWorker("w-pool").workerExecutionIdentity().admissionDomainId(), manager.getWorker("w-pool").workerExecutionIdentity().incarnationId()), new WorkerManager.HeartbeatData(
                 MemoryPressure.LOW, 0.5, 3, 512L * 1024 * 1024));
 
         WorkerInfo updated = manager.getActiveWorkers().stream()
@@ -54,7 +54,7 @@ class WorkerManagerPoolIdPreservationTest {
                 org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("w-no-pool"));
         manager.registerWorker(registered);
 
-        manager.onHeartbeat("w-no-pool", new WorkerManager.HeartbeatData(
+        manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("w-no-pool", manager.getWorker("w-no-pool").workerExecutionIdentity().admissionDomainId(), manager.getWorker("w-no-pool").workerExecutionIdentity().incarnationId()), new WorkerManager.HeartbeatData(
                 MemoryPressure.NONE, 0.2, 1, 768L * 1024 * 1024));
 
         WorkerInfo updated = manager.getActiveWorkers().stream()

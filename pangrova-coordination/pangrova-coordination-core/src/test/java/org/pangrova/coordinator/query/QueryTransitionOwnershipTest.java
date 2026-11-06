@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -28,15 +32,15 @@ class QueryTransitionOwnershipTest {
         try {
             var transition = executor.submit(() -> {
                 selectedThread.set(Thread.currentThread());
-                return state.tryTransition(QueryStateMachine.State.PLANNING);
+                return state.tryTransition(QueryState.PLANNING);
             });
             assertThat(selected.await(3, TimeUnit.SECONDS)).isTrue();
-            assertThat(state.tryTransition(QueryStateMachine.State.FAILED)).isTrue();
+            assertThat(state.tryTransition(QueryState.FAILED)).isTrue();
             tracker.sealQueryIssuance("late-transition");
             tracker.retireQueryIssuance("late-transition");
             resume.countDown();
             assertThat(transition.get(3, TimeUnit.SECONDS)).isFalse();
-            assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FAILED);
+            assertThat(state.getState()).isEqualTo(QueryState.FAILED);
         } finally {
             resume.countDown();
             ExecutorDrain.shutdownAndAwait(executor, 3000);
@@ -51,9 +55,9 @@ class QueryTransitionOwnershipTest {
         state.setTransitionOperations(() -> tracker.enterQueryMetadataOperation("closed-transition"));
         tracker.sealQueryIssuance("closed-transition");
         tracker.retireQueryIssuance("closed-transition");
-        assertThatThrownBy(() -> state.tryTransition(QueryStateMachine.State.PLANNING))
+        assertThatThrownBy(() -> state.tryTransition(QueryState.PLANNING))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("metadata admission is closed");
-        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.QUEUED);
+        assertThat(state.getState()).isEqualTo(QueryState.QUEUED);
     }
 
     @Test
@@ -65,13 +69,13 @@ class QueryTransitionOwnershipTest {
         var entered = new CountDownLatch(1);
         var resume = new CountDownLatch(1);
         state.addStateChangeListener((previous, current) -> {
-            if (current == QueryStateMachine.State.PLANNING) { entered.countDown(); await(resume); }
+            if (current == QueryState.PLANNING) { entered.countDown(); await(resume); }
         });
         var executor = Executors.newSingleThreadExecutor();
         try {
-            var transition = executor.submit(() -> state.tryTransition(QueryStateMachine.State.PLANNING));
+            var transition = executor.submit(() -> state.tryTransition(QueryState.PLANNING));
             assertThat(entered.await(3, TimeUnit.SECONDS)).isTrue();
-            assertThat(state.tryTransition(QueryStateMachine.State.FAILED)).isTrue();
+            assertThat(state.tryTransition(QueryState.FAILED)).isTrue();
             tracker.sealQueryIssuance("entered-transition");
             assertThatThrownBy(() -> tracker.retireQueryIssuance("entered-transition"))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("operations have not exited");

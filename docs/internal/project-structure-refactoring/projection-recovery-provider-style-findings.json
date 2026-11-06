@@ -1,0 +1,106 @@
+[
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "36",
+    "column": "17",
+    "severity": "error",
+    "message": "'switch' \u7f29\u8fdb\u4e8616\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a12\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "37",
+    "column": "21",
+    "severity": "error",
+    "message": "'case' \u5b50\u5143\u7d20\u7f29\u8fdb\u4e8620\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a16\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "38",
+    "column": "21",
+    "severity": "error",
+    "message": "'case' \u5b50\u5143\u7d20\u7f29\u8fdb\u4e8620\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a16\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "39",
+    "column": "17",
+    "severity": "error",
+    "message": "'switch rcurly' \u7f29\u8fdb\u4e8616\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a12\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "52",
+    "column": "37",
+    "severity": "error",
+    "message": "'11' \u662f\u4e00\u4e2a\u9b54\u672f\u6570\u5b57\uff08\u76f4\u63a5\u5e38\u6570\uff09\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.coding.MagicNumberCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "56",
+    "column": "31",
+    "severity": "error",
+    "message": "'12' \u662f\u4e00\u4e2a\u9b54\u672f\u6570\u5b57\uff08\u76f4\u63a5\u5e38\u6570\uff09\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.coding.MagicNumberCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "64",
+    "column": "17",
+    "severity": "error",
+    "message": "'switch' \u7f29\u8fdb\u4e8616\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a12\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "65",
+    "column": "21",
+    "severity": "error",
+    "message": "'case' \u5b50\u5143\u7d20\u7f29\u8fdb\u4e8620\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a16\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "66",
+    "column": "21",
+    "severity": "error",
+    "message": "'case' \u5b50\u5143\u7d20\u7f29\u8fdb\u4e8620\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a16\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "line": "67",
+    "column": "17",
+    "severity": "error",
+    "message": "'switch rcurly' \u7f29\u8fdb\u4e8616\u4e2a\u7f29\u8fdb\u7b26\uff0c\u5e94\u4e3a12\u4e2a\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.indentation.IndentationCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionRequestValidation.java",
+    "line": "9",
+    "column": "5",
+    "severity": "error",
+    "message": "\u201cCTOR_DEF\u201d\u4e4b\u524d\u5e94\u8be5\u6709\u4e00\u4e2a\u7a7a\u767d\u884c\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionReceiptCodec.java",
+    "line": "23",
+    "column": "5",
+    "severity": "error",
+    "message": "\u201cCTOR_DEF\u201d\u4e4b\u524d\u5e94\u8be5\u6709\u4e00\u4e2a\u7a7a\u767d\u884c\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionRows.java",
+    "line": "21",
+    "column": "5",
+    "severity": "error",
+    "message": "\u201cCTOR_DEF\u201d\u4e4b\u524d\u5e94\u8be5\u6709\u4e00\u4e2a\u7a7a\u767d\u884c\u3002",
+    "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+  }
+]

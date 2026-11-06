@@ -4,11 +4,11 @@ import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.write.IcebergPageSinkProvider;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
-import org.pangrova.persistence.api.file.claim.CopyFileClaim;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
+import org.pangrova.persistence.file.api.claim.CopyFileClaim;
 import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -56,7 +56,7 @@ class IcebergMetadataAtomicCommitTest {
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -228,7 +228,7 @@ class IcebergMetadataAtomicCommitTest {
         DistributedWriteCommitContext context = context(
                 "q-replay-event", handle, List.of(fragment));
         AtomicInteger deliveries = new AtomicInteger();
-        AtomicReference<org.pangrova.spi.connector.index.CommitEvent> replayed =
+        AtomicReference<org.pangrova.connector.api.index.CommitEvent> replayed =
                 new AtomicReference<>();
         metadata.registerCommitListener(event -> {
             if (deliveries.incrementAndGet() == 1) {
@@ -522,7 +522,7 @@ class IcebergMetadataAtomicCommitTest {
         String tenantId = SESSION.getProperties().get("tenant_id");
         byte[] binding = IcebergWriteBindingFixtures.binding(handle);
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
                         executionId,
                         tenantId,
                         CATALOG_NAME,

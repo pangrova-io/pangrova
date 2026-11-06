@@ -1,21 +1,23 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.query.core.statement.StatementClassifier;
+
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryCoordinatorRegistry;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.coordinator.query.execution.dispatch.DdlLeadershipGuard;
 import org.pangrova.coordinator.query.execution.dispatch.DdlNotOnLeaderException;
-import org.pangrova.parser.ast.CreateCatalogStatement;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.InsertStatement;
-import org.pangrova.parser.ast.ShowSchemasStatement;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.DropCatalogStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.spi.coordination.CoordinatorSnapshot;
+import org.pangrova.parser.api.ast.CreateCatalogStatement;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.ShowSchemasStatement;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +55,7 @@ class DdlLeadershipGuardTest {
         registry = new InMemoryCoordinatorRegistry();
 
         // Set up leader coordinator
-        leaderService = new HighAvailabilityCoordinationService(lease);
+        leaderService = new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         leaderService.setCoordinatorRegistry(registry, LEADER_HOST, LEADER_PORT);
         leaderService.tryBecomeLeader(LEADER_ID);
 
@@ -63,7 +65,7 @@ class DdlLeadershipGuardTest {
                 "LEADER", 1, System.currentTimeMillis(), System.currentTimeMillis()));
 
         // Set up standby coordinator (shares the same lease backend)
-        standbyService = new HighAvailabilityCoordinationService(lease);
+        standbyService = new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         standbyService.setCoordinatorRegistry(registry, "standby-host", 8081);
     }
 
@@ -120,6 +122,17 @@ class DdlLeadershipGuardTest {
 
         assertThatThrownBy(() -> guard.requireLeaderForDdl(stmt))
                 .isInstanceOf(DdlNotOnLeaderException.class);
+    }
+
+    @Test
+    void storageProfileMutationsCannotRunOnStandbyWhenLeadershipRoutingIsEnabled() {
+        var guard = new DdlLeadershipGuard(standbyService, STANDBY_ID);
+        var parser = new org.pangrova.parser.core.parse.AntlrSqlParser();
+        for (String sql : List.of("CREATE STORAGE PROFILE staging WITH ('type'='S3', 'bucket'='example')",
+                "DROP STORAGE PROFILE IF EXISTS staging")) {
+            assertThatThrownBy(() -> guard.requireLeaderForDdl(parser.parse(sql)))
+                    .isInstanceOf(DdlNotOnLeaderException.class);
+        }
     }
 
     // --- DDL allowed on leader ---
@@ -187,7 +200,7 @@ class DdlLeadershipGuardTest {
     void exceptionHasNullEndpointWhenNoLeaderRegistered() {
         // Create a standby service with no registry configured
         var isolatedLease = new InMemoryDistributedLease();
-        var isolatedService = new HighAvailabilityCoordinationService(isolatedLease);
+        var isolatedService = new HighAvailabilityCoordinationService(isolatedLease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         // No coordinator registry set — leader endpoint resolution returns null
         DdlLeadershipGuard guard = new DdlLeadershipGuard(isolatedService, "orphan-node");
         Statement stmt = createTableStatement();
@@ -229,13 +242,25 @@ class DdlLeadershipGuardTest {
         assertThat(StatementClassifier.requiresLeaderRouting(insert)).isFalse();
     }
 
+    @Test
+    void viewAndEmbeddingModelMutationsRequireLeaderRouting() {
+        var parser = new org.pangrova.parser.core.parse.AntlrSqlParser();
+        assertThat(StatementClassifier.requiresLeaderRouting(parser.parse("CREATE VIEW v AS SELECT 1"))).isTrue();
+        assertThat(StatementClassifier.requiresLeaderRouting(parser.parse("DROP VIEW v"))).isTrue();
+        assertThat(StatementClassifier.requiresLeaderRouting(
+                new org.pangrova.parser.api.ast.statement.CreateEmbeddingModelStatement("m", Map.of())))
+                .isTrue();
+        assertThat(StatementClassifier.isShow(parser.parse("SHOW VIEWS"))).isTrue();
+        assertThat(StatementClassifier.isShow(parser.parse("SHOW STORAGE PROFILES"))).isTrue();
+    }
+
     // --- Helper methods ---
 
     private static CreateTableStatement createTableStatement() {
         return new CreateTableStatement(
                 new Identifier(List.of("db", "orders")),
                 List.of(new CreateTableStatement.ColumnDefinition(
-                        "id", DataTypeSpec.fromRawTypeString("BIGINT"))),
+                        "id", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT"))),
                 false, List.of(), List.of(), Optional.empty(), Map.of());
     }
 }

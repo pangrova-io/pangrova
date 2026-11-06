@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.execution.result;
 
 import org.pangrova.coordinator.query.cache.ResultCacheCoordinator;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.cache.QueryResultCache;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.cache.QueryResultCache;
 
 /**
  * Coordinator-side invalidation facade for the legacy result-cache store.

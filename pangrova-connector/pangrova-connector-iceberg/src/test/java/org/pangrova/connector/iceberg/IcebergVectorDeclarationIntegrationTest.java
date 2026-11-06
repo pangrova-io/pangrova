@@ -10,12 +10,12 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.connector.iceberg.schema.IcebergSchemaBuilder;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorQueryAuthority;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.query.ConnectorQueryAuthority;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.types.VectorType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.List;

@@ -1,17 +1,20 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.spi.lifecycle.QueryExecutionCleanup;
+
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +45,7 @@ class QueryDispatcherOwnershipReleaseTest {
 
     private HighAvailabilityCoordinationService haService;
     private QueryDispatcher dispatcher;
+    private QueryExecutionCleanup executionCleanup;
     private CoordinatorTaskTracker taskTracker;
     private RemoteTaskDispatcher httpDispatcher;
     private org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture worker;
@@ -49,7 +53,7 @@ class QueryDispatcherOwnershipReleaseTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        haService = new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
+        haService = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         SqlCompiler compiler = new SqlCompiler();
         worker = new org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture("w1", nativeDirectory);
@@ -59,20 +63,21 @@ class QueryDispatcherOwnershipReleaseTest {
         httpDispatcher.setExecutionOwnerResolver(ignored ->
                 new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
                         COORDINATOR_ID, "test-incarnation", 1L));
-        TaskScheduler taskScheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        TaskScheduler taskScheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
         taskTracker = new CoordinatorTaskTracker();
 
-        var deps = new QueryDispatcherContext(
+        var deps = new QueryDispatcherContext(new org.pangrova.shuffle.core.skew.MedianSkewDetector(),
                 compiler,
                 new org.pangrova.coordinator.query.execution.SecurityContextBundle(null, null, null),
                 new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
                         httpDispatcher, taskScheduler, workerManager, taskTracker,
                         null, null, null, null),
                 null, null, 0L,
-                null, null, null, null, haService, COORDINATOR_ID, null, null, null);
+                null, null, null, null, haService, COORDINATOR_ID, null, null, null, null, null);
         dispatcher = new QueryDispatcher(withPolicies(deps), null, null);
+        executionCleanup = dispatcher;
         worker.connect(dispatcher, taskTracker, workerManager);
     }
 
@@ -96,10 +101,10 @@ class QueryDispatcherOwnershipReleaseTest {
         taskTracker.openQueryIssuance(queryId);
 
         // cleanupQuery should release it
-        dispatcher.cleanupQuery(queryId);
+        executionCleanup.cleanupQuery(queryId);
 
         // Verify ownership was released — re-acquiring should succeed
-        boolean reacquired = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        boolean reacquired = haService.acquireQueryOwnership(queryId, "successor");
         assertTrue(reacquired, "ownership should be re-acquirable after cleanup released it");
     }
 
@@ -107,7 +112,7 @@ class QueryDispatcherOwnershipReleaseTest {
     void cleanupQuery_toleratesNoOwnership() {
         // A locally admitted query need not have acquired HA execution ownership.
         taskTracker.openQueryIssuance("q-never-owned");
-        dispatcher.cleanupQuery("q-never-owned");
+        executionCleanup.cleanupQuery("q-never-owned");
     }
 
     @Test
@@ -118,8 +123,8 @@ class QueryDispatcherOwnershipReleaseTest {
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null,
                 remote,
-                new TaskScheduler(new WorkerPerformanceScorer()),
-                new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()), noHaTracker,
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
+                new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry()), noHaTracker,
                 null, null, null, 0L);
         QueryDispatcher noHaDispatcher = new QueryDispatcher(deps, null, null);
         // No enableOwnershipTracking called — haService is null
@@ -131,7 +136,7 @@ class QueryDispatcherOwnershipReleaseTest {
     @Test
     void execute_thenCleanup_releasesOwnership() {
         String queryId = "q-exec-cleanup";
-        CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession(queryId, Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         // Acquire ownership before dispatch (simulating QueryManager behavior)
         haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
@@ -146,33 +151,59 @@ class QueryDispatcherOwnershipReleaseTest {
                         taskTracker.executionDrainReceipt(result.taskId()).isPresent()));
 
         // Simulate query completion cleanup
-        dispatcher.cleanupQuery(queryId);
+        executionCleanup.cleanupQuery(queryId);
 
         // Ownership should be released
-        boolean canReacquire = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        boolean canReacquire = haService.acquireQueryOwnership(queryId, "successor");
         assertTrue(canReacquire, "ownership should be released after query completion cleanup");
     }
 
     @Test
     void failedQuery_preservesMetadataAdmissionUntilTerminalCleanup() {
         String queryId = "q-fail-cleanup";
-        CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession(queryId, Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         // Acquire ownership
         haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
 
         // Dispatch propagates the failure without closing the terminal metadata scope.
         QueryStateMachine sm = new QueryStateMachine();
-        assertThrows(org.pangrova.parser.ParseException.class,
+        assertThrows(org.pangrova.parser.api.diagnostic.ParseException.class,
                 () -> dispatcher.execute(sm, "THIS IS NOT VALID SQL !!!", session));
 
         try (var terminalOperation = dispatcher.enterQueryMetadataOperation(queryId)) {
-            assertTrue(sm.tryTransition(QueryStateMachine.State.FAILED));
+            assertTrue(sm.tryTransition(QueryState.FAILED));
         }
-        dispatcher.cleanupQuery(queryId);
+        executionCleanup.cleanupQuery(queryId);
 
-        boolean canReacquire = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        boolean canReacquire = haService.acquireQueryOwnership(queryId, "successor");
         assertTrue(canReacquire, "ownership should be released after failed query cleanup");
+    }
+
+    @Test
+    void cancellationDoesNotReleaseLiveOperationOrExecutionOwnership() {
+        String queryId = "q-port-operation-drain";
+        assertTrue(haService.acquireQueryOwnership(queryId, COORDINATOR_ID));
+        taskTracker.openQueryIssuance(queryId);
+        try (var operation = dispatcher.enterQueryOperation(queryId)) {
+            executionCleanup.cancelDispatchedTasks(queryId);
+            assertThrows(IllegalStateException.class, () -> executionCleanup.cleanupQuery(queryId));
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    haService.acquireQueryOwnership(queryId, "successor"));
+        }
+        executionCleanup.cleanupQuery(queryId);
+        assertTrue(haService.acquireQueryOwnership(queryId, "successor"));
+    }
+
+    @Test
+    void unadmittedCleanupCannotReleaseForeignExecutionOwner() {
+        String queryId = "q-port-foreign-owner";
+        assertTrue(haService.acquireQueryOwnership(queryId, "foreign"));
+        taskTracker.openQueryIssuance(queryId);
+        executionCleanup.cleanupUnadmittedQuery(queryId);
+        org.junit.jupiter.api.Assertions.assertFalse(
+                haService.acquireQueryOwnership(queryId, COORDINATOR_ID));
+        assertTrue(haService.releaseQueryOwnership(queryId, "foreign"));
     }
 
 }

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.indexing.filter;
 
-import org.pangrova.indexing.planner.IndexHint;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.pruning.IndexHint;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 
 import java.util.List;
 import java.util.Map;

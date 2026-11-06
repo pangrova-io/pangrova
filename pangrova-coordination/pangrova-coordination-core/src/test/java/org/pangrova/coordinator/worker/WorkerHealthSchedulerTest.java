@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,21 +1,22 @@
 package org.pangrova.coordinator.clustering;
 
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.statement.TableResolver;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.parser.ast.statement.ReclusterTableStatement;
-import org.pangrova.parser.ast.statement.SetClusteringOrderStatement;
-import org.pangrova.parser.ast.statement.ShowClusteringStatusStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.clustering.ClusteringCapability;
-import org.pangrova.spi.connector.clustering.ClusteringDescriptor;
-import org.pangrova.spi.connector.clustering.ClusteringMode;
-import org.pangrova.spi.connector.clustering.ClusteringState;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.parser.api.ast.statement.ReclusterTableStatement;
+import org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement;
+import org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.clustering.ClusteringCapability;
+import org.pangrova.connector.api.clustering.ClusteringDescriptor;
+import org.pangrova.connector.api.clustering.ClusteringMode;
+import org.pangrova.connector.api.clustering.ClusteringState;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,8 +46,8 @@ public final class ClusteringDdlExecutor {
      * Validates connector support, stores descriptor, returns confirmation.
      */
     public List<TypedRow> executeSetClusteringOrder(
-            SetClusteringOrderStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+            SetClusteringOrderStatement stmt, QuerySession context) {
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         ClusteringCapability capability = resolveCapability(tableRef, context);
         ClusteringMode mode = parseMode(stmt.mode());
 
@@ -75,8 +76,8 @@ public final class ClusteringDdlExecutor {
      * Submits an async recluster task and returns the task ID immediately.
      * Users can poll progress via SHOW CLUSTERING STATUS.
      */
-    public List<TypedRow> executeReclusterTable(ReclusterTableStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+    public List<TypedRow> executeReclusterTable(ReclusterTableStatement stmt, QuerySession context) {
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         ClusteringCapability capability = resolveCapability(tableRef, context);
         var spiTableName = toSpiTableName(tableRef);
 
@@ -101,8 +102,8 @@ public final class ClusteringDdlExecutor {
      * Returns clustering ratio, file counts, and state.
      */
     public List<TypedRow> executeShowClusteringStatus(
-            ShowClusteringStatusStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+            ShowClusteringStatusStatement stmt, QuerySession context) {
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         ClusteringCapability capability = resolveCapability(tableRef, context);
 
         ClusteringStatus status = deps.statusReporter().getStatus(
@@ -122,9 +123,9 @@ public final class ClusteringDdlExecutor {
 
     // --- Private helpers ---
 
-    private ClusteringCapability resolveCapability(QualifiedTableName tableRef, CoordinatorSessionContext context) {
+    private ClusteringCapability resolveCapability(QualifiedTableName tableRef, QuerySession context) {
         CatalogHandle handle = deps.catalogRegistry().getCatalog(tableRef.catalog());
-        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = handle.getMetadata(session);
         return metadata.getClusteringCapability()
                 .orElseThrow(() -> new PangrovaException(
@@ -145,9 +146,9 @@ public final class ClusteringDdlExecutor {
         }
     }
 
-    private static org.pangrova.spi.connector.clustering.ClusteringTableRef toSpiTableName(
+    private static org.pangrova.connector.api.clustering.ClusteringTableRef toSpiTableName(
             QualifiedTableName ref) {
-        return new org.pangrova.spi.connector.clustering.ClusteringTableRef(
+        return new org.pangrova.connector.api.clustering.ClusteringTableRef(
                 ref.catalog(), ref.schema(), ref.table());
     }
 }

@@ -44,8 +44,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
-import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 
 /** PostgreSQL implementation of version-pinned evaluation metadata and release gates. */
 public final class JdbcEvaluationStore implements EvaluationStore {

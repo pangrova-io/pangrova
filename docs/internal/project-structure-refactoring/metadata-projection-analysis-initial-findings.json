@@ -1,0 +1,46 @@
+[
+  {
+    "module": "pangrova-types",
+    "findings": [
+      {
+        "type": "EI_EXPOSE_REP",
+        "class": "org.pangrova.types.value.ColumnValue$BytesValue",
+        "method": "value",
+        "line": "58"
+      },
+      {
+        "type": "EI_EXPOSE_REP2",
+        "class": "org.pangrova.types.value.ColumnValue$BytesValue",
+        "method": "<init>",
+        "line": "58"
+      }
+    ]
+  },
+  {
+    "module": "pangrova-persistence/pangrova-persistence-catalog-postgresql",
+    "findings": [
+      {
+        "type": "SQL_INJECTION_JDBC",
+        "class": "org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository",
+        "method": "lambda$saveCatalogDescriptor$0",
+        "line": "49"
+      },
+      {
+        "type": "SQL_INJECTION_JDBC",
+        "class": "org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository",
+        "method": "lambda$saveCatalogDescriptor$0",
+        "line": "50"
+      },
+      {
+        "type": "SQL_INJECTION_JDBC",
+        "class": "org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProjectionRepository",
+        "method": "lambda$saveSchemas$0",
+        "line": "27"
+      }
+    ]
+  },
+  {
+    "module": "pangrova-metadata/pangrova-metadata-core",
+    "findings": []
+  }
+]

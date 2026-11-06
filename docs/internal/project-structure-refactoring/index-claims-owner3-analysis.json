@@ -1,0 +1,72 @@
+{
+  "stage": "owner3",
+  "exit": 0,
+  "spotbugs_reports": 3,
+  "spotbugs_findings": 0,
+  "checkstyle_reports": 3,
+  "checkstyle_diagnostics": 0,
+  "spotbugs": [
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "equals",
+        "get",
+        "getAsBoolean",
+        "hashCode",
+        "makeConcatWithConstants",
+        "onRemoval",
+        "run",
+        "test",
+        "toString",
+        "weigh"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-indexing-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-indexing-postgresql/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsLong",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "run",
+        "test",
+        "toString"
+      ]
+    }
+  ],
+  "checkstyle": [
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-indexing-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-indexing-postgresql/target/checkstyle-result.xml",
+      "diagnostics": []
+    }
+  ]
+}

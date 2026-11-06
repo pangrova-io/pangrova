@@ -1,0 +1,189 @@
+{
+  "retired_baseline_classes": [],
+  "stages": [
+    {
+      "stage": "baseline",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata -am -Pnative-runtime,full-regression '-Dtest=AssetModelTest,MetadataCollectionOwnershipTest,MetadataEventSnapshotTest,SchemaEvolutionValidatorTest,CatalogRegistry*Test,CatalogDivergenceReportTest,MetadataSync*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,ObjectDependencyServiceTest,TableMetadataSerializerTest,DefaultMetadataService*Test,DefaultConnectorSessionTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 101.86,
+      "cases": 191,
+      "passed": 191,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression '-Dtest=AssetModelTest,MetadataCollectionOwnershipTest,MetadataEventSnapshotTest,SchemaEvolutionValidatorTest,CatalogRegistry*Test,CatalogDivergenceReportTest,MetadataSync*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,ObjectDependencyServiceTest,TableMetadataSerializerTest,DefaultMetadataService*Test,DefaultConnectorSessionTest,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 1.59,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression '-Dtest=AssetModelTest,MetadataCollectionOwnershipTest,MetadataEventSnapshotTest,SchemaEvolutionValidatorTest,CatalogRegistry*Test,CatalogDivergenceReportTest,MetadataSync*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,ObjectDependencyServiceTest,TableMetadataSerializerTest,DefaultMetadataService*Test,DefaultConnectorSessionTest,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 11.98,
+      "cases": 14,
+      "passed": 14,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused3",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression '-Dtest=AssetModelTest,MetadataCollectionOwnershipTest,MetadataEventSnapshotTest,SchemaEvolutionValidatorTest,CatalogRegistry*Test,CatalogDivergenceReportTest,MetadataSync*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,ObjectDependencyServiceTest,TableMetadataSerializerTest,DefaultMetadataService*Test,DefaultConnectorSessionTest,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 22.67,
+      "cases": 26,
+      "passed": 26,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused4",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression '-Dtest=AssetModelTest,MetadataCollectionOwnershipTest,MetadataEventSnapshotTest,SchemaEvolutionValidatorTest,CatalogRegistry*Test,CatalogDivergenceReportTest,MetadataSync*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,ObjectDependencyServiceTest,TableMetadataSerializerTest,DefaultMetadataService*Test,DefaultConnectorSessionTest,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 104.53,
+      "cases": 193,
+      "passed": 193,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "maintenance",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression -Dtest=MetadataCleanupSchedulerTest,CatalogDescriptorRevisionMigrationTest,TableControlCatalogDeploymentIntegrationTest,JdbcInvalidationPollerTest,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 76.15,
+      "cases": 40,
+      "passed": 40,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=AssetModelTest,MetadataCollectionOwnershipTest,MetadataEventSnapshotTest,SchemaEvolutionValidatorTest,CatalogRegistry*Test,CatalogDivergenceReportTest,MetadataSync*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,ObjectDependencyServiceTest,TableMetadataSerializerTest,DefaultMetadataService*Test,DefaultConnectorSessionTest,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest,*Metadata*Test,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,MetadataCleanupSchedulerTest,CatalogDescriptorRevisionMigrationTest,TableControlCatalogDeploymentIntegrationTest,JdbcSemantic*Test,Semantic*Test,CatalogRestResourceTest,ActivationSmokeE2ETest,PhysicalTwoWorkerShuffleE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 31.44,
+      "cases": 78,
+      "passed": 74,
+      "failure": 4,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "architecture",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am '-Dtest=ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,JdbcInvalidationPoller*Test' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 22.33,
+      "cases": 22,
+      "passed": 21,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "architecture2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am '-Dtest=ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,JdbcInvalidationPoller*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 81.74,
+      "cases": 70,
+      "passed": 70,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "index-error",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-coordination-core -am -Pnative-runtime,full-regression -Dtest=JdbcScalarIndexAuthorityTest,IndexDdlReadAuthorizationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 27.83,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "index-error2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-coordination-core -am -Pnative-runtime,full-regression -Dtest=JdbcScalarIndexAuthorityTest,IndexDdlReadAuthorizationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 58.2,
+      "cases": 8,
+      "passed": 8,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "index-error3",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-coordination-core -am -Pnative-runtime,full-regression -Dtest=JdbcScalarIndexAuthorityTest,IndexDdlReadAuthorizationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 59.98,
+      "cases": 13,
+      "passed": 13,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=AssetModelTest,MetadataCollectionOwnershipTest,MetadataEventSnapshotTest,SchemaEvolutionValidatorTest,CatalogRegistry*Test,CatalogDivergenceReportTest,MetadataSync*Test,JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,ObjectDependencyServiceTest,TableMetadataSerializerTest,DefaultMetadataService*Test,DefaultConnectorSessionTest,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest,*Metadata*Test,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,MetadataCleanupSchedulerTest,CatalogDescriptorRevisionMigrationTest,TableControlCatalogDeploymentIntegrationTest,JdbcScalarIndexAuthorityTest,IndexDdlReadAuthorizationTest,JdbcSemantic*Test,Semantic*Test,CatalogRestResourceTest,ActivationSmokeE2ETest,PhysicalTwoWorkerShuffleE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 280.65,
+      "cases": 359,
+      "passed": 357,
+      "failure": 0,
+      "error": 2,
+      "skipped": 0
+    },
+    {
+      "stage": "semantic-runtime",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-semantic -am -Pnative-runtime,full-regression '-Dtest=Semantic*Test,JdbcSemantic*Test' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 8.55,
+      "cases": 5,
+      "passed": 5,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers-corrected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=Semantic*Test,JdbcSemantic*Test,MetadataApiClasspathTest,CatalogPersistenceApiClasspathTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,JdbcScalarIndexAuthorityTest,IndexDdlReadAuthorizationTest,CatalogRestResourceTest,ActivationSmokeE2ETest,PhysicalTwoWorkerShuffleE2ETest,DefaultMetadataServiceQueryEndCleanupTest*,DefaultMetadataServiceTransactionTest*,IcebergMetadataSnapshotPinningTest*,IcebergPartitionMetadataTest*,IcebergRefsMetadataTest*,IcebergShowMetadataTest*,IcebergSnapshotsMetadataTest*,LazyMetadataSchemaCacheTest*,LazyMetadataSchemaResolutionFailureTest*,LazyMetadataSchemaSystemTableLookupTest*,MetadataBootstrapTest*,MetadataCatalogE2ETest*,MetadataJdbcConfigurationIntegrationTest*,MetadataQueriesE2ETest*,MetadataQueryTest*,MetadataReadPolicyTest*,MetadataResolvedTableTest*,MetadataResolvedTableTimestampTest*,MetadataResolvedTableVectorTypeTest*,MetadataSchemaBuilderCatalogUnavailableTest*,MetadataSchemaBuilderTest*,MetadataSchemaInitializerTest*,MetadataSharedDispatcherSdkIntegrationTest*,MetadataStorageTypeAdmissionTest*,MetadataSyncPropagationE2ETest*,MetadataTableAuthorizationE2ETest*,MetadataToSqlCompilerChainPropertyTest*,MetadataTransactionPropertyTest*,NativeMetadataReadBudgetE2ETest*,PaimonFilesMetadataE2ETest*,PaimonMetadataSnapshotPinningTest*,ShowMetadataQueryExpanderTest*' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 284.94,
+      "cases": 234,
+      "passed": 234,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-copy",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=CopySourceReadHttpE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 81.18,
+      "cases": 4,
+      "passed": 4,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 565,
+    "passed": 565,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest selected test reports with moved FQNs normalized. First failures retained separately. Full regression is not implied."
+}

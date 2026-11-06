@@ -7,33 +7,29 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.AutoEmbeddingColumnSpec;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.AutoEmbeddingColumnSpec;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DdlExecutorGeneratedColumnTest {
 
-    private static org.pangrova.coordinator.query.session.CoordinatorSessionContext statementSession() {
+    private static org.pangrova.query.api.session.QuerySession statementSession() {
         return context();
     }
 
@@ -59,7 +55,7 @@ class DdlExecutorGeneratedColumnTest {
         ConnectorHandleFactory factory = descriptor ->
                 new ConnectorCatalogHandle(descriptor, connector);
         CatalogRegistry registry = new CatalogRegistry(
-                new EmptyMetadataStore(), factory, null, null);
+                new EmptyCatalogDeployments(), factory, null, null);
         registry.register(new CatalogDescriptor(
                 "test_cat", CatalogType.CONNECTOR, "test",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -70,7 +66,7 @@ class DdlExecutorGeneratedColumnTest {
     void persistsChecksummedGenericGeneratedColumnDefinition() {
         executor.executeCreateTable(table(
                 new CreateTableStatement.ColumnDefinition(
-                        "embedding", DataTypeSpec.fromRawTypeString("VECTOR(3)"), true,
+                        "embedding", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VECTOR(3)"), true,
                         Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                                 "embed-v1", List.of("title", "body"),
                                 AutoEmbeddingColumnSpec.EmbeddingMode.ASYNC)))), statementSession());
@@ -97,7 +93,7 @@ class DdlExecutorGeneratedColumnTest {
 
         assertThatThrownBy(() -> executor.executeCreateTable(tableWithSource(
                 new CreateTableStatement.ColumnDefinition(
-                        "payload", DataTypeSpec.fromRawTypeString("VARBINARY")),
+                        "payload", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VARBINARY")),
                 generated("embedding", List.of("payload"), true)), statementSession()))
                 .hasMessageContaining("must be VARCHAR, CHAR, or STRING");
 
@@ -109,7 +105,7 @@ class DdlExecutorGeneratedColumnTest {
     @Test
     void rejectsSyncDefinitionBeforeCreatingAnUnwritableTable() {
         var sync = new CreateTableStatement.ColumnDefinition(
-                "embedding", DataTypeSpec.fromRawTypeString("VECTOR(3)"), false,
+                "embedding", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VECTOR(3)"), false,
                 Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                         "embed-v1", List.of("title"),
                         AutoEmbeddingColumnSpec.EmbeddingMode.SYNC)));
@@ -125,7 +121,7 @@ class DdlExecutorGeneratedColumnTest {
         CreateTableStatement statement = new CreateTableStatement(
                 Identifier.of("test_cat", "default", "docs"),
                 List.of(new CreateTableStatement.ColumnDefinition(
-                        "title", DataTypeSpec.fromRawTypeString("VARCHAR"))),
+                        "title", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VARCHAR"))),
                 false, List.of(), List.of(), List.of(), false,
                 Optional.empty(), Map.of(
                         GeneratedColumnMetadataCodec.PAYLOAD_PROPERTY, "spoofed"));
@@ -149,7 +145,7 @@ class DdlExecutorGeneratedColumnTest {
         assertThatThrownBy(() -> executor.executeAlterTable(
                 new AlterTableStatement.AddColumn(
                         Identifier.of("test_cat", "default", "docs"),
-                        "embedding_2", DataTypeSpec.fromRawTypeString("VECTOR(3)"),
+                        "embedding_2", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VECTOR(3)"),
                         Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                                 "embed-v1", List.of("body"),
                                 AutoEmbeddingColumnSpec.EmbeddingMode.SYNC))),
@@ -160,7 +156,7 @@ class DdlExecutorGeneratedColumnTest {
     private static CreateTableStatement table(
             CreateTableStatement.ColumnDefinition generated) {
         return tableWithSource(new CreateTableStatement.ColumnDefinition(
-                "title", DataTypeSpec.fromRawTypeString("VARCHAR")), generated);
+                "title", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VARCHAR")), generated);
     }
 
     private static CreateTableStatement tableWithSource(
@@ -170,7 +166,7 @@ class DdlExecutorGeneratedColumnTest {
                 Identifier.of("test_cat", "default", "docs"),
                 List.of(source,
                         new CreateTableStatement.ColumnDefinition(
-                                "body", DataTypeSpec.fromRawTypeString("STRING")),
+                                "body", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("STRING")),
                         generated),
                 false, List.of(), List.of(), List.of(), false,
                 Optional.empty(), Map.of());
@@ -179,7 +175,7 @@ class DdlExecutorGeneratedColumnTest {
     private static CreateTableStatement.ColumnDefinition generated(
             String target, List<String> sources, boolean nullable) {
         return new CreateTableStatement.ColumnDefinition(
-                target, DataTypeSpec.fromRawTypeString("VECTOR(3)"), nullable,
+                target, org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VECTOR(3)"), nullable,
                 Optional.empty(), Optional.of(new AutoEmbeddingColumnSpec(
                         "embed-v1", sources,
                         AutoEmbeddingColumnSpec.EmbeddingMode.ASYNC)));
@@ -258,16 +254,15 @@ class DdlExecutorGeneratedColumnTest {
         }
     }
 
-    private static final class EmptyMetadataStore implements MetadataStore {
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final Map<String, CatalogDescriptor> descriptors = new java.util.LinkedHashMap<>();
-        @Override public void saveTable(TableMetadata metadata) {}
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) {
-            return Optional.empty();
-        }
-        @Override public void deleteTable(String c, String s, String t) {}
-        @Override public List<org.pangrova.metadata.api.object.QualifiedTableRef> searchTables(String p) {
-            return List.of();
-        }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
             descriptors.put(descriptor.name(), descriptor);
         }
@@ -278,11 +273,6 @@ class DdlExecutorGeneratedColumnTest {
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() {
             return List.of();
         }
-        @Override public Optional<Instant> getLastSyncTime(String catalog) {
-            return Optional.empty();
-        }
-        @Override public void updateSyncTime(String catalog, Instant time) {}
-        @Override public void recordSyncHistory(SyncResult result) {}
-        @Override public void saveSchemas(String catalog, List<String> schemas) {}
+
     }
 }

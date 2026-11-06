@@ -3,33 +3,33 @@ package org.pangrova.coordinator.indexing.ddl;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.planner.generation.GenerationPlan;
-import org.pangrova.planner.generation.Bm25GenerationPlanBuilder;
-import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
+import org.pangrova.planner.core.generation.GenerationPlan;
+import org.pangrova.planner.core.generation.Bm25GenerationPlanBuilder;
+import org.pangrova.planner.core.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.TypedValue;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.types.VectorType;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.descriptor.IndexType;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -88,7 +88,7 @@ public final class DurableIndexBuildService {
 
     /** Persists a replayable Native index build and returns its stable job identity. */
     public String submit(
-            IndexDescriptor descriptor, QualifiedTableName table, CoordinatorSessionContext context) {
+            IndexDescriptor descriptor, QualifiedTableName table, QuerySession context) {
         if (!supports(descriptor)) {
             throw new IllegalArgumentException("descriptor is not a supported Native index");
         }
@@ -97,7 +97,7 @@ public final class DurableIndexBuildService {
                 || !table.catalog().equals(descriptor.catalogName())
                 || !table.schema().equals(descriptor.schemaName())
                 || !table.table().equals(descriptor.tableName())) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "Native index build scope does not match its durable descriptor");
         }
         ConnectorSession session = SessionContextConverter.toConnectorSession(
@@ -163,7 +163,7 @@ public final class DurableIndexBuildService {
             level.add(pageId);
         }
         if (!artifactType.equals(
-                org.pangrova.spi.generation.GenerationOutputTypeIds.TEXT_INDEX)
+                org.pangrova.generation.api.output.GenerationOutputTypeIds.TEXT_INDEX)
                 || level.isEmpty()) {
             return List.copyOf(pages);
         }
@@ -204,7 +204,7 @@ public final class DurableIndexBuildService {
             }
             return new NativeBuildSpec(
                     Bm25GenerationPlanBuilder.build(tableName, column),
-                    org.pangrova.spi.generation.GenerationOutputTypeIds.TEXT_INDEX,
+                    org.pangrova.generation.api.output.GenerationOutputTypeIds.TEXT_INDEX,
                     List.of(stringProperty("analyzer", analyzer)));
         }
         String algorithm = normalizedAlgorithm(descriptor);
@@ -220,7 +220,7 @@ public final class DurableIndexBuildService {
                 VectorGenerationPlanBuilder.build(
                         tableName, column, buildCapability,
                         BuiltInCapabilityCatalog.vectorArtifactFormat(algorithm)),
-                org.pangrova.spi.generation.GenerationOutputTypeIds.VECTOR_INDEX,
+                org.pangrova.generation.api.output.GenerationOutputTypeIds.VECTOR_INDEX,
                 vectorProperties(
                         buildCapability, descriptor.properties(), vector.dimension(), metric));
     }

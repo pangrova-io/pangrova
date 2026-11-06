@@ -5,13 +5,13 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.execution.DispatchQueryContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
-import org.pangrova.planner.rerank.FullTextScoringNode;
-import org.pangrova.planner.rerank.RerankerPlanNode;
-import org.pangrova.indexing.planner.vector.VectorSearchNode;
+import org.pangrova.query.core.stage.binding.RetrievalMergeIntent;
+import org.pangrova.planner.core.rerank.FullTextScoringNode;
+import org.pangrova.planner.core.rerank.RerankerPlanNode;
+import org.pangrova.indexing.adapter.planner.vector.VectorSearchNode;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.spi.indexing.vector.DistanceMetric;
-import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy;
+import org.pangrova.indexing.api.vector.DistanceMetric;
+import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,7 +32,7 @@ class RetrievalIntentCollectorTest {
                         "snapshot-7", "snapshot-7", 0);
                 DispatchQueryContext context = new DispatchQueryContext(
                         Map.of(), "SELECT ...", null).withVectorSearch(node);
-                var intents = collector.collectRetrievalArtifactIntents(context, "tenant");
+                var intents = collector.collectRetrievalArtifactIntents(context.vectorSearchNode(), context.rerankerPlan(), "tenant");
                 assertThat(intents).hasSize(1);
                 assertThat(intents.get(0).capability()).isEqualTo(capability);
                 assertThat(intents.get(0).invocationOptions())
@@ -62,7 +62,7 @@ class RetrievalIntentCollectorTest {
         DispatchQueryContext context = new DispatchQueryContext(
                 Map.of(), "SELECT ...", null).withRerankerPlan(plan);
 
-        RetrievalMergeIntent intent = collector.collectRetrievalMergeIntent(context).orElseThrow();
+        RetrievalMergeIntent intent = collector.collectRetrievalMergeIntent(context.vectorSearchNode(), context.rerankerPlan()).orElseThrow();
 
         assertThat(intent.strategy()).isEqualTo(RetrievalMergeIntent.Strategy.RRF);
         assertThat(intent.rrfK()).isEqualTo(60);
@@ -85,7 +85,7 @@ class RetrievalIntentCollectorTest {
         DispatchQueryContext context = new DispatchQueryContext(
                 Map.of(), "SELECT ...", null).withRerankerPlan(plan);
 
-        assertThatThrownBy(() -> collector.collectRetrievalMergeIntent(context))
+        assertThatThrownBy(() -> collector.collectRetrievalMergeIntent(context.vectorSearchNode(), context.rerankerPlan()))
                 .hasMessageContaining("Multi-vector retrieval requires");
     }
 }

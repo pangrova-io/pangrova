@@ -1,23 +1,18 @@
 package org.pangrova.coordinator.indexing.lifecycle.gc;
 
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.storage.IndexStorageManager;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.LeaseEntry;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.catalog.SyncResult;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.lease.LeaseEntry;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,7 +22,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -114,7 +108,7 @@ class IndexGarbageCollectorLeaderGateTest {
     }
 
     private static ConnectorAccessorResolver buildResolver() {
-        var persistence = new StubMetadataStore();
+        var persistence = new StubCatalogDeployments();
         var registry = new CatalogRegistry(persistence, desc -> null, null, null);
         registry.initialize();
         return new ConnectorAccessorResolver(registry);
@@ -160,9 +154,9 @@ class IndexGarbageCollectorLeaderGateTest {
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
                 Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
-        @Override public org.pangrova.indexing.store.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.indexing.store.IndexPublicationRequest request) { throw new AssertionError(); }
-        @Override public Optional<org.pangrova.indexing.store.IndexGenerationManifest>
+        @Override public org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
         @Override public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) { return List.of(); }
@@ -208,19 +202,18 @@ class IndexGarbageCollectorLeaderGateTest {
         @Override public void updateLastIndexedSnapshotId(String id, String snap) {}
     }
 
-    /** Minimal MetadataStore for CatalogRegistry initialization. */
-    static final class StubMetadataStore implements MetadataStore {
-        @Override public void saveTable(TableMetadata m) {}
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) {}
-        @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
+    /** Minimal CatalogDeploymentRepository for CatalogRegistry initialization. */
+    static final class StubCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) {}
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String n) {}
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) {}
-        @Override public void recordSyncHistory(SyncResult r) {}
-        @Override public void saveSchemas(String c, List<String> s) {}
+
     }
 }

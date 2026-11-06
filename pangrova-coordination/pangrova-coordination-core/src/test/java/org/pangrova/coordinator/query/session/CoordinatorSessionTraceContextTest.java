@@ -1,10 +1,12 @@
 package org.pangrova.coordinator.query.session;
 
+import org.pangrova.query.api.session.QuerySession;
+
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
-import org.pangrova.observability.sdk.tracing.ExecutionTraceContext;
+import org.pangrova.execution.core.authority.StageExecutionContext;
+import org.pangrova.observability.api.tracing.ExecutionTraceContext;
 import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
 import java.util.Map;
@@ -18,8 +20,8 @@ class CoordinatorSessionTraceContextTest {
     @Test
     void sessionPropertiesCannotReplaceItsExecutionTraceAndCopiesKeepItsExactSnapshot() throws Exception {
         var actor = new UserIdentity("actual-actor", Set.of(), Map.of(), Instant.now());
-        var session = new CoordinatorSessionContext("before-admission",
-                Map.of("trace_id", "spoofed", "span_id", "spoofed"), actor, "tenant");
+        var session = new QuerySession("before-admission",
+                Map.of("trace_id", "spoofed", "span_id", "spoofed"), actor, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var admitted = session.withQueryId("admitted-query");
         assertThat(admitted.traceContext()).isSameAs(session.traceContext());
         assertThat(admitted.traceContext().traceId()).isNotEqualTo("spoofed");
@@ -41,9 +43,9 @@ class CoordinatorSessionTraceContextTest {
 
     @Test
     void freezesActualCurrentQuerySpanRatherThanRecapturingTheDispatchThread() {
-        var root = ExecutionTraceContext.capture();
+        var root = new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture();
         try (var scope = root.makeCurrent()) {
-            var session = new CoordinatorSessionContext("query", Map.of(), null, "tenant");
+            var session = new QuerySession("query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
             assertThat(session.traceContext().traceId()).isEqualTo(root.traceId());
             assertThat(session.withQueryId("query-copy").traceContext()).isSameAs(session.traceContext());
         }

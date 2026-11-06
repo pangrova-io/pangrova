@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
+import org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.TaskKind;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
 
 import java.util.HexFormat;
 import java.util.Objects;
@@ -15,10 +15,10 @@ import java.util.function.UnaryOperator;
 
 /** Binds a query-owned frozen source to the final admitted task, without reading source data. */
 public final class CopySourceTaskBinder implements UnaryOperator<SubmitTaskRequest> {
-    private final JdbcCopySourceReadAdmissions admissions;
+    private final CopySourceReadAdmissions admissions;
     private final Function<String, ExecutionAnchor> anchors;
 
-    public CopySourceTaskBinder(JdbcCopySourceReadAdmissions admissions, Function<String, ExecutionAnchor> anchors) {
+    public CopySourceTaskBinder(CopySourceReadAdmissions admissions, Function<String, ExecutionAnchor> anchors) {
         this.admissions = Objects.requireNonNull(admissions, "admissions");
         this.anchors = Objects.requireNonNull(anchors, "anchors");
     }
@@ -39,7 +39,7 @@ public final class CopySourceTaskBinder implements UnaryOperator<SubmitTaskReque
         var anchor = Objects.requireNonNull(anchors.apply(attempt.getQueryOrJobId()), "execution anchor");
         requireCurrentOwner(attempt, anchor);
         var split = canonical.getSplits(0);
-        var bound = admissions.issueFrozenInput(new JdbcCopySourceReadAdmissions.FrozenInputAttempt(
+        var bound = admissions.issueFrozenInput(new CopySourceReadAdmissions.FrozenInputAttempt(
                 canonical.getSecurity().getTenantId(), canonical.getSecurity().getPrincipal(),
                 attempt.getQueryOrJobId(), split.getSourceId(), attempt.getTaskId(),
                 attempt.getControlEpoch(), canonical.getDeadlineEpochMs()), anchor);
@@ -66,7 +66,7 @@ public final class CopySourceTaskBinder implements UnaryOperator<SubmitTaskReque
     }
 
     private static void requireFrozenSplit(org.pangrova.protocol.v2.DataSplit split,
-                                           JdbcCopySourceReadAdmissions.FrozenInput bound) {
+                                           CopySourceReadAdmissions.FrozenInput bound) {
         if (!bound.scope().canonicalSourceUrl().equals(split.getDataObjectId())
                 || !bound.scope().canonicalSourceUrl().equals(split.getOpaqueLocation())
                 || !bound.proof().sourceVersionId().equals(split.getSourceSnapshot())

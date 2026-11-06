@@ -1,7 +1,7 @@
 package org.pangrova.worker.execution;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.pangrova.worker.nativebridge.jni.NativeRuntimeException;
 import org.slf4j.Logger;

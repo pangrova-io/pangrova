@@ -1,3 +1,4 @@
+#include "CanonicalTestPlan.h"
 // Tests for PlanExecutionDriver::cancel() — native execution cancel chain.
 // Validates: Requirements 1.47, 1.48, 2.47, 2.48
 //
@@ -212,7 +213,7 @@ std::vector<uint8_t> serialize(const google::protobuf::MessageLite& msg) {
 }
 
 std::vector<uint8_t> buildValuesPlan() {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
   root->add_names("value");

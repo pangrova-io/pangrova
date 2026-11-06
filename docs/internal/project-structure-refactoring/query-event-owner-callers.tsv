@@ -1,0 +1,16 @@
+source	change
+pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/event/JdbcQueryEventListener.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-persistence/pangrova-persistence-jdbc/src/test/java/org/pangrova/persistence/jdbc/query/event/JdbcQueryEventListenerTest.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-query/pangrova-query-api/src/test/java/org/pangrova/query/api/QueryApiClasspathTest.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/event/QueryCreatedEvent.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/event/QueryCompletedEvent.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/event/SplitCompletedEvent.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/event/QueryStatistics.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/spi/event/QueryEventListener.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-governance/src/main/java/org/pangrova/governance/core/lineage/LineageQueryEventListener.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-api/src/test/java/org/pangrova/observability/api/ObservabilityApiClasspathTest.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-governance/src/test/java/org/pangrova/governance/core/lineage/LineageQueryEventListenerTest.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManagerContext.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-core/src/main/java/org/pangrova/observability/core/event/QueryEventDispatcher.java	Query-owned event imports / minimal classpath / declaration boundary
+pangrova-observability/pangrova-observability-core/src/test/java/org/pangrova/observability/core/event/EventListenerSpiTest.java	Query-owned event imports / minimal classpath / declaration boundary

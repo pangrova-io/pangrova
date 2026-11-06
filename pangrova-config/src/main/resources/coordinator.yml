@@ -37,6 +37,12 @@ coordinator:
     timeout: "5m"
     max-concurrent: 100
 
+  # Per-task byte grant. Zero disables task spilling; positive values also
+  # require worker.spill.directory on each executing Worker.
+  task:
+    spill:
+      max-bytes: 0
+
   # ---- Worker Management ----
   worker:
     heartbeat-timeout: "30s"

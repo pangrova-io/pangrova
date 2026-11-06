@@ -1,11 +1,11 @@
 package org.pangrova.testing.integration.e2e;
 
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 
 import javax.sql.DataSource;
 import java.util.UUID;
@@ -18,7 +18,6 @@ public final class CatalogDdlGrantFixture {
     public static void withCatalogLifecycleGrants(DataSource dataSource, String principal,
                                                    String catalog, Runnable scenario) {
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         String role = "e2e_catalog_" + UUID.randomUUID();
         roles.createRole(Role.of(role));
         try {

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query;
 
 import org.pangrova.coordinator.query.session.BranchRoutingContext;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 
 import org.junit.jupiter.api.Test;
 
@@ -270,7 +270,7 @@ class BranchRoutingContextTest {
     void propagationToWorker_sessionPropertiesFlowThroughTaskRequest() {
         // Simulates the full propagation path:
         // 1. Client sets USE BRANCH -> BranchRoutingContext created
-        // 2. Context merged into CoordinatorSessionContext.sessionProperties
+        // 2. Context merged into QuerySession.sessionProperties
         // 3. TaskRequestFactory passes sessionProperties to SubmitTaskRequest
         // 4. Worker extracts BranchRoutingContext from received sessionProperties
 

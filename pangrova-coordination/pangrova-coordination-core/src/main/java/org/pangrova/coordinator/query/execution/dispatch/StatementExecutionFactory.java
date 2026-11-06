@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch;
 
 import java.util.Set;
 
-import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.api.ast.Statement;
 
 /**
  * Factory for executing a specific category of SQL statements.

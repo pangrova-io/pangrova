@@ -1,10 +1,10 @@
 package org.pangrova.client.cli;
 
 import org.pangrova.client.error.PangrovaClientException;
-import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.transport.client.http.PangrovaRestClient;
 import org.pangrova.client.api.ResultBatchConsumer;
 import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.junit.jupiter.api.Test;
 

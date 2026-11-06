@@ -1,13 +1,13 @@
 package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.protocol.batch.ColumnarPageSink;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.connector.spi.data.ColumnarPageSink;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
+import org.pangrova.batch.api.page.Page;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionKey;
 import org.apache.iceberg.PartitionSpec;
@@ -121,7 +121,7 @@ abstract sealed class AbstractIcebergPageSink implements ColumnarPageSink
      * @param batch caller-owned batch, with missing target columns written as null
      */
     @Override
-    public void appendColumnarBatch(ColumnarBatch batch) {
+    public void appendColumnarBatch(ReadableBatch batch) {
         List<Types.NestedField> fields = writeSchema.columns();
         List<String> columns = batch.columns();
         int[] ordinals = new int[fields.size()];
@@ -144,7 +144,7 @@ abstract sealed class AbstractIcebergPageSink implements ColumnarPageSink
 
     @Override
     public void appendNativePage(NativePage page) {
-        appendPage(NativePageConverter.toPage(page));
+        appendPage(ConnectorBinaryPageCodec.toPage(page));
     }
 
     private void writeRecord(GenericRecord record) {

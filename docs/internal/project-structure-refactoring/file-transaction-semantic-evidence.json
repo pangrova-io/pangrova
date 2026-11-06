@@ -1,0 +1,58 @@
+{
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/claim/JdbcCopyFileClaimStore.java": {
+    "fqn": "org.pangrova.persistence.file.postgresql.claim.JdbcCopyFileClaimStore",
+    "action": "change",
+    "responsibility": "Claim transaction cleans up Error as well as SQL/runtime failures; rollback cannot replace original failure.",
+    "ownership": "Exact first-generation claim remains immutable; no URI production wiring added; pool borrowed and connection local.",
+    "before_sha256": "cbc6bf14a0f333f49da5ced1c110c1367c7c41a0d03a314e9d45172c3bb507a0",
+    "after_sha256": "b8017354b87b207ff08ad508a4f23fe2220970e92086c5f39278833aaede9387"
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/space/JdbcFileSpaceRegistry.java": {
+    "fqn": "org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry",
+    "action": "change",
+    "responsibility": "create/mutate/rename/drop include authority gate within cleanup and preserve primary across all rollback failures.",
+    "ownership": "Space definition, directory invalidation and authority revision retain one transaction; gate precedes namespace/row locks; pool owned by assembly.",
+    "before_sha256": "3f6540c73aa90f384560046c166ce17476b54b08f40bc13edec3a4f554e2731b",
+    "after_sha256": "2295bfc96f644967f36bcd87c5e8bcbd1a58dad90f31283323d7e8ce1565272b"
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/space/JdbcFileSpaceAuthority.java": {
+    "fqn": "org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority",
+    "action": "change",
+    "responsibility": "Authority gate/callback/commit failure triggers explicit rollback for SQL/runtime/Error; nested cleanup preserves primary.",
+    "ownership": "Owns operation connection/shared authorization transaction only; caller owns tenant authority and DataSource. Callback and current tenant resolution unchanged.",
+    "before_sha256": "ec275aa47241ce290390b5ac4a4c74943b6e5c4ed0fa0f18e44a6d96a50afa75",
+    "after_sha256": "c39978932742e09245809b866bf8cd912f786c9e0e15edffe41f4bf38550938b"
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/copy/JdbcCopySourceReadAdmissions.java": {
+    "fqn": "org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions",
+    "action": "change",
+    "responsibility": "issue/issueFrozenInput/redeem/recordStagedSource preserve original failure while attempting rollback for SQL/runtime/Error.",
+    "ownership": "Current permission, tenant, profile, execution fence and issuance lock order unchanged; nonce zeroing finally unchanged; no commit-unknown retry or fallback.",
+    "before_sha256": "7318d869071324df4698c17a3a6195465431ca2d5aa1301b5be602ce9e760156",
+    "after_sha256": "12e97c758b8b3c51ed6cd88e764c5e9413aa4b62a221441926a865339e096e00"
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/profile/JdbcStorageProfileRegistry.java": {
+    "fqn": "org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry",
+    "action": "change",
+    "responsibility": "createIfAbsent/unregister protect gate acquisition and every SQL/runtime/Error exit; rollback failure is suppressed, never replaces primary.",
+    "ownership": "Profile current definition and trigger-owned immutable history remain one transaction; authorization gate precedes prepared mutation; DataSource borrowed, operation connection closed.",
+    "before_sha256": "2848fb4b7d53cd6ccc28afbd3b9acdc13058ab9df4f968ef6bfaa158708164b4",
+    "after_sha256": "c36a3234fe92d92ca365c6177b83761ad7bc09d6ebe253bb02f09c996e12fcf5"
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/directory/JdbcFileDirectoryIndex.java": {
+    "fqn": "org.pangrova.persistence.file.postgresql.directory.JdbcFileDirectoryIndex",
+    "action": "change",
+    "responsibility": "Backend-local transaction helper cleans up SQL/runtime/Error exits and preserves failure identity.",
+    "ownership": "Captured Stage identity and refresh attempt remain authoritative; Stage-before-refresh locks, pending/checkpoint/publish atomicity unchanged; operation owns connection.",
+    "before_sha256": "f954c690a05e7cc159f3104c1d9dfd97c8abdf404e79f27b1f032fbce9d2a333",
+    "after_sha256": "2f9c649e57a3c5ebfd2d0638bf6f4ea389ba6c0ee3e6e07177e714fbc620ea6a"
+  },
+  "pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres/JdbcMutationFault.java": {
+    "fqn": "org.pangrova.testing.testkit.postgres.JdbcMutationFault",
+    "action": "change",
+    "responsibility": "Test fixture supports real large mutations and post-Statement.execute failures, plus unchecked/Error rollback faults.",
+    "ownership": "Test-only proxy delegates actual SQL and physical close. No production provider, authority or DataSource lifecycle added.",
+    "before_sha256": "03bac859706401c7580d9ec163600e53092ad7d1a85b544abe25f9ac859c8876",
+    "after_sha256": "8fa05069e46486551216b99b23d508dbabac6f77650c23a4adb39e1732eacd87"
+  }
+}

@@ -2,22 +2,22 @@ package org.pangrova.coordinator.query.execution.dispatch.task;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.ai.embedding.EmbeddingModelExecutionAdmission;
+import org.pangrova.ai.control.model.EmbeddingModelExecutionAdmission;
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
 import org.pangrova.ai.control.embedding.EmbeddingModelRevision;
 import org.pangrova.ai.control.embedding.ModelUpdateRequest;
 import org.pangrova.ai.control.embedding.VersionConflictException;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.statement.AlterEmbeddingModelStatement;
+import org.pangrova.parser.api.ast.statement.AlterEmbeddingModelStatement;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.ModelAvailability;
-import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.util.List;
 import java.util.Map;

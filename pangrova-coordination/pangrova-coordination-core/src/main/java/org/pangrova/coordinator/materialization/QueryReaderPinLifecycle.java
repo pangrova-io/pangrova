@@ -2,7 +2,7 @@ package org.pangrova.coordinator.materialization;
 
 import java.util.Collection;
 import java.util.List;
-import org.pangrova.coordinator.query.lifecycle.ReaderPinLifecycle;
+import org.pangrova.query.spi.retention.ReaderPinLifecycle;
 import org.pangrova.materialization.domain.QueryId;
 import org.pangrova.materialization.usecase.ReaderPinLeases;
 

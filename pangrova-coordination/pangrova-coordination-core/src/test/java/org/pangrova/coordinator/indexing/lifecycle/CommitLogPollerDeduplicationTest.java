@@ -1,12 +1,14 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.indexing.store.CommitEventRequest;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.store.CommitLogEntry;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.spi.connector.index.CommitEventType;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
+
+import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.CommitLogEntry;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.connector.api.index.CommitEventType;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +39,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("Stable leader does not process an acknowledged commit twice")
     void leaderProcessesCommitExactlyOnce() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var processCount = new AtomicInteger(0);
 
@@ -76,7 +78,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("onCommit() only persists to commit log — no inline processing")
     void onCommitDoesNotProcessInline() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var processCount = new AtomicInteger(0);
 
@@ -84,7 +86,7 @@ class CommitLogPollerDeduplicationTest {
         var handler = new IndexCommitHandler(
                 stubContext(store), null, leaderElection, 16);
         try {
-            var event = new org.pangrova.spi.connector.index.CommitEvent(
+            var event = new org.pangrova.connector.api.index.CommitEvent(
                     "tenant-a", "cat", "sch", "tbl",
                     List.of("file1.parquet"), List.of(),
                     Instant.now(), "snap-1", CommitEventType.APPEND, "a".repeat(64));
@@ -117,7 +119,7 @@ class CommitLogPollerDeduplicationTest {
         store.failWrites = true;
         var handler = new IndexCommitHandler(stubContext(store), null, 16);
         try {
-            var event = new org.pangrova.spi.connector.index.CommitEvent(
+            var event = new org.pangrova.connector.api.index.CommitEvent(
                     "tenant-a", "cat", "sch", "tbl",
                     List.of("s3://bucket/path,with,commas.parquet"), List.of(),
                     Instant.now(), "snap-1", CommitEventType.APPEND, null);
@@ -135,7 +137,7 @@ class CommitLogPollerDeduplicationTest {
         var store = new IndexCommitHandlerStatisticsTest.RecordingMetadataStore();
         var handler = new IndexCommitHandler(stubContext(store), null, 16);
         try {
-            var event = new org.pangrova.spi.connector.index.CommitEvent(
+            var event = new org.pangrova.connector.api.index.CommitEvent(
                     "tenant-a", "cat", "sch", "tbl", List.of(), List.of(),
                     Instant.now(), "snap-1", CommitEventType.APPEND, "b".repeat(64));
             assertThatThrownBy(() -> handler.onCommit(event))
@@ -162,7 +164,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("Failed processing leaves entry available for retry (at-least-once)")
     void failedProcessingLeavesEntryForRetry() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var failOnFirstAttempt = new AtomicInteger(0);
 
@@ -214,7 +216,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("Failure blocks later events for the same table until retry")
     void failurePreservesPerTableCommitOrder() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var failForEventId = new AtomicInteger(1); // fail processing for event 2 once
 
@@ -266,7 +268,7 @@ class CommitLogPollerDeduplicationTest {
     void failedTableDoesNotStarveAnotherTableOutsideItsBacklog() {
         var store = new TrackingStore();
         var leaderElection = new MaintenanceLeaderElection(
-                new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease(),
+                new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease(),
                 "coord-1");
         Instant first = Instant.parse("2026-09-05T00:00:00Z");
         for (int i = 0; i < 4; i++) {
@@ -299,7 +301,7 @@ class CommitLogPollerDeduplicationTest {
     void lostLeaseStopsLaterBatchEffectsEvenForAnotherTable() {
         var store = new TrackingStore();
         var leaderElection = new MaintenanceLeaderElection(
-                new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease(),
+                new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease(),
                 "coord-1");
         Instant now = Instant.parse("2026-09-05T00:00:00Z");
         store.seedCommitLogEntry(new CommitLogEntry(
@@ -336,12 +338,12 @@ class CommitLogPollerDeduplicationTest {
         var config = new org.pangrova.indexing.config.IndexingConfig("/tmp/test", false, null, null);
         var engineRegistry = new org.pangrova.indexing.registry.IndexEngineRegistry(List.of());
         var storageManager = new org.pangrova.indexing.storage.IndexStorageManager();
-        var serializer = new org.pangrova.indexing.serde.IndexSerializer(
-                org.pangrova.indexing.assembly.serde.DefaultTypeSerializers.createRegistry());
+        var serializer = new org.pangrova.indexing.codec.data.IndexSerializer(
+                org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers.createRegistry());
         var buildCtx = new org.pangrova.indexing.build.IndexBuildContext(
                 config, engineRegistry, storageManager, serializer);
         var buildCoordinator = new org.pangrova.indexing.build.IndexBuildCoordinator(buildCtx, null);
-        var resolver = new org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver(null);
+        var resolver = new org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver(null);
         return new IndexCommitContext(
                 store,
                 new org.pangrova.coordinator.indexing.ddl.IndexBuildServices(
@@ -407,9 +409,9 @@ class CommitLogPollerDeduplicationTest {
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
                 Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
-        @Override public org.pangrova.indexing.store.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.indexing.store.IndexPublicationRequest request) { throw new AssertionError(); }
-        @Override public Optional<org.pangrova.indexing.store.IndexGenerationManifest>
+        @Override public org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(

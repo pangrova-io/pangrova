@@ -3,12 +3,12 @@ package org.pangrova.coordinator.query.execution.dispatch.task.catalog;
 import java.util.List;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.types.value.TypedRow;
 
 /**
  * Executes CREATE SCHEMA by delegating to {@link DdlExecutor#executeCreateSchema}.

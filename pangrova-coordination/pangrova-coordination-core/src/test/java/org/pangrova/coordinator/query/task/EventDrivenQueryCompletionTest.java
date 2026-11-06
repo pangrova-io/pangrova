@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.task;
 import java.util.function.Consumer;
 
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.error.QueryFailure;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,7 +33,7 @@ class EventDrivenQueryCompletionTest {
 
         callback.onTaskTerminal("q-1", "t-1", "FINISHED", null);
         callback.onTaskTerminal("q-1", "t-2", "FAILED",
-                new ErrorDetail("INTERNAL", "ERR", "boom"));
+                new QueryFailure("INTERNAL", "ERR", "boom"));
 
         assertThat(callback.finishedCount).isEqualTo(1);
         assertThat(callback.failedCount).isEqualTo(1);
@@ -67,7 +67,7 @@ class EventDrivenQueryCompletionTest {
     private static final class MinimalCallback implements StageCompletionCallback {
         @Override
         public void onTaskTerminal(String queryId, String taskId,
-                                   String state, ErrorDetail error) {
+                                   String state, QueryFailure error) {
             // no-op for testing defaults
         }
 
@@ -89,7 +89,7 @@ class EventDrivenQueryCompletionTest {
 
         @Override
         public void onTaskTerminal(String queryId, String taskId,
-                                   String state, ErrorDetail error) {
+                                   String state, QueryFailure error) {
             switch (state) {
                 case "FINISHED" -> finishedCount++;
                 case "FAILED" -> failedCount++;

@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;
@@ -61,7 +61,7 @@ final class PaimonRowConverter {
         return ordinals;
     }
 
-    GenericRow convertColumnarRow(ColumnarBatch batch, int row, int[] ordinals, RowKind rowKind) {
+    GenericRow convertColumnarRow(ReadableBatch batch, int row, int[] ordinals, RowKind rowKind) {
         GenericRow result = new GenericRow(rowKind, fields.size());
         for (int column = 0; column < fields.size(); column++) {
             Object value = ordinals[column] < 0 ? null : batch.value(row, ordinals[column]);

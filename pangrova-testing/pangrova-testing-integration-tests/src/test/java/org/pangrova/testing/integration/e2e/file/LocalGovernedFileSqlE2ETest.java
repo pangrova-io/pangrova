@@ -12,7 +12,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.types.value.ColumnValue;
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 import org.pangrova.filesystem.local.blob.FileSystemBlobStorage;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;

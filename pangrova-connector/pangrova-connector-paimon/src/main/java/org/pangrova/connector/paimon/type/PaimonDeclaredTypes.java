@@ -5,15 +5,15 @@ import java.util.List;
 
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.data.type.MapType;
-import org.pangrova.spi.connector.data.type.mapping.PangrovaTypeMapping;
-import org.pangrova.spi.connector.data.type.RowType;
-import org.pangrova.spi.connector.data.type.Type;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.data.type.primitive.CharType;
-import org.pangrova.spi.connector.data.type.primitive.DecimalType;
-import org.pangrova.spi.connector.data.type.primitive.VarcharType;
+import org.pangrova.types.ArrayType;
+import org.pangrova.types.MapType;
+import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.RowType;
+import org.pangrova.types.Type;
+import org.pangrova.types.VectorType;
+import org.pangrova.types.primitive.CharType;
+import org.pangrova.types.primitive.DecimalType;
+import org.pangrova.types.primitive.VarcharType;
 
 /** Converts complete declared types without discarding nested or scalar parameters. */
 public final class PaimonDeclaredTypes {

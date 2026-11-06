@@ -1,0 +1,984 @@
+{
+  "formal_result": {
+    "command": [
+      "mvn",
+      "-q",
+      "-Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12",
+      "-Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e",
+      "-pl",
+      ":pangrova-indexing-api",
+      "-am",
+      "-Pstatic-analysis",
+      "verify"
+    ],
+    "start": 1793706858.755219,
+    "exit": 0,
+    "seconds": 52.28724503517151,
+    "reports": [
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.lifecycle.SystemBootstrapSequenceTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.json.JsonEscaperTest.xml",
+        "cases": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.http.ManagedHttpClientTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.property.lifecycle.ResourceCloserPropertyTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.concurrent.ThreadUtilsTest.xml",
+        "cases": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.property.concurrent.BackoffStrategyPropertyTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.resilience.policy.ErrorClassifierTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.concurrent.ProcessResourceLocksTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.util.DigestUtilsTest.xml",
+        "cases": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.util.PreconditionsTest.xml",
+        "cases": 29,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.property.util.DigestUtilsPropertyTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.bloom.SplitBlockBloomFilterTest.xml",
+        "cases": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.util.DataSizeTest.xml",
+        "cases": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.http.ApiVersionHeadersTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.property.json.JsonEscaperPropertyTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.activation.SubsystemActivationCheckTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.lifecycle.LifecycleGuardTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.json.jackson.JsonMapperFactoryTest.xml",
+        "cases": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.property.util.PreconditionsPropertyTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.http.HttpClientFactoryTest.xml",
+        "cases": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.concurrent.ManagedExecutorFactoryTest.xml",
+        "cases": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.exception.PangrovaErrorCodeTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.util.NumberConversionsTest.xml",
+        "cases": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.exception.PangrovaExceptionTest.xml",
+        "cases": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.http.HttpResponseCheckTest.xml",
+        "cases": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.concurrent.RetryingCommitWrapperTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.concurrent.ExecutorDrainTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.lifecycle.ProcessIncarnationStoreTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.property.util.DataSizePropertyTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.lifecycle.HealthCheckEndpointTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.property.lifecycle.LifecycleGuardPropertyTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.concurrent.BackoffStrategyTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.lifecycle.RollbackReportTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.resilience.api.QueryCheckpointContractTest.xml",
+        "cases": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.lifecycle.ResourceCloserTest.xml",
+        "cases": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.http.jetty.EmbeddedHttpServerFactoryThreadPoolTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.http.jetty.EmbeddedHttpServerPortOwnershipTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.util.StopwatchTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-common/target/surefire-reports/TEST-org.pangrova.common.bloom.SplitBlockBloomBufferTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.page.ColumnarPageRoundTripPropertyTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.BatchClasspathIsolationTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.page.ColumnarPageTest.xml",
+        "cases": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.page.ColumnarBlockPropertyTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.page.RowPageConverterBinaryTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.page.property.NativePageDefensiveCopyPropertyTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.block.BlockRegionBoundsTest.xml",
+        "cases": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-batch/pangrova-batch-api/target/surefire-reports/TEST-org.pangrova.batch.api.page.NativePageOwnershipTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-security/pangrova-security-api/target/surefire-reports/TEST-org.pangrova.security.api.rowfilter.ParameterizedFilterTest.xml",
+        "cases": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-security/pangrova-security-api/target/surefire-reports/TEST-org.pangrova.security.api.PolicyContractIsolationTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-security/pangrova-security-api/target/surefire-reports/TEST-org.pangrova.security.api.authorization.DeferredAuthorityContractIsolationTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-security/pangrova-security-api/target/surefire-reports/TEST-org.pangrova.security.api.SecurityApiClasspathTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-security/pangrova-security-api/target/surefire-reports/TEST-org.pangrova.security.api.policy.SqlIdentifierValidatorTest.xml",
+        "cases": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-security/pangrova-security-api/target/surefire-reports/TEST-org.pangrova.security.api.tenant.TenantContextSpiTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-observability/pangrova-observability-api/target/surefire-reports/TEST-org.pangrova.observability.api.ObservabilityApiClasspathTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-observability/pangrova-observability-api/target/surefire-reports/TEST-org.pangrova.observability.api.metrics.MetricAttributesContractTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.session.QuerySessionTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.QueryApiClasspathTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.write.WriteAuthorityRequestTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.journal.JournalEventContextTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.submission.QuerySubmissionResultTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.table.QualifiedTableNameResolutionTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadataTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.NativeWriteAllocationTest.xml",
+        "cases": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.table.ConnectorDerivedQueryTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentityTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$SpatialQueryTest.xml",
+        "cases": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.statistics.FileColumnStatisticsTest.xml",
+        "cases": 43,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$TextMatchTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.CacheEvictionListenerTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.commit.NativeWriteFinalizationTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.AggregationPushdownTest.xml",
+        "cases": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.SamplePushdownTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.data.write.WriteSpiContractTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.BranchCreationOptionsTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$LikePatternTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.commit.WriteAuthorizationReceiptTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$ContainsElementTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$EqualToTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.ConnectorQueryCleanupResultTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.ConnectorApiClasspathTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest.xml",
+        "cases": 0,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.ConnectorSplitTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$InListTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.SnapshotReferenceTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.commit.WriteDeclarationSnapshotTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.CommitEventTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.MetadataTableKindTest.xml",
+        "cases": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.MetadataTableListingTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.ConnectorWriteMetadataReplayContractTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.table.ConnectorReadBindingTest.xml",
+        "cases": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.metadata.table.QualifiedTableCanonicalKeyTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$RangeQueryTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-connector/pangrova-connector-api/target/surefire-reports/TEST-org.pangrova.connector.api.index.predicate.IndexPredicateTest$NullPredicateTest.xml",
+        "cases": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-filesystem/pangrova-filesystem-api/target/surefire-reports/TEST-org.pangrova.filesystem.api.blob.BlobContractIsolationTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-filesystem/pangrova-filesystem-api/target/surefire-reports/TEST-org.pangrova.filesystem.api.FilesystemApiIsolationTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-filesystem/pangrova-filesystem-api/target/surefire-reports/TEST-org.pangrova.filesystem.api.profile.StorageProfileTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-filesystem/pangrova-filesystem-api/target/surefire-reports/TEST-org.pangrova.filesystem.api.object.PresignedObjectUrlTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.value.ColumnValueNestedNullTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.DeclaredTypeTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.PangrovaTypeFromSqlTypeNameTest.xml",
+        "cases": 28,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.value.ColumnValueBinaryOwnershipTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.VectorTypeTest.xml",
+        "cases": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.value.ColumnValueUuidTest.xml",
+        "cases": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.value.ColumnValueVectorTest.xml",
+        "cases": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.TypesClasspathIsolationTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.TypeRoundTripPropertyTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-types/target/surefire-reports/TEST-org.pangrova.types.mapping.PangrovaTypeMappingVectorTest.xml",
+        "cases": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.data.BloomFilterIndexDataPropertyTest.xml",
+        "cases": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.statistics.DynamicFilterSummaryTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.data.BoundingBoxPropertyTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.data.IndexDataTest.xml",
+        "cases": 37,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.IndexingApiIsolationTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.vector.VectorHybridSearchStrategyTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.vector.DistanceMetricTest.xml",
+        "cases": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-indexing/pangrova-indexing-api/target/surefire-reports/TEST-org.pangrova.indexing.api.data.IndexBufferOwnershipTest.xml",
+        "cases": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "pangrova-transport/pangrova-transport-api/target/surefire-reports/TEST-org.pangrova.transport.api.TransportApiClasspathTest.xml",
+        "cases": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "reports": [
+    {
+      "module": "pangrova-common",
+      "findings": [],
+      "errors": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "test",
+        "toString"
+      ],
+      "checkstyle": [],
+      "source_sha256": {
+        "pangrova-common/src/main/java/org/pangrova/common/VisibleForTesting.java": "386bf6e7f715593f891270b9ebd5feaa3f52a0bdfaba388970e15840b9f3514b",
+        "pangrova-common/src/main/java/org/pangrova/common/util/Preconditions.java": "a2d529258f1be40c361d636854f1e200642df08654748b0e328fbe26e51855a3",
+        "pangrova-common/src/main/java/org/pangrova/common/util/Stopwatch.java": "c091ce25c5d3b96d48bf9a0fd8391044ab483ecdbba95cc63ffac77f3a3a1369",
+        "pangrova-common/src/main/java/org/pangrova/common/util/DataSize.java": "a8dcfa9d3927e6a4b93b9520e5a966d35f95eab7b708fd4d2407ce9673f8524d",
+        "pangrova-common/src/main/java/org/pangrova/common/util/DigestUtils.java": "df32b2cd84dc8dee643709098136b77b13f9d857f7a4f9b5eb81f4a4be18506a",
+        "pangrova-common/src/main/java/org/pangrova/common/util/NumberConversions.java": "e7c01691042cd0b554d57226e3587e95e4a52448e1346a1494c251a3a0995780",
+        "pangrova-common/src/main/java/org/pangrova/common/file/CopyFileCommitBinding.java": "775e87a9b8cfd33e9f9b8e8c6e982bc5e4c50a6f4deb26e89541e1513c41dcab",
+        "pangrova-common/src/main/java/org/pangrova/common/file/CopyFilePublication.java": "85ce8355b4ae28b21ec90a8c8d076d5adce3472d8d7b92477149bb7462744cfa",
+        "pangrova-common/src/main/java/org/pangrova/common/file/FileAccessSignature.java": "6a9c61746f3b302b985e8347cfc853d474688f3c0519692134f6f1716203ef2b",
+        "pangrova-common/src/main/java/org/pangrova/common/file/CopySourceStagingDigest.java": "ecfcf6bcffc9031babe289f1cfc224692efb6c52a31dd318c3d9acdcc70dbbe9",
+        "pangrova-common/src/main/java/org/pangrova/common/value/MemoryPressure.java": "6d88d4a17ae3092c4ddedf1c424e81590364ede9a72bd1ae23f1958b96fae9a2",
+        "pangrova-common/src/main/java/org/pangrova/common/activation/SubsystemActivationException.java": "3f679d1aeabe9609c2d11264a6d7ee555ee425d12397c4d9e2cf44584a72bbdc",
+        "pangrova-common/src/main/java/org/pangrova/common/activation/SubsystemActivationCheck.java": "4c24f559ef26d7046f53c59e06feb2e8bccf748e058aca185529fa1732def534",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/BootstrapPhase.java": "3aee31bb23726a38cde4b1234d6a89538d70759f6128159eda3fb3fb2acab2b3",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/HealthStatus.java": "d8bdf09eb31d8a95141777eb22e3200927a7250ef61c3dfc1143362220c13b1d",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/RollbackAggregateReport.java": "10640a28d4c1f98c63f9be741f42d705a32037f81292a043da4a2f61d568d792",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/ProcessIncarnationStore.java": "ffcf83bcfb6e385689c9c89c2decfb3974bde1aeb367b5c5723b3efbc9d8e3f0",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/BootstrapFailedException.java": "40a9e8880d45e6d89b6c48f868138b9f8d5bd1cbb9079f87762fbea8cc937c6e",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/LifecycleGuard.java": "815dcdd99b34b78b4a0d72cc87ab173b3a47e3ff088e96961e7719a0ddcd7303",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/SystemBootstrapSequence.java": "9a44ca40e02ac985669fd2fc60f34f673555198c9a6c99c1631b745f29296fa7",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/HealthCheckEndpoint.java": "f658a08efc3c50738ade78380949a6361a4cf72c18fc901bd5e2525887050ae0",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/RollbackReport.java": "fec55e282628c36c4c2ee7fd8974eeed46ca48c1f7f0442e05b7d6d5b01b178f",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/ResourceCloser.java": "78680f5456178b1efdcc790d98857d6b9763157b161d2f0ed8277e6185f6248f",
+        "pangrova-common/src/main/java/org/pangrova/common/lifecycle/RollbackReportException.java": "718cf65e57d0161f02a41b984cf0dcfac4366a91494668f8d21186837337125a",
+        "pangrova-common/src/main/java/org/pangrova/common/annotation/Experimental.java": "3c34ca811f620463307a7bf231e407fda6601e608be9a8ae4d83436f46ba601b",
+        "pangrova-common/src/main/java/org/pangrova/common/annotation/DeadCode.java": "f80d3d0e2c8f5e336edc7461b5fbb9985cd5ed8a74377b14d534ab71d0e1a067",
+        "pangrova-common/src/main/java/org/pangrova/common/bloom/SplitBlockBloomFilter.java": "56fe5a25595ed747d92394ebb06a4268455cf0f7c29533121aa8baa9cb292f63",
+        "pangrova-common/src/main/java/org/pangrova/common/storage/StorageType.java": "47e52673e74abf0182046d686e27fe3bd734725bc0464a0395b91b44e8a35b49",
+        "pangrova-common/src/main/java/org/pangrova/common/json/CanonicalJsonMapper.java": "d1d36dcb5bc6d5ac7376304c962dafd69d3f113442af5e7b3ceaa90b9a270966",
+        "pangrova-common/src/main/java/org/pangrova/common/json/JsonEscaper.java": "b3de31ac10ccbc4f4f9015520241b6828df2e47dc885117bbe1678972570b1c3",
+        "pangrova-common/src/main/java/org/pangrova/common/json/jackson/JsonMapperFactory.java": "1be06d704b9f3d2dd657882e266ad81eaf1e9a0e325d13c181f0c854b85f40c3",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/CircuitBreakerPolicy.java": "1c1ce786afe713384355c15275e006a25e8a03339382688b1d566d0395fdbd9e",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/NoOpCircuitBreakerPolicy.java": "565f29706592ebf338182bcba585820bc07abb05b0c280e9f3ec591b3b6fa8bf",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/api/CheckpointStore.java": "a0c0b4fd7d72d40dcab3dc5898a9c80f59c96986062df946c24aa7a425bb1e68",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/api/QueryCheckpoint.java": "4c57b0b10fcf8a734e986f99af93e873fcd943af659b951d87632cddcfc98aab",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/policy/CircuitBreakerConfig.java": "1186e76e605d5a762152c25a5416ff07c30ad154cf63abf9d60546a571fdbd03",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/policy/RetryPolicy.java": "036bf7a20e53c32f98102095deb3bdb35ba30d7d7980e86fcaba32266e69dc8f",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/policy/ErrorClassifier.java": "aacf7014aab73365c3fc974db1c080c5637fd1d80b24f9d0d31e5eedc3f84f19",
+        "pangrova-common/src/main/java/org/pangrova/common/resilience/policy/ResiliencePolicyConfig.java": "1a6a9044b48575aea517595e2ffb7cf9eac8e020058704c05c4d58f37c81d593",
+        "pangrova-common/src/main/java/org/pangrova/common/http/HttpClientFactory.java": "6c7eaad3cb13038352d6bb749b7e336e2f8817f9ad9a65a00eb3a385677fcbeb",
+        "pangrova-common/src/main/java/org/pangrova/common/http/PemMutualTls.java": "42471fc1b084138b1239f355d808d4a88a73b692ca1c1828ff6966a6e22332cd",
+        "pangrova-common/src/main/java/org/pangrova/common/http/ManagedHttpClient.java": "48cf3136f1606378d6776733b44d08d0f847fd04c18bd86808debc86492fe5a7",
+        "pangrova-common/src/main/java/org/pangrova/common/http/HttpResponseCheck.java": "58e33a548f3e4f7b5ee9c94eb4b1bd348cda280f5b6f7efee409cec22e69897c",
+        "pangrova-common/src/main/java/org/pangrova/common/http/ApiVersionHeaders.java": "237c27244b16b843e12b013f0c8526fe1c3c1048bfda14d4e53c2d71db4266bb",
+        "pangrova-common/src/main/java/org/pangrova/common/http/HttpClientConfig.java": "c8f1d5153b5d30348a4b6157e85cbbfa61f19ecc7721097074cdd8e8c965b9b7",
+        "pangrova-common/src/main/java/org/pangrova/common/http/jetty/EmbeddedHttpServerFactory.java": "8b9d7802265fb309ebbfe85b5607bdfa891ca6a9a1304fac81108d610682a6f9",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/ThreadSafe.java": "c5ac88e8ee79628c58d8de59be7c417f9b6de3d2d440779fc5a2eab86cb27e31",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/ManagedExecutorFactory.java": "44e647caf376023b5febe76f60f63b4db48fdd84e61c4e9c6b69bf2d5c087c50",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/RetryingCommitWrapper.java": "f458ad3595aeffcc0afeb50223aebacbd2136e726b20b238a8223dd41d1a9dc1",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/NotThreadSafe.java": "05d5e41fc59afd2487bd4b8df88c4cd81e1fd65f2c67835a1db889e74ed2912d",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/GuardedBy.java": "d781cfc72bd2d7464403dcf71c02ebeb077100ad8762d0b04d1d5f1daab8c552",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/BackoffStrategy.java": "c0378e1be62c96417ee4f3a300b514020804e11fc3482ce1612e9ec2ac23bc08",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/ProcessResourceLocks.java": "95540fc2bae45adec3f18ba7ae7fa50a95536910507c018fe38d127241c50ff9",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/ExecutorDrain.java": "9984d4a081c966cea2f2069a67480699d3129435e9cef3045cf7ecae3df22fea",
+        "pangrova-common/src/main/java/org/pangrova/common/concurrent/ThreadUtils.java": "0c31e55bfcced5e5657963bc54188450ca483a7342a2148ecd7c9c5bd1d0c1a2",
+        "pangrova-common/src/main/java/org/pangrova/common/api/annotation/ThreadSafe.java": "9deaf7cd3d9f06a7ef7ad54106d7a970b8750d0d530e5aa07a0ebe4141686099",
+        "pangrova-common/src/main/java/org/pangrova/common/api/annotation/Internal.java": "9f7a4c4435144a6a6219b5bb2d3e66afa6e8b446db17d8e9d7085c74b8a2a5bb",
+        "pangrova-common/src/main/java/org/pangrova/common/api/annotation/Experimental.java": "75dcf9b99854ed34c7bd8180e9755891c0bb2707a8a67851b17098e1e3aca11d",
+        "pangrova-common/src/main/java/org/pangrova/common/api/annotation/Stable.java": "2f0f1d69ec226a2b1422e872a3407ddb529c90aea23054e3827cada2746fec17",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/InfrastructureException.java": "a82040318794b6d97a459ff9892fe67838d65e2cb0f38fbc91befc08ea9c2b88",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/ValidationException.java": "299a822aeca27cf3d2877f95b49acae4dafa5c0ba90d4abfc8d33b574a3849b7",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/ConfigurationException.java": "ed54c4607f37efecffa64a1f24f6974c6098cd7a5403b1ef01f68b1649b59a3a",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/StreamAlreadyExistsException.java": "75ad7722c66b4b3dea8622a02efff3874cd009db380a1d176bbbe4a3091059b7",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/PangrovaErrorCode.java": "7e86509f06b90a5134d28901e49657f0a6963e8de72d15ab17d4ba4180033178",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/StreamNotFoundException.java": "9b95156ff0d3c6394cc8360665067489a63c3679e9cbb7282f09025ed04dc9e0",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/StreamQuotaExceededException.java": "61b0bf03cda3ccbe24607e3bd4a9795c37d7aafaf7f4ad791470321ff1592566",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/PangrovaException.java": "b8aa899863d522d6b3e47c3e111b33a7b5e832669c961e0d0681cde82775b903",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/SourceUnavailableException.java": "c485272a5cdc040088a323d489ca7291ed7d27f777240014bfd816ded603426a",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/DomainException.java": "1dbe6bb981c961789c272d775fc7fbc70b2a368d0cb692549ee750809aab09bd",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/SerializationException.java": "13ace9683b630027dfc83c21b40155c3a98708b134af57e3b89ce7a35d180b4e",
+        "pangrova-common/src/main/java/org/pangrova/common/exception/StaleEpochException.java": "8b287e8020ffc5a47350538fe0aa82a31ba150cd4c3b6513a0c97a6b3fea4119",
+        "pangrova-common/src/main/java/org/pangrova/common/session/SessionContext.java": "e7eb4c2360dc1e218aaa0531d1b50f3168c4be4c19181118d3a8f30add623887"
+      }
+    },
+    {
+      "module": "pangrova-indexing/pangrova-indexing-api",
+      "findings": [],
+      "errors": [],
+      "missing_classes": [
+        "apply",
+        "applyAsLong",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "checkstyle": [],
+      "source_sha256": {
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/spi/publication/IndexAvailabilityPublisher.java": "c86a01745838e9e6500daefedc7da6798a12b7863f772bc96273cd9229536938",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/spi/codec/TypeSerializer.java": "b094ea4a398b1a80284acdc5546fce0ff4f9429c5b6c9a260d10233144492fc0",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/spi/pruning/TopKBoundaryListener.java": "b8c4d6911a164156d930a89418a38d5a0cee5f070a1ba156a6da28e65a84e48c",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/spi/pruning/RowGroupStatisticsProvider.java": "938b14fdb45fdd6cfcc4faff5c1ab4ab8b7f084106eaf4be9cb0382321497605",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/spi/vector/RecallEstimationHint.java": "bdec589d8ad531ce6ee0eda9968612288c5b3541a537f2cabb2974a7be864e97",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/spi/strategy/IndexStrategyProvider.java": "e13bbc67659c74428d9200bd4ff3155579ed2d3306f5e983762a02abd4f7d644",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/statistics/DynamicFilterSummary.java": "a6dfe386266c1c962ecb4bc677f944dbb3e52d623e39748d86a0b99f239de592",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/statistics/RowGroupStatistics.java": "21a57ebc7cf7a09af0355f30dbeba4546c737c3ecad960078dab74a3a59e002b",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/statistics/RowGroupSkipInfo.java": "8feea6b444726ebe9a49b4d15ca9c015d1d2954d241f40abaf37854171b1b1f5",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/lifecycle/IndexState.java": "6c1749194c6ce31a1840d30e4518a2344b84d86e5033ede0897378bcafe602fe",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/pruning/IndexHint.java": "afc3fc62eb96e90fb9ab696cc8cdad3f85a92ad53e326b5f69ec9057542096fd",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/pruning/JoinPruningSummary.java": "c3379cebfb845815b983e943950871647df3df2b59ede8ddae1b0ef95b8c8205",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/pruning/TopKBoundary.java": "96049a2562bb80719f6c90edde2ba251a9e747b17afdfd8cf8b487332467d058",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/pruning/LimitPruningResult.java": "0810244769ef71195c158ea861705dab7824593e66b12571ed56c2514c4f34ce",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/pruning/RowGroupPruningSummary.java": "6e62195e626640741dbd559c860187d69ec76deed2f3367fc1f319914c4ba951",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/descriptor/IndexCoverageWindow.java": "1d099eba83f66d89dec90e790ae71f4df235073dade60c9e203c75cd378bea53",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/descriptor/IndexType.java": "de9f3e8612485ce2f13f30a68c59fe9cafcfd6bf6f06aa2de0805fcd5efabb90",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/descriptor/IndexCostEstimate.java": "691509e81e260e542801cf40d607cc8a6819e45f89330bb6d4dbd14b2cc8b6cc",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/descriptor/IndexCoverageStats.java": "13ddd286f7c70d66de4a3a4365010c35851c37be6f8ee91b16df08cba6262a28",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/descriptor/IndexDescriptor.java": "9c416650d9002557eccac6aaa1484b670ce251fe25307dae46863e2026a1f9ae",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/evaluation/IndexEvaluatedSplit.java": "6aef347d4e48915b6a1591011ee35828fa13151f45d9a02904f08e9b0eb2bc19",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/evaluation/SplitIndexEvalResult.java": "a729553d139c1146f9682948e3955a073e75ab4f4711d6ad37b16184f18ade73",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/evaluation/IndexEvalHint.java": "318e35ee4737ec23474646d2590778abad157e10374e338d533dec61056ce949",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/evaluation/IndexEvalDescriptor.java": "6cbe546a202b18d90cc6dd8ce3d3188290d6c9e871b64e9ec2559a3340907406",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/BloomFilterIndexData.java": "367dfeb315eeafbd4cc18ce901904cfde68382a993a528303383b73b07cfc32e",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/HashIndexData.java": "5559cb987f9fad745d031cba7a37f171941c95158fd3a7a5430d39e0cc1729f7",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/BTreePage.java": "e050f5d4a95a28dfb7a3b7627810c05b949918f8d9e82c2e47c98878eb03ad5a",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/BTreeIndexData.java": "bec91b479e7720fc8da893ebda42d83c279524d6d6b4850ee9446ae8397f8c9e",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/IndexData.java": "28284e1f683016555a9c609638398ca056c0af509786bee5b6478cf093707497",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/bitmap/BitmapIndexData.java": "6e0acc08c647b44dcc9bc5f7abdf4407b109d89dfae2b42fcda6a3d36f3e979e",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/text/GinIndexData.java": "a2d4e646d6e53b3ffe227131738c6604da7905c7ca306855b92ca2cfaf932131",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/text/NGramBloomIndexData.java": "836d42c7e3646baa67a80d589edc6de232ace400c9cd154ccec5d6e273cda955",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/text/PrefixEntry.java": "3113909e859c58b513ea3f4b902a349170332fe27ac16f407e1a968711997a3e",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/text/PrefixIndexData.java": "e6b344640a2de97c8fe37f8b070b9f7c39fa3f6d2e8164d63a62fe256eff2931",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/spatial/BoundingBox.java": "20eef20c9ffdf6caba0c0f66cb609ce43b9aac88b61499d8d86e54c5702854a5",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/spatial/RTreeIndexData.java": "aa8fa18aa174e6ba36edb8602c8e90816ad31377b65eb1a4a21a632e28957edd",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/spatial/SparseEntry.java": "7baeb67cf7fc35033b4c38d08c89fc766544b366af12cfd68137cd0c4a747e87",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/spatial/SparseIndexData.java": "dfa6d57ddff7e3262e0ede188fc3195fc6d6234a551546820bbb04877f55d4e2",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/spatial/RTreeNode.java": "5589a090b4158e2378696cd89fbcf3ad279a94c9cc74ab535ccb2ce3270b2523",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/error/IndexAlreadyExistsException.java": "2c511cd1463bf2bcae830d602618e5d99a606d574ccfac5a3dd0a98a4af1d10e",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/vector/DistanceMetric.java": "66ded8cbde5c0b6bc90c41c76fd8edf9590b424d094ca76828ad58d5c71a3ecc",
+        "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/vector/VectorHybridSearchStrategy.java": "f57a3fdfd223c7aea95fee594b98a95879e260c61ff2fb19da1cee747f334414"
+      }
+    }
+  ]
+}

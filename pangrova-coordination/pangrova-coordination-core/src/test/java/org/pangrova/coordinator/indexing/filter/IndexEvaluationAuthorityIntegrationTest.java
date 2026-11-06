@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.filter;
 
-import org.pangrova.indexing.assembly.serde.DefaultTypeSerializers;
+import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,29 +12,29 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.indexing.registry.IndexEngineRegistry;
 import org.pangrova.indexing.eval.IndexEvaluationService;
 import org.pangrova.indexing.fs.LocalFileSystemAccessor;
-import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.storage.IndexCache;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.connector.index.IndexEvalResult;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
+import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.index.predicate.EqualTo;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -67,11 +67,9 @@ class IndexEvaluationAuthorityIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_eval_authority");
-        metadata = new JdbcIndexMetadataStore(dataSource);
+        metadata = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
         var roles = new JdbcRoleStore(dataSource);
         grants = new JdbcGrantStore(dataSource);
-        roles.initSchema();
-        grants.initSchema();
         assertThat(roles.createRole(Role.of("reader"))).isTrue();
         assertThat(roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"))).isTrue();
         accessControl = new DynamicRbacAccessControl(grants, roles,
@@ -295,6 +293,6 @@ class IndexEvaluationAuthorityIntegrationTest {
 
     private static IndexEvaluationService service() {
         return new IndexEvaluationService(new IndexEngineRegistry(), new IndexCache(1_048_576),
-                new IndexStorageManager(), new IndexSerializer(DefaultTypeSerializers.createRegistry()));
+                new IndexStorageManager(), new IndexSerializer(BuiltinIndexSerializers.createRegistry()));
     }
 }

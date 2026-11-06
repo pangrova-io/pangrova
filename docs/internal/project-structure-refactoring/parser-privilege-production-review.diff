@@ -1,0 +1,946 @@
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PermissionChecker.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PermissionChecker.java
+@@ -52,6 +52,14 @@
+     public static void check(Statement stmt, QuerySession context,
+                               AccessControl accessControl) {
+         UserIdentity user = context == null ? null : context.userIdentity();
++        if (StatementClassifier.isPrivilegeDdl(stmt)
++                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowPrivilegeMutationStatement) {
++            if (accessControl == null || user == null) {
++                throw new AccessDeniedException("Authenticated privilege administrator is required");
++            }
++            // The task's atomic persistence operation rechecks current grant-option authority under the mutation gate.
++            return;
++        }
+         if (stmt instanceof CreateStorageProfileStatement || stmt instanceof DropStorageProfileStatement) {
+             if (accessControl == null || user == null) {
+                 throw new AccessDeniedException("Authenticated storage profile administrator is required");
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/StatementClassifier.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/StatementClassifier.java
+@@ -54,7 +54,13 @@
+     public static boolean isDdl(Statement stmt) {
+         return isCoreDdl(stmt) || isSemanticViewDdl(stmt)
+                 || isFeatureViewDdl(stmt) || isFeatureMaterializationDdl(stmt)
+-                || isFileSpaceDdl(stmt);
++                || isFileSpaceDdl(stmt) || isPrivilegeDdl(stmt);
++    }
++
++    /** Privilege mutation performs its current authorization atomically in the security persistence port. */
++    public static boolean isPrivilegeDdl(Statement stmt) {
++        return stmt instanceof org.pangrova.parser.api.ast.statement.GrantPrivilegeStatement
++                || stmt instanceof org.pangrova.parser.api.ast.statement.RevokePrivilegeStatement;
+     }
+ 
+     /** Returns whether a statement changes a Volume or Stage namespace. */
+@@ -108,7 +114,8 @@
+ 
+     /** Returns whether a statement reads descriptive catalog metadata. */
+     public static boolean isShow(Statement stmt) {
+-        return stmt instanceof ShowSchemasStatement
++        return stmt instanceof org.pangrova.parser.api.ast.statement.ShowPrivilegeMutationStatement
++                || stmt instanceof ShowSchemasStatement
+                 || stmt instanceof ShowTablesStatement
+                 || stmt instanceof org.pangrova.parser.api.ast.statement.ShowTableControlsStatement
+                 || stmt instanceof org.pangrova.parser.api.ast.statement.DescribeTableStatement
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/governance/QualityReadSql.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/governance/QualityReadSql.java
+@@ -33,7 +33,7 @@
+     };
+     private static final SqlParser.Config PARSER = SqlParser.config()
+             .withUnquotedCasing(Casing.UNCHANGED).withQuotedCasing(Casing.UNCHANGED);
+-    private static final org.pangrova.parser.core.parse.AntlrSqlParser EXPRESSION_PARSER = new org.pangrova.parser.core.parse.AntlrSqlParser();
++    private static final org.pangrova.parser.api.parse.SqlParser EXPRESSION_PARSER = new org.pangrova.parser.core.parse.AntlrSqlParser();
+ 
+     private QualityReadSql() { }
+ 
+--- pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/parse/PangrovaParserFactory.java normalized
++++ pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/parse/PangrovaParserFactory.java
+@@ -1,6 +1,7 @@
+ package org.pangrova.planner.core.parse;
+ 
+ import org.pangrova.parser.core.parse.AntlrSqlParser;
++import org.pangrova.parser.api.parse.SqlParser;
+ import org.pangrova.parser.api.ast.Statement;
+ import org.apache.calcite.sql.SqlNode;
+ import org.apache.calcite.sql.parser.SqlAbstractParserImpl;
+@@ -20,11 +21,16 @@
+ @org.pangrova.common.concurrent.ThreadSafe
+ public final class PangrovaParserFactory implements SqlParserImplFactory {
+ 
+-    private final AntlrSqlParser parser;
++    private final SqlParser parser;
+     private final AstToSqlNodeConverter converter;
+ 
+     public PangrovaParserFactory() {
+-        this.parser = new AntlrSqlParser();
++        this(new AntlrSqlParser());
++    }
++
++    /** Uses an explicitly selected parser without exposing implementation state to the adapter. */
++    public PangrovaParserFactory(SqlParser parser) {
++        this.parser = java.util.Objects.requireNonNull(parser, "parser");
+         this.converter = new AstToSqlNodeConverter();
+     }
+ 
+--- pangrova-parser/src/main/java/org/pangrova/parser/AstBuilder.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/build/AstBuilder.java
+@@ -1,4 +1,9 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.core.build;
++
++import org.pangrova.parser.api.diagnostic.ParseException;
++import org.pangrova.parser.api.parse.SqlDialect;
++import org.pangrova.parser.core.build.antlr.PangrovaSqlBaseVisitor;
++import org.pangrova.parser.core.build.antlr.PangrovaSqlParser;
+ 
+ import org.pangrova.parser.api.ast.*;
+ import org.pangrova.parser.api.ast.TimeTravelSpec.Type;
+@@ -85,11 +90,11 @@
+     private final AstExpressionBuilder expr = new AstExpressionBuilder(this);
+     private final SourceLocationRegistry locationRegistry = new SourceLocationRegistry();
+ 
+-    AstBuilder(CommonTokenStream tokenStream) {
++    public AstBuilder(CommonTokenStream tokenStream) {
+         this(tokenStream, SqlDialect.PANGROVA);
+     }
+ 
+-    AstBuilder(CommonTokenStream tokenStream, SqlDialect dialect) {
++    public AstBuilder(CommonTokenStream tokenStream, SqlDialect dialect) {
+         this.tokenStream = tokenStream;
+         this.dialect = dialect;
+     }
+@@ -289,6 +294,21 @@
+     @Override public Statement visitBackfillColumnStatement(PangrovaSqlParser.BackfillColumnStatementContext ctx) { return (Statement) extDdl.visitBackfillColumn(ctx.backfillColumn()); }
+     @Override public Statement visitCancelBackfillStatement(PangrovaSqlParser.CancelBackfillStatementContext ctx) { return (Statement) extDdl.visitCancelBackfill(ctx.cancelBackfill()); }
+     @Override public Statement visitShowBackfillStatusStatement(PangrovaSqlParser.ShowBackfillStatusStatementContext ctx) { return (Statement) extDdl.visitShowBackfillStatus(ctx.showBackfillStatus()); }
++    @Override
++    public Statement visitShowPrivilegeMutationStatement(PangrovaSqlParser.ShowPrivilegeMutationStatementContext ctx) {
++        return new PrivilegeStatementBuilder(this).receipt(ctx.showPrivilegeMutation());
++    }
++
++    @Override
++    public Statement visitGrantPrivilegeStatement(PangrovaSqlParser.GrantPrivilegeStatementContext ctx) {
++        return new PrivilegeStatementBuilder(this).grant(ctx.grantPrivilege());
++    }
++
++    @Override
++    public Statement visitRevokePrivilegeStatement(PangrovaSqlParser.RevokePrivilegeStatementContext ctx) {
++        return new PrivilegeStatementBuilder(this).revoke(ctx.revokePrivilege());
++    }
++
+     @Override public Statement visitCreateStorageProfileStatement(PangrovaSqlParser.CreateStorageProfileStatementContext ctx) { return (Statement) extDdl.visitCreateStorageProfile(ctx.createStorageProfile()); }
+     @Override public Statement visitDropStorageProfileStatement(PangrovaSqlParser.DropStorageProfileStatementContext ctx) { return (Statement) extDdl.visitDropStorageProfile(ctx.dropStorageProfile()); }
+     @Override public Statement visitShowStorageProfilesStatement(PangrovaSqlParser.ShowStorageProfilesStatementContext ctx) { return (Statement) extDdl.visitShowStorageProfiles(ctx.showStorageProfiles()); }
+@@ -746,7 +766,7 @@
+         if (ctx == null) return List.of();
+         return ctx.expression().stream().map(e -> (Expression) visit(e)).toList();
+     }
+-    String extractIdentifierText(PangrovaSqlParser.IdentifierContext ctx) {
++    public String extractIdentifierText(PangrovaSqlParser.IdentifierContext ctx) {
+         if (ctx.QUOTED_IDENTIFIER() != null) {
+             // Double-quoted identifier: reject if dialect does not allow double-quotes
+             if (!dialect.allowsDoubleQuotes()) {
+--- pangrova-parser/src/main/java/org/pangrova/parser/SqlParser.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/parse/AntlrSqlParser.java
+@@ -1,4 +1,15 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.core.parse;
++
++import org.pangrova.parser.api.diagnostic.ParseException;
++import org.pangrova.parser.api.parse.ParseResult;
++import org.pangrova.parser.api.parse.SqlDialect;
++import org.pangrova.parser.core.build.antlr.PangrovaSqlLexer;
++import org.pangrova.parser.core.build.antlr.PangrovaSqlParser;
++import org.pangrova.parser.core.build.AstBuilder;
++import org.pangrova.parser.core.diagnostic.CollectingErrorListener;
++import org.pangrova.parser.core.diagnostic.ThrowingErrorListener;
++import org.pangrova.parser.core.lexical.ReservedWordPolicy;
++import org.pangrova.parser.spi.parse.StatementParser;
+ 
+ import com.github.benmanes.caffeine.cache.Cache;
+ import com.github.benmanes.caffeine.cache.Caffeine;
+@@ -40,7 +51,7 @@
+  * </ul>
+  */
+ @org.pangrova.common.concurrent.ThreadSafe
+-public class AntlrSqlParser {
++public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
+ 
+     /** Default maximum SQL text length in bytes: 1 MB. */
+     static final int DEFAULT_MAX_SQL_LENGTH = 1_048_576;
+@@ -138,7 +149,7 @@
+ 
+     /**
+      * Parse a SQL string into an AST Statement.
+-     * Results are cached by normalized SQL key (literals stripped) for repeated queries.
++     * Results are cached by normalized SQL key (literal contents preserved) for repeated queries.
+      * The cache adaptively resizes based on observed hit rate.
+      *
+      * @throws ParseException with line/column on syntax error or input limit violation
+@@ -286,6 +297,11 @@
+      * @throws ParseException if the input violates size limits (not a syntax error)
+      */
+     public ParseResult parseWithRecovery(String sql) {
++        return parseWithDetails(sql).result();
++    }
++
++    /** Preserves the ANTLR recovery tree for explicit implementation-specific tooling. */
++    public org.pangrova.parser.core.diagnostic.RecoveryParseDetails parseWithDetails(String sql) {
+         validateInput(sql);
+ 
+         PangrovaSqlLexer lexer = new PangrovaSqlLexer(CharStreams.fromString(sql));
+@@ -314,8 +330,18 @@
+ 
+             Statement statement = null;
+             if (!errorListener.hasErrors()) {
+-                statement = new AstBuilder(tokens, dialect).visitSingleStatement(tree);
+-                return ParseResult.success(statement, tree);
++                try {
++                    statement = new AstBuilder(tokens, dialect).visitSingleStatement(tree);
++                    return org.pangrova.parser.core.diagnostic.RecoveryParseDetails.success(statement, tree);
++                } catch (ParseException syntax) {
++                    if (syntax.getErrorCode() != PangrovaErrorCode.PARSER_SYNTAX_ERROR) throw syntax;
++                    // Literal/identifier validation can reject an otherwise valid ANTLR tree.
++                    // Preserve its position and tree just like a grammar syntax error; do not mask resource limits.
++                    var diagnostic = new org.pangrova.parser.api.diagnostic.ParseError(
++                            syntax.getLine(), syntax.getColumn(), syntax.getMessage());
++                    return org.pangrova.parser.core.diagnostic.RecoveryParseDetails.withErrors(
++                            null, tree, java.util.List.of(diagnostic));
++                }
+             }
+ 
+             // Attempt to build a partial AST despite errors
+@@ -326,7 +352,7 @@
+                 // Error details are already captured in errorListener.getErrors().
+             }
+ 
+-            return ParseResult.withErrors(statement, tree, errorListener.getErrors());
++            return org.pangrova.parser.core.diagnostic.RecoveryParseDetails.withErrors(statement, tree, errorListener.getErrors());
+         } catch (StackOverflowError e) {
+             throw new ParseException(
+                     PangrovaErrorCode.PARSER_INPUT_TOO_LARGE,
+--- pangrova-parser/src/main/java/org/pangrova/parser/ParseResult.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/api/parse/ParseResult.java
+@@ -1,92 +1,16 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.api.parse;
+ 
+ import java.util.List;
++import java.util.Objects;
++import org.pangrova.parser.api.ast.Statement;
++import org.pangrova.parser.api.diagnostic.ParseError;
+ 
+-import org.pangrova.parser.api.ast.Statement;
+-import org.antlr.v4.runtime.tree.ParseTree;
+-
+-/**
+- * Result of parsing SQL in error-recovery mode. Contains either a successfully
+- * built AST statement (possibly partial) alongside any syntax errors encountered.
+- *
+- * <p>When no errors are present, the statement is a complete, valid AST.
+- * When errors are present, the statement may be null (if the parse tree was
+- * too damaged to build any AST) or a partial AST representing the portions
+- * of the SQL that were successfully parsed.
+- *
+- * <p>The partial parse tree is always available when parsing completes
+- * (ANTLR recovery mode always produces a tree), enabling IDE-style
+- * incremental analysis even on invalid SQL.
+- */
+-@org.pangrova.common.concurrent.ThreadSafe
+-public final class ParseResult {
+-
+-    private final Statement statement;
+-    private final ParseTree partialTree;
+-    private final List<ParseError> errors;
+-
+-    private ParseResult(Statement statement, ParseTree partialTree, List<ParseError> errors) {
+-        this.statement = statement;
+-        this.partialTree = partialTree;
+-        this.errors = List.copyOf(errors);
++/** Immutable recovery observation. A partial AST with errors must not be executed. */
++public record ParseResult(Statement statement, List<ParseError> errors) {
++    public ParseResult {
++        errors = List.copyOf(Objects.requireNonNull(errors, "errors"));
++        if (errors.isEmpty()) Objects.requireNonNull(statement, "successful statement");
+     }
+-
+-    /**
+-     * Creates a successful parse result with no errors.
+-     */
+-    static ParseResult success(Statement statement, ParseTree tree) {
+-        return new ParseResult(statement, tree, List.of());
+-    }
+-
+-    /**
+-     * Creates a parse result with errors and an optional partial statement.
+-     *
+-     * @param statement   the partial AST, or null if no AST could be built
+-     * @param partialTree the ANTLR parse tree (always non-null in recovery mode)
+-     * @param errors      non-empty list of syntax errors encountered
+-     */
+-    static ParseResult withErrors(Statement statement, ParseTree partialTree, List<ParseError> errors) {
+-        if (errors.isEmpty()) {
+-            throw new IllegalArgumentException("errors must not be empty for error result");
+-        }
+-        return new ParseResult(statement, partialTree, errors);
+-    }
+-
+-    /**
+-     * Returns true if parsing completed without any syntax errors.
+-     */
+-    public boolean isSuccess() {
+-        return errors.isEmpty();
+-    }
+-
+-    /**
+-     * Returns true if syntax errors were encountered during parsing.
+-     */
+-    public boolean hasErrors() {
+-        return !errors.isEmpty();
+-    }
+-
+-    /**
+-     * Returns the parsed statement, or null if the SQL was too malformed
+-     * to produce any AST.
+-     */
+-    public Statement statement() {
+-        return statement;
+-    }
+-
+-    /**
+-     * Returns the ANTLR parse tree produced by error-recovery parsing.
+-     * Always non-null; may contain error nodes for invalid portions.
+-     */
+-    public ParseTree partialTree() {
+-        return partialTree;
+-    }
+-
+-    /**
+-     * Returns an unmodifiable list of syntax errors encountered during parsing.
+-     * Empty if parsing was successful.
+-     */
+-    public List<ParseError> errors() {
+-        return errors;
+-    }
++    public boolean isSuccess() { return errors.isEmpty(); }
++    public boolean hasErrors() { return !errors.isEmpty(); }
+ }
+--- pangrova-parser/src/main/java/org/pangrova/parser/ast/type/DataTypeSpec.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/api/ast/type/DataTypeSpec.java
+@@ -27,180 +27,6 @@
+      * and round-trip parsing (e.g. "MAP(VARCHAR, ARRAY(INT))").
+      */
+     String toCanonicalString();
+-
+-    /**
+-     * Parses a raw SQL type string into a structured DataTypeSpec.
+-     * Handles primitive types, DECIMAL(p,s), ARRAY(...), MAP(...,...),
+-     * STRUCT(...), and VECTOR(dim[, precision|metric[, metric]]).
+-     *
+-     * @param rawType the uppercase SQL type string from the grammar
+-     * @return the corresponding DataTypeSpec
+-     * @throws IllegalArgumentException if the type string is not recognized
+-     */
+-    static DataTypeSpec fromRawTypeString(String rawType) {
+-        Objects.requireNonNull(rawType, "rawType must not be null");
+-        String trimmed = rawType.trim();
+-        String upper = trimmed.toUpperCase();
+-
+-        if (upper.startsWith("DECIMAL(") || upper.startsWith("NUMERIC(")) {
+-            return parseDecimal(upper);
+-        }
+-        if (upper.equals("DECIMAL") || upper.equals("NUMERIC")) {
+-            return new DecimalType(DEFAULT_DECIMAL_PRECISION, 0);
+-        }
+-        if (upper.startsWith("ARRAY(")) {
+-            String inner = extractInnerContent(trimmed, "ARRAY");
+-            return new ArrayType(fromRawTypeString(inner));
+-        }
+-        if (upper.startsWith("MAP(")) {
+-            String inner = extractInnerContent(trimmed, "MAP");
+-            int splitIdx = findTopLevelComma(inner);
+-            String keyStr = inner.substring(0, splitIdx).trim();
+-            String valStr = inner.substring(splitIdx + 1).trim();
+-            return new MapType(fromRawTypeString(keyStr), fromRawTypeString(valStr));
+-        }
+-        if (upper.startsWith("STRUCT(")) {
+-            String inner = extractInnerContent(trimmed, "STRUCT");
+-            List<FieldSpec> fields = parseStructFields(inner);
+-            return new StructType(fields);
+-        }
+-        if (upper.startsWith("VECTOR(")) {
+-            return parseVector(upper);
+-        }
+-        if (upper.equals("FILE") || upper.equals("FILE EXTERNAL")) {
+-            return FileType.INSTANCE;
+-        }
+-        if (upper.equals("FILE MANAGED")) {
+-            return FileType.MANAGED;
+-        }
+-        BaseType resolved = resolveBaseType(upper);
+-        if (resolved != null) {
+-            return new PrimitiveType(resolved);
+-        }
+-        throw new IllegalArgumentException("Unrecognized SQL type: " + rawType);
+-    }
+-
+-    /**
+-     * Resolves a raw type name to a BaseType, handling common SQL aliases.
+-     */
+-    private static BaseType resolveBaseType(String name) {
+-        return switch (name) {
+-            case "INT" -> BaseType.INTEGER;
+-            default -> {
+-                try {
+-                    yield BaseType.valueOf(name);
+-                } catch (IllegalArgumentException e) {
+-                    yield null;
+-                }
+-            }
+-        };
+-    }
+-
+-    private static DecimalType parseDecimal(String s) {
+-        String prefix = s.startsWith("NUMERIC(") ? "NUMERIC" : "DECIMAL";
+-        String inner = extractInnerContent(s, prefix);
+-        String[] parts = inner.split(",");
+-        int precision;
+-        try {
+-            precision = Integer.parseInt(parts[0].trim());
+-        } catch (NumberFormatException e) {
+-            throw new IllegalArgumentException(
+-                    "Invalid numeric literal for precision: '" + parts[0].trim() + "' in type: " + s, e);
+-        }
+-        int scale;
+-        try {
+-            scale = parts.length > 1 ? Integer.parseInt(parts[1].trim()) : 0;
+-        } catch (NumberFormatException e) {
+-            throw new IllegalArgumentException(
+-                    "Invalid numeric literal for scale: '" + parts[1].trim() + "' in type: " + s, e);
+-        }
+-        return new DecimalType(precision, scale);
+-    }
+-
+-    private static VectorType parseVector(String s) {
+-        String inner = extractInnerContent(s, "VECTOR");
+-        String[] parts = inner.split(",", -1);
+-        int dimension;
+-        try {
+-            dimension = Integer.parseInt(parts[0].trim());
+-        } catch (NumberFormatException e) {
+-            throw new IllegalArgumentException(
+-                    "Invalid numeric literal for vector dimension: '" + parts[0].trim() + "' in type: " + s, e);
+-        }
+-        if (parts.length > 3) {
+-            throw new IllegalArgumentException("VECTOR accepts dimension, precision and optional metric: " + s);
+-        }
+-        ElementType element = ElementType.FLOAT;
+-        DistanceMetric metric = DistanceMetric.COSINE;
+-        if (parts.length > 1) {
+-            String parameter = parts[1].trim();
+-            if (parameter.equals("FLOAT") || parameter.equals("DOUBLE")) {
+-                element = ElementType.valueOf(parameter);
+-                if (parts.length == 3) metric = DistanceMetric.valueOf(parts[2].trim());
+-            } else {
+-                if (parts.length == 3) throw new IllegalArgumentException("Invalid VECTOR precision: " + parameter);
+-                metric = DistanceMetric.valueOf(parameter);
+-            }
+-        }
+-        return new VectorType(dimension, metric, element);
+-    }
+-
+-    private static List<FieldSpec> parseStructFields(String inner) {
+-        List<FieldSpec> fields = new java.util.ArrayList<>();
+-        int depth = 0;
+-        int start = 0;
+-        for (int i = 0; i < inner.length(); i++) {
+-            char c = inner.charAt(i);
+-            if (c == '(') {
+-                depth++;
+-            } else if (c == ')') {
+-                depth--;
+-            } else if (c == ',' && depth == 0) {
+-                fields.add(parseOneField(inner.substring(start, i).trim()));
+-                start = i + 1;
+-            }
+-        }
+-        if (start < inner.length()) {
+-            fields.add(parseOneField(inner.substring(start).trim()));
+-        }
+-        return List.copyOf(fields);
+-    }
+-
+-    private static FieldSpec parseOneField(String fieldStr) {
+-        int spaceIdx = fieldStr.indexOf(' ');
+-        if (spaceIdx < 0) {
+-            throw new IllegalArgumentException("Invalid STRUCT field (expected 'name type'): " + fieldStr);
+-        }
+-        String name = fieldStr.substring(0, spaceIdx).trim();
+-        String typeStr = fieldStr.substring(spaceIdx + 1).trim();
+-        return new FieldSpec(name, fromRawTypeString(typeStr));
+-    }
+-
+-    private static String extractInnerContent(String s, String prefix) {
+-        int open = prefix.length();
+-        if (s.charAt(open) != '(') {
+-            throw new IllegalArgumentException("Expected '(' after " + prefix + " in: " + s);
+-        }
+-        if (s.charAt(s.length() - 1) != ')') {
+-            throw new IllegalArgumentException("Expected closing ')' in: " + s);
+-        }
+-        return s.substring(open + 1, s.length() - 1);
+-    }
+-
+-    private static int findTopLevelComma(String s) {
+-        int depth = 0;
+-        for (int i = 0; i < s.length(); i++) {
+-            char c = s.charAt(i);
+-            if (c == '(') {
+-                depth++;
+-            } else if (c == ')') {
+-                depth--;
+-            } else if (c == ',' && depth == 0) {
+-                return i;
+-            }
+-        }
+-        throw new IllegalArgumentException("No top-level comma found in MAP type: " + s);
+-    }
+ 
+     /**
+      * A primitive scalar type (e.g. BIGINT, VARCHAR, BOOLEAN).
+--- pangrova-parser/src/main/java/org/pangrova/parser/ast/Expression.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/api/ast/Expression.java
+@@ -1,4 +1,6 @@
+-package org.pangrova.parser.ast;
++package org.pangrova.parser.api.ast;
++
++import org.pangrova.common.api.annotation.Experimental;
+ 
+ import java.util.Optional;
+ 
+@@ -9,10 +11,11 @@
+  * Exhaustive switches over that enum must account for every built-in kind.
+  * Extension nodes may implement this contract without claiming a built-in type.</p>
+  */
++@Experimental
+ public interface Expression {
+     /**
+      * Returns an embedded source location, if supplied by this node.
+-     * Parser-owned locations are available separately through {@link SourceLocationRegistry}.
++     * Parser-owned location tables belong to implementation-specific diagnostic tooling.
+      */
+     default Optional<SourceLocation> sourceLocation() {
+         return Optional.empty();
+--- pangrova-parser/src/main/java/org/pangrova/parser/ast/statement/RevokePrivilegeStatement.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/api/ast/statement/RevokePrivilegeStatement.java
+@@ -1,42 +1,27 @@
+ package org.pangrova.parser.api.ast.statement;
+ 
++import org.pangrova.common.api.annotation.Experimental;
+ import org.pangrova.parser.api.ast.Identifier;
+ import org.pangrova.parser.api.ast.Statement;
+ import org.pangrova.parser.api.ast.StatementType;
+ 
++import java.util.List;
+ import java.util.Objects;
+ 
+-/**
+- * Represents {@code REVOKE privilege ON [catalog.]schema.table FROM role [CASCADE]}.
+- *
+- * <p>Part of the RBAC DDL surface (G-SEC-03 fix). The coordinator's
+- * security statement handler routes this to
+- * {@link org.pangrova.persistence.security.api.policy.GrantStore#revokeGrants} and publishes a
+- * {@link org.pangrova.security.api.event.SecurityPolicyChangeEvent.GrantChanged}.
+- *
+- * @param privilege  privilege keyword (SELECT, INSERT, ALL, etc.)
+- * @param objectType TABLE, SCHEMA, or CATALOG
+- * @param objectName fully qualified object reference
+- * @param roleName   role to revoke from
+- * @param cascade    if true, cascades to dependent grants
+- */
+-public record RevokePrivilegeStatement(
+-        String privilege,
+-        String objectType,
+-        Identifier objectName,
+-        Identifier roleName,
+-        boolean cascade
+-) implements Statement {
+-
++/** Parsed privilege statement. Name resolution and current authorization belong to the execution boundary. */
++@Experimental
++public record RevokePrivilegeStatement(List<String> privileges, String objectType, Identifier objectName,
++        List<String> roleNames, boolean grantOptionOnly, boolean cascade) implements Statement {
+     public RevokePrivilegeStatement {
+-        Objects.requireNonNull(privilege, "privilege must not be null");
+-        Objects.requireNonNull(objectType, "objectType must not be null");
+-        Objects.requireNonNull(objectName, "objectName must not be null");
+-        Objects.requireNonNull(roleName, "roleName must not be null");
++        privileges = List.copyOf(privileges);
++        roleNames = List.copyOf(roleNames);
++        Objects.requireNonNull(objectType, "objectType");
++        Objects.requireNonNull(objectName, "objectName");
++        if (privileges.isEmpty() || roleNames.isEmpty()) {
++            throw new IllegalArgumentException("Privilege and recipient lists must not be empty");
++        }
+     }
+ 
+     @Override
+-    public StatementType type() {
+-        return StatementType.REVOKE_PRIVILEGE;
+-    }
++    public StatementType type() { return StatementType.REVOKE_PRIVILEGE; }
+ }
+--- pangrova-parser/src/main/java/org/pangrova/parser/ast/statement/GrantPrivilegeStatement.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/api/ast/statement/GrantPrivilegeStatement.java
+@@ -1,41 +1,27 @@
+ package org.pangrova.parser.api.ast.statement;
+ 
++import org.pangrova.common.api.annotation.Experimental;
+ import org.pangrova.parser.api.ast.Identifier;
+ import org.pangrova.parser.api.ast.Statement;
+ import org.pangrova.parser.api.ast.StatementType;
+ 
++import java.util.List;
+ import java.util.Objects;
+ 
+-/**
+- * Represents {@code GRANT privilege ON [catalog.]schema.table TO role [WITH GRANT OPTION]}.
+- *
+- * <p>Part of the RBAC DDL surface (G-SEC-03 fix). The coordinator's
+- * security statement handler routes this to {@link org.pangrova.persistence.security.api.policy.GrantStore#addGrant}
+- * and publishes a {@link org.pangrova.security.api.event.SecurityPolicyChangeEvent.GrantChanged}.
+- *
+- * @param privilege       privilege keyword (SELECT, INSERT, ALL, etc.)
+- * @param objectType      TABLE, SCHEMA, or CATALOG
+- * @param objectName      fully qualified object reference
+- * @param roleName        grantee role
+- * @param withGrantOption if true, the grantee can further grant this privilege
+- */
+-public record GrantPrivilegeStatement(
+-        String privilege,
+-        String objectType,
+-        Identifier objectName,
+-        Identifier roleName,
+-        boolean withGrantOption
+-) implements Statement {
+-
++/** Parsed privilege statement. Name resolution and current authorization belong to the execution boundary. */
++@Experimental
++public record GrantPrivilegeStatement(List<String> privileges, String objectType, Identifier objectName,
++        List<String> roleNames, boolean withGrantOption) implements Statement {
+     public GrantPrivilegeStatement {
+-        Objects.requireNonNull(privilege, "privilege must not be null");
+-        Objects.requireNonNull(objectType, "objectType must not be null");
+-        Objects.requireNonNull(objectName, "objectName must not be null");
+-        Objects.requireNonNull(roleName, "roleName must not be null");
++        privileges = List.copyOf(privileges);
++        roleNames = List.copyOf(roleNames);
++        Objects.requireNonNull(objectType, "objectType");
++        Objects.requireNonNull(objectName, "objectName");
++        if (privileges.isEmpty() || roleNames.isEmpty()) {
++            throw new IllegalArgumentException("Privilege and recipient lists must not be empty");
++        }
+     }
+ 
+     @Override
+-    public StatementType type() {
+-        return StatementType.GRANT_PRIVILEGE;
+-    }
++    public StatementType type() { return StatementType.GRANT_PRIVILEGE; }
+ }
+--- pangrova-parser/src/main/java/org/pangrova/parser/ast/StatementType.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/api/ast/StatementType.java
+@@ -1,4 +1,4 @@
+-package org.pangrova.parser.ast;
++package org.pangrova.parser.api.ast;
+ 
+ /**
+  * Enumerates all concrete statement types in the AST hierarchy.
+@@ -116,9 +116,10 @@
+ 
+     // Session statements
+     SET_SESSION,
+-
++    SHOW_PRIVILEGE_MUTATION,
+     GRANT_PRIVILEGE,
+     REVOKE_PRIVILEGE,
++
+     CREATE_STORAGE_PROFILE,
+     DROP_STORAGE_PROFILE,
+     SHOW_STORAGE_PROFILES,
+--- pangrova-parser/src/main/java/org/pangrova/parser/ast/Statement.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/api/ast/Statement.java
+@@ -1,4 +1,6 @@
+-package org.pangrova.parser.ast;
++package org.pangrova.parser.api.ast;
++
++import org.pangrova.common.api.annotation.Experimental;
+ 
+ import java.util.Optional;
+ 
+@@ -9,10 +11,11 @@
+  * Exhaustive switches over that enum must account for every built-in kind.
+  * Extension nodes may implement this contract without claiming a built-in type.</p>
+  */
++@Experimental
+ public interface Statement {
+     /**
+      * Returns an embedded source location, if supplied by this node.
+-     * Parser-owned locations are available separately through {@link SourceLocationRegistry}.
++     * Parser-owned location tables belong to implementation-specific diagnostic tooling.
+      */
+     default Optional<SourceLocation> sourceLocation() {
+         return Optional.empty();
+--- pangrova-parser/src/main/java/org/pangrova/parser/ReservedWordPolicy.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/lexical/ReservedWordPolicy.java
+@@ -1,4 +1,6 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.core.lexical;
++
++import org.pangrova.parser.api.parse.SqlDialect;
+ 
+ import java.util.Collections;
+ import java.util.LinkedHashMap;
+@@ -36,7 +38,6 @@
+  * shared across threads without synchronization.</p>
+  *
+  * @see SqlDialect
+- * @see AntlrSqlParser#isReserved(String)
+  */
+ public final class ReservedWordPolicy {
+ 
+@@ -101,7 +102,7 @@
+                 "IN", "DISTINCT",
+                 // DDL verbs (CREATE/DROP/ALTER are NOT in nonReservedKeyword;
+                 // SHOW IS non-reserved per the grammar)
+-                "CREATE", "DROP", "ALTER",
++                "CREATE", "DROP", "ALTER", "GRANT", "REVOKE",
+                 // OF
+                 "OF",
+                 // WHEN (MERGE syntax)
+@@ -118,6 +119,7 @@
+         Set<String> nonReserved = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+         nonReserved.addAll(java.util.List.of(
+                 // Extension/DDL
++                "ROLE", "OPTION", "PRIVILEGES", "RESTRICT", "PRIVILEGE", "MUTATION",
+                 "REFRESH", "MATERIALIZED", "MATERIALIZE", "VIEW", "SEMANTIC", "FEATURE",
+                 "PUBLISH", "EXPECTING",
+                 "INCREMENTAL",
+--- pangrova-parser/src/main/java/org/pangrova/parser/StatementParser.java normalized
++++ pangrova-parser/pangrova-parser-api/src/main/java/org/pangrova/parser/spi/parse/StatementParser.java
+@@ -1,34 +1,21 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.spi.parse;
++
++import org.pangrova.common.api.annotation.Experimental;
++
++import org.pangrova.parser.api.parse.SqlParser;
++
++import org.pangrova.parser.api.diagnostic.ParseException;
+ 
+ import org.pangrova.parser.api.ast.Statement;
+ 
+ /**
+- * Extension point for custom SQL statement parsers.
+- *
+- * <p>Downstream modules (connectors, plugins) can implement this interface to
+- * add support for custom statement types without modifying the core ANTLR grammar.
+- * Implementations are discovered via {@link java.util.ServiceLoader} at
+- * {@link StatementParserRegistry} construction time, or registered programmatically
+- * via {@link StatementParserRegistry#register(StatementParser)}.
+- *
+- * <p>When {@link AntlrSqlParser#parse(String)} is invoked, the registered extension
+- * parsers are consulted first (in priority order). If any extension parser's
+- * {@link #canParse(String)} returns {@code true}, its {@link #parse(String, AntlrSqlParser)}
+- * method is called. If no extension parser claims the input, the core ANTLR grammar
+- * handles the parse as usual.
+- *
+- * <p><b>Contract:</b>
+- * <ul>
+- *   <li>{@link #canParse(String)} must be cheap and side-effect-free; it is called
+- *       on every parse attempt.</li>
+- *   <li>If {@code canParse} returns {@code true}, {@code parse} must either return
+- *       a valid {@link Statement} or throw {@link ParseException}.</li>
+- *   <li>Implementations must be thread-safe.</li>
+- * </ul>
+- *
+- * @see StatementParserRegistry
+- * @see AntlrSqlParser
++ * Thread-safe statement extension. canParse is cheap and side-effect-free; a claimed
++ * input must produce a complete AST or ParseException. Delegation uses the portable
++ * parser contract, never its implementation, registry, cache or ANTLR objects.
++ * Core registry discovery is explicit; construction does not discover providers.
++ * Implementations must delegate a different substatement to avoid recursive claims.
+  */
++@Experimental
+ public interface StatementParser {
+ 
+     /**
+@@ -76,5 +63,5 @@
+      * @return a non-null {@link Statement}
+      * @throws ParseException if the SQL text has syntax errors
+      */
+-    Statement parse(String sql, AntlrSqlParser parentParser);
++    Statement parse(String sql, SqlParser parentParser);
+ }
+--- pangrova-parser/src/main/java/org/pangrova/parser/StatementParserRegistry.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/parse/StatementParserRegistry.java
+@@ -1,11 +1,12 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.core.parse;
++
++import org.pangrova.parser.spi.parse.StatementParser;
+ 
+ import java.util.ArrayList;
+ import java.util.Comparator;
+ import java.util.List;
+ import java.util.Optional;
+ import java.util.ServiceLoader;
+-import java.util.concurrent.CopyOnWriteArrayList;
+ 
+ /**
+  * Registry of {@link StatementParser} extensions.
+@@ -24,13 +25,16 @@
+  * (lowest {@link StatementParser#priority()} first). The first parser whose
+  * {@link StatementParser#canParse(String)} returns {@code true} wins.
+  *
+- * <p>This class is thread-safe. The parser list uses {@link CopyOnWriteArrayList}
+- * for lock-free reads on the hot path; registration is rare (typically at startup).
++ * <p>Registration does not invalidate an owning parser's parse cache. Configure
++ * extensions before serving queries, or explicitly invalidate that cache.
++ *
++ * <p>This class is thread-safe. Readers observe one immutable snapshot on the hot path; synchronized registration
++ * publishes a fully sorted replacement once, without intermediate removals or gaps.
+  */
+ @org.pangrova.common.concurrent.ThreadSafe
+ public final class StatementParserRegistry {
+ 
+-    private final CopyOnWriteArrayList<StatementParser> parsers = new CopyOnWriteArrayList<>();
++    private volatile List<StatementParser> parsers = List.of();
+ 
+     /**
+      * Creates an empty registry with no ServiceLoader discovery.
+@@ -74,22 +78,18 @@
+      * @param parser the parser to register, must not be null
+      * @throws IllegalArgumentException if parser is null or has a null/empty name
+      */
+-    public void register(StatementParser parser) {
++    public synchronized void register(StatementParser parser) {
+         if (parser == null) {
+             throw new IllegalArgumentException("parser must not be null");
+         }
+         if (parser.name() == null || parser.name().isEmpty()) {
+             throw new IllegalArgumentException("parser name must not be null or empty");
+         }
+-        // Remove any existing parser with the same name (replace semantics)
+-        parsers.removeIf(p -> p.name().equals(parser.name()));
+-        parsers.add(parser);
+-        // Re-sort by priority after modification
+         List<StatementParser> sorted = new ArrayList<>(parsers);
++        sorted.removeIf(existing -> existing.name().equals(parser.name()));
++        sorted.add(parser);
+         sorted.sort(Comparator.comparingInt(StatementParser::priority));
+-        // Atomic replacement of the backing list
+-        parsers.clear();
+-        parsers.addAll(sorted);
++        parsers = List.copyOf(sorted);
+     }
+ 
+     /**
+@@ -98,8 +98,11 @@
+      * @param name the name of the parser to remove
+      * @return {@code true} if a parser was removed
+      */
+-    public boolean unregister(String name) {
+-        return parsers.removeIf(p -> p.name().equals(name));
++    public synchronized boolean unregister(String name) {
++        List<StatementParser> updated = new ArrayList<>(parsers);
++        boolean removed = updated.removeIf(parser -> parser.name().equals(name));
++        if (removed) parsers = List.copyOf(updated);
++        return removed;
+     }
+ 
+     /**
+--- pangrova-parser/src/main/java/org/pangrova/parser/StatementPrinter.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/format/StatementPrinter.java
+@@ -1,4 +1,5 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.core.format;
++
+ 
+ import org.pangrova.parser.api.ast.CreateCatalogStatement;
+ import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
+@@ -43,8 +44,27 @@
+         this.indexPrinter = new IndexStatementPrinter(printer);
+     }
+ 
++    private String printGrant(GrantPrivilegeStatement statement) {
++        return "GRANT " + String.join(", ", statement.privileges()) + " ON " + statement.objectType()
++                + " " + printer.printId(statement.objectName()) + " TO ROLE "
++                + statement.roleNames().stream().map(printer::quote).collect(Collectors.joining(", "))
++                + (statement.withGrantOption() ? " WITH GRANT OPTION" : "");
++    }
++
++    private String printRevoke(RevokePrivilegeStatement statement) {
++        return "REVOKE " + (statement.grantOptionOnly() ? "GRANT OPTION FOR " : "")
++                + String.join(", ", statement.privileges()) + " ON " + statement.objectType()
++                + " " + printer.printId(statement.objectName()) + " FROM ROLE "
++                + statement.roleNames().stream().map(printer::quote).collect(Collectors.joining(", "))
++                + (statement.cascade() ? " CASCADE" : " RESTRICT");
++    }
++
+     Map<Class<? extends Statement>, Function<Statement, String>> buildDispatch() {
+         return Map.ofEntries(
++                Map.entry(ShowPrivilegeMutationStatement.class, s -> "SHOW PRIVILEGE MUTATION '"
++                        + ((ShowPrivilegeMutationStatement) s).requestId() + "'"),
++                Map.entry(GrantPrivilegeStatement.class, s -> printGrant((GrantPrivilegeStatement) s)),
++                Map.entry(RevokePrivilegeStatement.class, s -> printRevoke((RevokePrivilegeStatement) s)),
+                 // Catalog
+                 Map.entry(CreateCatalogStatement.class, s -> printCreateCatalog((CreateCatalogStatement) s)),
+                 Map.entry(DropCatalogStatement.class, s -> "DROP CATALOG " + printer.quote(((DropCatalogStatement) s).name())),
+--- pangrova-parser/src/main/java/org/pangrova/parser/CollectingErrorListener.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/diagnostic/CollectingErrorListener.java
+@@ -1,4 +1,6 @@
+-package org.pangrova.parser;
++package org.pangrova.parser.core.diagnostic;
++
++import org.pangrova.parser.api.diagnostic.ParseError;
+ 
+ import java.util.ArrayList;
+ import java.util.Collections;
+@@ -15,7 +17,7 @@
+  * all errors while allowing the parser to continue producing a partial parse tree.
+  * Uses {@link SyntaxErrorFormatter} to produce enriched diagnostics.
+  */
+-final class CollectingErrorListener extends BaseErrorListener {
++public final class CollectingErrorListener extends BaseErrorListener {
+ 
+     private final List<ParseError> errors = new ArrayList<>();
+ 
+@@ -35,14 +37,14 @@
+     /**
+      * Returns an unmodifiable view of the collected errors.
+      */
+-    List<ParseError> getErrors() {
++    public List<ParseError> getErrors() {
+         return Collections.unmodifiableList(errors);
+     }
+ 
+     /**
+      * Returns true if any syntax errors were collected.
+      */
+-    boolean hasErrors() {
++    public boolean hasErrors() {
+         return !errors.isEmpty();
+     }
+ }
+--- pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java normalized
++++ pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java
+@@ -289,6 +289,7 @@
+                 ddlExecutor, showDescribeExecutor, maintenanceExecutor, controlledMaintenance, catalog, dmlDispatch);
+         registerOptionalMetadataTasks(indexing, dmlDispatch, ddlExecutor, queryDispatcherRef);
+         registerBranchTasks(metadataFactory, catalog);
++        PrivilegeAdministrationBootstrap.register(metadataFactory, config, metadataDataSource);
+         registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
+         registerFileSpaceTasks(metadataFactory, accessControl, metadataDataSource, auditEmitter);
+ 

@@ -1,0 +1,22 @@
+{
+  "pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/core/access/FileSpaceAccessService.java": {
+    "sha256": "efea492ed5dc81413066073ec1161ea9aaf8f2dfcb86fe9063802474cf44e6ac",
+    "unchanged": true
+  },
+  "pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/space/FileSpaceLayout.java": {
+    "sha256": "a72dd43276864decce592aa0286df619586266631a36214b157dbf499cf8072c",
+    "unchanged": true
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/ObjectStoreAccessorFactory.java": {
+    "sha256": "d990c9b586f50ab732f1f93ea6ec20d4edf4515905deab180b777b18de106db1",
+    "unchanged": true
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java": {
+    "sha256": "0f9003eccf3f053b1e4b8e341311e81d7adc7e30a0b692cce840dad62d3b69a8",
+    "unchanged": true
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerHttpBootstrap.java": {
+    "sha256": "04c14515dee82f2a0f2a439e20832f56e808b7639caf3c27d956930ef4f39980",
+    "unchanged": true
+  }
+}

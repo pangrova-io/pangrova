@@ -1,0 +1,685 @@
+{
+  "test_files": 97,
+  "missing": [],
+  "sources": [
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/util/DigestUtilsTest.java",
+      "sha256": "f97c0b20294efeecbdd2b339ba6b4e65f20d09fe356c9b2e1a02239a23b373c3",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/util/StopwatchTest.java",
+      "sha256": "c6c47536891015ddd0a05c42622c0fb2070dfacaee371d8aa7c4d33329e4063f",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/util/NumberConversionsTest.java",
+      "sha256": "6f8b6309f507fa6a5693d6b94abe98aae9f81c2d73d0976b0df1e0fd25dfcd49",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/util/PreconditionsTest.java",
+      "sha256": "c8477541ce02f6ca8dd8f67f21392b454fdffc84aeb8ebbc1ba49d4f93c7f0f6",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/util/DataSizeTest.java",
+      "sha256": "ef69b6aa89995ef1910e15ba40c190d92176107675237028193dce3388f28b4f",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/property/util/PreconditionsPropertyTest.java",
+      "sha256": "3657dbad37abc42f5378f8be395afeed933be145379923e33d7318904ed37973",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/property/util/DataSizePropertyTest.java",
+      "sha256": "e758e4de8eeaec532e0e8d637c42a18e67252e64695730c7ad4c1c061bcc2658",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/property/util/DigestUtilsPropertyTest.java",
+      "sha256": "92609e76f4c913a70f826b401fdb66759a564c7f277089fb3790ce18b0a9d308",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/property/lifecycle/LifecycleGuardPropertyTest.java",
+      "sha256": "bd550ff6d3aa4544656cf7ff890eb195a0eaf09bd3d0877d4d4af6d8cba3857c",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/property/lifecycle/ResourceCloserPropertyTest.java",
+      "sha256": "1d157c3d808d01e77fdbf5ffafb614b2f246f7537d454520590d6c5d01a24db3",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/property/json/JsonEscaperPropertyTest.java",
+      "sha256": "bbe4587cc3aaaf6f647a78f3bed25b98ca1de4756b0df901bb893d170f24f929",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/property/concurrent/BackoffStrategyPropertyTest.java",
+      "sha256": "f172304509f767aebe3cb155c2a337d30cfdf0b3ec58226f87eb141f7f9e702d",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/activation/SubsystemActivationCheckTest.java",
+      "sha256": "aee5cba77f30bbba77a56f6deeb0136cacaf7d5dd9e4a75b6d1ab45514729d43",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/lifecycle/ProcessIncarnationStoreTest.java",
+      "sha256": "75f3be5c5653245b35b023bb643ebb6831eaec14dfd5352918110570b63b00aa",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/lifecycle/SystemBootstrapSequenceTest.java",
+      "sha256": "1c1e8010e963178709e2bb6c2c52cc3e4df5e2522b754de80853249a32a3e432",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/lifecycle/HealthCheckEndpointTest.java",
+      "sha256": "a712d7ec836aa130235670a1f5b33d806d7c065b272397ea58fc0372737a33aa",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/lifecycle/ResourceCloserTest.java",
+      "sha256": "16349ad66a6fd0fb72b4736761f6195bf14551eeb6ce853f774f38f79473898f",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/lifecycle/RollbackReportTest.java",
+      "sha256": "10bce36c83d86add79c581816e487193ba1a877f8f3ffe7771ebe642b42a8401",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/lifecycle/LifecycleGuardTest.java",
+      "sha256": "99be1db670d4f3108dc83b556ed2bbc72567680f9b3e00becc6a312493762502",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/bloom/SplitBlockBloomFilterTest.java",
+      "sha256": "8edb309536f592063ac63f11dc764a4fe5c214afa9e7fb9ca60dcf54c071cb2a",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/bloom/SplitBlockBloomBufferTest.java",
+      "sha256": "6a42404f9dafb11eae4a4116cf55350cf0e8a7f49296af0ea754f17676287a4c",
+      "reports_from": [
+        "final-package"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/json/JsonEscaperTest.java",
+      "sha256": "59e4483b8e8ed36b50128cbe9f61e8fd0864a411873ed4ee9510fe71b3487740",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/json/jackson/JsonMapperFactoryTest.java",
+      "sha256": "cc41a1ebc7d2028842f06bcf98c7dc754646c99cd106efb5f68459d33c92ae05",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/resilience/api/QueryCheckpointContractTest.java",
+      "sha256": "fab71d3f72f6c0b116b6e106fc022898f2ba691c8c7a9d52f6bbeec0f7a82cd7",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/resilience/policy/ErrorClassifierTest.java",
+      "sha256": "a7592f1fd87d3cd5efb5979833557956de4ede0caff74e103e16dc8f0cca5aca",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/http/HttpClientFactoryTest.java",
+      "sha256": "d8a103cad2caf5dd717bb2a4788c855783de3167a734a93aac078489008c8003",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/http/ApiVersionHeadersTest.java",
+      "sha256": "f7efc6f2b467f9a570a37b805c468b7d10c22bed6e439464ac7e0c717e995899",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/http/HttpResponseCheckTest.java",
+      "sha256": "043f192855d9447c1721e04e1b44ef90d13fcd2bf89ef8d136be8bfadae6a6d2",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/http/ManagedHttpClientTest.java",
+      "sha256": "f0c6f71e45562d2aa2c6ba5c606d76f4801fffa5fed321900e4c69dea97d3c1c",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/http/jetty/EmbeddedHttpServerFactoryThreadPoolTest.java",
+      "sha256": "aa22e9ec2ed3aff6edc19071abe26a829dcf75e308226f0382c84539e8d09152",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/http/jetty/EmbeddedHttpServerPortOwnershipTest.java",
+      "sha256": "6cf012cc82bf56f88571df1288e7190b0f257c5687e8e2cec197e1547bce217b",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/concurrent/BackoffStrategyTest.java",
+      "sha256": "efe852a3bddcb3dc53c7323667018c654b4bc08a686fc547197577e8e80f58b7",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/concurrent/ExecutorDrainTest.java",
+      "sha256": "205c8e2c61604ba7d4495c3088b8a83143f97b0e9114476e11990b0016601197",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/concurrent/ManagedExecutorFactoryTest.java",
+      "sha256": "93444bf309ab9bfc0c78160306da3077bdc155189e18523487d0e85a9cb5a8be",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/concurrent/RetryingCommitWrapperTest.java",
+      "sha256": "5b648d13999644b335dcaf32294f9b2c70a5acdb3132d5b7c6a07285355b835e",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/concurrent/ThreadUtilsTest.java",
+      "sha256": "142f23c719d365d853f1dc7f1ca326b4b0ab223811dab1429d5e7f80e36bd0a7",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/concurrent/ProcessResourceLocksTest.java",
+      "sha256": "16ebddc49e9782a8cd7698047d582548b7bc1ee971e0769acc3d7b83fc7eb556",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/exception/PangrovaErrorCodeTest.java",
+      "sha256": "eafba311099c094ea98f925bee9aecc019c453df114dbbc719553e53c1c99a71",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-common/src/test/java/org/pangrova/common/exception/PangrovaExceptionTest.java",
+      "sha256": "e5cc95adc6fd7c352127668ad9a528588bbd415aee7c94148192f76f91a73d98",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/IndexingApiIsolationTest.java",
+      "sha256": "b3fa96f94394d97caa34564986126ad11ac1cc570d0e8b47ca87caeb2150dbe8",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/statistics/DynamicFilterSummaryTest.java",
+      "sha256": "c6d0197cdb3c77cdc0538f9cf2b02fb4aad36c4f77414a67842a9dc421bdac8c",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/data/IndexDataTest.java",
+      "sha256": "5db16682ced18a4eae4392be12404085d853cf0221142eb5a88c118a7529e6a4",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/data/BloomFilterIndexDataPropertyTest.java",
+      "sha256": "2bcb503bfb0d852d093be283b213f9d32d12309fefeda39429578dd23c2fee52",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/data/IndexBufferOwnershipTest.java",
+      "sha256": "b8d7cd616a717d12eac5ccdb3e5eb4d982dd8f371bfb2bf3eba1f8e99773b670",
+      "reports_from": [
+        "final-package"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/data/BoundingBoxPropertyTest.java",
+      "sha256": "802ae6a92460eb5f6b2a8b5f2127ec5e4e0162bfe3b25bee83e34f7ed793c55e",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/vector/DistanceMetricTest.java",
+      "sha256": "2a1da0a5c063a90c506e19211d902ad22a6bb0fde93c994ed5bcdd736952be8e",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/vector/VectorHybridSearchStrategyTest.java",
+      "sha256": "86a4f45c67b57741ba6c7b126bec8994e896872e43cd1ad96cba9121b82d6e33",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-codec/src/test/java/org/pangrova/indexing/codec/data/SerdeCodecTypeFidelityPropertyTest.java",
+      "sha256": "e562ea8ecd1a609683048f73112ba134ebdd0672269224bf587e6b37bdaa74e3",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/core/descriptor/IndexDescriptorTest.java",
+      "sha256": "c50948528b3c85d4960ed14d37bb18e8f2f8297a953bda05d6e5154e06e2b99b",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/cache/IndexCacheConsistencyPropertyTest.java",
+      "sha256": "efbbee4f7eb4ed11a0f918509b0c0de65477f9c32f2d8398f5f7a69eeceaacfe",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/storage/IndexCacheCompactionPropertyTest.java",
+      "sha256": "f014d4158b6d6399e4c05e21368ba9b5890130b56a517974a1c00c3dbae3a138",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/storage/IndexCachePropertyTest.java",
+      "sha256": "b93ec3f0ea55d3b2498eeb76ec68af4cb1932db59f92720376964e48aa3686ca",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/eval/CircuitBreakerStateMachinePropertyTest.java",
+      "sha256": "fa76f67848dc8659312b483f718f3585546ecabb85f6b8a4233b25e7f222fa52",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/eval/MultiHintAggregationPropertyTest.java",
+      "sha256": "344227b2f147cd92e1f67c4a86e36dbc12cd92285e0765debbcc054d98cb1c31",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/eval/CircuitBreakerOpenBlockingPropertyTest.java",
+      "sha256": "47c76be9eb7c6584daa59ef2415e79b22b468baee1e71f90942578a77d688e6b",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/eval/CircuitBreakerEventRecordingPropertyTest.java",
+      "sha256": "f39689e277973f88e852d5e2722395c663764c4e4d468422c3bf690d4ae35b2c",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/storage/IndexStorageLayoutTest.java",
+      "sha256": "199273f1aa6e8c8915606b185e54c2c8f01c7791b3b6ba05f8a2458cdeb19001",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/storage/IndexFileReadResultTest.java",
+      "sha256": "87d5a247e2d17732839671672cfbce92dd5af0c39f0c0a81c00795f55361333f",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/storage/IndexCacheDataFileIndexTest.java",
+      "sha256": "c708efe62718451237fd789b1eed5b6b4c15402c7c95b1e01b431d4ca69419d4",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/storage/CachedBloomFilterIndexDataTest.java",
+      "sha256": "e1506cafcec8e64e58e001cdf791e7fdd34510b6d4d957f08df7e307d9f7155c",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/storage/IndexCacheLookupComplexityTest.java",
+      "sha256": "b6447cdde8ec170c2cd7aa81cf8709b1eac47ec100cf215e1ea9c7007f6fbaa3",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/eval/IndexEvaluationPreparationTest.java",
+      "sha256": "7e1d285bfab713f70051566d90c3a2175bae2633e11280096104e1f184bb4101",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/eval/IndexEvalCircuitBreakerTest.java",
+      "sha256": "e3d4edf696e6fbebb49ca5a59030c87155491354717908445a7c3c0b459b3184",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/IndexBuildSnapshotPinTest.java",
+      "sha256": "3c54e2052420736648c5ffcafb1deea744e91622c9dedd86a220d9ee6c9cf9bf",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/BuildFileMappingTest.java",
+      "sha256": "7305a603aa9a1f361c29289f57a3cbcd369a384d785b3c22016d016e80acf34a",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/IndexFileSelectionTest.java",
+      "sha256": "de6d503b08ce9f260b883a89695711ff66e7a0436908358dc44b68d0861fb908",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/IndexStateUpdateContractTest.java",
+      "sha256": "d71cbe96cfbcf547b56f06e8181cf1099296b107531b74291cc329d15d093f92",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcIndexCommitQueueTest.java",
+      "sha256": "8620505946288fda6d0c83a8ea23b7f9c66f2e151301badd5b7906fd070a0376",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcIndexCommitQueueMigrationTest.java",
+      "sha256": "0975b22c3eae686a841bd1e3243afc59197cbe93a0b1f08115ec76d67c315e39",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcSupportPostgresTest.java",
+      "sha256": "47970ac7a6c5f29d0a7eaabc9da957a46269ebc3c374fff15e7e42f7977e95c3",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcIndexGenerationPublicationTest.java",
+      "sha256": "7d70201ca81582f049b8e513b3bee372b09cf48d3c52804c4b5519278965acaf",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcIndexCommitQueueScaleTest.java",
+      "sha256": "e71212b2ff524ebee399722da15a352f57345b668026c5c3ad270995350e60c5",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcIndexStatisticsStoreIntegrationTest.java",
+      "sha256": "c4ca31dca9668f5c4249d317107c57fbee87a73283b984d3a7f357ee79c4af41",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcIndexGenerationPublicationStoreTest.java",
+      "sha256": "970ecfeec02cb1bb7d7af4bde75a6c42200dd16d70d225f880a7706106f286bb",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcScalarIndexAuthorityTest.java",
+      "sha256": "ce63dd441b3add6a98589c179b048e5bcd859bb2b47b719901c08fb90f066aa7",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/JdbcIndexStateFencingTest.java",
+      "sha256": "aead463a662c3cfbab4a995d69461ed20c2c30b0ea6fc1764cde23b134e47a30",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/GenerationExecutionFenceLockIntegrationTest.java",
+      "sha256": "1762e072fe246fc33a0bdb1f61c20253b65f7f3428844883cfdd952748bc5eb0",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/IndexMetadataStoreCommitLogDefaultsTest.java",
+      "sha256": "e6ad403e53764839a437771bdc29a454d998dd21939be7a1ba567aad454ccefa",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/store/jdbc/GenerationPublicationFenceLockIntegrationTest.java",
+      "sha256": "fcfef30b4ba47bb091f976464b43e6d44b563166e46c07ed1b8b6afa9e3b18f5",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/cache/BloomFilterDeserializationPropertyTest.java",
+      "sha256": "ca78b2757f485effea88fe4b1590cce8746adb89d4725b363d423dfa71d4a652",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/eval/RTreeTraversalEquivalencePropertyTest.java",
+      "sha256": "64cbac72c0c964d64cb8eb88db2c6fe8b6d78251d6d0c3ff0db40762e70f22aa",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/engine/bitmap/RoaringBitmapCodecPropertyTest.java",
+      "sha256": "b5f4e2e1d92a9804b49889a4024152d361c1292876db86bdb606c5adb3cf54cd",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/engine/prefix/PrefixBinarySearchPropertyTest.java",
+      "sha256": "4d38ab52d23acd9a788d98b9182d72524e4a48e517833b89c6da5a16dc67e0ae",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/engine/rtree/RTreeTraversalPropertyTest.java",
+      "sha256": "1931b70a337a6f6262bcd23203391d7a330151a40262c5ba95cf6b3fa41a3af2",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/engine/sparse/SparseBinarySearchPropertyTest.java",
+      "sha256": "9e77d764fc67343a6fd24f1054c8091c9054080fc448481b6d4e77f8ffaf91cb",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/serde/IndexSerializerRoundTripPropertyTest.java",
+      "sha256": "71d35fa068b53dd664fec17ffe6a7de13d445d5e5b71394c2df848bfdea28ee9",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/crosslang/IndexCodecGoldenTest.java",
+      "sha256": "fb9954ad679dc060edbe0a0ff4fd37a342b4334480bdea1ebe0b0ba0de599367",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/IndexSnapshotEvaluationTest.java",
+      "sha256": "d54e01dd4c94cbba8d92591974fb1f3b6f2703006e8f1d5290a6dbcb06ba4ec6",
+      "reports_from": [
+        "final-package"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/hash/provider/HashStrategyProviderTest.java",
+      "sha256": "ce94e9793b9e5f8f057b73805b906393df4d1ac1223e40b16e213b92a2410071",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/bitmap/RoaringBitmapCodecPropertyTest.java",
+      "sha256": "67075028a3306cb252c08c52c6b842809fa1794f2c7af10c9b7add45cc65bebe",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/bitmap/RoaringBitmapCodecGoldenTest.java",
+      "sha256": "a7553becab5c956fc7a08e058c7c9dfff6015431d5ef4dbd376b59e089fe1af0",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/bitmap/BitmapDirectAccumulationTest.java",
+      "sha256": "bf5571fb8a19fc5ab57297403e7557d4249edd68759859580c33695a06fac510",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/bloom/provider/BloomFilterStrategyProviderTest.java",
+      "sha256": "aaca64f0c6f4114f2e1648ac130586a7562f25b504d5abc7a85c485a8bb1288e",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/serde/TypeSerializerRegistryTest.java",
+      "sha256": "22b45a632a3252b592d6409c00a2fd7ac90c2cbfe02cfcafe267c92fef8865f7",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/serde/IndexTypeStableIdTest.java",
+      "sha256": "3c55388e34f3ee728f9a9f161fb65bda5d268c74651742008629712b2b220d20",
+      "reports_from": [
+        "builtin-static"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-planner-adapter/src/test/java/org/pangrova/indexing/adapter/planner/vector/VectorQueryOwnershipTest.java",
+      "sha256": "01fd4ac51e14cf6f5fe3a129dcb21e276bc33119bae028a7cb6952088d056d79",
+      "reports_from": [
+        "consumers"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-planner-adapter/src/test/java/org/pangrova/indexing/adapter/planner/vector/VectorSearchRewriterCastTest.java",
+      "sha256": "d05df1458d375bde8e9614fda07cc7fdffad8efef5c4e60495dde15a87d979e6",
+      "reports_from": [
+        "consumers"
+      ]
+    }
+  ]
+}

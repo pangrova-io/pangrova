@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.failure.TaskDispatchException;
+import org.pangrova.scheduler.api.error.TaskDispatchException;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -14,13 +14,13 @@ import java.util.concurrent.TimeUnit;
 
 import com.sun.net.httpserver.HttpServer;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

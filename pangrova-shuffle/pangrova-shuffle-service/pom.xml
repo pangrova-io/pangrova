@@ -29,7 +29,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-core</artifactId>
+            <artifactId>pangrova-shuffle-api</artifactId>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>

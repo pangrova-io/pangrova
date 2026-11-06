@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.session;
 
+import org.pangrova.query.api.session.QuerySession;
+
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 
 /** Minimal journal recovery context. Planning's exact session configuration remains a separate contract. */
@@ -12,7 +14,7 @@ public record JournalSessionPayload(String queryId, String tenantId) {
      * @throws NullPointerException if session is null
      * @throws IllegalStateException if serialization fails before journal ownership transfer
      */
-    public static String encode(CoordinatorSessionContext session) {
+    public static String encode(QuerySession session) {
         java.util.Objects.requireNonNull(session, "session");
         try {
             return JsonMapperFactory.writer().writeValueAsString(new JournalSessionPayload(session.queryId(),

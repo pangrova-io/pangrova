@@ -6,18 +6,18 @@ import java.util.Map;
 import java.util.Set;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.DynamicFilterBinder;
-import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
+import org.pangrova.execution.core.binding.TaskRequestFactory;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.planner.runtimefilter.RuntimeFilter;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilter;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
 import org.pangrova.protocol.v2.ValueEncoding;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -111,7 +111,7 @@ class DynamicFilterBinderTest {
         registry.register("0", filter);
 
         var filters = DynamicFilterBinder.resolveFilters("0", "q-single", registry);
-        CoordinatorSessionContext session = createSession("q-single");
+        QuerySession session = createSession("q-single");
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
         StageResourceGrant limit = resourceGrant();
 
@@ -131,7 +131,7 @@ class DynamicFilterBinderTest {
         registry.register("2", filter);
 
         var filters = DynamicFilterBinder.resolveFilters("2", "q-multi", registry);
-        CoordinatorSessionContext session = createSession("q-multi");
+        QuerySession session = createSession("q-multi");
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
         StageNode stage = createStageNode(2);
         StageResourceGrant limit = resourceGrant();
@@ -147,7 +147,7 @@ class DynamicFilterBinderTest {
 
     @Test
     void noFilters_taskRequestHasEmptyFilterList() {
-        CoordinatorSessionContext session = createSession("q-empty");
+        QuerySession session = createSession("q-empty");
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
         StageResourceGrant limit = resourceGrant();
 
@@ -185,10 +185,10 @@ class DynamicFilterBinderTest {
         }
     }
 
-    private static CoordinatorSessionContext createSession(String queryId) {
+    private static QuerySession createSession(String queryId) {
         UserIdentity identity = new UserIdentity(
                 "testUser", Set.of(), Map.of(), java.time.Instant.now());
-        return new CoordinatorSessionContext(queryId, Map.of(), identity, "default-tenant");
+        return new QuerySession(queryId, Map.of(), identity, "default-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static StageResourceGrant resourceGrant() {
@@ -200,16 +200,17 @@ class DynamicFilterBinderTest {
     }
 
     private static TaskRequestFactory.LeafTask leafTask(
-            CoordinatorSessionContext session,
+            QuerySession session,
             byte[] planBytes,
             StageNode stage,
             StageResourceGrant resourceGrant,
             List<DynamicFilterPayload> filters) {
         return new TaskRequestFactory.LeafTask(
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session),
-                planBytes, stage, 0, resourceGrant,
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session),
+                planBytes, new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
+                        org.pangrova.execution.api.stage.TaskPurpose.valueOf(stage.taskType())), 0, resourceGrant,
                 List.of(), filters, null, List.of(),
-                org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskDeadline.after(
+                org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                         java.time.Duration.ofMinutes(5), java.time.Instant.now()),
                 org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1L, 0),
                 List.of(), null, List.of());
@@ -227,6 +228,6 @@ class DynamicFilterBinderTest {
         org.apache.calcite.rel.RelNode dummyRel =
                 org.apache.calcite.rel.logical.LogicalValues.createEmpty(
                         cluster, typeFactory.builder().build());
-        return new StageNode(stageId, new org.pangrova.planner.PlanFragment(dummyRel, -1L, -1L), 1, "COMPUTE", List.of());
+        return new StageNode(stageId, new org.pangrova.planner.core.analysis.PlanFragment(dummyRel, -1L, -1L), 1, "COMPUTE", List.of());
     }
 }

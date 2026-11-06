@@ -9,43 +9,43 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.IcebergConnector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorQueryAuthority;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.query.ConnectorQueryAuthority;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.types.VectorType;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
-import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier;
-import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier.WriteAuthorityRequest;
+import org.pangrova.query.spi.write.WriteAuthorityResolver;
+import org.pangrova.query.api.write.WriteAuthorityRequest;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
@@ -83,17 +83,16 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
     private CatalogRegistry catalogs;
     private ConnectorMetadata metadata;
     private JdbcGrantStore grants;
-    private GeneratedWriteAuthoritySupplier authority;
+    private WriteAuthorityResolver authority;
 
     @BeforeEach
     void createRealCatalogAndCurrentAuthorityWithoutMaterializationOwner() throws Exception {
         dataSource = MigratedPostgres.create();
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of(ROLE));
         roles.grantRoleToUser(UserRoleAssignment.of(PRINCIPAL, ROLE));
         var tenants = new JdbcTenantStore(dataSource);
-        tenants.initSchema();
+
         tenants.createTenant(new Tenant(TENANT, TENANT, TenantStatus.ACTIVE, null,
                 List.of(), List.of(), null, Map.of(), Instant.EPOCH, PRINCIPAL));
         tenants.addUserToTenant(TENANT, PRINCIPAL, TenantRole.MEMBER);
@@ -107,7 +106,7 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
         sdkCatalog = new HadoopCatalog(configuration, warehouse.toString());
         sdkCatalog.createNamespace(Namespace.of(TABLE.schema()));
         connector = new IcebergConnector(TABLE.catalog(), sdkCatalog);
-        catalogs = new CatalogRegistry(new JdbcMetadataStore(dataSource),
+        catalogs = new CatalogRegistry(new PostgresCatalogDeploymentRepository(dataSource),
                 descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
         catalogs.register(new CatalogDescriptor(TABLE.catalog(), CatalogType.CONNECTOR, "iceberg",
                 CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "", Set.of(TENANT)));

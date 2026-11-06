@@ -10,11 +10,11 @@ import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.model.AiModelDescriptor;
-import org.pangrova.spi.ai.model.AiModelIdentity;
-import org.pangrova.spi.ai.embedding.EmbeddingModelBindingIdentity;
-import org.pangrova.spi.ai.runtime.AiModelCatalog;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.model.AiModelDescriptor;
+import org.pangrova.ai.api.model.AiModelIdentity;
+import org.pangrova.ai.api.embedding.EmbeddingModelBindingIdentity;
+import org.pangrova.ai.spi.model.AiModelCatalog;
 import org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 
@@ -59,6 +59,14 @@ public final class NativeCapabilityAdvertisement {
     static CapabilityInventory addConfiguredModels(
             CapabilityInventory nativeInventory,
             NativeFunctionConfig functionConfig) {
+        return addConfiguredModels(nativeInventory, functionConfig,
+                ServiceLoader.load(AiModelCatalog.class));
+    }
+
+    static CapabilityInventory addConfiguredModels(
+            CapabilityInventory nativeInventory,
+            NativeFunctionConfig functionConfig,
+            Iterable<AiModelCatalog> catalogs) {
         List<CapabilityRef> nativeCapabilities = nativeInventory
                 .getCapabilitiesList().stream()
                 .map(org.pangrova.protocol.v2.CapabilityDescriptor::getRef)
@@ -68,8 +76,18 @@ public final class NativeCapabilityAdvertisement {
             return result.build();
         }
         var aiConfig = functionConfig.configForPlugin("ai-inference");
-        ServiceLoader.load(AiModelCatalog.class).findFirst()
-                .orElse(AiModelCatalog.NONE).describeModels(aiConfig).stream()
+        var candidates = catalogs.iterator();
+        if (!candidates.hasNext()) {
+            if (aiConfig.keySet().stream().anyMatch(key -> key.startsWith("models."))) {
+                throw new IllegalStateException("Configured AI models require an AiModelCatalog provider");
+            }
+            return result.build();
+        }
+        AiModelCatalog catalog = Objects.requireNonNull(candidates.next(), "AI model catalog");
+        if (candidates.hasNext()) {
+            throw new IllegalStateException("Multiple AiModelCatalog providers cannot own model advertisement");
+        }
+        catalog.describeModels(aiConfig).stream()
                 .sorted(Comparator
                         .comparing(AiModelDescriptor::name)
                         .thenComparing(AiModelDescriptor::version))

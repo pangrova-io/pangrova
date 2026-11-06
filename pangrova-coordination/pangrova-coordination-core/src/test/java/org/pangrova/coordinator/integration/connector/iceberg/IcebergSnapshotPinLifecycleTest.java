@@ -44,7 +44,7 @@ class IcebergSnapshotPinLifecycleTest {
         return queries.computeIfAbsent(id, org.pangrova.coordinator.task.TestConnectorQuery::new);
     }
 
-    private void cleanup(org.pangrova.spi.connector.metadata.ConnectorMetadata owner, String id) {
+    private void cleanup(org.pangrova.connector.spi.metadata.ConnectorMetadata owner, String id) {
         var lifetime = query(id);
         lifetime.seal();
         owner.cleanupQuery(lifetime.authority());

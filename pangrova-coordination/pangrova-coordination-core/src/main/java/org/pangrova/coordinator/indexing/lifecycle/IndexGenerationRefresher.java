@@ -1,17 +1,18 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.coordinator.indexing.BuildMappingPersister;
+import org.pangrova.indexing.core.build.BuildMappingPersister;
 import org.pangrova.coordinator.indexing.IndexGenerationPublisher;
 import org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService;
 import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildResult;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.connector.spi.index.ColumnValueReader;
+import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.core.descriptor.IndexDescriptorTransitions;
+import org.pangrova.indexing.api.lifecycle.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,9 +57,8 @@ final class IndexGenerationRefresher {
         if (!started) {
             return false;
         }
-        IndexDescriptor rebuilding = descriptor.withGeneration(nextGeneration, startedAt)
-                .withBuildSnapshotId(sourceSnapshot, startedAt)
-                .withState(IndexState.BUILDING, startedAt);
+        IndexDescriptor rebuilding = IndexDescriptorTransitions.transition(descriptor.withGeneration(nextGeneration, startedAt)
+                .withBuildSnapshotId(sourceSnapshot, startedAt), IndexState.BUILDING, startedAt);
         try {
             if (!nativeArtifact) {
                 IndexSourceAuthority.forDescriptor(

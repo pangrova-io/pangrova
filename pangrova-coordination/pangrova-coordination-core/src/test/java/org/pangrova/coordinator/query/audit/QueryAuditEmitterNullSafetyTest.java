@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.audit;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -16,7 +16,7 @@ class QueryAuditEmitterNullSafetyTest {
     @Test
     void noOpEmitterDoesNotThrowOnEmit() {
         QueryAuditEmitter emitter = QueryAuditEmitter.noOp();
-        CoordinatorSessionContext session = new CoordinatorSessionContext("q-1", Map.of(), null, null);
+        QuerySession session = new QuerySession("q-1", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         assertThatCode(() -> emitter.emitQuerySubmitted("q-1", "SELECT 1", session))
                 .doesNotThrowAnyException();

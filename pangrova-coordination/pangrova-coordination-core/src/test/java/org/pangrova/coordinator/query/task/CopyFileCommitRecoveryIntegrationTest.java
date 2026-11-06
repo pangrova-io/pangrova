@@ -18,7 +18,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.IcebergConnector;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
@@ -27,22 +27,22 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.persistence.jdbc.file.claim.JdbcCopyFileClaimStore;
-import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
-import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.persistence.api.file.claim.CopyFileClaim;
-import org.pangrova.persistence.api.file.claim.CopyFileClaimStore;
-import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.file.postgresql.claim.JdbcCopyFileClaimStore;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.persistence.file.api.claim.CopyFileClaim;
+import org.pangrova.persistence.file.api.claim.CopyFileClaimStore;
+import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -89,12 +89,12 @@ class CopyFileCommitRecoveryIntegrationTest {
             var descriptor = new CatalogDescriptor("lake", CatalogType.CONNECTOR, "iceberg",
                     CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "",
                     Set.of("tenant-a"), "catalog-incarnation", 1L);
-            registry = new CatalogRegistry(new JdbcMetadataStore(source),
+            registry = new CatalogRegistry(new PostgresCatalogDeploymentRepository(source),
                     registered -> new ConnectorCatalogHandle(registered, connector), null, null);
             registry.register(descriptor);
             var catalogHandle = (ConnectorCatalogHandle) registry.getCatalog("lake");
-            var actor = new CoordinatorSessionContext(EXECUTION, Map.of(),
-                    new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-a");
+            var actor = new QuerySession(EXECUTION, Map.of(),
+                    new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
             var session = SessionContextConverter.toConnectorSession(actor, "lake", "db");
             var metadata = connector.getMetadata(session);
             var tableHandle = metadata.getTableHandle(session, new SchemaTableName("db", "items"));

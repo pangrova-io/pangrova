@@ -1,0 +1,36 @@
+Main-source package dependency cycles
+Packages: 811
+
+Component: [org.pangrova.coordinator.generation, org.pangrova.coordinator.generation.runtime, org.pangrova.coordinator.query.execution.dispatch.dag, org.pangrova.coordinator.query.execution.dispatch.dag.binding, org.pangrova.coordinator.query.execution.dispatch.dag.control, org.pangrova.coordinator.query.execution.dispatch.dag.runtime]
+  org.pangrova.coordinator.generation -> org.pangrova.coordinator.generation.runtime
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableGenerationDispatcher.java:55 -> org.pangrova.coordinator.generation.runtime.DurableGenerationGraphs
+  org.pangrova.coordinator.generation -> org.pangrova.coordinator.query.execution.dispatch.dag
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableGenerationDispatcher.java:72 -> org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine
+  org.pangrova.coordinator.generation -> org.pangrova.coordinator.query.execution.dispatch.dag.control
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableGenerationDispatcher.java:125 -> org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime.Dependencies
+  org.pangrova.coordinator.generation -> org.pangrova.coordinator.query.execution.dispatch.dag.runtime
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableGenerationDispatcher.java:56 -> org.pangrova.coordinator.query.execution.dispatch.dag.runtime.StagePartitionDispatcher
+  org.pangrova.coordinator.generation.runtime -> org.pangrova.coordinator.query.execution.dispatch.dag
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/runtime/DurableGenerationGraphs.java:4 -> org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine
+  org.pangrova.coordinator.generation.runtime -> org.pangrova.coordinator.query.execution.dispatch.dag.control
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/runtime/DurableGenerationGraphs.java:5 -> org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime
+  org.pangrova.coordinator.query.execution.dispatch.dag -> org.pangrova.coordinator.generation
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchEngine.java:58 -> org.pangrova.coordinator.generation.GeneratedValueReadResolver
+  org.pangrova.coordinator.query.execution.dispatch.dag -> org.pangrova.coordinator.query.execution.dispatch.dag.binding
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchEngine.java:22 -> org.pangrova.coordinator.query.execution.dispatch.dag.binding.DAGStagePlanBinder
+  org.pangrova.coordinator.query.execution.dispatch.dag -> org.pangrova.coordinator.query.execution.dispatch.dag.control
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchEngine.java:25 -> org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime
+  org.pangrova.coordinator.query.execution.dispatch.dag -> org.pangrova.coordinator.query.execution.dispatch.dag.runtime
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchEngine.java:23 -> org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycleController
+  org.pangrova.coordinator.query.execution.dispatch.dag.binding -> org.pangrova.coordinator.generation
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java:7 -> org.pangrova.coordinator.generation.GeneratedValueReadResolver
+  org.pangrova.coordinator.query.execution.dispatch.dag.binding -> org.pangrova.coordinator.query.execution.dispatch.dag
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/AiInvocationOperatorBinder.java:4 -> org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector
+  org.pangrova.coordinator.query.execution.dispatch.dag.control -> org.pangrova.coordinator.generation
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurableStageRuntime.java:98 -> org.pangrova.coordinator.generation.DurableStageShuffleEvidence
+  org.pangrova.coordinator.query.execution.dispatch.dag.control -> org.pangrova.coordinator.query.execution.dispatch.dag
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurableStageRuntime.java:10 -> org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext
+  org.pangrova.coordinator.query.execution.dispatch.dag.runtime -> org.pangrova.coordinator.query.execution.dispatch.dag
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGExecutionState.java:8 -> org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector
+  org.pangrova.coordinator.query.execution.dispatch.dag.runtime -> org.pangrova.coordinator.query.execution.dispatch.dag.control
+    pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGExecutionState.java:9 -> org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime

@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * counter updates, guaranteeing cross-thread visibility without locks.</p>
  */
 class HeartbeatMemoryVisibilityTest {
+    private static final org.pangrova.protocol.execution.identity.WorkerExecutionIdentity HEARTBEAT_IDENTITY = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+
 
     private static final long TOTAL_BUDGET = 10_000_000L;
     private static final long SYSTEM_RESERVED = 0L;
@@ -40,7 +42,7 @@ class HeartbeatMemoryVisibilityTest {
 
         // Build payload supplier that reads from the same arbitrator
         Supplier<HeartbeatPayload> payloadSupplier = () -> new HeartbeatPayload(
-                "w-mem-test", "NONE", 0.0, 0, arbitrator.getAvailableMemory());
+                "w-mem-test", "NONE", 0.0, 0, arbitrator.getAvailableMemory(), HEARTBEAT_IDENTITY);
 
         // Before release: payload shows reduced available memory
         HeartbeatPayload beforeRelease = payloadSupplier.get();
@@ -151,7 +153,7 @@ class HeartbeatMemoryVisibilityTest {
             long avail = arbitrator.getAvailableMemory();
             latestAvailable.set(avail);
             heartbeatFired.countDown();
-            return new HeartbeatPayload("w-send-time", "NONE", 0.0, 0, avail);
+            return new HeartbeatPayload("w-send-time", "NONE", 0.0, 0, avail, HEARTBEAT_IDENTITY);
         };
 
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-send-time", 50);

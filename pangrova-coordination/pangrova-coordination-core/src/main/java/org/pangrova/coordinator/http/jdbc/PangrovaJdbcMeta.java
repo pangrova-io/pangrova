@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.http.jdbc;
 
+
 import org.apache.calcite.avatica.ColumnMetaData;
 import org.apache.calcite.avatica.Meta;
 import org.apache.calcite.avatica.MetaImpl;

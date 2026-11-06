@@ -3,14 +3,14 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
+import org.pangrova.execution.core.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.protocol.rest.shuffle.PartitionStats;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
-import org.pangrova.shuffle.core.ShuffleProducerSetChecksum;
+import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,9 +90,9 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
     private static StageEdge externalShuffleOutput(StageLifecycleEvent event) {
         var outputs = event.dag().stageEdges().stream()
                 .filter(edge -> edge.upstreamStageId() == event.stage().stageId())
-                .filter(edge -> edge.shuffleType() == org.pangrova.planner.ShuffleType.HASH
-                        || edge.shuffleType() == org.pangrova.planner.ShuffleType.ROUND_ROBIN
-                        || edge.shuffleType() == org.pangrova.planner.ShuffleType.SINGLETON)
+                .filter(edge -> edge.shuffleType() == org.pangrova.planner.core.analysis.ShuffleType.HASH
+                        || edge.shuffleType() == org.pangrova.planner.core.analysis.ShuffleType.ROUND_ROBIN
+                        || edge.shuffleType() == org.pangrova.planner.core.analysis.ShuffleType.SINGLETON)
                 .toList();
         if (outputs.isEmpty()) {
             return null;

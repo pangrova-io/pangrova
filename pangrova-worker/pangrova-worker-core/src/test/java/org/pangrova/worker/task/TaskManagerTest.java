@@ -8,7 +8,7 @@ import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.spi.query.identity.QueryId;
+import org.pangrova.query.api.identity.QueryId;
 import org.pangrova.protocol.execution.TaskDescriptor;
 
 import java.util.Collections;

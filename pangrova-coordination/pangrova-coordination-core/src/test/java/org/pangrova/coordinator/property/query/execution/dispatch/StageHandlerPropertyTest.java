@@ -9,7 +9,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
 import org.pangrova.coordinator.query.stage.Stage;
@@ -216,13 +216,13 @@ class StageHandlerPropertyTest {
 
     private static StageLifecycleEvent createEvent() {
         StageNode node = new StageNode(
-                1, new org.pangrova.planner.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L), 1, "COMPUTE", List.of());
+                1, new org.pangrova.planner.core.analysis.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L), 1, "COMPUTE", List.of());
         Stage stage = Stage.create(node, "q-test");
         StageDAG dag = StageDAG.fromNodes(List.of(node), Map.of(), List.of()).withStages("q-test");
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "q-test", Map.of(), null, "tenant-1");
+        QuerySession session = new QuerySession(
+                "q-test", Map.of(), null, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         return new StageLifecycleEvent(stage, dag, "q-test",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
     }
 
     /** Counts onScheduling calls. */

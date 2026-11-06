@@ -9,10 +9,10 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
-import org.pangrova.spi.connector.coordination.WriteCommitJournal;
-import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -25,8 +25,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * native write commit is disabled when null.
  * Stage completion callback (stageCompletionCallback) is nullable — DAG task→stage
  * bridge is disabled when null.
- * Write commit journal (writeCommitJournal) is nullable — defaults to
- * InMemoryWriteCommitJournal when null.
+ * Write commit journal is required and selected by the caller; Core never chooses a backend.
  */
 public record TaskStatusReceiverContext(
         QueryManager queryManager,
@@ -77,7 +76,7 @@ public record TaskStatusReceiverContext(
         // writeCommitTracker is nullable — native write commit disabled when null
         // stageCompletionCallback is nullable — DAG bridge disabled when null
         // lineageEmitter is nullable — lineage disabled when null
-        // writeCommitJournal is nullable — defaults to InMemoryWriteCommitJournal
+        checkNotNull(writeCommitJournal, "writeCommitJournal must be selected explicitly");
         artifactWorkReportSink = artifactWorkReportSink == null
                 ? GenerationWorkReportSink.rejecting() : artifactWorkReportSink;
     }
@@ -86,10 +85,11 @@ public record TaskStatusReceiverContext(
     public static TaskStatusReceiverContext withoutSpeculation(
             QueryManager queryManager,
             CoordinatorTaskTracker taskTracker,
-            WorkerManager workerManager) {
+            WorkerManager workerManager,
+            WriteCommitJournal writeCommitJournal) {
         return new TaskStatusReceiverContext(
                 queryManager, taskTracker, workerManager, null, null, null,
-                queryManager.getStateJournal(), null, null, null, null, null,
+                queryManager.getStateJournal(), null, null, null, null, writeCommitJournal,
                 GenerationWorkReportSink.rejecting());
     }
 }

@@ -1,0 +1,86 @@
+{
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/membership/CoordinatorRegistry.java": {
+    "action": "change",
+    "old_path": "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/membership/CoordinatorRegistry.java",
+    "review": "Requires backend errors and invalid data to surface; normal absence remains separate. Logical-ID membership fencing is unchanged and remains pending.",
+    "before_sha256": "597c8de6486585352e1756a765d3f518be3a128718cf67002a316cd12ff9a471",
+    "after_sha256": "07e00b53f552ccba3995678d11e6c9baca19360f9cb12034ec238124f63004f7"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/error/CoordinationStorageException.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/error/CoordinationStorageException.java",
+    "review": "Moved actual error carrier to the same narrow API artifact. Common-only signature, retained existing METADATA_METASTORE_ERROR code and original backend cause.",
+    "before_sha256": "c72d8bf314206ae0714049a9ea8c57c816446ca28d7e5482626e9ddb1511a58a",
+    "after_sha256": "a38749fba63af61e9ad4eb34b1044cd4d7ea160696ebd7904a0758eab466e6cf"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/lease/DistributedLease.java": {
+    "action": "change",
+    "old_path": "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/lease/DistributedLease.java",
+    "review": "Documents authoritative failures and unknown mutation outcome; no failed observation can be treated as absence or a confirmed grant.",
+    "before_sha256": "41ae43a75448b4e504fb02c0cbf4f9f572d058273244adb8b2ae907bb6cd8230",
+    "after_sha256": "fd4ab2f59218ca0f9af300a6907f0c417032f2fbb100122d55359fdf8774510f"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/membership/JdbcCoordinatorRegistry.java": {
+    "action": "change",
+    "old_path": "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/membership/JdbcCoordinatorRegistry.java",
+    "review": "All SQL errors use the shared error contract. Removed legacy catch of missing progress column; corrupted/uninitialized schema must fail, not synthesize -1 progress. SQL and connection ownership otherwise unchanged.",
+    "before_sha256": "3cedbaa896bba651748f16c328e36a2de3d849ecb8e5541c04b31f8cffc3b481",
+    "after_sha256": "1d3cbcc79af079aa59354822899d379d42ab2edbd795ffce57dff8379ff343eb"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/lease/JdbcDistributedLease.java": {
+    "action": "change",
+    "old_path": "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/lease/JdbcDistributedLease.java",
+    "review": "Imports error from its new contract owner; locking, SQL, clock, epoch and transaction behavior unchanged.",
+    "before_sha256": "be6afe23fd5e5abbac64b92e1375d9f4757c13a3b5bed310aa93212a2b463ae9",
+    "after_sha256": "e7975644965f8026bdfa72679e60c102c7275a05600a7e9b3e0a775ae56a6188"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/MaintenanceLeadershipBootstrap.java": {
+    "action": "change",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/MaintenanceLeadershipBootstrap.java",
+    "review": "Independent maintenance lease keeps its lifecycle. Close preserves the demotion callback error and attaches unknown remote release failure instead of overwriting it.",
+    "before_sha256": "1481afc19630c982cec592b6d9789f260cf878b0e2a13b6f627c7b269128fcf9",
+    "after_sha256": "127ef0c0849857588f6c921adf7c05046d084f06c9d6d42328ef3d8752ec4220"
+  },
+  "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperDistributedLease.java": {
+    "action": "change",
+    "old_path": "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperDistributedLease.java",
+    "review": "Backend, payload and clock failures propagate. Specific contention/absence remain non-grants. Missing clock cannot be mistaken for absent lease. Overflow is explicit; failed mutation may already be committed.",
+    "before_sha256": "35e2d38ba217c8359e6a8b326778928d35027b491d2c187c55e60cdb073ee9fd",
+    "after_sha256": "03dbea29ae9a7a156fc9ec81cc62d63494e7db698d6a4334cf4825def45dfa91"
+  },
+  "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperCoordinatorRegistry.java": {
+    "action": "change",
+    "old_path": "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperCoordinatorRegistry.java",
+    "review": "Failed writes, lookups, partial listing/expiry and exhausted CAS propagate. Missing initialized root is an error. Concurrent vanished children and missing individual records retain documented absence semantics.",
+    "before_sha256": "037f40f86ac11b9f4be6ce05e525545034a444a4759abcf66ad5a8447b559536",
+    "after_sha256": "6c53c8e6ed1f63f71d705eef2b16d89eb11ee40e92ca967113b94d6fb5eea6c9"
+  },
+  "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperFailures.java": {
+    "action": "add",
+    "old_path": "",
+    "review": "Provider-private error boundary preserves interruption and original causes; already-typed errors are not repeatedly wrapped. No client ownership or fallback.",
+    "before_sha256": null,
+    "after_sha256": "b6717ba5d2a61e844110e99b22357f2c217c3aaedb91193c6e4663bb8784f5e9"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/ElectionScheduler.java": {
+    "action": "change",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/ElectionScheduler.java",
+    "review": "Demotion is attempted once per failed renewal tick, then standby detection is scheduled even when publication/callback fails; backend errors cannot silently terminate the timer.",
+    "before_sha256": "2ef0f7338ffd3cff8c313f40f7ee88e42fb00642beb4a0b57409e087eab7de56",
+    "after_sha256": "27b5e72d28bb2e75132483f4eb9d193deba4362233cb637ea6e0dc3063eb1078"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/CoordinatorRegistryClient.java": {
+    "action": "change",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/CoordinatorRegistryClient.java",
+    "review": "Configured registry errors propagate to the real HA lifecycle; no silent registration/role/heartbeat/unregister success. Optional absence of a configured registry remains explicit no-op.",
+    "before_sha256": "049bcadba6468fc886157991a8853eaf4d3fa8ec09005d6101775122a6853a6d",
+    "after_sha256": "2b498f13cad117627b8ef2d48802e639e8584056beae41756bd0a3d9fb3d9d09"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/HighAvailabilityCoordinationService.java": {
+    "action": "change",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/HighAvailabilityCoordinationService.java",
+    "review": "Startup failure closes acquired local lifecycle; failed activation rolls back a known grant. Step-down seals local role before remote release. Close attempts all cleanup stages and preserves primary/suppressed failures. Query authority remains independently owned.",
+    "before_sha256": "74e8076663571ef7db186c01bdb79dd92ba9a601d2aceb427364715563b30e7c",
+    "after_sha256": "dfd5190d97651c6fa1c7cd2789ec668947cca94389d3d5cf5e13be5e4a908952"
+  }
+}

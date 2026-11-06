@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.property.query;
 
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -9,16 +13,13 @@ import net.jqwik.api.Tag;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.QueryTimeoutEnforcer;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
@@ -32,26 +33,27 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class QueryTimeoutPropertyTest {
 
-    private static final List<QueryStateMachine.State> NON_TERMINAL_STATES = List.of(
-            QueryStateMachine.State.QUEUED,
-            QueryStateMachine.State.PLANNING,
-            QueryStateMachine.State.SCHEDULING,
-            QueryStateMachine.State.RUNNING);
+    private static final List<QueryState> NON_TERMINAL_STATES = List.of(
+            QueryState.QUEUED,
+            QueryState.PLANNING,
+            QueryState.SCHEDULING,
+            QueryState.RUNNING,
+            QueryState.FINISHING);
 
-    private static final List<QueryStateMachine.State> TERMINAL_STATES = List.of(
-            QueryStateMachine.State.FINISHED,
-            QueryStateMachine.State.FAILED,
-            QueryStateMachine.State.CANCELLED);
+    private static final List<QueryState> TERMINAL_STATES = List.of(
+            QueryState.FINISHED,
+            QueryState.FAILED,
+            QueryState.CANCELLED);
 
     // -- Arbitraries --
 
     @Provide
-    Arbitrary<QueryStateMachine.State> nonTerminalStates() {
+    Arbitrary<QueryState> nonTerminalStates() {
         return Arbitraries.of(NON_TERMINAL_STATES);
     }
 
     @Provide
-    Arbitrary<QueryStateMachine.State> terminalStates() {
+    Arbitrary<QueryState> terminalStates() {
         return Arbitraries.of(TERMINAL_STATES);
     }
 
@@ -62,61 +64,79 @@ class QueryTimeoutPropertyTest {
 
     // -- Helpers --
 
-    private static QueryStateMachine createInState(QueryStateMachine.State target) {
+    private static QueryStateMachine createInState(QueryState target) {
         QueryStateMachine sm = new QueryStateMachine();
         transitionTo(sm, target);
         return sm;
     }
 
-    private static void transitionTo(QueryStateMachine sm, QueryStateMachine.State target) {
-        for (QueryStateMachine.State step : pathTo(target)) {
+    private static void transitionTo(QueryStateMachine sm, QueryState target) {
+        for (QueryState step : pathTo(target)) {
             sm.tryTransition(step);
         }
     }
 
-    private static List<QueryStateMachine.State> pathTo(QueryStateMachine.State target) {
+    private static List<QueryState> pathTo(QueryState target) {
         return switch (target) {
             case QUEUED -> List.of();
-            case PLANNING -> List.of(QueryStateMachine.State.PLANNING);
-            case SCHEDULING -> List.of(QueryStateMachine.State.PLANNING, QueryStateMachine.State.SCHEDULING);
+            case PLANNING -> List.of(QueryState.PLANNING);
+            case SCHEDULING -> List.of(QueryState.PLANNING, QueryState.SCHEDULING);
             case RUNNING -> List.of(
-                    QueryStateMachine.State.PLANNING, QueryStateMachine.State.SCHEDULING,
-                    QueryStateMachine.State.RUNNING);
+                    QueryState.PLANNING, QueryState.SCHEDULING,
+                    QueryState.RUNNING);
             case FINISHING -> List.of(
-                    QueryStateMachine.State.PLANNING, QueryStateMachine.State.SCHEDULING,
-                    QueryStateMachine.State.RUNNING, QueryStateMachine.State.FINISHING);
+                    QueryState.PLANNING, QueryState.SCHEDULING,
+                    QueryState.RUNNING, QueryState.FINISHING);
             case FINISHED -> List.of(
-                    QueryStateMachine.State.PLANNING, QueryStateMachine.State.SCHEDULING,
-                    QueryStateMachine.State.RUNNING, QueryStateMachine.State.FINISHING,
-                    QueryStateMachine.State.FINISHED);
-            case FAILED -> List.of(QueryStateMachine.State.FAILED);
-            case CANCELLED -> List.of(QueryStateMachine.State.CANCELLED);
+                    QueryState.PLANNING, QueryState.SCHEDULING,
+                    QueryState.RUNNING, QueryState.FINISHING,
+                    QueryState.FINISHED);
+            case FAILED -> List.of(QueryState.FAILED);
+            case CANCELLED -> List.of(QueryState.CANCELLED);
         };
     }
 
-    private static QueryManager buildQueryManager() {
-        var compiler = new org.pangrova.planner.SqlCompiler();
-        var scheduler = new org.pangrova.scheduler.placement.TaskScheduler(
-                new org.pangrova.scheduler.scoring.WorkerPerformanceScorer());
+    private static TestQueryOwner buildQueryManager() {
+        var transport = new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
+                org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
+                new org.pangrova.observability.noop.NoOpTracingProvider());
+        var compiler = new org.pangrova.planner.core.analysis.SqlCompiler();
+        var scheduler = new org.pangrova.scheduler.core.placement.TaskScheduler(
+                new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         var orchestrator = new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,
-                        new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
-                                org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
+                        transport,
                         scheduler,
                         new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                         null, null, null, 0L),
                 null, null);
-        return new QueryManager(QueryManagerContext.minimal(orchestrator,
-                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()));
+        return new TestQueryOwner(new QueryManager(QueryManagerTestContexts.minimal(orchestrator,
+                new org.pangrova.observability.noop.NoOpTracingProvider())), transport);
+    }
+
+    private record TestQueryOwner(QueryManager manager,
+            org.pangrova.coordinator.scheduler.RemoteTaskDispatcher transport) implements AutoCloseable {
+        @Override
+        public void close() {
+            try {
+                manager.getActiveQueryIds().forEach(manager::cancelQuery);
+                // FINISHING deliberately rejects cancellation; this fixture has no
+                // in-flight commit, so expire its remaining actual owners explicitly.
+                manager.timeoutQueriesCreatedBy(java.time.Instant.MAX, Duration.ofSeconds(30));
+                assertThat(manager.awaitAllQueries(3000)).isTrue();
+                manager.stopPeriodicCleanup();
+            } finally {
+                transport.close();
+            }
+        }
     }
 
     // -- Property 22a: Timeout enforcement completeness --
 
     /**
-     * For any set of N queries (1-20) in non-terminal states, after timeout + check interval,
+     * For any set of N queries (1-20) in non-terminal states, when their deadline expires,
      * ALL should be in FAILED state with TIMEOUT error.
      *
      * <p><b>Validates: Requirements 44.1</b></p>
@@ -125,34 +145,30 @@ class QueryTimeoutPropertyTest {
     @Tag("Feature: e2e-pipeline-integration, Property 22: Query timeout enforcement")
     void allExpiredNonTerminalQueriesTransitionToFailed(
             @ForAll("queryCounts") int count,
-            @ForAll("nonTerminalStates") QueryStateMachine.State state) throws InterruptedException {
+            @ForAll("nonTerminalStates") QueryState state) {
 
         ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
         List<QueryStateMachine> machines = IntStream.range(0, count)
-                .mapToObj(i -> createInState(state))
-                .toList();
+                    .mapToObj(i -> createInState(state))
+                    .toList();
         for (int i = 0; i < count; i++) {
             queries.put("q-" + i, machines.get(i));
         }
 
-        QueryTimeoutEnforcer enforcer = new QueryTimeoutEnforcer(
-                Duration.ofMillis(30), Duration.ofMillis(10));
-        try {
-            enforcer.start(() -> Map.copyOf(queries));
-            Thread.sleep(150);
-        } finally {
-            enforcer.stop();
-        }
+        try (var owner = buildQueryManager()) {
+            queries.forEach(owner.manager()::registerStateMachine);
+            owner.manager().timeoutQueriesCreatedBy(java.time.Instant.now(), Duration.ofMillis(30));
 
-        for (int i = 0; i < count; i++) {
-            QueryStateMachine sm = machines.get(i);
-            assertThat(sm.getState())
+            for (int i = 0; i < count; i++) {
+                QueryStateMachine sm = machines.get(i);
+                assertThat(sm.getState())
                     .as("Query q-%d in initial state %s must be FAILED after timeout", i, state)
-                    .isEqualTo(QueryStateMachine.State.FAILED);
+                    .isEqualTo(QueryState.FAILED);
 
-            Optional<ErrorDetail> error = sm.getError();
-            assertThat(error).as("Query q-%d must have error detail", i).isPresent();
-            assertThat(error.get().errorType()).isEqualTo("TIMEOUT");
+                Optional<QueryFailure> error = sm.getError();
+                assertThat(error).as("Query q-%d must have error detail", i).isPresent();
+                assertThat(error.get().errorType()).isEqualTo("TIMEOUT");
+            }
         }
     }
 
@@ -168,29 +184,25 @@ class QueryTimeoutPropertyTest {
     @Tag("Feature: e2e-pipeline-integration, Property 22: Query timeout enforcement")
     void terminalQueriesAreImmuneToTimeout(
             @ForAll("queryCounts") int count,
-            @ForAll("terminalStates") QueryStateMachine.State terminalState) throws InterruptedException {
+            @ForAll("terminalStates") QueryState terminalState) {
 
         ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
         List<QueryStateMachine> machines = IntStream.range(0, count)
-                .mapToObj(i -> createInState(terminalState))
-                .toList();
+                    .mapToObj(i -> createInState(terminalState))
+                    .toList();
         for (int i = 0; i < count; i++) {
             queries.put("q-" + i, machines.get(i));
         }
 
-        QueryTimeoutEnforcer enforcer = new QueryTimeoutEnforcer(
-                Duration.ofMillis(30), Duration.ofMillis(10));
-        try {
-            enforcer.start(() -> Map.copyOf(queries));
-            Thread.sleep(150);
-        } finally {
-            enforcer.stop();
-        }
+        try (var owner = buildQueryManager()) {
+            queries.forEach(owner.manager()::registerStateMachine);
+            owner.manager().timeoutQueriesCreatedBy(java.time.Instant.now(), Duration.ofMillis(30));
 
-        for (int i = 0; i < count; i++) {
-            assertThat(machines.get(i).getState())
+            for (int i = 0; i < count; i++) {
+                assertThat(machines.get(i).getState())
                     .as("Terminal query q-%d must remain in %s", i, terminalState)
                     .isEqualTo(terminalState);
+            }
         }
     }
 
@@ -207,36 +219,40 @@ class QueryTimeoutPropertyTest {
     void cleanupRemovesExactlyTerminalQueries(
             @ForAll("queryCounts") int activeCount,
             @ForAll("queryCounts") int terminalCount,
-            @ForAll("nonTerminalStates") QueryStateMachine.State activeState,
-            @ForAll("terminalStates") QueryStateMachine.State terminalState) throws InterruptedException {
+            @ForAll("nonTerminalStates") QueryState activeState,
+            @ForAll("terminalStates") QueryState terminalState) {
 
-        QueryManager qm = buildQueryManager();
+        try (var owner = buildQueryManager()) {
+            QueryManager qm = owner.manager();
 
-        for (int i = 0; i < activeCount; i++) {
-            qm.registerStateMachine("active-" + i, createInState(activeState));
-        }
-        for (int i = 0; i < terminalCount; i++) {
-            qm.registerStateMachine("terminal-" + i, createInState(terminalState));
-        }
+            for (int i = 0; i < activeCount; i++) {
+                qm.registerStateMachine("active-" + i, createInState(activeState));
+            }
+            for (int i = 0; i < terminalCount; i++) {
+                qm.registerStateMachine("terminal-" + i, createInState(terminalState));
+            }
 
-        // Ensure all createdAt timestamps are strictly before Instant.now()
-        Thread.sleep(2);
+            // Ensure all createdAt timestamps are strictly before Instant.now()
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).until(() ->
+                    qm.getStateMachines().values().stream().allMatch(state ->
+                            state.getCreatedAt().isBefore(java.time.Instant.now())));
 
-        int removed = qm.cleanupTerminalQueries(Duration.ZERO);
+            int removed = qm.cleanupTerminalQueries(Duration.ZERO);
 
-        assertThat(removed)
+            assertThat(removed)
                 .as("Should remove exactly %d terminal queries", terminalCount)
                 .isEqualTo(terminalCount);
 
-        for (int i = 0; i < activeCount; i++) {
-            assertThat(qm.getQueryState("active-" + i))
+            for (int i = 0; i < activeCount; i++) {
+                assertThat(qm.getQueryState("active-" + i))
                     .as("Active query active-%d must be preserved", i)
                     .isPresent();
-        }
-        for (int i = 0; i < terminalCount; i++) {
-            assertThat(qm.getQueryState("terminal-" + i))
+            }
+            for (int i = 0; i < terminalCount; i++) {
+                assertThat(qm.getQueryState("terminal-" + i))
                     .as("Terminal query terminal-%d must be removed", i)
                     .isEmpty();
+            }
         }
     }
 }

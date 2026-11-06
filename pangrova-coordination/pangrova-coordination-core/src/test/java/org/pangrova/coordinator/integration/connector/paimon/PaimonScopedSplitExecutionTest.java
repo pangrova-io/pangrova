@@ -17,10 +17,10 @@ import org.pangrova.connector.paimon.PaimonPageSourceProvider;
 import org.pangrova.connector.paimon.PaimonSplitManager;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.coordinator.task.TestConnectorQuery;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -128,7 +128,7 @@ class PaimonScopedSplitExecutionTest {
             var manager = new PaimonSplitManager(catalog, registry);
             var source = manager.getSplits(ConnectorTransactionHandle.empty(), session, binding.handle(),
                     DynamicFilter.ALL, Constraint.EMPTY);
-            var splits = new ArrayList<org.pangrova.spi.connector.metadata.ConnectorSplit>();
+            var splits = new ArrayList<org.pangrova.connector.api.metadata.ConnectorSplit>();
             try {
                 while (!source.isFinished()) splits.addAll(source.getNextBatch(100));
             } finally {

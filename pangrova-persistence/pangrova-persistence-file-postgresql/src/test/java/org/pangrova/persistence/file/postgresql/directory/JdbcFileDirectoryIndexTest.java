@@ -1,0 +1,168 @@
+package org.pangrova.persistence.file.postgresql.directory;
+
+import java.time.Instant;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.testing.testkit.postgres.MigratedPostgres;
+import org.pangrova.filesystem.api.object.FileListing;
+import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.filesystem.api.object.FileStat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class JdbcFileDirectoryIndexTest {
+    private JdbcFileSpaceRegistry spaces;
+    private JdbcFileDirectoryIndex index;
+    private FileSpace stage;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        var source = MigratedPostgres.create();
+        spaces = new JdbcFileSpaceRegistry(source);
+        index = new JdbcFileDirectoryIndex(source);
+        stage = spaces.create(new FileSpaceDefinition(FileSpaceType.STAGE, "media", "raw", "landing",
+                false, "local", "", true, "", "alice"), false);
+    }
+
+    @Test
+    void incompleteAndAbandonedScansDoNotReplacePublishedFacts() {
+        publish("old.txt");
+        var token = index.begin(stage, "");
+        index.append(token, null, new FileListing(List.of(file("new.txt")), "next"));
+        assertPaths("old.txt");
+        assertThatThrownBy(() -> index.publish(token)).hasMessageContaining("incomplete");
+        assertPaths("old.txt");
+        index.abort(token);
+        assertPaths("old.txt");
+    }
+
+    @Test
+    void emptyIntermediatePageIsNotProofOfDeletionAndTerminalPagePublishesExactMetadata() {
+        publish("old.txt");
+        var token = index.begin(stage, "");
+        index.append(token, null, new FileListing(List.of(), "next"));
+        assertPaths("old.txt");
+        index.append(token, "next", new FileListing(List.of(file("new.txt")), null));
+        assertPaths("old.txt");
+        assertThat(index.publish(token)).isEqualTo(1);
+        assertThat(index.page(stage, null, 10)).containsExactly(file("new.txt"));
+        assertThatThrownBy(() -> index.publish(token)).hasMessageContaining("finished");
+    }
+
+    @Test
+    void subpathRefreshPreservesAdjacentDirectoriesAndTreatsSqlWildcardsLiterally() {
+        publish("a_/old.txt", "aX/keep.txt", "a_extra/keep.txt", "root.txt");
+        var token = index.begin(stage, "a_/");
+        index.append(token, null, new FileListing(List.of(), null));
+        index.publish(token);
+        assertPaths("aX/keep.txt", "a_extra/keep.txt", "root.txt");
+    }
+
+    @Test
+    void subpathRefreshReplacesOnlyItsDirectoryBoundary() {
+        publish("images/old.txt", "images-extra/keep.txt", "root.txt");
+        var token = index.begin(stage, "images/");
+        index.append(token, null, new FileListing(List.of(file("images/new.txt")), null));
+        index.publish(token);
+        assertPaths("images-extra/keep.txt", "images/new.txt", "root.txt");
+        token = index.begin(stage, "images");
+        index.append(token, null, new FileListing(List.of(), null));
+        index.publish(token);
+        assertPaths("images-extra/keep.txt", "root.txt");
+    }
+
+    @Test
+    void staleAttemptCannotAppendPublishOrAbortItsReplacement() {
+        var first = index.begin(stage, "");
+        index.append(first, null, new FileListing(List.of(file("first.txt")), null));
+        var second = index.begin(stage, "");
+        assertThatThrownBy(() -> index.append(first, null, new FileListing(List.of(), null)))
+                .hasMessageContaining("superseded");
+        assertThatThrownBy(() -> index.publish(first)).hasMessageContaining("superseded");
+        index.abort(first);
+        index.append(second, null, new FileListing(List.of(file("second.txt")), null));
+        index.publish(second);
+        assertPaths("second.txt");
+    }
+
+    @Test
+    void wrongCheckpointAndOutOfScopePageAreRolledBack() {
+        var token = index.begin(stage, "images");
+        assertThatThrownBy(() -> index.append(token, "stale", new FileListing(List.of(), null)))
+                .hasMessageContaining("stale");
+        assertThatThrownBy(() -> index.append(token, null, new FileListing(
+                List.of(file("images/good.txt"), file("other.txt")), null)))
+                .hasMessageContaining("outside");
+        index.append(token, null, new FileListing(List.of(), null));
+        index.publish(token);
+        assertPaths();
+    }
+
+    @Test
+    void locationChangesInvalidateBothPublishedAndUnfinishedObservations() {
+        publish("old.txt");
+        var token = index.begin(stage, "");
+        index.append(token, null, new FileListing(List.of(file("unpublished.txt")), null));
+        stage = spaces.mutate(FileSpaceType.STAGE, "media", "raw", "landing",
+                new FileSpaceMutation.SetStorageProfile("other"));
+        assertPaths();
+        assertThatThrownBy(() -> index.publish(token)).isInstanceOf(FileStorageException.class);
+    }
+
+    @Test
+    void renamePreservesPublishedMetadataButDropAndRecreateDoNot() {
+        publish("old.txt");
+        stage = spaces.rename(FileSpaceType.STAGE, "media", "raw", "landing", "renamed");
+        assertPaths("old.txt");
+        spaces.drop(FileSpaceType.STAGE, "media", "raw", "renamed", false);
+        stage = spaces.create(new FileSpaceDefinition(FileSpaceType.STAGE, "media", "raw", "renamed",
+                false, "local", "", true, "", "alice"), false);
+        assertPaths();
+    }
+
+    @Test
+    void capturedDefinitionCannotReadASameNameReplacement() {
+        FileSpace previous = stage;
+        publish("previous.txt");
+        spaces.drop(FileSpaceType.STAGE, "media", "raw", "landing", false);
+        stage = spaces.create(new FileSpaceDefinition(FileSpaceType.STAGE, "media", "raw", "landing",
+                false, "local", "", true, "", "bob"), false);
+        publish("replacement.txt");
+        assertThatThrownBy(() -> index.page(previous, null, 100)).hasMessageContaining("definition changed");
+        assertThatThrownBy(() -> index.reference(previous)).hasMessageContaining("definition changed");
+        assertPaths("replacement.txt");
+    }
+
+    @Test
+    void capturedDefinitionCannotReadAfterItsRevisionChanges() {
+        FileSpace previous = stage;
+        stage = spaces.mutate(FileSpaceType.STAGE, "media", "raw", "landing",
+                new FileSpaceMutation.SetStorageProfile("other"));
+        publish("new-root.txt");
+        assertThatThrownBy(() -> index.page(previous, null, 100)).hasMessageContaining("definition changed");
+        assertThat(index.reference(stage).spaceId()).isEqualTo(stage.id());
+        assertPaths("new-root.txt");
+    }
+
+    private void publish(String... paths) {
+        var token = index.begin(stage, "");
+        index.append(token, null, new FileListing(java.util.Arrays.stream(paths)
+                .map(JdbcFileDirectoryIndexTest::file).toList(), null));
+        index.publish(token);
+    }
+
+    private void assertPaths(String... paths) {
+        assertThat(index.page(stage, null, 100)).extracting(FileStat::path).containsExactly(paths);
+    }
+
+    private static FileStat file(String path) {
+        return new FileStat(path, 123, Instant.parse("2026-10-25T00:00:00Z"),
+                "provider-etag", "application/octet-stream", "version-1", null);
+    }
+}

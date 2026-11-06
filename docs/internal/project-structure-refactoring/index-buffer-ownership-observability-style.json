@@ -1,0 +1,14 @@
+[
+  {
+    "path": "pangrova-observability/pangrova-observability-core/src/main/java/org/pangrova/observability/core/metrics/MetricsScope.java",
+    "diagnostics": [
+      {
+        "line": "73",
+        "column": "22",
+        "severity": "error",
+        "message": "'if' \u7ed3\u6784\u5fc5\u987b\u4f7f\u7528\u5927\u62ec\u53f7 '{}'\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.NeedBracesCheck"
+      }
+    ]
+  }
+]

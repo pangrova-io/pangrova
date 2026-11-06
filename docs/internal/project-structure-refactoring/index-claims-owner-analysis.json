@@ -1,0 +1,1236 @@
+{
+  "stage": "owner",
+  "exit": 1,
+  "spotbugs_reports": 66,
+  "spotbugs_findings": 0,
+  "checkstyle_reports": 88,
+  "checkstyle_diagnostics": 9,
+  "spotbugs": [
+    {
+      "path": "pangrova-common/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-coordination/pangrova-coordination-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-file/pangrova-file-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "get",
+        "getAsLong",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-file/pangrova-file-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-generation/pangrova-generation-codec/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "makeConcatWithConstants"
+      ]
+    },
+    {
+      "path": "pangrova-generation/pangrova-generation-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-generation/pangrova-generation-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "compare",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-batch/pangrova-batch-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-security/pangrova-security-policy-builtin/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "makeConcatWithConstants",
+        "test"
+      ]
+    },
+    {
+      "path": "pangrova-security/pangrova-security-auth-builtin/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-auth-ldap/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "close",
+        "equals",
+        "hashCode",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-security/pangrova-security-codec/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "get",
+        "run"
+      ]
+    },
+    {
+      "path": "pangrova-security/pangrova-security-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-security/pangrova-security-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "applyAsLong",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "run",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-security/pangrova-security-auth-oauth2/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "equals",
+        "hashCode",
+        "locate",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-table/pangrova-table-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-table/pangrova-table-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-streaming/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "add",
+        "apply",
+        "applyAsInt",
+        "compare",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "onFailed",
+        "run",
+        "test",
+        "toString",
+        "validate"
+      ]
+    },
+    {
+      "path": "pangrova-protocol/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "applyAsLong",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-testing/pangrova-testing-kit/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "compare",
+        "equals",
+        "execute",
+        "get",
+        "handle",
+        "hashCode",
+        "invoke",
+        "makeConcatWithConstants",
+        "run",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-function/pangrova-function-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "equals",
+        "hashCode",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-governance/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "compare",
+        "equals",
+        "get",
+        "getAsBoolean",
+        "hashCode",
+        "makeConcatWithConstants",
+        "process",
+        "run",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-noop/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "call",
+        "execute",
+        "run"
+      ]
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-sdk/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsLong",
+        "close",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "set",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "close",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-execution/pangrova-execution-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-execution/pangrova-execution-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsLong",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-query/pangrova-query-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "applyAsLong",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "run",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-query/pangrova-query-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-client/pangrova-client-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-connector/pangrova-connector-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "getDomains",
+        "hashCode",
+        "makeConcatWithConstants",
+        "onFilesRemoved",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-filesystem/pangrova-filesystem-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-types/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-config/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "applyAsInt",
+        "applyAsLong",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-local/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "applyAsInt",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-codec/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "applyAsLong",
+        "equals",
+        "execute",
+        "get",
+        "hashCode",
+        "lockPublication",
+        "makeConcatWithConstants",
+        "newThread",
+        "observe",
+        "onChange",
+        "onRemoval",
+        "rejectedExecution",
+        "run",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-codec/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "makeConcatWithConstants"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "applyAsLong",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsDouble",
+        "compare",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "read",
+        "test",
+        "toString",
+        "write"
+      ]
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "equals",
+        "get",
+        "getAsBoolean",
+        "hashCode",
+        "makeConcatWithConstants",
+        "onRemoval",
+        "run",
+        "test",
+        "toString",
+        "weigh"
+      ]
+    },
+    {
+      "path": "pangrova-transport/pangrova-transport-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-parser/pangrova-parser-core/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-parser/pangrova-parser-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-security-postgresql/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "applyAsLong",
+        "get",
+        "makeConcatWithConstants",
+        "test"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-security-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "test"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-file-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-table-memory/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-query-memory/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "compare",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-table-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-indexing-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-query-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "compare",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "run",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-jdbc-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-generation-postgresql/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "equals",
+        "execute",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "run",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-query-postgresql/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "perform",
+        "run",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-file-postgresql/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "bind",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-coordination-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-table-postgresql/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "makeConcatWithConstants"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-generation-api/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "toString"
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-jdbc-support/target/spotbugsXml.xml",
+      "bugs": [],
+      "missing_classes": [
+        "makeConcatWithConstants"
+      ]
+    }
+  ],
+  "checkstyle": [
+    {
+      "path": "pangrova-common/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-coordination/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-coordination/pangrova-coordination-api/target/checkstyle-result.xml",
+      "diagnostics": [
+        {
+          "path": "pangrova-coordination/pangrova-coordination-api/src/main/java/org/pangrova/coordination/api/membership/WorkerSnapshot.java",
+          "line": "42",
+          "column": "12",
+          "severity": "warning",
+          "message": "\u53c2\u6570\u5171\uff1a 18\u4e2a\uff0c\u6700\u591a\uff1a10\u4e2a\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.sizes.ParameterNumberCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-file/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-file/pangrova-file-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-file/pangrova-file-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-generation/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-generation/pangrova-generation-codec/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-generation/pangrova-generation-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-generation/pangrova-generation-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-batch/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-batch/pangrova-batch-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-policy-builtin/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-auth-builtin/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-auth-ldap/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-codec/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-auth-oauth2/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-table/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-table/pangrova-table-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-table/pangrova-table-core/target/checkstyle-result.xml",
+      "diagnostics": [
+        {
+          "path": "pangrova-table/pangrova-table-core/src/main/java/org/pangrova/table/core/ownership/TableControlService.java",
+          "line": "1",
+          "severity": "warning",
+          "message": "\u6587\u4ef6 840 \u884c \uff08\u6700\u591a\uff1a800 \u884c\uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.sizes.FileLengthCheck"
+        },
+        {
+          "path": "pangrova-table/pangrova-table-core/src/main/java/org/pangrova/table/core/ownership/TableControlService.java",
+          "line": "121",
+          "column": "5",
+          "severity": "warning",
+          "message": "\u5708\u590d\u6742\u5ea6\uff1a 22 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-streaming/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-protocol/target/checkstyle-result.xml",
+      "diagnostics": [
+        {
+          "path": "pangrova-protocol/src/main/java/org/pangrova/protocol/task/CanonicalTaskAdmissionSeals.java",
+          "line": "159",
+          "column": "5",
+          "severity": "warning",
+          "message": "\u5708\u590d\u6742\u5ea6\uff1a 19 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+        },
+        {
+          "path": "pangrova-protocol/src/main/java/org/pangrova/protocol/rest/worker/WorkerRegistrationRequest.java",
+          "line": "37",
+          "column": "12",
+          "severity": "warning",
+          "message": "\u53c2\u6570\u5171\uff1a 11\u4e2a\uff0c\u6700\u591a\uff1a10\u4e2a\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.sizes.ParameterNumberCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-testing/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-testing/pangrova-testing-kit/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-function/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-function/pangrova-function-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-governance/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-noop/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-sdk/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-execution/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-execution/pangrova-execution-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-execution/pangrova-execution-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-query/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-query/pangrova-query-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-query/pangrova-query-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-client/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-client/pangrova-client-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-connector/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-connector/pangrova-connector-api/target/checkstyle-result.xml",
+      "diagnostics": [
+        {
+          "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/table/ConnectorReadBinding.java",
+          "line": "28",
+          "column": "5",
+          "severity": "warning",
+          "message": "\u5708\u590d\u6742\u5ea6\uff1a 16 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-filesystem/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-filesystem/pangrova-filesystem-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-types/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-config/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-local/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-metadata/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-codec/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-schema-migrations/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-indexing/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-codec/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-transport/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-transport/pangrova-transport-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-parser/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-parser/pangrova-parser-core/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-parser/pangrova-parser-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-security-postgresql/target/checkstyle-result.xml",
+      "diagnostics": [
+        {
+          "path": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/PrivilegeGrantRows.java",
+          "line": "57",
+          "column": "5",
+          "severity": "warning",
+          "message": "\u5708\u590d\u6742\u5ea6\uff1a 16 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-security-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-file-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-table-memory/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-query-memory/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-table-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-indexing-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-query-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-jdbc-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-generation-postgresql/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-query-postgresql/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-file-postgresql/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-coordination-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-table-postgresql/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-indexing-postgresql/target/checkstyle-result.xml",
+      "diagnostics": [
+        {
+          "path": "pangrova-persistence/pangrova-persistence-indexing-postgresql/src/main/java/org/pangrova/persistence/indexing/postgresql/build/JdbcIndexBuildClaimRepository.java",
+          "line": "89",
+          "column": "72",
+          "severity": "error",
+          "message": "'255' \u662f\u4e00\u4e2a\u9b54\u672f\u6570\u5b57\uff08\u76f4\u63a5\u5e38\u6570\uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.coding.MagicNumberCheck"
+        },
+        {
+          "path": "pangrova-persistence/pangrova-persistence-indexing-postgresql/src/main/java/org/pangrova/persistence/indexing/postgresql/build/JdbcIndexBuildClaimRepository.java",
+          "line": "90",
+          "column": "79",
+          "severity": "error",
+          "message": "'255' \u662f\u4e00\u4e2a\u9b54\u672f\u6570\u5b57\uff08\u76f4\u63a5\u5e38\u6570\uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.coding.MagicNumberCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-generation-api/target/checkstyle-result.xml",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-jdbc-support/target/checkstyle-result.xml",
+      "diagnostics": []
+    }
+  ]
+}

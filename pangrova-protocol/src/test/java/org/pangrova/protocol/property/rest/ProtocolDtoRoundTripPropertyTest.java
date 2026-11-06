@@ -17,7 +17,7 @@ import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.client.protocol.QueryStats;
 import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.client.protocol.SubmitQueryRequest;
 import org.pangrova.client.protocol.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;

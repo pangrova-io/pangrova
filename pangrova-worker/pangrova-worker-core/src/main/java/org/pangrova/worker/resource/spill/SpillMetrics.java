@@ -1,11 +1,11 @@
 package org.pangrova.worker.resource.spill;
 
 import org.pangrova.common.api.annotation.ThreadSafe;
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 
 import java.util.List;
 import java.util.Map;

@@ -23,13 +23,15 @@ import org.pangrova.materialization.domain.SourceVector;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.planner.core.mv.MaterializedViewRewriteCatalog;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
 
 class KernelMaterializedViewRewriteCatalogTest {
+
+    private final java.util.ArrayList<PublishedMaterialization> pins = new java.util.ArrayList<>();
 
     private static final String TENANT = "tenant-a";
     private static final Instant NOW = Instant.parse("2026-10-23T00:00:00Z");
@@ -42,6 +44,7 @@ class KernelMaterializedViewRewriteCatalogTest {
 
         assertThat(rewrite).isPresent();
         var views = rewrite.orElseThrow().candidates(Set.of("lake.db.orders"));
+        assertThat(pins).containsExactly(catalog.listPublished(new TenantId(TENANT)).get(0));
         assertThat(views).singleElement().satisfies(view -> {
             assertThat(view.qualifiedName()).isEqualTo("lake.db.orders_mv");
             assertThat(view.definitionSql()).isEqualTo("SELECT id, SUM(amount) AS total FROM orders GROUP BY id");
@@ -143,7 +146,7 @@ class KernelMaterializedViewRewriteCatalogTest {
     private Optional<MaterializedViewRewriteCatalog> create(MaterializationCatalog catalog,
             ConnectorSession session, AccessControl accessControl) {
         return KernelMaterializedViewRewriteCatalog.create(catalog, TENANT, session,
-                accessControl, NOW);
+                accessControl, NOW, pins::add);
     }
 
     private static ConnectorSession session(String user, Map<String, String> properties) {
@@ -169,7 +172,7 @@ class KernelMaterializedViewRewriteCatalogTest {
             }
 
             @Override
-            public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            public Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
                 return Optional.empty();
             }
         };

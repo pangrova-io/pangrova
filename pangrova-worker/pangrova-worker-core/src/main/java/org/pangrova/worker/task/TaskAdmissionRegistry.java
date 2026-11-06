@@ -251,6 +251,13 @@ final class TaskAdmissionRegistry {
         }
     }
 
+    /** Permanently seals new reservations/publication without joining the current callback. */
+    void closeAdmissions() {
+        synchronized (entries) {
+            closed = true;
+        }
+    }
+
     void sealAndAwaitAdmissions() {
         CompletableFuture<Void> pending;
         synchronized (entries) {

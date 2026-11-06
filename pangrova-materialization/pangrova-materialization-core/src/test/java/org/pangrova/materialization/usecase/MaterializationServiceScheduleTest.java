@@ -36,7 +36,7 @@ import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PlannedDefinition;
 import org.pangrova.materialization.port.PlanningRequest;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceRef;
 
 class MaterializationServiceScheduleTest {
 

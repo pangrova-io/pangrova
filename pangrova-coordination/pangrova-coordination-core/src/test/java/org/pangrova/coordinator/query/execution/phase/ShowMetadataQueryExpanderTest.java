@@ -4,17 +4,17 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.planner.MetadataTableQuery;
-import org.pangrova.spi.connector.metadata.MetadataTableKind;
-import org.pangrova.spi.connector.metadata.MetadataTableListing;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.planner.core.analysis.MetadataTableQuery;
+import org.pangrova.connector.api.metadata.MetadataTableKind;
+import org.pangrova.connector.api.metadata.MetadataTableListing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ShowMetadataQueryExpanderTest {
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
 
     @Test
     void existingShowKindsResolveTheirNativeListingIntent() {
@@ -55,7 +55,7 @@ class ShowMetadataQueryExpanderTest {
     @Test
     void contextCopiesPreserveTheTypedReadAndAuditSql() {
         String sql = "SHOW TAGS FROM lake.db.orders";
-        var session = new CoordinatorSessionContext("listing", Map.of(), null, "tenant");
+        var session = new QuerySession("listing", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var query = new MetadataTableQuery(List.of("lake", "db", "orders"),
                 new MetadataTableListing(MetadataTableKind.REFS, Map.of("type", "TAG")));
         var context = QueryExecutionContext.initial(new QueryStateMachine(), sql, session, null)

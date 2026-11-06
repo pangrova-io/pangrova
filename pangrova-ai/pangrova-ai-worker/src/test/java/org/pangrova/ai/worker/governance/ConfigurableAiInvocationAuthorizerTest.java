@@ -14,11 +14,11 @@
 package org.pangrova.ai.worker.governance;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.capability.Modality;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.api.capability.Modality;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -102,7 +102,7 @@ class ConfigurableAiInvocationAuthorizerTest {
                 Set.of(Modality.TEXT),
                 2,
                 new AiCapabilityDescriptor.ResourceLimits(
-                        new org.pangrova.spi.ai.capability.AiRequestConstraints(8192, 0, 262144, 1048576), 0, 2, 1024, 4096),
+                        new org.pangrova.ai.api.capability.AiRequestConstraints(8192, 0, 262144, 1048576), 0, 2, 1024, 4096),
                 false,
                 AiCapabilityDescriptor.RetryPolicy.noRetry(),
                 Set.of("AI_MODEL_USAGE"));
@@ -140,7 +140,7 @@ class ConfigurableAiInvocationAuthorizerTest {
                 Set.of(Modality.TEXT),
                 8,
                 new AiCapabilityDescriptor.ResourceLimits(
-                        new org.pangrova.spi.ai.capability.AiRequestConstraints(8192, 4096, 262144, 1048576), 0, 2, 1024, 4096),
+                        new org.pangrova.ai.api.capability.AiRequestConstraints(8192, 4096, 262144, 1048576), 0, 2, 1024, 4096),
                 false,
                 AiCapabilityDescriptor.RetryPolicy.noRetry(),
                 Set.of("AI_MODEL_USAGE"));
@@ -169,7 +169,7 @@ class ConfigurableAiInvocationAuthorizerTest {
                 operation,
                 AiCapabilityDescriptor.ExecutionMode.SCALAR,
                 operation == AiCapabilityDescriptor.Operation.EMBEDDING
-                        ? java.util.Optional.of(org.pangrova.spi.ai.embedding.EmbeddingPurpose.DOCUMENT)
+                        ? java.util.Optional.of(org.pangrova.ai.api.embedding.EmbeddingPurpose.DOCUMENT)
                         : java.util.Optional.empty(),
                 inputs,
                 GenerationParameters.DEFAULTS,

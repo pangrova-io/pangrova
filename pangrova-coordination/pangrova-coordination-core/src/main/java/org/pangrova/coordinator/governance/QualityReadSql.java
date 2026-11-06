@@ -17,9 +17,9 @@ import org.pangrova.governance.api.quality.GovernanceQueryException;
 import org.pangrova.governance.api.quality.GovernanceQueryRunner;
 import org.pangrova.governance.api.quality.QualityQueryResult;
 import org.pangrova.governance.api.quality.QualityReadRequest;
-import org.pangrova.parser.ast.ExpressionItem;
-import org.pangrova.parser.ast.Query;
-import org.pangrova.planner.parse.AstToSqlNodeConverter;
+import org.pangrova.parser.api.ast.ExpressionItem;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.planner.core.parse.AstToSqlNodeConverter;
 
 /** Constructs quality SELECTs from a parsed scalar expression and exact identifier components. */
 public final class QualityReadSql {
@@ -33,7 +33,7 @@ public final class QualityReadSql {
     };
     private static final SqlParser.Config PARSER = SqlParser.config()
             .withUnquotedCasing(Casing.UNCHANGED).withQuotedCasing(Casing.UNCHANGED);
-    private static final org.pangrova.parser.SqlParser EXPRESSION_PARSER = new org.pangrova.parser.SqlParser();
+    private static final org.pangrova.parser.api.parse.SqlParser EXPRESSION_PARSER = new org.pangrova.parser.core.parse.AntlrSqlParser();
 
     private QualityReadSql() { }
 
@@ -60,7 +60,7 @@ public final class QualityReadSql {
                 }
             });
             return query.toSqlString(DIALECT).getSql();
-        } catch (SqlParseException | org.pangrova.parser.ParseException failure) {
+        } catch (SqlParseException | org.pangrova.parser.api.diagnostic.ParseException failure) {
             throw new GovernanceQueryException(request.expression(),
                     "Quality rule requires one SQL expression", failure);
         }

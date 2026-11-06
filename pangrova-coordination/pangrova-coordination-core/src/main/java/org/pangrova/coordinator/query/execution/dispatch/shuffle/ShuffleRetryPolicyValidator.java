@@ -2,43 +2,35 @@ package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
 import java.util.Objects;
 
-import org.pangrova.shuffle.api.ShuffleCapabilities;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
+
+import static org.pangrova.shuffle.api.capability.ShuffleCapability.CONSUMER_RETRY;
 
 /**
- * Enforces the ADR-002 D3 retry-policy binding: task-level retry (fault-tolerant execution) may only
- * run on a shuffle provider whose committed partitions survive task failure.
+ * Checks an explicit consumer-retry requirement against effective exchange guarantees.
  *
- * <p>When task-level retry is requested on an {@code EPHEMERAL} provider (today's native Arrow
- * Flight), this fails fast at startup rather than silently degrading to whole-query retry. Silent
- * degradation is the trap ADR-002 D3 forbids: operators would believe FTE is active when a single
- * worker loss still triggers a full recomputation.
- *
- * <p>The decision is bound to {@link ShuffleCapabilities#supportsTaskRetry()} — the single source of
- * truth — never to the provider's name.
+ * <p>The caller must already intersect implementation, deployment and current exchange evidence.
+ * This helper is not yet assembled into production dispatch; it does not validate receipts,
+ * select attempts or infer guarantees from a storage tier or transport mode.
  */
 public final class ShuffleRetryPolicyValidator {
-
-    private ShuffleRetryPolicyValidator() {
-    }
+    private ShuffleRetryPolicyValidator() {}
 
     /**
-     * Validates that the resolved provider can back the requested retry policy.
+     * Rejects unsupported consumer retry without silently choosing a different retry policy.
      *
-     * @param taskRetryRequested whether the configured retry policy demands task-level retry (FTE)
-     * @param capabilities       the resolved provider's declared capabilities
-     * @throws NullPointerException  if {@code capabilities} is null
-     * @throws IllegalStateException if task retry is requested but the provider does not support it
+     * @param consumerRetryRequested whether retry of a consumer against the same committed input is required
+     * @param capabilities effective guarantees for the particular exchange
+     * @throws NullPointerException if capabilities is null
+     * @throws IllegalStateException if the required consumer retry guarantee is absent
      */
-    public static void validate(boolean taskRetryRequested, ShuffleCapabilities capabilities) {
+    public static void validateConsumerRetry(boolean consumerRetryRequested, ShuffleCapabilityDescriptor capabilities) {
         Objects.requireNonNull(capabilities, "capabilities must not be null");
-        if (taskRetryRequested && !capabilities.supportsTaskRetry()) {
+        if (consumerRetryRequested && !capabilities.supports(CONSUMER_RETRY)) {
             throw new IllegalStateException(
-                    "Task-level retry (fault-tolerant execution) requires a shuffle provider whose "
-                            + "committed partitions survive task failure, but the configured provider "
-                            + "is " + capabilities.durability() + " (no task retry). Select a "
-                            + "LOCAL_SPILL or DURABLE provider "
-                            + "(shuffle.manager=local-spill|object-store) or disable "
-                            + "task-level retry.");
+                    "Consumer retry requires the effective Shuffle capability CONSUMER_RETRY; "
+                            + "storage medium and transport direction do not establish this guarantee. "
+                            + "Current capabilities: " + capabilities.capabilities());
         }
     }
 }

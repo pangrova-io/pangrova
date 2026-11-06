@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Base64;

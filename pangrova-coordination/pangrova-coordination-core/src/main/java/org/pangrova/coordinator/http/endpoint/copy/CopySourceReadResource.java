@@ -9,7 +9,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
-import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
+import org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 
 import java.net.URI;
@@ -21,10 +21,10 @@ import java.util.Objects;
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 public final class CopySourceReadResource {
-    private final JdbcCopySourceReadAdmissions admissions;
+    private final CopySourceReadAdmissions admissions;
     private final HighAvailabilityCoordinationService coordination;
 
-    public CopySourceReadResource(JdbcCopySourceReadAdmissions admissions,
+    public CopySourceReadResource(CopySourceReadAdmissions admissions,
                                   HighAvailabilityCoordinationService coordination) {
         CopySourceWireLoggingPolicy.requireSafeJettyLogging();
         this.admissions = Objects.requireNonNull(admissions, "admissions");
@@ -40,7 +40,7 @@ public final class CopySourceReadResource {
         Objects.requireNonNull(request, "request");
         var scope = scope(request.scope());
         var anchor = coordination.requireExecutionAnchor(scope.executionId());
-        var result = admissions.redeem(new JdbcCopySourceReadAdmissions.Ticket(request.nonce()),
+        var result = admissions.redeem(new CopySourceReadAdmissions.Ticket(request.nonce()),
                 scope, anchor);
         var revision = result.profile();
         var profile = revision.profile();
@@ -65,13 +65,13 @@ public final class CopySourceReadResource {
         var scope = scope(request.scope());
         var anchor = coordination.requireExecutionAnchor(scope.executionId());
         return proof(admissions.recordStagedSource(
-                new JdbcCopySourceReadAdmissions.Ticket(request.nonce()), scope,
+                new CopySourceReadAdmissions.Ticket(request.nonce()), scope,
                 staged(request.stagedSource()), anchor));
     }
 
-    private static JdbcCopySourceReadAdmissions.Scope scope(CopySourceReadHttp.Scope scope) {
+    private static CopySourceReadAdmissions.Scope scope(CopySourceReadHttp.Scope scope) {
         Objects.requireNonNull(scope, "scope");
-        return new JdbcCopySourceReadAdmissions.Scope(scope.tenantId(), scope.principal(),
+        return new CopySourceReadAdmissions.Scope(scope.tenantId(), scope.principal(),
                 scope.profileName(), scope.profileIncarnationId(), scope.profileRevision(),
                 scope.canonicalSourceUrl(), scope.managedStorageRootUri(),
                 scope.managedBackendIdentitySha256(),
@@ -80,16 +80,16 @@ public final class CopySourceReadResource {
                 scope.deadlineEpochMs());
     }
 
-    private static JdbcCopySourceReadAdmissions.StagedSource staged(
+    private static CopySourceReadAdmissions.StagedSource staged(
             CopySourceReadHttp.StagedSource proof) {
         Objects.requireNonNull(proof, "stagedSource");
-        return new JdbcCopySourceReadAdmissions.StagedSource(proof.sourceVersionId(),
+        return new CopySourceReadAdmissions.StagedSource(proof.sourceVersionId(),
                 proof.managedObjectUri(), proof.contentSha256(), proof.contentSize(),
                 proof.tenantScope());
     }
 
     private static CopySourceReadHttp.StagedSource proof(
-            JdbcCopySourceReadAdmissions.StagedSource proof) {
+            CopySourceReadAdmissions.StagedSource proof) {
         return new CopySourceReadHttp.StagedSource(proof.sourceVersionId(),
                 proof.managedObjectUri(), proof.contentSha256(), proof.contentSize(),
                 proof.tenantScope());

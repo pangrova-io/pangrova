@@ -18,7 +18,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Contract roots are every artifact declared in .pangrova/modules.yaml whose
-# artifactId is pangrova-spi or ends in -api or -spi. Adding a contract artifact to the manifest
+# artifactId ends in -api or -spi. Adding a contract artifact to the manifest
 # enrolls it in this gate automatically.
 CONTRACT_ROOTS=()
 while IFS= read -r artifact; do
@@ -30,8 +30,7 @@ while IFS= read -r artifact; do
     [[ -n "${dir}" && -d "${ROOT_DIR}/${dir}/src/main/java" ]] \
         && CONTRACT_ROOTS+=("${ROOT_DIR}/${dir}/src/main/java")
 done < <(sed -n -e 's/^  \(pangrova-.*-api\):$/\1/p' \
-    -e 's/^  \(pangrova-.*-spi\):$/\1/p' \
-    -e 's/^  \(pangrova-spi\):$/\1/p' "${ROOT_DIR}/.pangrova/modules.yaml")
+    -e 's/^  \(pangrova-.*-spi\):$/\1/p' "${ROOT_DIR}/.pangrova/modules.yaml")
 
 if [[ ${#CONTRACT_ROOTS[@]} -eq 0 ]]; then
     echo "ERROR: no -api/-spi contract roots found in .pangrova/modules.yaml" >&2
@@ -47,29 +46,29 @@ EXCEPTIONS=(
     # CatalogAccessControl, SchemaAccessControl, TableAccessControl,
     # ColumnAccessControl are composed into AccessControl which has
     # real implementors (RbacAccessControl, DynamicRbacAccessControl).
-    "pangrova-spi/src/main/java/org/pangrova/spi/security/CatalogAccessControl.java"
-    "pangrova-spi/src/main/java/org/pangrova/spi/security/SchemaAccessControl.java"
-    "pangrova-spi/src/main/java/org/pangrova/spi/security/TableAccessControl.java"
-    "pangrova-spi/src/main/java/org/pangrova/spi/security/ColumnAccessControl.java"
+    "pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/spi/authorization/CatalogAccessControl.java"
+    "pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/spi/authorization/SchemaAccessControl.java"
+    "pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/spi/authorization/TableAccessControl.java"
+    "pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/spi/authorization/ColumnAccessControl.java"
     # TextMapSetter: implemented via anonymous inner class in
     # FlightClientTracingInterceptor.GrpcMetadataTextMapSetter.
-    "pangrova-spi/src/main/java/org/pangrova/spi/observability/TextMapSetter.java"
+    "pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/tracing/TextMapSetter.java"
     # Scope: structural type (returned by Span.makeCurrent()); has Scope.NOOP
     # constant and lambda implementations. Not meant for external impl.
-    "pangrova-spi/src/main/java/org/pangrova/spi/observability/Scope.java"
+    "pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/tracing/Scope.java"
     # ConnectorTransactionHandle: implemented via anonymous inner class
     # (EMPTY constant) and used as parameter type throughout connectors.
-    "pangrova-spi/src/main/java/org/pangrova/spi/connector/ConnectorTransactionHandle.java"
+    "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/transaction/ConnectorTransactionHandle.java"
     # ConnectorMetadata sub-interfaces: composed into ConnectorMetadata which
     # is implemented by IcebergMetadata and PaimonMetadata.
-    "pangrova-spi/src/main/java/org/pangrova/spi/connector/metadata/ConnectorWriteMetadata.java"
-    "pangrova-spi/src/main/java/org/pangrova/spi/connector/metadata/ConnectorSchemaMetadata.java"
-    "pangrova-spi/src/main/java/org/pangrova/spi/connector/metadata/ConnectorQueryLifecycle.java"
-    "pangrova-spi/src/main/java/org/pangrova/spi/connector/metadata/ConnectorSnapshotMetadata.java"
+    "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ConnectorWriteMetadata.java"
+    "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ConnectorSchemaMetadata.java"
+    "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ConnectorQueryLifecycle.java"
+    "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ConnectorSnapshotMetadata.java"
     # Constraint: used as a parameter type (e.g., in ConnectorSplitManager.getSplits,
     # ConnectorMetadata.getTableStatistics); no class "implements Constraint" — the
     # sole implementation is the EMPTY lambda constant on the interface itself.
-    "pangrova-spi/src/main/java/org/pangrova/spi/connector/metadata/Constraint.java"
+    "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/Constraint.java"
 )
 
 violations=0

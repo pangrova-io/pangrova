@@ -1,7 +1,7 @@
 package org.pangrova.ai.control.embedding;
 
-import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg.handle;
 
-import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

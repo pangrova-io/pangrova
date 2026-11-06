@@ -1,25 +1,27 @@
 package org.pangrova.coordinator.maintenance;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.statement.ControlledTableMaintenance;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.table.api.maintenance.MaintenanceOperation;
 import org.pangrova.table.api.maintenance.MaintenanceRunState;
-import org.pangrova.table.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.api.control.TableControlState;
+import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.api.ownership.TableControlRecord;
+import org.pangrova.table.api.ownership.TableControlState;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.streaming.maintenance.CompactionResult;
 import org.pangrova.streaming.maintenance.MaintenanceConfig;
 import org.pangrova.streaming.maintenance.MaintenanceStatus;
@@ -50,6 +52,7 @@ import java.util.concurrent.CompletableFuture;
  * is quarantined, stale, or missing is skipped instead of being maintained.</p>
  */
 public final class ControlledTableMaintenanceSpi implements TableMaintenanceSpi {
+    private final ExecutionTraceContextFactory traceContexts;
 
     private static final Logger LOG =
             LoggerFactory.getLogger(ControlledTableMaintenanceSpi.class);
@@ -64,14 +67,15 @@ public final class ControlledTableMaintenanceSpi implements TableMaintenanceSpi 
 
     public ControlledTableMaintenanceSpi(CatalogRegistry catalogs,
             TableControlMaintenanceService policies, ControlledTableMaintenance executor,
-            MaintenanceConfig config) {
-        this(catalogs, policies, executor, config, Clock.systemUTC());
+            MaintenanceConfig config, ExecutionTraceContextFactory traceContexts) {
+        this(catalogs, policies, executor, config, Clock.systemUTC(), traceContexts);
     }
 
     /** Creates the SPI with an explicit clock for deterministic scheduling tests. */
     public ControlledTableMaintenanceSpi(CatalogRegistry catalogs,
             TableControlMaintenanceService policies, ControlledTableMaintenance executor,
-            MaintenanceConfig config, Clock clock) {
+            MaintenanceConfig config, Clock clock, ExecutionTraceContextFactory traceContexts) {
+        this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.catalogs = java.util.Objects.requireNonNull(catalogs, "catalogs");
         this.policies = java.util.Objects.requireNonNull(policies, "policies");
         this.executor = java.util.Objects.requireNonNull(executor, "executor");
@@ -314,12 +318,12 @@ public final class ControlledTableMaintenanceSpi implements TableMaintenanceSpi 
         return config.compactionInterval();
     }
 
-    private CoordinatorSessionContext systemContext(QualifiedTableName ref) {
-        return new CoordinatorSessionContext(
+    private QuerySession systemContext(QualifiedTableName ref) {
+        return new QuerySession(
                 "maintenance-status-" + UUID.randomUUID(),
                 Map.of("catalog", ref.catalog(), "schema", ref.schema()),
                 new UserIdentity(SYSTEM_ACTOR, Set.of(), Map.of(), clock.instant()),
-                "system");
+                "system", java.util.Optional.empty(), traceContexts.capture());
     }
 
     private static MaintenanceStatus emptyStatus(String tableName) {

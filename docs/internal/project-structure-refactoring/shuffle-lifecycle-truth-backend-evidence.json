@@ -1,0 +1,46 @@
+{
+  "Native": {
+    "baseline_text_files": 744,
+    "changed": []
+  },
+  "Worker": {
+    "baseline_text_files": 495,
+    "changed": []
+  },
+  "Protocol": {
+    "baseline_text_files": 273,
+    "changed": []
+  },
+  "Schema": {
+    "baseline_text_files": 99,
+    "changed": []
+  },
+  "Persistence": {
+    "baseline_text_files": 206,
+    "changed": []
+  },
+  "Client": {
+    "baseline_text_files": 81,
+    "changed": []
+  },
+  "Server assembly": {
+    "baseline_text_files": 143,
+    "changed": []
+  },
+  "Pangrova provider": {
+    "baseline_text_files": 27,
+    "changed": []
+  },
+  "Shuffle service": {
+    "baseline_text_files": 54,
+    "changed": []
+  },
+  "Local production": {
+    "baseline_text_files": 6,
+    "changed": []
+  },
+  "Native Adapter": {
+    "baseline_text_files": 3,
+    "changed": []
+  }
+}

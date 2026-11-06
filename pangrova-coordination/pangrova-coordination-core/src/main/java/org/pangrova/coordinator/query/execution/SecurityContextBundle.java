@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
 
 /**
  * Groups security-related dependencies for QueryDispatcher.

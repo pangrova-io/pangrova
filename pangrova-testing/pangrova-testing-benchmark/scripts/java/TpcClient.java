@@ -3,12 +3,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.transport.client.http.PangrovaRestClient;
 import org.pangrova.client.session.RetryPolicy;
 import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.transport.ArrowBatchDecoder;
-import org.pangrova.transport.ResultBatch;
-import org.pangrova.transport.security.ResultTransportSecurity;
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ResultBatch;
+import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;

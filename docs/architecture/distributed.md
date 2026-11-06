@@ -5,18 +5,86 @@ sidebar_label: "Distributed Architecture"
 
 # Pangrova — Distributed Architecture
 
-Cluster lease and coordinator/worker registry contracts live in
-`pangrova-coordination-api` under `org.pangrova.coordination.api`. JDBC and memory
-implementations remain in the Coordinator process; the optional ZooKeeper provider
-depends only on the API and its quorum SDK. `CoordinatorLeaseBootstrap` still selects
-the configured backend explicitly, with JDBC as its default. This extraction changes
-Java artifact/package identity and requires provider consumers to recompile; snapshot
-fields, registry payload encoding, fencing values and backend selection are unchanged.
+Cluster membership snapshots, process identities and lease values live in
+`pangrova-coordination-api`. Their persistence ports now live in the dedicated
+`pangrova-persistence-coordination-api`: `.api.membership`, `.api.lease` and
+`.api.admission`, with the real quorum extension in `.spi.provider` in the same
+artifact. PostgreSQL and process-local Memory implementations are separate
+`pangrova-persistence-coordination-postgresql` and `pangrova-persistence-coordination-memory`
+artifacts. Core receives these contracts explicitly; it cannot select a Memory backend.
+
+`CoordinatorLeaseBootstrap` in Server chooses the configured backend explicitly,
+with JDBC as its default. The optional ZooKeeper provider consumes the narrow
+persistence API and Coordination values alongside its quorum SDK. The shared
+DataSource belongs to Server; PostgreSQL operations close borrowed connections,
+not the pool. The quorum provider owns its shared client close hook.
+
+Canonical schema initialization owns the admission reservation tables (V106).
+Creating a PostgreSQL reservation provider validates existing authority, never
+creates a parallel schema or resets active reservations. Test-only Memory admission
+slots remain in Testing Kit and are not advertised as a production provider.
+See [the extraction evidence](../internal/project-structure-refactoring/coordination-persistence-ownership.md).
+
+Coordination backend failures now propagate through the shared API error contract and the HA
+registry adapter. ZooKeeper errors do not become missing membership/lease or successful updates;
+CAS exhaustion and invalid payloads also fail explicitly. A lost mutation acknowledgement may
+mean the write committed and requires authoritative confirmation. HA startup failures roll back
+local scheduling; demotion precedes remote release, and close attempts all cleanup stages while
+preserving failures. Singleton maintenance uses its separate lease lifecycle.
+See [failure and lifecycle evidence](../internal/project-structure-refactoring/coordination-failures-ownership.md).
+
+Query persistence has separate PostgreSQL and process-local Memory artifacts under
+`pangrova-persistence-query-*`. HA receives its anchor store explicitly and cannot replace
+that backend when binding the process authority. Task completion also requires an explicit
+write journal; Core cannot create an implicit Memory fallback. PostgreSQL write journal
+construction checks the canonical schema and performs no DDL. Memory provides no restart
+or multi-process durability. See [the Query persistence evidence](../internal/project-structure-refactoring/query-persistence-ownership.md).
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
+
+Worker withdrawal now uses the exact registered process. The internal authenticated
+`DELETE /v1/workers/{workerId}` request requires `Content-Type: application/json` and
+this body, using the values from that Worker's original registration:
+
+```json
+{
+  "admission_domain_id": "00000000-0000-0000-0000-000000000001",
+  "incarnation_id": "00000000-0000-0000-0000-000000000002"
+}
+```
+
+Missing identity is rejected. An already absent or replaced incarnation can be
+acknowledged as deregistered without removing the replacement. The real Worker
+registration client retains its attempted identity and sends this body after its
+existing task-owner shutdown sequence. The persistence port requires an atomic
+identity comparison; it has no unconditional logical-ID delete overload. The
+backend-neutral `WorkerRegistrationIdentity` value belongs to Coordination API;
+the `WorkerRegistry` port belongs to the dedicated Coordination Persistence API.
+
+Within one Coordinator, heartbeat, health evaluation and repeated registration of
+the same incarnation preserve DECOMMISSIONING. A removal decision using an old
+WorkerInfo snapshot cannot erase a newer local observation; the backend separately
+checks process identity. This is registration fencing, **not proof of safe physical
+scale-down**: persistent decommission/admission state and authoritative execution/output/reader
+inventory and drain are still pending.
+
+Heartbeat POST now requires `worker_execution_identity` with those same admission-domain and
+incarnation values. The registry atomically updates only that exact process; failure does not
+publish local metrics or tenant usage first. Missing registration yields `409/re-register`;
+another process owning the logical ID yields `409/fenced`. Automatic repair/retries use the
+separate authenticated `POST /v1/workers/refresh` endpoint, which inserts absence or refreshes
+that same identity, never replaces another process. The first registration attempt still uses
+`/v1/workers/register`; globally ordered initial admission is remaining work.
+
+A production Worker receiving `fenced` permanently closes new task reservation/publication and
+stops automatic heartbeat repair. Existing execution, status, cancellation, output release and
+shutdown keep their actual resource owners. Draining rejects canonical task submissions with
+503. This nonblocking admission seal is not a physical drain receipt or shutdown permit;
+readiness/admission integration and temporary-network-degradation policy remain separate work.
+See [the identity implementation evidence](../internal/project-structure-refactoring/worker-heartbeat-identity-ownership.md).
 
 > **Summary.** The Coordinator–Worker topology, multi-active high availability and leader election, worker registration and health checking, and shuffle durability.
 
@@ -100,89 +168,75 @@ public class PangrovaCoordinator implements Lifecycle {
 
 ### 1.3 Query Lifecycle Management
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Query Lifecycle                             │
-├─────────────────────────────────────────────────────────────────┤
-│  Client Request                                                  │
-│       │                                                          │
-│       ▼                                                          │
-│  ┌─────────────┐                                                │
-│  │   QUEUED    │  → Query enqueued, waiting for resources         │
-│  └──────┬──────┘                                                │
-│         │         ╲                                              │
-│         ▼          ╲ (cancel / resource timeout)                 │
-│  ┌─────────────┐    ╲                                           │
-│  │  PLANNING   │  → SQL parse → optimize → generate execution plan │
-│  └──────┬──────┘    ╲                                           │
-│         │            ╲ (cancel / syntax error / permission)      │
-│         ▼             ╲                                          │
-│  ┌─────────────┐       ╲                                        │
-│  │ SCHEDULING  │  → Assign Splits → schedule Tasks                │
-│  └──────┬──────┘        ╲                                       │
-│         │                ╲ (cancel / no available Worker)        │
-│         ▼                 ▼                                      │
-│  ┌─────────────┐   ┌───────────┐                                │
-│  │  RUNNING    │   │ CANCELLED │  ← User cancel (POST /v1/query/{id}/cancel) │
-│  └──────┬──────┘   └───────────┘    or system cancel              │
-│         │          ╱                                             │
-│    ┌────┴────┐   ╱ (cancel during execution)                    │
-│    ▼         ▼ ╱                                                │
-│ ┌──────┐ ┌──────┐                                               │
-│ │FINISH│ │FAILED│  ← Unrecoverable error                          │
-│ └──────┘ └──────┘                                               │
-└─────────────────────────────────────────────────────────────────┘
+`org.pangrova.query.core.lifecycle.QueryStateMachine` is the single owner of in-process
+query state. `QueryManager` currently remains in Coordination Core and coordinates
+admission, dispatch and lifecycle collaborators; that remaining migration is not complete.
+
+```mermaid
+stateDiagram-v2
+    [*] --> QUEUED
+    QUEUED --> PLANNING
+    PLANNING --> SCHEDULING
+    SCHEDULING --> RUNNING
+    RUNNING --> FINISHING
+    FINISHING --> FINISHED
+    QUEUED --> FAILED
+    PLANNING --> FAILED
+    SCHEDULING --> FAILED
+    RUNNING --> FAILED
+    FINISHING --> FAILED
+    QUEUED --> CANCELLED
+    PLANNING --> CANCELLED
+    SCHEDULING --> CANCELLED
+    RUNNING --> CANCELLED
 ```
 
+`FINISHED`, `FAILED` and `CANCELLED` are terminal. Cancellation cannot interrupt
+`FINISHING` publication through a nonexistent transition. The state owner reserves
+transitions under its monitor, runs durable recording and fencing callbacks outside
+that monitor, then publishes state and notifies listeners. Failed recording does not
+publish a terminal state. The actual issued Connector authority and operation scope
+are bound to that state owner; an ID lookup cannot replace the original scope.
 
-**State Transition Table**:
+Logical termination is separate from physical completion. `QueryTerminalCleanup`
+records terminal facts and publishes logical effects before cancellation/drain/cleanup.
+A failed physical release retains the query and its retry obligation. Task and operation
+exit notifications enqueue retry work and do not run journal I/O on the exit thread.
+`QueryRetentionScheduler` removes history only after both terminal publication and
+physical completion and while no completion is pending. Its executors and registry
+are borrowed from the process/query owners; stopping schedules does not close them.
 
-| From | To | Trigger |
-|------|----|---------|
-| QUEUED | PLANNING | Resources available, dequeued |
-| QUEUED | FAILED | Resource acquisition timeout |
-| QUEUED | CANCELLED | User cancel (`POST /v1/query/{id}/cancel`) |
-| PLANNING | SCHEDULING | Plan generated successfully |
-| PLANNING | FAILED | Syntax error, permission denied, optimizer failure |
-| PLANNING | CANCELLED | User cancel |
-| SCHEDULING | RUNNING | All Tasks dispatched |
-| SCHEDULING | FAILED | No available Worker (after retry exhaustion) |
-| SCHEDULING | CANCELLED | User cancel |
-| RUNNING | FINISH | All Tasks completed successfully |
-| RUNNING | FAILED | Unrecoverable task failure (§4.1) |
-| RUNNING | CANCELLED | User cancel or system-initiated cancel (e.g., quota exceeded) |
+Readiness futures are observer-owned copies. Completing or cancelling a returned wait
+cannot manufacture an endpoint, dispatch a write or cancel another observer. Native
+write completion held for control-plane publication remains distinct from final query
+completion. These guarantees are covered by Query Core tests and actual Coordinator,
+journal and Native ownership tests; a class move alone is not execution evidence.
 
-Terminal states: `FINISH`, `FAILED`, `CANCELLED`. No transitions out of terminal states.
+### 1.4 Current Module Ownership
 
-### 1.4 Coordinator Module Structure
-
-```
+```text
+pangrova-query/
+├── pangrova-query-api/           # State/session/event contracts and cleanup ports
+└── pangrova-query-core/
+    └── org.pangrova.query.core/
+        ├── lifecycle/          # QueryStateMachine, QueryTerminalCleanup, timeout
+        ├── retention/          # QueryRetentionScheduler, reader-pin renewal
+        ├── stage/              # StageStateMachine
+        └── audit/, event/, profiling/, task/
+pangrova-server/pangrova-server-coordinator/
+└── org.pangrova.server.coordinator/  # Process bootstrap and endpoints
 pangrova-coordination/pangrova-coordination-core/
-├── src/main/java/org/pangrova/coordinator/
-│   ├── PangrovaCoordinator.java           # Main entry point
-│   ├── CoordinatorConfig.java           # Configuration
-│   ├── server/                          # Service layer
-│   │   └── http/                        # HTTP REST API
-│   ├── query/                           # Query management
-│   │   ├── QueryManager.java
-│   │   ├── QueryStateMachine.java
-│   │   └── QueryTracker.java
-│   ├── scheduler/                       # Scheduler
-│   │   ├── SchedulerService.java
-│   │   ├── StageScheduler.java
-│   │   └── strategy/                    # Scheduling strategies
-│   ├── worker/                          # Worker management
-│   │   ├── WorkerManager.java
-│   │   └── WorkerRegistry.java
-│   ├── metadata/                        # Metadata management
-│   │   ├── MetadataService.java
-│   │   └── CatalogRegistry.java
-│   ├── ha/                              # High availability
-│   │   ├── HACoordinationService.java
-│   │   └── LeaderElection.java
-│   └── session/                         # Session management
-│       └── SessionManager.java
+└── org.pangrova.coordinator/
+    ├── query/                  # Remaining QueryManager/admission/dispatch integration
+    ├── worker/                 # Current worker discovery and membership integration
+    └── ...                     # Further domain extraction remains in progress
 ```
+
+Query Core depends on the Connector contract to manage the issued query scope; it
+has no Coordinator, Worker, Planner, Connector Runtime or persistence-provider dependency.
+Core lifecycle implementation classes are internal engine collaborators, not additional
+public API/SPI artifacts. Final target structure and outstanding work are tracked in the
+[modularization ADR](domain-modularization-adr.md) and its implementation ledger.
 
 ---
 
@@ -1321,6 +1375,18 @@ class WorkerCacheReporter:
 
 
 ## 10. Worker Performance Scoring & Graceful Degradation (OPT-013)
+
+**Implementation status (module refactoring):** the diagrams and pseudocode below
+describe the broader design, not a completed capability inventory. Actual placement
+uses Scheduler Core eligibility checks and the injected builtin
+`org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy`. It ranks the current
+memory-pressure and CPU snapshot, with concurrent rotation of ties. Disk/network
+latencies are not supplied on this path, and scoring thresholds do not currently
+drive blacklisting. The old FairShareStrategy (retired) and common-factor score multiplier
+have been removed: multiplying every candidate by the same share did not provide
+tenant fairness. The optional Java `WeightedFairScheduler` still has its own queue
+and lifecycle; its existence is not proof that distributed query execution uses
+weighted CPU allocation. Those integrations remain unimplemented.
 
 This section introduces a composite Worker Performance Score and a weighted fair CPU scheduler, replacing the current binary health model (alive/dead) with multi-dimensional performance awareness.
 

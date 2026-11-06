@@ -1,7 +1,7 @@
 package org.pangrova.worker.nativebridge.jni.write.catalog;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.connector.spi.plugin.Connector;
 
 /** Retains an initializing or failed connector until its actual shutdown returns. */
 @ThreadSafe

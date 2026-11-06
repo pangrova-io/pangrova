@@ -32,22 +32,22 @@ import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.schema.IcebergSchemaBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.data.type.MapType;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.RowField;
-import org.pangrova.spi.connector.data.type.RowType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.data.type.primitive.BigIntType;
-import org.pangrova.spi.connector.data.type.primitive.VarcharType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.DeleteFilter;
+import org.pangrova.types.ArrayType;
+import org.pangrova.types.MapType;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.types.RowField;
+import org.pangrova.types.RowType;
+import org.pangrova.types.VectorType;
+import org.pangrova.types.primitive.BigIntType;
+import org.pangrova.types.primitive.VarcharType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.io.IOException;
@@ -72,7 +72,7 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
     private static final TableIdentifier ID = TableIdentifier.of("db", "events");
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

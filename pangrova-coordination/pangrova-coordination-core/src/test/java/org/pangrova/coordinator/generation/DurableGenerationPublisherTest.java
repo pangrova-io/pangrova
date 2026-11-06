@@ -2,24 +2,24 @@ package org.pangrova.coordinator.generation;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
+import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.job.GenerationOutput;
-import org.pangrova.spi.generation.GenerationOutputScope;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.spi.generation.job.GenerationPageCompletion;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
-import org.pangrova.spi.generation.manifest.GenerationManifest;
-import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
-import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.output.GenerationOutput;
+import org.pangrova.generation.api.output.GenerationOutputScope;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.generation.api.page.GenerationPageCompletion;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.publication.GenerationManifest;
+import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
+import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -57,9 +57,9 @@ class DurableGenerationPublisherTest {
                 "durable_artifact_publisher");
         store = ModelAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures(dataSource);
-        var source = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items");
+        var source = new org.pangrova.connector.api.metadata.table.QualifiedTableName("catalog", "schema", "items");
         org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures.provision(
-                dataSource, TENANT, "principal-1", org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                dataSource, TENANT, "principal-1", org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(
                         source, java.util.Set.of("embedding"), source));
         clock = new MutableClock(START);
     }
@@ -146,7 +146,7 @@ class DurableGenerationPublisherTest {
 
         executions.ownership("maintenance-a").yield(buildAnchor);
         assertThat(store.listReadyForPublication(10, START.plusSeconds(1)))
-                .containsExactly(new org.pangrova.spi.generation.job.GenerationJobKey(TENANT, "job-1"));
+                .containsExactly(new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, "job-1"));
 
         AtomicInteger calls = new AtomicInteger();
         GenerationPublicationStore adapter = (claim, owner, epoch, now) -> {
@@ -178,26 +178,26 @@ class DurableGenerationPublisherTest {
         store.createJob(new GenerationJob(
                         TENANT, "job-1", "artifact-1", TYPE, "generation-1",
                         "catalog.schema.items", "snapshot-1",
-                        org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
-                        org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
+                        org.pangrova.generation.api.execution.GenerationExecutionKind.BUILD,
+                        org.pangrova.generation.api.dependency.GenerationDependencySet.sourceSnapshot(
                                 "catalog.schema.items", "snapshot-1"),
-                        org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
+                        org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.FORBID,
                         "s3://bucket/staging/artifact-1/generation-1",
                         "pangrova.diskann.segment", 1, 0, "a".repeat(64),
                         "native-build-1", "",
                         "request-1", 1, 0, GenerationJobState.QUEUED,
                         0, START, START, START),
                 GenerationDispatchSpecFactory.create(
-                        "job-1", org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
+                        "job-1", org.pangrova.generation.core.submission.GenerationStageGraphFactory.forArtifactPages(
                                 "plan".getBytes(StandardCharsets.UTF_8), "binding".getBytes(StandardCharsets.UTF_8),
                                 List.of(new GenerationPage("job-1", "page-1", 0, 0, 0,
                                         GenerationPageKind.SOURCE_MAP, List.of(GenerationSplit.of(
                                                 "source-1", "canonical-split".getBytes(StandardCharsets.UTF_8))), List.of(), 3)), java.util.List.of()),
                         TENANT, "principal-1",
-                        org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
-                                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items"),
+                        org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(
+                                new org.pangrova.connector.api.metadata.table.QualifiedTableName("catalog", "schema", "items"),
                                 java.util.Set.of("embedding"),
-                                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items")),
+                                new org.pangrova.connector.api.metadata.table.QualifiedTableName("catalog", "schema", "items")),
                         new GenerationDispatchSpec.ResourceGrant(
                                 1024, 1, 1024, 60_000)),
                 List.of(new GenerationPage(

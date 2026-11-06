@@ -1,0 +1,14 @@
+[
+  {
+    "path": "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/stage/AuthorizedStageReplayTest.java",
+    "before_sha256": "35a7f4e8c7fef0b3148366c3b30db6bd3ec804e3ba479b38ed62757253ec4bfa",
+    "after_sha256": "234d118fa587b833624a39978dbb520c3868e8e38ea6b6e387d0b6f46c0b35e4",
+    "tokens_including_literals_and_comments_identical": true
+  },
+  {
+    "path": "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGStageExchangeBindingTest.java",
+    "before_sha256": "9941de3c128d190ed0246d9c2eb2cc129b536d7633ccae28c4538c61b8041934",
+    "after_sha256": "c14aa0c6c5dfbebda60a7eb0a54e447baf1dc7f3637022d034b2b187d93a58e8",
+    "tokens_including_literals_and_comments_identical": true
+  }
+]

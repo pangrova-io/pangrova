@@ -1,0 +1,99 @@
+{
+  "pangrova-scheduler/pangrova-scheduler-core/src/main/java/org/pangrova/scheduler/core/placement/WorkerCapabilityMatcher.java": {
+    "old_path": "pangrova-scheduler/pangrova-scheduler-core/src/main/java/org/pangrova/scheduler/core/placement/WorkerCapabilityMatcher.java",
+    "token_body_identical": false,
+    "review": "Move exact wire capability identity comparison into Protocol CapabilityIdentities; remove former public helper and update internal calls. Semantic version/signature and optional required build pin comparison is token-identical. Placement/resource/artifact matching remains Scheduler Core.",
+    "before_sha256": "d0d685681827d8672a71a028356db985ade3baf865eb135b6a9f384a471ebd8d",
+    "after_sha256": "160a5e1e48b4a9523d27ad0b861b648be54a7b67590027d28c79178c14c2d821"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java",
+    "token_body_identical": false,
+    "review": "Replace global DispatchQueryContext with only optional vector plan and reranker plan inputs. Keep source identities, candidate budgets, strategy/ambiguity validation and encoding unchanged. Replace duplicate Worker inventory search with canonical Scheduler ExactModelResolver, adding existing complete serving-envelope validation to the reranker path. Map no-available-model to existing PLANNER_VALIDATION_FAILURE with cause; never pick another model/version or silently bypass limits.",
+    "before_sha256": "3d5a34e59d225c7d82b9bb8c3ec272eb507488471064f51f3315bd15156d026f",
+    "after_sha256": "c83c88f3f4c4a977cceffb45ffe7791e9d4413f50adcd043f757edb92b693c36"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AlterEmbeddingModelTask.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AlterEmbeddingModelTask.java",
+    "token_body_identical": true,
+    "review": "Identical token body after explicit FQN/type mapping; package/import/comments/whitespace excluded, literals retained. Existing algorithms, authority order, state and resource ownership unchanged.",
+    "before_sha256": "656d517c9789939c7e4a61a0b4eb96a421246dcdb28234f31d453dad3dedfd9f",
+    "after_sha256": "3675af873b47f24e844b8647b712f43c2260fea7577ec93e05615622d37022b4"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateEmbeddingModelTask.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateEmbeddingModelTask.java",
+    "token_body_identical": true,
+    "review": "Identical token body after explicit FQN/type mapping; package/import/comments/whitespace excluded, literals retained. Existing algorithms, authority order, state and resource ownership unchanged.",
+    "before_sha256": "2bd05ddad2aa829bb0ef94679148d8abeb4ac17aab30cc67a7f23260888ae625",
+    "after_sha256": "baf204dddf800a90981f2b37df28b4f470d6b1cf1f7d5733c5bd0cf0f165c5bf"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/retrieval/RetrievalGenerationResolver.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/retrieval/RetrievalGenerationResolver.java",
+    "token_body_identical": false,
+    "review": "Replace entire DAGQueryContext with explicit artifact intents and optional merge. Preserve duplicate/unconsumed source rejection, snapshot binding and BM25 refusal versus explicit supported exact-vector fallback. Null global context compatibility belongs to caller, not the resolver. Does not acquire ownership of snapshots/store or query lifecycle.",
+    "before_sha256": "0ccd02b796bb729dff729e75c2a38a90f310ce91f9539f0bfc1d38e9134f92df",
+    "after_sha256": "dfb48e3a11dd9af72b733f8878369ed7e430f8a589832e08f26cfa4eb8cc5c0f"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DefaultWorkerSelector.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DefaultWorkerSelector.java",
+    "token_body_identical": false,
+    "review": "Use AI Control deployment validation and Scheduler Core exact model resolver, mapping only the resolver input from active WorkerInfo to capability inventory. Preserve embedding Catalog current permission/version checks and all ordinary Worker scheduling/resource/cache logic.",
+    "before_sha256": "1622e85391e7dce32e98b107c03a9a0c055cadb060e684d4ecea19dff1a6ae8e",
+    "after_sha256": "cd5762e21037c861e74020720c9bf33d1e42beeedb49e8a0f324caa71d985eca"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java",
+    "token_body_identical": false,
+    "review": "Extract actual artifact and merge inputs from existing query context; preserve prior null context -> no artifact resolution behavior at the orchestration owner. Existing generated overlays, security/session binding and final task binding unchanged.",
+    "before_sha256": "f47a0009ee8d75ac76c00ca95755690aa9a10537f84e4c1eba37b2f14f3fdaab",
+    "after_sha256": "6c4affcb8496edfcd9da32f6c9257b4e4ed92e99bc256499ece9af8c6f74a823"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/AiInvocationOperatorBinder.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/AiInvocationOperatorBinder.java",
+    "token_body_identical": true,
+    "review": "Identical token body after explicit FQN/type mapping; package/import/comments/whitespace excluded, literals retained. Existing algorithms, authority order, state and resource ownership unchanged.",
+    "before_sha256": "163a1e05b2ed7e4e566814c2b62db6eaca5eef8c1b7d6ee5d2fc96992138be02",
+    "after_sha256": "b5a40e8e2f187b44795ff1dbc2e396672c773c9fc8834e981ea1216bfc3fbe91"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java",
+    "token_body_identical": false,
+    "review": "Pass only optional vector/reranker plans and tenant to retrieval binding instead of the whole dispatch context. No Worker selection, allocation, state/fencing, parallelism or resource behavior changed.",
+    "before_sha256": "81accbd0c2f4f2555c988ca1ab6cfc13d5dea77a9484d546e216221b299015ff",
+    "after_sha256": "d38605f9783308640bcb27b9f63aa5a2989b9ecdf12ca9efda204921ac8c33ce"
+  },
+  "pangrova-scheduler/pangrova-scheduler-core/src/main/java/org/pangrova/scheduler/core/placement/ExactModelResolver.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/model/ExactModelResolver.java",
+    "token_body_identical": false,
+    "review": "Move to Scheduler Core. Consume explicitly supplied active CapabilityInventory snapshots instead of concrete Coordinator WorkerInfo. Preserve exact name/capability filtering, whole-envelope distinctness, ambiguity refusal and complete resource limit/version/signature validation. No discovery, membership, SDK, storage or resource ownership.",
+    "before_sha256": "19bfc654e2a957de563143e13ee526e81ca841a17ee12976ba20b0dd7617a8a2",
+    "after_sha256": "391f96527c1c356fe194a918c89bfd76d219b5b225c1ffcc9abc355cc013bfae"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/DurableGeneratedValueBuildService.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/DurableGeneratedValueBuildService.java",
+    "token_body_identical": true,
+    "review": "Identical token body after explicit FQN/type mapping; package/import/comments/whitespace excluded, literals retained. Existing algorithms, authority order, state and resource ownership unchanged.",
+    "before_sha256": "de801da8e92acfd1e9f9b0ff1836714494c1a0221827cacb73d356f3abfe0d8c",
+    "after_sha256": "b37dab38fc1e3b33aff8fb4fe9b2aae7ae0a9d30f6b938572dd14b05cf6948be"
+  },
+  "pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/model/EmbeddingModelExecutionAdmission.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/EmbeddingModelExecutionAdmission.java",
+    "token_body_identical": true,
+    "review": "Identical token body after explicit FQN/type mapping; package/import/comments/whitespace excluded, literals retained. Existing algorithms, authority order, state and resource ownership unchanged.",
+    "before_sha256": "40a0c1fa12ddeb74c10ad53f09227f765351390659b9ca8f2ebb82e6662d267c",
+    "after_sha256": "91bbb7e2d1f8388e34663d2bfe2f5dce6accb1da87b29a68c597fdb12e23da63"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/EmbeddingModelTaskRegistration.java": {
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/EmbeddingModelTaskRegistration.java",
+    "token_body_identical": false,
+    "review": "Server maps active WorkerInfo to capability inventory for the canonical Scheduler resolver. CREATE/ALTER embedding tasks retain current AI catalog authority and deployment fence binding; no alternate registry or lifecycle.",
+    "before_sha256": "8a5973814f1c8a4dea203d05ae8c7c5d76204e8797625affec12348a984e0550",
+    "after_sha256": "ac8824f073fbf34a169688acb2871a4e404de1c22a700b6c5ce300831c9a77ed"
+  },
+  "pangrova-protocol/src/main/java/org/pangrova/protocol/capability/CapabilityIdentities.java": {
+    "old_path": null,
+    "token_body_identical": false,
+    "review": "Own the unchanged exact CapabilityRef comparison in Protocol. Semantic ID/version/signature must match; only a blank required implementation build permits an advertised build. Pure structural comparison, no model discovery, placement, authority, SDK, lifecycle or fallback.",
+    "after_sha256": "de7a15e70286317e3526550a6bf121713e1533326f1d5438e34a17667a60ddda"
+  }
+}

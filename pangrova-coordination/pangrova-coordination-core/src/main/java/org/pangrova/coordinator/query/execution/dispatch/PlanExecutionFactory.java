@@ -1,21 +1,28 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.query.api.statement.StatementCategory;
+
+import org.pangrova.query.core.statement.StatementTableTargets;
+
+import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
+import org.pangrova.query.core.task.DispatchResult;
+
 import java.util.List;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.parser.AstPrinter;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.InsertStatement;
-import org.pangrova.parser.ast.statement.ExplainStatement;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
-import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
-import org.pangrova.parser.ast.statement.dml.MergeStatement;
-import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.core.format.AstPrinter;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.statement.ExplainStatement;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
+import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+import org.pangrova.types.value.TypedRow;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -34,7 +41,7 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
 
     private final NativeDmlCompileFunction dmlDispatch;
     private final Consumer<String> writeCompleteCallback;
-    private final BiFunction<String, CoordinatorSessionContext, String> explainCompiler;
+    private final BiFunction<String, QuerySession, String> explainCompiler;
     private final org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry;
     private final org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
@@ -96,7 +103,7 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
                     "Native DML dispatch returned null for "
                             + statement.getClass().getSimpleName());
         }
-        var mutatedRef = TableNameExtractor.extractQualified(statement, ctx.session());
+        var mutatedRef = StatementTableTargets.resolve(statement, ctx.session());
         String mutatedTable = mutatedRef == null ? null : mutatedRef.toString();
         if (writeCompleteCallback != null && mutatedTable != null) {
             try {
@@ -114,9 +121,9 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
     }
 
     private void validateInsertValuesGovernance(
-            Statement statement, CoordinatorSessionContext coordinatorSession) {
+            Statement statement, QuerySession coordinatorSession) {
         final java.util.Optional<java.util.List<String>> requestedColumns;
-        final java.util.List<java.util.List<org.pangrova.parser.ast.Expression>> rows;
+        final java.util.List<java.util.List<org.pangrova.parser.api.ast.Expression>> rows;
         if (statement instanceof InsertStatement insert) {
             requestedColumns = insert.columns();
             rows = insert.values();
@@ -131,18 +138,18 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
                     org.pangrova.common.exception.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "INSERT VALUES requires at least one row");
         }
-        org.pangrova.spi.connector.metadata.table.QualifiedTableName ref =
-                TableNameExtractor.extractQualified(statement, coordinatorSession);
-        org.pangrova.spi.connector.ConnectorSession session =
+        org.pangrova.connector.api.metadata.table.QualifiedTableName ref =
+                StatementTableTargets.resolve(statement, coordinatorSession);
+        org.pangrova.connector.api.session.ConnectorSession session =
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                         coordinatorSession, ref.catalog(), ref.schema());
-        org.pangrova.spi.connector.metadata.ConnectorMetadata metadata =
+        org.pangrova.connector.spi.metadata.ConnectorMetadata metadata =
                 catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
-        org.pangrova.spi.connector.metadata.table.ConnectorTableHandle table =
-                org.pangrova.coordinator.query.statement.TableResolver.requireTableHandle(
+        org.pangrova.connector.api.metadata.table.ConnectorTableHandle table =
+                ConnectorTableLookup.requireTableHandle(
                         metadata, session, ref);
         java.util.List<String> columns =
-                org.pangrova.coordinator.query.statement.TableResolver.resolveInsertColumns(
+                ConnectorTableLookup.resolveInsertColumns(
                         requestedColumns, metadata, session, table);
         org.pangrova.coordinator.query.statement.dml.FileColumnMimeValidator.validate(
                 metadata.getTableMetadata(session, table), columns, rows);
@@ -151,22 +158,22 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
     }
 
     private void requireGeneratedColumnPlanIfNeeded(
-            Statement statement, CoordinatorSessionContext session) {
+            Statement statement, QuerySession session) {
         if (statement instanceof DeleteStatement || catalogRegistry == null) {
             return;
         }
-        org.pangrova.spi.connector.metadata.table.QualifiedTableName ref =
-                TableNameExtractor.extractQualified(statement, session);
+        org.pangrova.connector.api.metadata.table.QualifiedTableName ref =
+                StatementTableTargets.resolve(statement, session);
         if (ref == null) {
             return;
         }
-        org.pangrova.spi.connector.ConnectorSession connectorSession =
+        org.pangrova.connector.api.session.ConnectorSession connectorSession =
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                         session, ref.catalog(), ref.schema());
-        org.pangrova.spi.connector.metadata.ConnectorMetadata metadata =
+        org.pangrova.connector.spi.metadata.ConnectorMetadata metadata =
                 catalogRegistry.getCatalog(ref.catalog()).getMetadata(connectorSession);
-        org.pangrova.spi.connector.metadata.table.ConnectorTableHandle tableHandle =
-                org.pangrova.coordinator.query.statement.TableResolver.requireTableHandle(
+        org.pangrova.connector.api.metadata.table.ConnectorTableHandle tableHandle =
+                ConnectorTableLookup.requireTableHandle(
                         metadata, connectorSession, ref);
         org.pangrova.coordinator.query.statement.dml.GeneratedColumnWriteGuard
                 .requireNativeMaterializationPlan(

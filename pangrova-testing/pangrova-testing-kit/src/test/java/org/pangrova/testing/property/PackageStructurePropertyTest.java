@@ -29,10 +29,10 @@ class PackageStructurePropertyTest {
     private static final Path PROJECT_ROOT = TestProjectPaths.findProjectRoot();
     private static final Pattern PACKAGE_DECLARATION = Pattern.compile("(?m)^\\s*package\\s+([\\w.]+)\\s*;");
 
-    /** Legacy module packages deleted in M15; any declaration or import is a hard failure. */
+    /** Retired resource/resilience owners; SPI is the current shared-contract owner. */
     private static final Pattern LEGACY_PACKAGE_REFERENCE = Pattern.compile(
             "(?m)^\\s*(?:package|import(?:\\s+static)?)\\s+"
-                    + "(org\\.pangrova\\.(?:spi|resource|resilience)(?:\\.[\\w.]+)?)\\s*;");
+                    + "(org\\.pangrova\\.(?:resource|resilience)(?:\\.[\\w.]+)?)\\s*;");
 
     private static final Set<String> FORBIDDEN_TECH_LAYER_NAMES = Set.of(
             "dto", "service", "dao", "repository", "controller"
@@ -73,9 +73,23 @@ class PackageStructurePropertyTest {
             }
         }
         assertThat(offenders)
-                .as("pangrova-spi/resource/resilience were deleted in M15; import the owning "
+                .as("pangrova-resource/resilience were deleted in M15; import the owning "
                         + "domain contract instead")
                 .isEmpty();
+    }
+
+    @Example
+    void domainContractsAreAllowedWhileRetiredOwnersRemainRejected() {
+        for (String declaration : List.of("package org.pangrova.table.api.ownership;",
+                "import org.pangrova.table.api.ownership.TableControlRecord;",
+                "import static org.pangrova.table.api.ownership.TableControlState.ACTIVE;")) {
+            assertThat(LEGACY_PACKAGE_REFERENCE.matcher(declaration).find()).isFalse();
+        }
+        for (String declaration : List.of("package org.pangrova.resource;",
+                "import org.pangrova.resilience.RetryPolicy;",
+                "import static org.pangrova.resource.MemoryPool.LIMIT;")) {
+            assertThat(LEGACY_PACKAGE_REFERENCE.matcher(declaration).find()).isTrue();
+        }
     }
 
     @Provide

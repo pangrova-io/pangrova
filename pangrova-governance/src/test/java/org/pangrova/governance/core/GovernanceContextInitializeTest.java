@@ -15,8 +15,8 @@ import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQuality
 import org.pangrova.governance.core.quality.GovernanceStatementHandler;
 import org.pangrova.governance.core.quality.InMemoryQualityRuleStore;
 import org.pangrova.governance.api.quality.QualityRuleStore;
-import org.pangrova.spi.security.mask.ColumnMaskRecord;
-import org.pangrova.persistence.api.security.mask.ColumnMaskStore;
+import org.pangrova.security.api.mask.ColumnMaskRecord;
+import org.pangrova.persistence.security.api.mask.ColumnMaskStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests GovernanceContext.initialize() registers quality rules from QualityRuleStore.
  */
 class GovernanceContextInitializeTest {
-    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+    private static final java.util.Map<org.pangrova.connector.api.metadata.table.QualifiedTableName, java.util.UUID>
             tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
 
     private GovernanceContext module;

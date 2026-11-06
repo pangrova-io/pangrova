@@ -1,6 +1,8 @@
 package org.pangrova.testing.integration.e2e.resilience;
 
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.WriteTestHelper;
@@ -91,7 +93,7 @@ class WorkerCrashQueryTerminationTest extends SqlE2ETestBase {
             assertThat(submitted).as("failed query was registered").isNotEmpty();
             assertThat(submitted).allSatisfy(queryId ->
                     assertThat(queryManager.getQueryState(queryId)).contains(
-                            org.pangrova.coordinator.query.QueryStateMachine.State.FAILED));
+                            QueryState.FAILED));
             assertThat(queryManager.getActiveQueryIds())
                     .as("physical cleanup waits for the unreachable Worker's real drain receipt")
                     .containsAnyElementsOf(submitted);

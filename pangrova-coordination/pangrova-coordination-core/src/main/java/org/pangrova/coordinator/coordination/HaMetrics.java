@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.coordination;
 
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 
 import java.util.Objects;
 import java.util.function.Supplier;

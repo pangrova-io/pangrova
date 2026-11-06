@@ -1,6 +1,6 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
-import org.pangrova.protocol.batch.ColumnarBatch;
+import org.pangrova.batch.api.reader.ReadableBatch;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import java.util.Arrays;
@@ -13,7 +13,7 @@ final class WritePageProjector {
 
     private WritePageProjector() {}
 
-    static ColumnarBatch projectToWriteSchema(ColumnarBatch batch, List<String> descriptorColumns,
+    static ReadableBatch projectToWriteSchema(ReadableBatch batch, List<String> descriptorColumns,
             boolean requirePhysicalColumns) {
         List<String> source = batch.columns();
         boolean positional = hasCanonicalPhysicalColumns(source);

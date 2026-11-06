@@ -7,28 +7,24 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -59,7 +55,6 @@ class DefaultMetadataServiceQueryEndCleanupTest {
         lifetime.retire();
     }
 
-
     private RecordingConnectorMetadata connectorMetadata;
     private DefaultMetadataService service;
     private CatalogRegistry registry;
@@ -68,7 +63,7 @@ class DefaultMetadataServiceQueryEndCleanupTest {
     @BeforeEach
     void setUp() {
         connectorMetadata = new RecordingConnectorMetadata();
-        TestMetadataStore store = new TestMetadataStore();
+        TestCatalogDeployments store = new TestCatalogDeployments();
         dispatcher = new MetadataEventDispatcher();
         ConnectorHandleFactory chf = desc ->
                 new ConnectorCatalogHandle(desc, new TestConnector(connectorMetadata));
@@ -193,13 +188,13 @@ class DefaultMetadataServiceQueryEndCleanupTest {
         final CopyOnWriteArrayList<String> cleanupQueryIds = new CopyOnWriteArrayList<>();
 
         @Override
-        public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        public void beginQuery(org.pangrova.connector.api.query.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId();
             beginQueryIds.add(queryId);
         }
 
         @Override
-        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        public void cleanupQuery(org.pangrova.connector.api.query.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId();
             cleanupQueryIds.add(queryId);
         }
@@ -253,13 +248,15 @@ class DefaultMetadataServiceQueryEndCleanupTest {
         public void shutdown() { }
     }
 
-    static final class TestMetadataStore implements MetadataStore {
+    static final class TestCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final CopyOnWriteArrayList<CatalogDescriptor> catalogs = new CopyOnWriteArrayList<>();
 
-        @Override public void saveTable(TableMetadata m) { }
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) { }
-        @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) {
             catalogs.removeIf(x -> x.name().equals(d.name()));
             catalogs.add(d);
@@ -269,9 +266,6 @@ class DefaultMetadataServiceQueryEndCleanupTest {
         }
         @Override public void deleteCatalogDescriptor(String n) { catalogs.removeIf(d -> d.name().equals(n)); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.copyOf(catalogs); }
-        @Override public Optional<Instant> getLastSyncTime(String n) { return Optional.empty(); }
-        @Override public void updateSyncTime(String n, Instant t) { }
-        @Override public void recordSyncHistory(SyncResult r) { }
-        @Override public void saveSchemas(String n, List<String> s) { }
+
     }
 }

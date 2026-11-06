@@ -11,7 +11,7 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.service.DefaultMetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;

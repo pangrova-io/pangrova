@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
+import org.pangrova.execution.core.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 

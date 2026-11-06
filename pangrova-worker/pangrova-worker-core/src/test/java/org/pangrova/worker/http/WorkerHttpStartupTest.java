@@ -27,7 +27,8 @@ class WorkerHttpStartupTest {
     @BeforeEach
     void startWithoutAnyWarmupRequest() throws Exception {
         tasks = TaskManager.forHttpWiringOnly();
-        server = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", 0, SECRET),
+        server = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", 0, SECRET)
+                        .withBindHost("127.0.0.1"),
                 tasks, TestExchangeTransport.INSTANCE);
         server.start();
         http = HttpClientFactory.createDefault();
@@ -68,7 +69,8 @@ class WorkerHttpStartupTest {
         var files = new org.pangrova.worker.file.FileSpaceFileResource(factory, SECRET);
         var localTasks = TaskManager.forHttpWiringOnly();
         var withFiles = new WorkerHttpServer(
-                new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", 0, SECRET), localTasks,
+                new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", 0, SECRET)
+                        .withBindHost("127.0.0.1"), localTasks,
                 TestExchangeTransport.INSTANCE, null, null, null, null, files);
         try {
             withFiles.start();
@@ -81,6 +83,25 @@ class WorkerHttpStartupTest {
         } finally {
             withFiles.stop();
             localTasks.close();
+        }
+    }
+
+    @Test
+    void anOccupiedLoopbackListenerCannotBeAdvertisedAsAnotherWorker() throws Exception {
+        var otherTasks = TaskManager.forHttpWiringOnly();
+        var other = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(
+                server.getPort(), "another-advertised-worker", 0, SECRET)
+                .withBindHost("127.0.0.1"), otherTasks, TestExchangeTransport.INSTANCE);
+        try {
+            assertThatThrownBy(other::start)
+                    .hasRootCauseInstanceOf(java.net.BindException.class)
+                    .satisfies(failure -> assertThat(failure.getSuppressed()).isEmpty());
+        } finally {
+            try {
+                other.stop();
+            } finally {
+                otherTasks.close();
+            }
         }
     }
 

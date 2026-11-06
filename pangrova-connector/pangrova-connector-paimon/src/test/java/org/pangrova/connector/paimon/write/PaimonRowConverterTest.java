@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.types.DataTypes;

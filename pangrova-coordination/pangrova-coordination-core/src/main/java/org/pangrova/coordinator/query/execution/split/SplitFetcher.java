@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.query.api.task.QuerySplit;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -7,22 +9,22 @@ import java.util.Map;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.SplitSourceDescriptor;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.core.analysis.SplitSourceDescriptor;
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.indexing.eval.IndexEvaluatedSplit;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.indexing.api.evaluation.IndexEvaluatedSplit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +32,7 @@ import org.slf4j.LoggerFactory;
  * Fetches splits from connector catalogs based on extracted table scan descriptors.
  *
  * <p>This class is Calcite-free: all plan analysis and predicate extraction is
- * performed by {@link org.pangrova.planner.PlanSplitSourceExtractor} in the planner
+ * performed by {@link org.pangrova.planner.core.analysis.PlanSplitSourceExtractor} in the planner
  * module. SplitFetcher works exclusively with the Calcite-free
  * {@link SplitSourceDescriptor} representation.</p>
  */
@@ -47,26 +49,17 @@ public final class SplitFetcher {
     private SplitFetcher() {}
 
     /**
-     * Serialized split data paired with file paths for cache affinity routing.
-     */
-    public record SplitWithPaths(String serializedData, List<String> filePaths) {
-        public SplitWithPaths {
-            filePaths = filePaths != null ? List.copyOf(filePaths) : List.of();
-        }
-    }
-
-    /**
      * Converts fetched splits into assignment records for pull-mode registration.
-     * Centralizes the SplitWithPaths → SplitAssignment mapping to avoid duplication.
+     * Centralizes the QuerySplit → SplitAssignment mapping to avoid duplication.
      */
-    public static List<SplitAssignment> toAssignments(List<SplitWithPaths> splits) {
+    public static List<SplitAssignment> toAssignments(List<QuerySplit> splits) {
         if (splits.isEmpty()) {
             return List.of();
         }
         long now = System.currentTimeMillis();
         List<SplitAssignment> assignments = new ArrayList<>(splits.size());
         for (int i = 0; i < splits.size(); i++) {
-            SplitWithPaths swp = splits.get(i);
+            QuerySplit swp = splits.get(i);
             assignments.add(new SplitAssignment(i, swp.serializedData(),
                     List.of(), swp.filePaths(), now));
         }
@@ -78,7 +71,7 @@ public final class SplitFetcher {
      */
     public static List<ConnectorSplit> fetchRawConnectorSplits(
             PlannedQuery plannedQuery, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides, CoordinatorSessionContext context) {
+            Map<String, Long> snapshotOverrides, QuerySession context) {
         return fetchRawConnectorSplits(
                 plannedQuery.splitSources(), registry, snapshotOverrides,
                 plannedQuery.queryOutputColumns(), context);
@@ -92,9 +85,13 @@ public final class SplitFetcher {
     public static List<ConnectorSplit> fetchRawConnectorSplits(
             List<SplitSourceDescriptor> sources, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            CoordinatorSessionContext context) {
-        if (registry == null || sources.isEmpty()) {
+            QuerySession context) {
+        if (sources.isEmpty()) {
             return List.of();
+        }
+        if (registry == null) {
+            throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
+                    "Table split enumeration requires a configured catalog registry");
         }
         Map<List<String>, SplitSourceDescriptor> unique = deduplicateSources(sources);
         List<ConnectorSplit> allSplits = new ArrayList<>();
@@ -105,11 +102,11 @@ public final class SplitFetcher {
     }
 
     /**
-     * Converts raw ConnectorSplits to SplitWithPaths (serialized form).
+     * Converts raw ConnectorSplits to QuerySplit (serialized form).
      */
-    public static List<SplitWithPaths> toSplitWithPaths(List<ConnectorSplit> splits) {
+    public static List<QuerySplit> toSplitWithPaths(List<ConnectorSplit> splits) {
         return splits.stream()
-                .map(split -> new SplitWithPaths(serializeSplit(split), extractFilePaths(split)))
+                .map(split -> new QuerySplit(serializeSplit(split), extractFilePaths(split)))
                 .toList();
     }
 
@@ -119,9 +116,9 @@ public final class SplitFetcher {
      * @param snapshotOverrides table FQN (catalog.schema.table) → snapshot ID
      * @throws PangrovaException if any table scan's split enumeration fails
      */
-    public static List<SplitWithPaths> fetchSplitsWithFilePaths(
+    public static List<QuerySplit> fetchSplitsWithFilePaths(
             PlannedQuery plannedQuery, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides, CoordinatorSessionContext context) {
+            Map<String, Long> snapshotOverrides, QuerySession context) {
         List<ConnectorSplit> allSplits = fetchRawConnectorSplits(plannedQuery, registry, snapshotOverrides, context);
         LOG.info("event=split_fetch_summary total_splits={}", allSplits.size());
         return toSplitWithPaths(allSplits);
@@ -132,10 +129,10 @@ public final class SplitFetcher {
      *
      * @throws PangrovaException if any table scan's split enumeration fails
      */
-    public static List<SplitWithPaths> fetchSplitsWithFilePaths(
+    public static List<QuerySplit> fetchSplitsWithFilePaths(
             List<SplitSourceDescriptor> sources, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            CoordinatorSessionContext context) {
+            QuerySession context) {
         List<ConnectorSplit> allSplits = fetchRawConnectorSplits(sources, registry, snapshotOverrides,
                 queryOutputColumns, context);
         LOG.info("event=split_fetch_summary total_splits={}", allSplits.size());
@@ -180,7 +177,7 @@ public final class SplitFetcher {
     private static List<ConnectorSplit> fetchConnectorSplits(
             SplitSourceDescriptor desc, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            CoordinatorSessionContext context) {
+            QuerySession context) {
         CatalogHandle catalog = registry.getCatalog(desc.catalogName());
         ConnectorSession session = SessionContextConverter.toConnectorSession(
                 context, desc.catalogName(), desc.schemaName());
@@ -205,7 +202,7 @@ public final class SplitFetcher {
             metadata.validateColumnAccess(session, tableHandle, projectedColumns);
         }
 
-        if (binding.state() == org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
+        if (binding.state() == org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
             return List.of();
         }
 

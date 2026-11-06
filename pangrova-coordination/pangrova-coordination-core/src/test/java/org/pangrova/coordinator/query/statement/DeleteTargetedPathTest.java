@@ -1,10 +1,12 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.*;
-import org.pangrova.parser.ast.*;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
+import org.pangrova.query.core.statement.StatementTableTargets;
+import org.pangrova.query.api.statement.StatementCategory;
+import org.pangrova.parser.api.ast.*;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
@@ -21,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DeleteTargetedPathTest {
 
-    private static final CoordinatorSessionContext TEST_SESSION =
-            new CoordinatorSessionContext("q-delete", Map.of(), null, null);
+    private static final QuerySession TEST_SESSION =
+            new QuerySession("q-delete", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     @Test
     void deleteIsRoutableThroughDispatcher() {
@@ -87,7 +89,8 @@ class DeleteTargetedPathTest {
     private static StatementDispatcher buildDeleteDispatcher(
             List<StatementCompletionEvent> events) {
         MetadataTask<Statement> deleteTask = (stmt, ctx) -> new StatementResult(
-                List.of(), List.of(), TableNameExtractor.extract(stmt), StatementCategory.DML);
+                List.of(), List.of(), java.util.Optional.ofNullable(StatementTableTargets.identifier(stmt))
+                .map(id -> String.join(".", id.parts())).orElse(null), StatementCategory.DML);
         var tasks = new HashMap<Class<? extends Statement>, MetadataTask<?>>();
         tasks.put(DeleteStatement.class, deleteTask);
         var factory = new MetadataExecutionFactory(tasks);

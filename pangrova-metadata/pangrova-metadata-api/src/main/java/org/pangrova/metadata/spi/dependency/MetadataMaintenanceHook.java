@@ -1,0 +1,67 @@
+package org.pangrova.metadata.spi.dependency;
+
+import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.metadata.api.relation.ObjectRef;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Callback interface for metadata maintenance operations triggered by
+ * dependency-graph mutations (drops, dependency changes, snapshot expiry).
+ *
+ * <p>Implementations are registered on {@code ObjectDependencyService} and
+ * invoked synchronously after the graph mutation succeeds. Hooks run on
+ * the caller's thread; long-running work (e.g. external lineage transport)
+ * should be offloaded to an async emitter such as
+ * {@code LineageEventEmitter}.
+ * Hook RuntimeExceptions are logged and do not undo the completed mutation or
+ * prevent later hooks from running. Notifications are best-effort, with no
+ * durable delivery, retry deduplication or ordering across concurrent callers.
+ *
+ * <p>All methods have empty defaults so callers can implement only the
+ * callbacks they care about.
+ *
+ * <p>Example hook: a lineage bridge that emits an OpenLineage event when
+ * an object is dropped, so external catalogs (Marquez, DataHub) stay in
+ * sync with Pangrova's dependency graph.
+ */
+@Experimental
+public interface MetadataMaintenanceHook {
+
+    /**
+     * Invoked after an object has been dropped and its dependency edges
+     * purged from the graph. Each successful cascade step is notified immediately,
+     * even if a later step fails. A parent's cascadedDependents is immutable context,
+     * not a request to replay those dependents' individual drop notifications.
+     *
+     * @param ref                the dropped object
+     * @param cascadedDependents objects that were cascade-dropped before
+     *                           this object (deepest-first order); empty
+     *                           if the drop was a leaf or CASCADE was not
+     *                           triggered
+     */
+    default void onObjectDropped(ObjectRef ref, List<ObjectRef> cascadedDependents) {}
+
+    /**
+     * Invoked after a snapshot has been expired (e.g. by Iceberg's
+     * {@code ExpireSnapshots} procedure). Hooks may use this to clean up
+     * orphan data files or update external metadata catalogs.
+     *
+     * @param ref        the table whose snapshot expired
+     * @param snapshotId the expired snapshot identifier
+     */
+    default void onSnapshotExpired(ObjectRef ref, long snapshotId) {}
+
+    /**
+     * Invoked after a child object's dependency set has been added to or
+     * replaced. The complete immutable parent snapshot comes from the mutation's
+     * own lock/transaction, with ignored self-edges omitted; it is not merely the
+     * input delta. Concurrent mutations may supersede it before callback delivery.
+     *
+     * @param child      the dependent object whose edges changed
+     * @param newParents the observed complete set of parent objects (may be empty if all
+     *                   edges were removed)
+     */
+    default void onDependenciesChanged(ObjectRef child, Set<ObjectRef> newParents) {}
+}

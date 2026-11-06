@@ -18,12 +18,12 @@
 package org.pangrova.coordinator.query.execution.dispatch.task.semantic;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.semantic.SemanticViewStatementService;
-import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.statement.ShowSemanticViewsStatement;
+import org.pangrova.types.value.TypedRow;
 
 import java.util.List;
 import java.util.Objects;

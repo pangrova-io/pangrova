@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.materialization.domain.GenerationId;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
@@ -14,9 +14,9 @@ import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.port.MaterializationAction;
 import org.pangrova.materialization.port.MaterializationAuthorizer;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Access-control adapter for the materialization kernel.
@@ -28,10 +28,10 @@ import org.pangrova.spi.security.UserIdentity;
  */
 public final class CoordinatorMaterializationAuthorizer implements MaterializationAuthorizer {
 
-    private final CoordinatorSessionContext session;
+    private final QuerySession session;
     private final AccessControl accessControl;
 
-    public CoordinatorMaterializationAuthorizer(CoordinatorSessionContext session,
+    public CoordinatorMaterializationAuthorizer(QuerySession session,
             AccessControl accessControl) {
         this.session = Objects.requireNonNull(session, "session");
         this.accessControl = accessControl;

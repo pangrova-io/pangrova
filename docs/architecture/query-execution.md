@@ -19,6 +19,24 @@ v2 definitions and current JNI exports take precedence over historical snippets.
 Read [Current Capability Status](../getting-started/capability-status.md) for default
 no-op providers, absent task registration, and qualification limits.
 
+## Query session ownership
+
+`pangrova-query-api` owns `api.session.QuerySession`. The immutable session borrows
+its exact issued `ConnectorQueryAuthority`; copying a session never creates,
+replaces or closes that lifetime. Tenant/property enrichment retains source
+snapshots, incremental ranges and the trusted internal-materialization marker.
+Client properties cannot set those trusted fields. SPI session conversion does
+not authenticate a caller or derive a trusted tenant from a name.
+
+Execution correlation is an Observability API snapshot. Entry services receive an
+explicit `ExecutionTraceContextFactory`; Server selects the OpenTelemetry factory.
+Capture preserves a valid current parent or creates a distinct unsampled root even
+when telemetry export is disabled. Asynchronous execution activates/closes its
+scope on the execution thread; no originating thread scope is retained. Query API
+loads without the SDK, Coordinator, Worker, Client DTOs or provider implementations.
+QueryManager and execution orchestration still reside in the transitional
+Coordinator implementation; extracting this value does not complete Query Core.
+
 ## 1. End-to-End Query Flow
 
 ```
@@ -70,11 +88,40 @@ no-op providers, absent task registration, and qualification limits.
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.
 
+### Live split enumeration and published reads
+
+`QuerySplit` in `pangrova-query-api` owns the immutable encoded split plus cache-affinity
+locations. Enumeration and dispatch consume this value without depending on a nested
+class of the catalog fetch implementation. It owns no connector session or buffer lease and does not grant publication or data-access
+authority. Execution still validates the encoded connector payload.
+
+The stage binding layer calls the typed `StageSplitSource` seam. Catalog enumeration
+and index-aware enumeration are implementations; the latter owns pruning, not
+Generation service discovery. A provider failure, cancellation or authorization
+rejection propagates to the query. A real table scan without its configured catalog
+registry fails; a source-free plan can legitimately have no connector splits.
+Whole-table OVERWRITE/UPDATE enumeration keeps its unpruned path.
+
+Server constructs published-artifact and generated-value readers from the configured
+Generation store and passes both explicitly into Query/DAG construction. The readers
+are borrowed by dispatch and independent of whether index pruning is enabled. They
+are never installed later through `IndexAwareSplitFetcher`. Storage connections,
+current authorization, transaction fencing and publication facts retain their
+existing owners.
+
+`StageSplitSource` and the stage binder still reside in the existing Coordinator
+artifact during this migration: their signatures include live Planner and session
+types. Only the closed `QuerySplit` value moved to Query API in this batch; the remaining
+Query/Planner contracts must be separated before moving the whole execution family.
+Index descriptor caching, mapping persistence orchestration and evaluation metrics
+now belong to Indexing Core; the catalog-scoped connector access adapter is separate
+from DDL command handling.
+
 ## 2. Calcite Integration
 
 ### AST package ownership
 
-`org.pangrova.parser.ast` owns the shared expression/statement contracts, type
+`org.pangrova.parser.api.ast` owns the shared expression/statement contracts, type
 discriminators and query clauses. Built-in nodes declare their own `type()`;
 the base interfaces do not import or register concrete statement/expression
 classes. `ast.expression` and the `ast.statement` capability packages therefore
@@ -85,7 +132,7 @@ The `AlterTableStatement`, `ShowMetadataStatement`, grouping and select-item
 sealed families retain their closed subtype sets. Parser extension statements
 can still implement `Statement`; an extension without a built-in discriminator
 continues to fail explicitly when `type()` is requested. Built-in kinds also cover
-privilege grants/revocations, storage-profile DDL, table-control inspection and
+storage-profile DDL, table-control inspection and
 subscript expressions. This discriminator does not grant execution support or
 replace Planner validation.
 
@@ -517,19 +564,22 @@ caller-owned transactions. Domain record construction alone is not persistence
 admission. Stored graph format 2, immutable bindings, owner/fence validation
 and canonical replay comparison remain unchanged.
 
-These contracts, codecs, submission factories and publication router belong to
-`pangrova-generation-core`. The API separates job, execution, manifest, format and
-publication packages; page-to-stage assembly lives outside the execution values.
+Generation values currently live in central SPI; they do not own serialization. Canonical graph,
+exchange and source-split codecs live in `pangrova-generation-codec`. Submission construction,
+publication routing and generic immutable read binding live in `pangrova-generation-core` under
+`org.pangrova.generation.core`. The generic reader has no Query retrieval intent or ANN eligibility
+branch; query-side retrieval planning selects the capability and handles permitted exact-plan
+fallback. Task-local materialization still verifies the exact source object coverage and checksum.
+
 AI Control owns the catalog export request and transaction adapter, exposed by
-`ai.control.assembly.AiInfrastructureStores` as a catalog-export port. The process
-root supplies the real job-submission transaction provider explicitly; the AI factory has no
-default Metadata lookup. It inserts
-the generic build and Feature View/Training Dataset association on one connection,
-and rolls back both on failure. Generic job/stage/exchange PostgreSQL state belongs
-to `pangrova-generation-store-postgresql`, with injected authority, execution fence,
-current roles and publication candidate ports. Borrowed-connection contracts reside
-in `pangrova-generation-transaction-spi`; core depends on neither transaction SPI
-nor the PostgreSQL provider. Current-authority and domain-publication adapters still remain
+`ai.control.assembly.AiInfrastructureStores` as a catalog-export port. Process assembly supplies
+the real job-submission transaction provider explicitly; the AI factory has no default Metadata
+lookup. It inserts the generic build and Feature View/Training Dataset association on one
+connection, and rolls back both on failure. Generic job/stage/exchange ports currently belong to
+Persistence API; actual PostgreSQL implementations belong to Persistence JDBC, with injected
+authority, execution fence, current roles and publication candidate ports. Their target per-domain
+API/provider split remains in progress. Core depends on neither the JDBC provider nor Coordinator.
+Current-authority and domain-publication adapters still remain
 in Metadata pending their owner migration. This does not yet remove the startup
 dependency on Indexing.
 
@@ -3145,3 +3195,50 @@ function createShuffleWriter(config):
 > **Target cross-reference:** The proposed stage-retry and external-shuffle designs
 > use an attempt identifier in the proposed `WritePartitionRequest` for deduplication. The current
 > native shuffle partitioner is described in [native execution](./native-execution.md).
+
+### Table qualification and metadata lookup ownership
+
+`SessionTableNames` binds a query's default catalog/schema to Metadata's
+`QualifiedTableNames`; neither performs authorization. `ConnectorTableLookup`
+uses the caller's already scoped Connector session and preserves unknown-table
+and `IF EXISTS` behavior. The trusted identity, tenant, snapshot selectors, and
+query authority continue to be bound by `SessionContextConverter`; call sites
+invoke it directly. These helpers do not own transactions or close borrowed
+Catalog/Connector resources.
+
+`TableProcedureCall` owns CALL table-literal interpretation shared by
+admission and execution. Clustering, Index DDL, Branch DDL, and Server streaming
+assembly no longer depend on the former query-statement TableResolver (retired) class.
+Metadata's helpers currently ship in the existing `pangrova-metadata-core` artifact;
+its full API/Core/Provider split remains pending. Query session adaptation still
+lives in Coordinator until the session contract closure is extracted.
+
+### Compiled relation ownership
+
+Planner Core owns `analysis.AuthorizedRelation` and
+`substrait.CompiledScanSchemas`. Query's authenticated compilation pipeline
+produces the relation, and Generation/Feature/AI consumers depend on that
+Planner product rather than a Query runtime value class. Policy snapshots in
+the product are compilation observations: runtime submission/publication must
+still check current permissions and ownership. Structural schema extraction
+alone does not authorize a read.
+
+`planner.api.fragment.SerializedPlanFragment` owns serialized bytes plus typed
+retrieval/AI plan intents. It exposes no Calcite, protocol SDK, central SPI or
+Core types; inputs and returned bytes retain their defensive-copy semantics.
+`AuthorizedRelation` remains in Core because its graph, scan descriptors and
+policy evidence still have implementation dependencies. `StagePlanAccess`
+continues to expose live compiler capabilities and is not yet a pure execution
+contract. Moving those remaining types into API without extracting their
+closure would violate the module boundary.
+
+### Privilege statement execution
+
+GRANT/REVOKE use the Parser API AST and the Server-owned `PrivilegeStatementTasks`.
+`StatementClassifier` categorizes them as DDL; `PermissionChecker` requires an
+identity and configured access control, while the persistence operation rechecks
+current delegation authority under the shared authorization mutation gate.
+`SecurityAdministrationBootstrap` selects the PostgreSQL repository. NOOP/bypass
+and security-disabled configurations register explicit rejection, not an unsecured
+implementation. Query UUIDs identify durable privilege mutation receipts.
+See [security semantics and verification limits](security.md#sql-privilege-administration).

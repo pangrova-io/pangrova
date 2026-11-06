@@ -6,7 +6,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
 
 /** Retains all readers until RPC terminal callbacks and actual pump exits. */
 final class ExternalShuffleInputSession implements AutoCloseable {

@@ -1,0 +1,11 @@
+{
+  "platform": "macOS aarch64",
+  "jdk": "Amazon Corretto 17",
+  "command": "${JAVA_HOME}/bin/java ${TMPDIR}/SpoolSecureDirectoryProbe.java",
+  "source": "import java.nio.file.*;\npublic class SpoolSecureDirectoryProbe {\n public static void main(String[] args) throws Exception {\n  Path path=Files.createTempDirectory(\"spool-directory-probe-\");\n  try (var stream=Files.newDirectoryStream(path)) {\n   System.out.println(\"secureDirectory=\"+(stream instanceof SecureDirectoryStream<?>));\n  } finally {Files.delete(path);}\n }\n}\n",
+  "source_sha256": "df8a96866c6d6fd22031661f333f0f93d0797afdad6e5f2b66c01594360fc4f9",
+  "exit": 0,
+  "output": "secureDirectory=false\n",
+  "stderr": "",
+  "scope": "Default filesystem DirectoryStream implementation only; not filesystem security or another-platform validation."
+}

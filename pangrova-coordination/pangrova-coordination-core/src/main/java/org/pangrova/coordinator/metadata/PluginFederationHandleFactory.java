@@ -5,10 +5,10 @@ import org.pangrova.metadata.adapter.FederatedCatalogFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.handle.federation.FederationCatalogHandle;
-import org.pangrova.metadata.catalog.handle.federation.FederationHandleFactory;
-import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
-import org.pangrova.spi.security.secret.SecretResolver;
-import org.pangrova.spi.security.secret.SecretTemplates;
+import org.pangrova.metadata.spi.catalog.FederationHandleFactory;
+import org.pangrova.metadata.api.error.catalog.CatalogProviderNotFoundException;
+import org.pangrova.security.api.secret.SecretResolver;
+import org.pangrova.security.core.secret.SecretTemplates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

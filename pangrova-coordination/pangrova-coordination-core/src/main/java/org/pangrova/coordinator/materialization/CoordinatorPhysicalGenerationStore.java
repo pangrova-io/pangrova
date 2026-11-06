@@ -1,20 +1,22 @@
 package org.pangrova.coordinator.materialization;
 
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.PhysicalTableRef;
 import org.pangrova.materialization.port.PhysicalGenerationStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Connector-backed physical generation lifecycle for garbage collection.
@@ -24,12 +26,14 @@ import org.pangrova.spi.security.UserIdentity;
  * surfaced so the collector records the failed ledger attempt for retry.
  */
 public final class CoordinatorPhysicalGenerationStore implements PhysicalGenerationStore {
+    private final ExecutionTraceContextFactory traceContexts;
 
     private static final String PRINCIPAL = "system:materialization-gc";
 
     private final CatalogRegistry catalogs;
 
-    public CoordinatorPhysicalGenerationStore(CatalogRegistry catalogs) {
+    public CoordinatorPhysicalGenerationStore(CatalogRegistry catalogs, ExecutionTraceContextFactory traceContexts) {
+        this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.catalogs = java.util.Objects.requireNonNull(catalogs, "catalogs");
     }
 
@@ -56,11 +60,11 @@ public final class CoordinatorPhysicalGenerationStore implements PhysicalGenerat
     }
 
     private ConnectorSession session(MaterializationId object, PhysicalTableRef table) {
-        CoordinatorSessionContext context = new CoordinatorSessionContext(
+        QuerySession context = new QuerySession(
                 "mat-gc-" + UUID.randomUUID(),
                 Map.of("catalog", table.catalog(), "schema", table.schema()),
                 new UserIdentity(PRINCIPAL, Set.of(), Map.of(), Instant.now()),
-                object.tenant().value());
+                object.tenant().value(), java.util.Optional.empty(), traceContexts.capture());
         return SessionContextConverter.toConnectorSession(
                 context, table.catalog(), table.schema());
     }

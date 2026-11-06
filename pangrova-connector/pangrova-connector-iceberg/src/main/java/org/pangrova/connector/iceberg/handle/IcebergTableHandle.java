@@ -3,8 +3,8 @@ package org.pangrova.connector.iceberg.handle;
 import java.util.Map;
 import java.util.Optional;
 
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SnapshotRange;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SnapshotRange;
 
 /**
  * Immutable handle referencing an Iceberg table by schema, name, and metadata snapshot.
@@ -50,14 +50,14 @@ public record IcebergTableHandle(
      * Format capabilities this adapter can prove. Equality-delete reads stay
      * disabled until the read path applies them and cross-engine comparison passes.
      */
-    public static final org.pangrova.spi.connector.metadata.table.TableCapabilities CAPABILITIES =
-            new org.pangrova.spi.connector.metadata.table.TableCapabilities(
+    public static final org.pangrova.connector.api.metadata.table.TableCapabilities CAPABILITIES =
+            new org.pangrova.connector.api.metadata.table.TableCapabilities(
                     true, true, false, true, true, true,
                     java.util.Set.of("partitions", "entries", "files", "manifests",
                             "snapshots", "history", "refs"),
                     java.util.Set.of("COMPACT", "OPTIMIZE", "VACUUM", "EXPIRE_SNAPSHOTS",
                             "REWRITE_MANIFESTS", "REMOVE_ORPHAN_FILES"),
-                    org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
+                    org.pangrova.connector.api.metadata.table.TableCapabilities.WriterFenceKind
                             .FORMAT_IDENTITY_AND_BASE_VERSION);
 
     /** Connector-owned evidence for an immutable selected read, not a caller's time-travel hint. */
@@ -91,7 +91,7 @@ public record IcebergTableHandle(
     }
 
     @Override
-    public org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities() {
+    public org.pangrova.connector.api.metadata.table.TableCapabilities capabilities() {
         return CAPABILITIES;
     }
 

@@ -1,16 +1,17 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.query.api.task.QuerySplit;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.planner.ShuffleType;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.planner.core.analysis.ShuffleType;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
@@ -106,11 +107,11 @@ class LeafStageDispatcherPartitionAlignmentTest {
 
     @Test
     void uniformSplits_twoPartitions() {
-        List<SplitFetcher.SplitWithPaths> splits = List.of(
-                new SplitFetcher.SplitWithPaths("aaaa", List.of("s3://bucket/file0.parquet")),
-                new SplitFetcher.SplitWithPaths("bbbb", List.of("s3://bucket/file1.parquet")),
-                new SplitFetcher.SplitWithPaths("cccc", List.of("s3://bucket/file2.parquet")),
-                new SplitFetcher.SplitWithPaths("dddd", List.of("s3://bucket/file3.parquet")));
+        List<QuerySplit> splits = List.of(
+                new QuerySplit("aaaa", List.of("s3://bucket/file0.parquet")),
+                new QuerySplit("bbbb", List.of("s3://bucket/file1.parquet")),
+                new QuerySplit("cccc", List.of("s3://bucket/file2.parquet")),
+                new QuerySplit("dddd", List.of("s3://bucket/file3.parquet")));
 
         List<List<String>> paths = pathsFor(splits, 2);
 
@@ -124,10 +125,10 @@ class LeafStageDispatcherPartitionAlignmentTest {
 
     @Test
     void singlePartition_getsAllPaths() {
-        List<SplitFetcher.SplitWithPaths> splits = List.of(
-                new SplitFetcher.SplitWithPaths("aaa", List.of("s3://f1")),
-                new SplitFetcher.SplitWithPaths("bb", List.of("s3://f2")),
-                new SplitFetcher.SplitWithPaths("c", List.of("s3://f3")));
+        List<QuerySplit> splits = List.of(
+                new QuerySplit("aaa", List.of("s3://f1")),
+                new QuerySplit("bb", List.of("s3://f2")),
+                new QuerySplit("c", List.of("s3://f3")));
 
         List<List<String>> paths = pathsFor(splits, 1);
 
@@ -147,10 +148,10 @@ class LeafStageDispatcherPartitionAlignmentTest {
 
     @Test
     void multiFileSplits_allPathsDistributed() {
-        List<SplitFetcher.SplitWithPaths> splits = List.of(
-                new SplitFetcher.SplitWithPaths("aaa",
+        List<QuerySplit> splits = List.of(
+                new QuerySplit("aaa",
                         List.of("s3://bucket/level-0/f1.parquet", "s3://bucket/level-1/f2.parquet")),
-                new SplitFetcher.SplitWithPaths("bbbbbbbbb",
+                new QuerySplit("bbbbbbbbb",
                         List.of("s3://bucket/data/f3.parquet")));
 
         List<List<String>> paths = pathsFor(splits, 2);
@@ -165,10 +166,10 @@ class LeafStageDispatcherPartitionAlignmentTest {
 
     @Test
     void splitsWithEmptyFilePaths() {
-        List<SplitFetcher.SplitWithPaths> splits = List.of(
-                new SplitFetcher.SplitWithPaths("aaaa", List.of("s3://f1")),
-                new SplitFetcher.SplitWithPaths("bbb", List.of()),
-                new SplitFetcher.SplitWithPaths("cc", List.of("s3://f3")));
+        List<QuerySplit> splits = List.of(
+                new QuerySplit("aaaa", List.of("s3://f1")),
+                new QuerySplit("bbb", List.of()),
+                new QuerySplit("cc", List.of("s3://f3")));
 
         List<List<String>> paths = pathsFor(splits, 2);
 
@@ -179,8 +180,8 @@ class LeafStageDispatcherPartitionAlignmentTest {
 
     @Test
     void morePartitionsThanSplits_extraPartitionsEmpty() {
-        List<SplitFetcher.SplitWithPaths> splits = List.of(
-                new SplitFetcher.SplitWithPaths("aaa", List.of("s3://f1")));
+        List<QuerySplit> splits = List.of(
+                new QuerySplit("aaa", List.of("s3://f1")));
 
         List<List<String>> paths = pathsFor(splits, 4);
 
@@ -192,9 +193,9 @@ class LeafStageDispatcherPartitionAlignmentTest {
     }
 
     private static List<List<String>> pathsFor(
-            List<SplitFetcher.SplitWithPaths> splits, int partitions) {
+            List<QuerySplit> splits, int partitions) {
         List<List<String>> assigned = org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions.partitionSplits(
-                splits.stream().map(SplitFetcher.SplitWithPaths::serializedData).toList(),
+                splits.stream().map(QuerySplit::serializedData).toList(),
                 partitions);
         return org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions.buildPartitionFilePaths(splits, assigned);
     }

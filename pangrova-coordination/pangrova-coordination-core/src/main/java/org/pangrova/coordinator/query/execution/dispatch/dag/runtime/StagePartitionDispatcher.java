@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.worker.WorkerInfo;

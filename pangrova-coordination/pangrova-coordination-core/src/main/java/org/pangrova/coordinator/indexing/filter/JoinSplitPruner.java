@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.indexing.filter;
 
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.indexing.pruning.JoinPruningSummary;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.indexing.api.pruning.JoinPruningSummary;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 
 import java.util.ArrayList;
 import java.util.List;

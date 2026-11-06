@@ -1,23 +1,27 @@
 package org.pangrova.coordinator.query;
-import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -52,13 +56,13 @@ class QueryManagerLineageTest {
         emitter = new LineageEventEmitter(backend);
 
         QueryManager qm = buildQueryManagerWithLineage(emitter);
-        CoordinatorSessionContext session = session("q-1");
+        QuerySession session = session("q-1");
 
         assertThatThrownBy(() -> qm.submitQuery("q-1", "SELECT 1 + 2", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
         emitter.close();
 
-        assertThat(qm.getQueryState("q-1")).contains(QueryStateMachine.State.FAILED);
+        assertThat(qm.getQueryState("q-1")).contains(QueryState.FAILED);
         assertThat(capturedEvents).extracting(LineageEvent::eventType)
                 .containsExactly(LineageEvent.EventType.START, LineageEvent.EventType.FAIL);
     }
@@ -66,11 +70,11 @@ class QueryManagerLineageTest {
     @Test
     void nullLineageEmitterDoesNotChangeDispatchFailure() {
         QueryManager qm = buildQueryManagerWithoutLineage();
-        CoordinatorSessionContext session = session("q-2");
+        QuerySession session = session("q-2");
 
         assertThatThrownBy(() -> qm.submitQuery("q-2", "SELECT 42", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
-        assertThat(qm.getQueryState("q-2")).contains(QueryStateMachine.State.FAILED);
+        assertThat(qm.getQueryState("q-2")).contains(QueryState.FAILED);
     }
 
     @Test
@@ -80,7 +84,7 @@ class QueryManagerLineageTest {
         emitter = new LineageEventEmitter(backend);
 
         QueryManager qm = buildQueryManagerWithLineage(emitter);
-        CoordinatorSessionContext session = session("q-3");
+        QuerySession session = session("q-3");
 
         assertThatThrownBy(() -> qm.submitQuery("q-3", "SELECT 1", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
@@ -97,20 +101,20 @@ class QueryManagerLineageTest {
         orchestrator = buildOrchestrator();
         return new QueryManager(new QueryManagerContext(orchestrator, TestObservability.TRACING,
                 null, null, null, lineageEmitter, null, null, null, null,
-                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(), null));
+                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
     }
 
     private QueryManager buildQueryManagerWithoutLineage() {
         orchestrator = buildOrchestrator();
-        return new QueryManager(QueryManagerContext.minimal(orchestrator, TestObservability.TRACING));
+        return new QueryManager(QueryManagerTestContexts.minimal(orchestrator, TestObservability.TRACING));
     }
 
     private static QueryDispatcher buildOrchestrator() {
         SqlCompiler compiler = new SqlCompiler(
                 new PangrovaPlanner(), new SubstraitConverter(),
                 new SubstraitPlanSerializer());
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
+        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         return new QueryDispatcher(
                 withPolicies(QueryDispatcherContext.withDefaults(
                         compiler, null, null, null, new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING), scheduler, wm,

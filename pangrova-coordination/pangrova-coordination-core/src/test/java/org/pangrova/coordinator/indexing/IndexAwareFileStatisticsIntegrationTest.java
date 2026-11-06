@@ -4,13 +4,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.indexing.planner.IndexHint;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
+import org.pangrova.indexing.api.pruning.IndexHint;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.index.predicate.EqualTo;
+import org.pangrova.connector.api.index.statistics.DataFileStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 
 import java.util.List;
 
@@ -26,8 +26,8 @@ class IndexAwareFileStatisticsIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        store = new JdbcIndexMetadataStore(SharedPostgresContainer.migratedDataSource("query_file_statistics"));
-        fetcher = new IndexAwareSplitFetcher(null, null, store, null, null);
+        store = new JdbcIndexMetadataStore(SharedPostgresContainer.migratedDataSource("query_file_statistics"), org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        fetcher = new IndexAwareSplitFetcher(null, null, store, null);
         store.batchInsertFileStatistics("tenant-a", "lake", "sales", "events",
                 List.of(statistics("17", "alpha"), statistics("18", "new")));
         store.batchInsertFileStatistics("tenant-b", "lake", "sales", "events",

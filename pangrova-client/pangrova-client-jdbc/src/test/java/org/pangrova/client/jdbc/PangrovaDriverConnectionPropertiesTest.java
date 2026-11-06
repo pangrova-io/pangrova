@@ -1,6 +1,6 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.transport.http.PangrovaRestClientConfig;
+import org.pangrova.transport.client.http.PangrovaRestClientConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

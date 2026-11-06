@@ -3,14 +3,14 @@ package org.pangrova.coordinator.materialization;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.port.SourcePinning;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.spi.connector.materialization.ChangeProof;
-import org.pangrova.spi.connector.materialization.ChangeSetMode;
-import org.pangrova.spi.connector.materialization.ChangeSetPlan;
-import org.pangrova.spi.connector.materialization.MaterializationCapabilities;
-import org.pangrova.spi.connector.materialization.PinnedSource;
-import org.pangrova.spi.connector.materialization.SourceProvider;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.connector.api.materialization.ChangeProof;
+import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.materialization.ChangeSetPlan;
+import org.pangrova.connector.api.materialization.MaterializationCapabilities;
+import org.pangrova.connector.api.materialization.PinnedSource;
+import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 /** Resolves the owning connector of each source and delegates exact snapshot holds. */
 final class CoordinatorSourcePinning implements SourcePinning {

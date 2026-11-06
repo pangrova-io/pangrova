@@ -8,7 +8,6 @@ import java.util.Optional;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
 import org.pangrova.governance.api.quality.WriteQualityGate;
 import org.pangrova.governance.api.quality.WriteValidationResult;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
@@ -16,13 +15,13 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.spi.connector.coordination.WriteCommitJournal;
-import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.CopyFilePublicationMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.common.file.CopyFilePublication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,8 +39,7 @@ final class NativeTaskWriteCompletion {
     NativeTaskWriteCompletion(TaskStatusReceiverContext deps) {
         catalogRegistry = deps.catalogRegistry();
         writeCommitTracker = deps.writeCommitTracker();
-        writeCommitJournal = deps.writeCommitJournal() != null
-                ? deps.writeCommitJournal() : new InMemoryWriteCommitJournal();
+        writeCommitJournal = deps.writeCommitJournal();
     }
 
     void setFencer(WriteCommitFencer fencer) { writeCommitFencer = fencer; }
@@ -236,7 +234,7 @@ final class NativeTaskWriteCompletion {
         long baseSnapshotId = outputHandle.writeBaseSnapshotId().orElse(-1L);
         byte[] writeOutputBinding = writeState.writeOutputBinding();
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
                         queryId,
                         tenantId,
                         writeState.catalogName(),

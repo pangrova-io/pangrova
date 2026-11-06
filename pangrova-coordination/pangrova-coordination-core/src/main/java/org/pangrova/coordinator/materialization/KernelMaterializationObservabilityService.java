@@ -3,7 +3,7 @@ package org.pangrova.coordinator.materialization;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.materialization.domain.Dependency;
@@ -13,12 +13,12 @@ import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.GcHistoryEntry;
 import org.pangrova.materialization.port.MaterializationRepository;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.ShowMaterializationDependenciesStatement;
-import org.pangrova.parser.ast.statement.ShowMaterializationGcHistoryStatement;
-import org.pangrova.parser.ast.statement.ShowMaterializationRefreshHistoryStatement;
-import org.pangrova.parser.ast.statement.ShowMaterializationsStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationDependenciesStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationGcHistoryStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationRefreshHistoryStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializationsStatement;
+import org.pangrova.types.value.TypedRow;
 
 /**
  * Read-only system surfaces over the durable materialization kernel.

@@ -1,0 +1,62 @@
+[
+  {
+    "old_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolReader",
+    "target_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolReader",
+    "artifact": "pangrova-shuffle-local",
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalFsSpoolReader.java",
+    "disposition": "Pinned exact selection",
+    "responsibility_and_resource_ownership": "Owns all selected FileChannels before read returns, verified framing and channel closure. Does not reopen selected paths on first/next batch. Budget returned only after successful close.",
+    "callers_wiring": "LocalFsSpoolStore.read and Java exchange component source; no Native ingress.",
+    "persistent_authority": "local temporary attempt segments only; no domain/query publication authority",
+    "semantic_review": "spool-directory.md",
+    "verification": "spool-directory-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+    "target_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+    "artifact": "pangrova-shuffle-local",
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalFsSpoolStore.java",
+    "disposition": "Shared file reservation and resource ownership",
+    "responsibility_and_resource_ownership": "Owns the root lock, shared reader/writer budget and resource registry. Registers before acquisition, cleans partial reads, retains failed close ownership for retry. Rejects invalid/replaced owned directories.",
+    "callers_wiring": "SpoolStoreFactory; component tests and SpoolBackedExchangeManager. Not production role assembled.",
+    "persistent_authority": "local temporary attempt segments only; no domain/query publication authority",
+    "semantic_review": "spool-directory.md",
+    "verification": "spool-directory-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolStoreFactory",
+    "target_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolStoreFactory",
+    "artifact": "pangrova-shuffle-local",
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalFsSpoolStoreFactory.java",
+    "disposition": "Validate and create budgeted store",
+    "responsibility_and_resource_ownership": "Parses positive max-open-files property before Store creation; default 1024. Factory holds no resources.",
+    "callers_wiring": "Existing unique ServiceLoader registration and component isolation tests; no Server configuration added.",
+    "persistent_authority": "local temporary attempt segments only; no domain/query publication authority",
+    "semantic_review": "spool-directory.md",
+    "verification": "spool-directory-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+    "target_fqn": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+    "artifact": "pangrova-shuffle-local",
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalFsSpoolWriter.java",
+    "disposition": "Bound publication directory",
+    "responsibility_and_resource_ownership": "Owns temporary file/channel and one attempt completion. Checks bound directory identity before publication and cleanup; fixed private temporary prefix. Retains failed cleanup resource for retry.",
+    "callers_wiring": "LocalFsSpoolStore.open and Java exchange component sink; completion is not exchange receipt.",
+    "persistent_authority": "local temporary attempt segments only; no domain/query publication authority",
+    "semantic_review": "spool-directory.md",
+    "verification": "spool-directory-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.shuffle.local.spool.LocalSpoolPaths",
+    "artifact": "pangrova-shuffle-local",
+    "path": "pangrova-shuffle/pangrova-shuffle-local/src/main/java/org/pangrova/shuffle/local/spool/LocalSpoolPaths.java",
+    "disposition": "Internal path and directory identity owner",
+    "responsibility_and_resource_ownership": "Maps validated identities, snapshots root/partition fileKey and validates directory ancestry. No file-channel resource or business state machine. Requires private stable root; not race-free sandboxing.",
+    "callers_wiring": "Used only by Local Store/Reader/Writer. File layout unchanged; no public API added.",
+    "persistent_authority": "local temporary attempt segments only; no domain/query publication authority",
+    "semantic_review": "spool-directory.md",
+    "verification": "spool-directory-validation-summary.json and per-test evidence"
+  }
+]

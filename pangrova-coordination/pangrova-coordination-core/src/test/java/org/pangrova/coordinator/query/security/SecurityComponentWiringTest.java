@@ -1,21 +1,20 @@
 package org.pangrova.coordinator.query.security;
 
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.security.authz.DefaultAccessControl;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.security.authz.StaticGrantStore;
-import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.rowfilter.RowPolicy;
-import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
+import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.persistence.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
+import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.persistence.security.api.rowfilter.RowPolicyStore;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.apache.calcite.rel.RelNode;
 import org.junit.jupiter.api.Test;
 

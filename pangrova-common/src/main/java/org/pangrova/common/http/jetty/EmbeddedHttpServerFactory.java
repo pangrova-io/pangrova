@@ -52,11 +52,12 @@ public final class EmbeddedHttpServerFactory {
         ServerConnector connector = new ServerConnector(server);
         connector.setHost(address.getHostString());
         connector.setPort(address.getPort());
-        // A kernel-assigned port has no restart identity to reuse. On BSD,
-        // SO_REUSEADDR can otherwise overlap a live address-specific listener.
-        if (address.getPort() == 0) {
-            connector.setReuseAddress(false);
-        }
+        // On BSD, SO_REUSEADDR permits a wildcard listener to overlap a live
+        // address-specific listener, routing requests to a different process.
+        // Only a concrete interface may reuse its prior TCP state on restart;
+        // a second listener on that same address still cannot bind without SO_REUSEPORT.
+        connector.setReuseAddress(address.getAddress() != null
+                && !address.getAddress().isAnyLocalAddress());
         connector.setIdleTimeout(IDLE_TIMEOUT_MS);
         connector.setShutdownIdleTimeout(SHUTDOWN_IDLE_TIMEOUT_MS);
         server.addConnector(connector);

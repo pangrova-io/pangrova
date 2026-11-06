@@ -3,7 +3,7 @@
 
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.api.placement.NoOpSchedulerControlLoop;
+import org.pangrova.scheduler.core.control.NoOpSchedulerControlLoop;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,7 +12,7 @@ import java.util.List;
 
 import org.pangrova.scheduler.api.placement.ClusterSnapshot;
 import org.pangrova.scheduler.api.placement.ControlLoopAction;
-import org.pangrova.scheduler.api.placement.SchedulerControlLoop;
+import org.pangrova.scheduler.spi.control.SchedulerControlLoop;
 import org.pangrova.scheduler.api.placement.SchedulingWorkerSnapshot;
 import org.junit.jupiter.api.Test;
 

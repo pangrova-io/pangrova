@@ -1,8 +1,11 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
+import org.pangrova.metadata.core.resolution.QualifiedTableNames;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.statement.dml.DmlExpressionEvaluator;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
@@ -10,23 +13,23 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.parser.ast.CreateCatalogStatement;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.DropCatalogStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.metadata.api.resolution.MetadataService;
+import org.pangrova.parser.api.ast.CreateCatalogStatement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,7 +85,7 @@ public final class DdlExecutor {
 
     /** Enables {@code ADOPT WITH (...)} maintenance policy properties. */
     public void setMaintenancePolicyService(
-            org.pangrova.table.maintenance.TableControlMaintenanceService service) {
+            org.pangrova.table.core.maintenance.TableControlMaintenanceService service) {
         tableControlOperations.setMaintenancePolicyService(service);
     }
 
@@ -104,7 +107,7 @@ public final class DdlExecutor {
      * would silently stop masking the moved table and a drop would leave its
      * masks behind for the next table that reuses the name.
      */
-    public void setColumnMaskStore(org.pangrova.persistence.api.security.mask.ColumnMaskStore store) {
+    public void setColumnMaskStore(org.pangrova.persistence.security.api.mask.ColumnMaskStore store) {
         tableControlOperations.setColumnMaskStore(store);
     }
 
@@ -118,12 +121,12 @@ public final class DdlExecutor {
 
     /** Creates a table using the resolved catalog and session. */
     public List<TypedRow> executeCreateTable(
-            CreateTableStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
-        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
+            CreateTableStatement stmt, QuerySession context) {
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, ref.catalog(), ref.schema());
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(catalogRegistry, ref.catalog(), session);
         catalogRegistry.tableControl().requireCreatableName(ref.catalog(), ref.schema(), ref.table());
-        if (stmt.ifNotExists() && TableResolver.tableExists(metadata, session, ref)) {
+        if (stmt.ifNotExists() && ConnectorTableLookup.tableExists(metadata, session, ref)) {
             LOG.info("event=table_exists_skip table={}", ref);
             return List.of();
         }
@@ -133,7 +136,7 @@ public final class DdlExecutor {
     }
 
     private void registerCreatedTable(ConnectorMetadata metadata, ConnectorSession session,
-            QualifiedTableName ref, CoordinatorSessionContext context) {
+            QualifiedTableName ref, QuerySession context) {
         var tableControl = catalogRegistry.tableControl();
         if (!tableControl.enabled()) {
             return;
@@ -205,12 +208,12 @@ public final class DdlExecutor {
 
     /** Drops a table using the resolved catalog and session. */
     public List<TypedRow> executeDropTable(
-            DropTableStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
-        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
+            DropTableStatement stmt, QuerySession context) {
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, ref.catalog(), ref.schema());
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(catalogRegistry, ref.catalog(), session);
 
-        ConnectorTableHandle handle = TableResolver.resolveTableHandle(metadata, session, ref, stmt.ifExists());
+        ConnectorTableHandle handle = ConnectorTableLookup.resolveTableHandle(metadata, session, ref, stmt.ifExists());
         if (handle == null) return List.of();
 
         var tableControl = catalogRegistry.tableControl();
@@ -236,7 +239,7 @@ public final class DdlExecutor {
 
     /** Alters a table using the resolved catalog and session. */
     public List<TypedRow> executeAlterTable(
-            AlterTableStatement stmt, CoordinatorSessionContext context) {
+            AlterTableStatement stmt, QuerySession context) {
         if (stmt instanceof AlterTableStatement.Adopt adopt) {
             return tableControlOperations.adopt(adopt, context);
         }
@@ -249,12 +252,12 @@ public final class DdlExecutor {
         if (stmt instanceof AlterTableStatement.UnsetColumnTag unsetTag) {
             return executeUnsetColumnTag(unsetTag, context);
         }
-        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
-        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, ref.catalog(), ref.schema());
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(catalogRegistry, ref.catalog(), session);
         var tableControl = catalogRegistry.tableControl();
         tableControl.requireManagedForDdl(ref.catalog(), ref.schema(), ref.table(), "ALTER TABLE");
-        ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
+        ConnectorTableHandle handle = ConnectorTableLookup.requireTableHandle(metadata, session, ref);
         if (tableControl.enforcing()) {
             tableControl.requireManagedForDdl(ref.catalog(), ref.schema(), ref.table(), "ALTER TABLE",
                     metadata.getTableIdentity(session, handle));
@@ -264,7 +267,7 @@ public final class DdlExecutor {
         List<String> columns = renameTarget == null ? List.of() : tableColumns(metadata, session, handle);
         // Move ownership before the physical rename so a target that already has a
         // live control record is rejected while the catalog is still untouched.
-        org.pangrova.table.api.control.TableControlRecord movedControl = null;
+        org.pangrova.table.api.ownership.TableControlRecord movedControl = null;
         if (renameTarget != null && tableControl.enabled()) {
             var sourceControl = tableControl.find(ref.catalog(), ref.schema(), ref.table());
             if (sourceControl.isPresent()) {
@@ -278,7 +281,7 @@ public final class DdlExecutor {
         if (renameTarget != null) {
             tableControlOperations.moveNameScopedGovernance(ref, renameTarget, columns, context);
             if (movedControl != null) {
-                var renamed = TableResolver.requireTableHandle(metadata, session, renameTarget);
+                var renamed = ConnectorTableLookup.requireTableHandle(metadata, session, renameTarget);
                 tableControl.completeRename(movedControl, metadata.getTableIdentity(session, renamed),
                         metadata.observeVersion(session, renamed));
             }
@@ -295,8 +298,8 @@ public final class DdlExecutor {
      * masks directly from that durable authority. Events are cache hints.
      */
     private List<TypedRow> executeSetColumnTag(
-            AlterTableStatement.SetColumnTag stmt, CoordinatorSessionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+            AlterTableStatement.SetColumnTag stmt, QuerySession context) {
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         MetadataService service = requireTagMetadataService();
         service.setTag(SessionContextConverter.toMetadataSessionContext(context),
                 new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
@@ -309,8 +312,8 @@ public final class DdlExecutor {
 
     /** Removes a governance tag and the derived policy it produced. */
     private List<TypedRow> executeUnsetColumnTag(
-            AlterTableStatement.UnsetColumnTag stmt, CoordinatorSessionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+            AlterTableStatement.UnsetColumnTag stmt, QuerySession context) {
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         MetadataService service = requireTagMetadataService();
         service.unsetTag(SessionContextConverter.toMetadataSessionContext(context),
                 new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
@@ -409,7 +412,7 @@ public final class DdlExecutor {
                                 java.time.Duration.ofDays(1).toMillis()))
                         : java.util.OptionalLong.empty();
                 m.createBranch(s, h, branch.branchName(),
-                        new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                        new org.pangrova.connector.api.metadata.BranchCreationOptions(
                                 java.util.OptionalLong.empty(), java.util.Optional.empty(), age));
             },
             AlterTableStatement.DropBranch.class,
@@ -425,7 +428,7 @@ public final class DdlExecutor {
         if (!(stmt instanceof AlterTableStatement.RenameTable rename)) {
             return null;
         }
-        return TableResolver.resolveRenameTarget(rename.newName().parts(), ref);
+        return QualifiedTableNames.resolveRenameTarget(rename.newName().parts(), ref);
     }
 
     private static void applyAlterOperation(
@@ -440,9 +443,9 @@ public final class DdlExecutor {
             return;
         }
         if (stmt instanceof AlterTableStatement.RenameTable rename) {
-            var source = TableResolver.resolveTableRef(rename.tableName().parts(),
+            var source = QualifiedTableName.resolve(rename.tableName().parts(),
                     session.getCatalog().orElseThrow(), session.getSchema().orElseThrow());
-            var newRef = TableResolver.resolveRenameTarget(rename.newName().parts(), source);
+            var newRef = QualifiedTableNames.resolveRenameTarget(rename.newName().parts(), source);
             metadata.renameTable(session, handle, newRef.schema(), newRef.table());
             return;
         }
@@ -533,15 +536,15 @@ public final class DdlExecutor {
 
     /** Creates a schema in the resolved catalog. */
     public List<TypedRow> executeCreateSchema(
-            CreateSchemaStatement stmt, CoordinatorSessionContext context) {
+            CreateSchemaStatement stmt, QuerySession context) {
         List<String> parts = stmt.schemaName().parts();
         if (parts.isEmpty() || parts.size() > 2) {
             throw new IllegalArgumentException("Invalid schema name: " + parts);
         }
-        String catalog = parts.size() == 2 ? parts.get(0) : TableResolver.defaultCatalog(context);
+        String catalog = parts.size() == 2 ? parts.get(0) : SessionTableNames.defaultCatalog(context);
         String schema = parts.size() >= 2 ? parts.get(1) : parts.get(0);
-        ConnectorSession session = TableResolver.buildSession(context, catalog, schema);
-        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, catalog, session);
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, catalog, schema);
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(catalogRegistry, catalog, session);
         metadata.createSchema(session, schema);
         invalidateSchemaCache();
         LOG.info("event=schema_created catalog={} schema={}", catalog, schema);
@@ -572,7 +575,7 @@ public final class DdlExecutor {
     /**
      * Executes SET session property. Currently a no-op (properties are accepted but not persisted).
      */
-    public List<TypedRow> executeSetSession(org.pangrova.parser.ast.SetSessionStatement stmt) {
+    public List<TypedRow> executeSetSession(org.pangrova.parser.api.ast.SetSessionStatement stmt) {
         LOG.info("event=set_session property={} value={}", stmt.propertyName(), stmt.value());
         return List.of();
     }

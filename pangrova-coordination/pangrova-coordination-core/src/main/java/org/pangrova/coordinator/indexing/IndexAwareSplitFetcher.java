@@ -1,23 +1,23 @@
 package org.pangrova.coordinator.indexing;
 
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.query.api.task.QuerySplit;
+
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.filter.IndexSplitFilter;
-import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
-import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.indexing.store.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.indexing.eval.IndexEvaluationFailures;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.planner.PlanSplitSourceExtractor;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.SplitSourceDescriptor;
-import org.pangrova.indexing.planner.IndexHint;
-import org.pangrova.indexing.planner.IndexPredicateAnalyzer;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.planner.core.analysis.PlanSplitSourceExtractor;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.core.analysis.SplitSourceDescriptor;
+import org.pangrova.indexing.api.pruning.IndexHint;
+import org.pangrova.indexing.core.pruning.IndexPredicateAnalyzer;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.connector.api.index.statistics.DataFileStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.apache.calcite.rel.RelNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +32,7 @@ import java.util.Map;
  * DAG dispatch path in DAGDispatchEngine.
  * When indexing is not enabled, delegates directly to SplitFetcher.</p>
  */
-public final class IndexAwareSplitFetcher {
+public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.query.execution.split.StageSplitSource {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexAwareSplitFetcher.class);
 
@@ -41,51 +41,23 @@ public final class IndexAwareSplitFetcher {
     private final IndexMetadataStore metadataStore;
     private final ConnectorAccessorResolver accessorResolver;
     private final IndexPredicateAnalyzer predicateAnalyzer;
-    private final PublishedGenerationBindingResolver artifactBindingResolver;
-    private volatile org.pangrova.coordinator.generation.GeneratedValueReadResolver generatedValueReadResolver;
 
     /**
      * @param catalogRegistry   catalog registry for split enumeration
      * @param splitFilter       index split filter (nullable — null disables filtering)
      * @param metadataStore     index metadata store (nullable)
      * @param accessorResolver  connector accessor resolver (nullable)
-     * @param artifactBuildStore immutable artifact metadata store (nullable)
      */
     public IndexAwareSplitFetcher(
             CatalogRegistry catalogRegistry,
             IndexSplitFilter splitFilter,
             IndexMetadataStore metadataStore,
-            ConnectorAccessorResolver accessorResolver,
-            GenerationJobStore artifactBuildStore) {
+            ConnectorAccessorResolver accessorResolver) {
         this.catalogRegistry = catalogRegistry;
         this.splitFilter = splitFilter;
         this.metadataStore = metadataStore;
         this.accessorResolver = accessorResolver;
         this.predicateAnalyzer = new IndexPredicateAnalyzer();
-        this.artifactBindingResolver = artifactBuildStore == null
-                ? null : new PublishedGenerationBindingResolver(artifactBuildStore);
-    }
-
-    /** Returns the generic artifact resolver, or null when durable artifacts are disabled. */
-    public PublishedGenerationBindingResolver artifactBindingResolver() {
-        return artifactBindingResolver;
-    }
-
-    /** Binds the process-owned generated read service once after actual PostgreSQL initialization. */
-    public synchronized void bindGeneratedValueReads(
-            org.pangrova.coordinator.generation.GeneratedValueReadResolver resolver) {
-        if (generatedValueReadResolver != null) {
-            throw new IllegalStateException("Generated query reads are already bound");
-        }
-        generatedValueReadResolver = java.util.Objects.requireNonNull(resolver, "resolver");
-    }
-
-    /** Returns the generated read service; a configured artifact store may never silently omit it. */
-    public org.pangrova.coordinator.generation.GeneratedValueReadResolver generatedValueReads() {
-        if (artifactBindingResolver != null && generatedValueReadResolver == null) {
-            throw new IllegalStateException("Durable query reads require their actual generated read service");
-        }
-        return generatedValueReadResolver;
     }
 
     /** Returns true if index filtering is active. */
@@ -101,7 +73,7 @@ public final class IndexAwareSplitFetcher {
      * @param columnName column name to look up indexes for
      * @return matching index descriptors, or empty list if metadata store is unavailable
      */
-    public List<org.pangrova.spi.indexing.descriptor.IndexDescriptor> lookupIndexes(
+    public List<org.pangrova.indexing.api.descriptor.IndexDescriptor> lookupIndexes(
             String tenantId, String tableName, String columnName) {
         if (metadataStore == null) {
             return List.of();
@@ -125,9 +97,9 @@ public final class IndexAwareSplitFetcher {
      * @param queryId           query identifier for logging
      * @return filtered splits with file path metadata
      */
-    public List<SplitFetcher.SplitWithPaths> fetchAndFilterSplits(
+    public List<QuerySplit> fetchAndFilterSplits(
             PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            String queryId, org.pangrova.query.api.session.QuerySession session) {
         LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={}",
                 queryId, isIndexFilteringEnabled());
         if (!isIndexFilteringEnabled()) {
@@ -152,16 +124,16 @@ public final class IndexAwareSplitFetcher {
      * @param queryId           query identifier for logging
      * @return filtered splits with file path metadata
      */
-    public List<SplitFetcher.SplitWithPaths> fetchAndFilterSplits(
+    public List<QuerySplit> fetchAndFilterSplits(
             PlanFragment fragment, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            String queryId, org.pangrova.query.api.session.QuerySession session) {
         return fetchAndFilterSplitsInternal(
                 fragment.relNode(), snapshotOverrides, queryId, session);
     }
 
-    private List<SplitFetcher.SplitWithPaths> fetchAndFilterSplitsInternal(
+    private List<QuerySplit> fetchAndFilterSplitsInternal(
             RelNode relNode, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            String queryId, org.pangrova.query.api.session.QuerySession session) {
         LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={} relNodeType={}",
                 queryId, isIndexFilteringEnabled(), relNode.getClass().getSimpleName());
         List<SplitSourceDescriptor> sources = PlanSplitSourceExtractor.extract(relNode);
@@ -184,7 +156,7 @@ public final class IndexAwareSplitFetcher {
     private List<ConnectorSplit> applyIndexFiltering(
             RelNode relNode, List<ConnectorSplit> splits,
             Map<String, Long> snapshotOverrides, String queryId,
-            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            org.pangrova.query.api.session.QuerySession session) {
         try {
             Map<String, List<IndexHint>> tableHints =
                     IndexHintGenerator.generate(relNode, metadataStore, predicateAnalyzer,
@@ -194,7 +166,7 @@ public final class IndexAwareSplitFetcher {
             }
             return filterSplitsByTable(
                     splits, tableHints, snapshotOverrides, queryId, session);
-        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.security.api.error.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             IndexEvaluationFailures.propagateIfTerminal(e);
@@ -209,7 +181,7 @@ public final class IndexAwareSplitFetcher {
             Map<String, List<IndexHint>> tableHints,
             Map<String, Long> snapshotOverrides,
             String queryId,
-            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            org.pangrova.query.api.session.QuerySession session) {
         int before = splits.size();
         List<ConnectorSplit> result = new java.util.ArrayList<>(splits);
         for (var entry : tableHints.entrySet()) {
@@ -265,7 +237,7 @@ public final class IndexAwareSplitFetcher {
     private List<ConnectorSplit> filterSplitsForTable(
             List<ConnectorSplit> splits, String tableKey,
             List<IndexHint> hints, Map<String, Long> snapshotOverrides,
-            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            org.pangrova.query.api.session.QuerySession session) {
         String catalogName = extractCatalogFromKey(tableKey);
         String schemaName = extractSchemaFromKey(tableKey);
         String tableName = extractTableFromKey(tableKey);
@@ -320,7 +292,7 @@ public final class IndexAwareSplitFetcher {
             if (stats != null && !stats.isEmpty()) {
                 return stats;
             }
-        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.security.api.error.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=file_statistics_fetch_failed catalog={} schema={} table={} error={}",
@@ -358,7 +330,7 @@ public final class IndexAwareSplitFetcher {
                 }
             }
             return result;
-        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.security.api.error.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=connector_file_stats_failed catalog={} schema={} table={} error={}",

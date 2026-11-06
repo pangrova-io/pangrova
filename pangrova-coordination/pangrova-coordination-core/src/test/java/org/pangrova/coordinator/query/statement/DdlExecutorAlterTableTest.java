@@ -5,30 +5,25 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.types.PangrovaType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DdlExecutorAlterTableTest {
 
-    private static org.pangrova.coordinator.query.session.CoordinatorSessionContext statementSession() {
+    private static org.pangrova.query.api.session.QuerySession statementSession() {
         return context();
     }
 
@@ -68,7 +63,7 @@ class DdlExecutorAlterTableTest {
     void addColumn_callsConnectorMetadataAddColumn() {
         AlterTableStatement stmt = new AlterTableStatement.AddColumn(
                 Identifier.of("test_cat", "default", "users"),
-                "email", DataTypeSpec.fromRawTypeString("VARCHAR"));
+                "email", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VARCHAR"));
 
         ddlExecutor.executeAlterTable(stmt, statementSession());
 
@@ -82,7 +77,7 @@ class DdlExecutorAlterTableTest {
     @Test
     void parsedUuidDefaultReachesTheConnectorAsUuid() {
         UUID expected = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
-        AlterTableStatement stmt = (AlterTableStatement) new SqlParser().parse(
+        AlterTableStatement stmt = (AlterTableStatement) new AntlrSqlParser().parse(
                 "ALTER TABLE test_cat.default.users ADD COLUMN external_id UUID DEFAULT UUID '"
                         + expected + "'");
 
@@ -122,7 +117,7 @@ class DdlExecutorAlterTableTest {
     @Test
     void changeColumnType_callsConnectorMetadataChangeColumnType() {
         AlterTableStatement stmt = new AlterTableStatement.ChangeColumnType(
-                Identifier.of("test_cat", "default", "users"), "id", DataTypeSpec.fromRawTypeString("BIGINT"));
+                Identifier.of("test_cat", "default", "users"), "id", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT"));
 
         ddlExecutor.executeAlterTable(stmt, statementSession());
 
@@ -137,7 +132,7 @@ class DdlExecutorAlterTableTest {
     private static CatalogRegistry buildRegistry(ConnectorMetadata metadata) {
         Connector connector = new TestConnector(metadata);
         ConnectorHandleFactory chf = desc -> new ConnectorCatalogHandle(desc, connector);
-        CatalogRegistry reg = new CatalogRegistry(new EmptyMetadataStore(), chf, null, null);
+        CatalogRegistry reg = new CatalogRegistry(new EmptyCatalogDeployments(), chf, null, null);
         CatalogDescriptor descriptor = new CatalogDescriptor(
                 "test_cat", CatalogType.CONNECTOR, "test",
                 CatalogState.ACTIVE, Map.of(), "", Set.of());
@@ -244,18 +239,17 @@ class DdlExecutorAlterTableTest {
         @Override public String columnName() { return name; }
     }
 
-    private static final class EmptyMetadataStore implements MetadataStore {
-        @Override public void saveTable(TableMetadata m) { }
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) { }
-        @Override public List<org.pangrova.metadata.api.object.QualifiedTableRef> searchTables(String p) { return List.of(); }
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String n) { }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) { }
-        @Override public void recordSyncHistory(SyncResult r) { }
-        @Override public void saveSchemas(String c, List<String> s) { }
+
     }
 }

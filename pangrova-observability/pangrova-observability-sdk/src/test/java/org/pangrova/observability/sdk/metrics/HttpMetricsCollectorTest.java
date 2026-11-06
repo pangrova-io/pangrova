@@ -1,10 +1,11 @@
 package org.pangrova.observability.sdk.metrics;
 
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -121,26 +122,51 @@ class HttpMetricsCollectorTest {
         assertThat(capturing.counterValues.get("http.server.error.total")).isEqualTo(1L);
     }
 
+    @Test
+    void statusDimensionsRemainSeparateInCountsAndLatency() {
+        var capturing = new CapturingMetricsProvider();
+        var collector = new HttpMetricsCollector(capturing);
+        collector.recordRequest(200, 1.0);
+        collector.recordRequest(503, 2.0);
+        var success = MetricAttributes.of("http.status_class", "2xx");
+        var failure = MetricAttributes.of("http.status_class", "5xx");
+        assertThat(capturing.dimensionalCounts.get("http.server.request.total"))
+                .containsEntry(success, 1L).containsEntry(failure, 1L).hasSize(2);
+        assertThat(capturing.dimensionalCounts.get("http.server.error.total"))
+                .containsOnlyKeys(failure);
+        assertThat(capturing.dimensionalValues.get("http.server.request.duration"))
+                .containsEntry(success, List.of(1.0)).containsEntry(failure, List.of(2.0)).hasSize(2);
+    }
+
     /**
      * Capturing provider that tracks counter increments and histogram recordings.
      */
-    private static final class CapturingMetricsProvider implements MetricsProvider {
+    static final class CapturingMetricsProvider implements MetricsProvider {
         final List<String> counterNames = new ArrayList<>();
         final List<String> histogramNames = new ArrayList<>();
         final java.util.Map<String, Long> counterValues = new java.util.HashMap<>();
+        final java.util.Map<String, java.util.Map<MetricAttributes, Long>> dimensionalCounts = new java.util.HashMap<>();
+        final java.util.Map<String, java.util.Map<MetricAttributes, List<Double>>> dimensionalValues = new java.util.HashMap<>();
         final java.util.Map<String, List<Double>> histogramValues = new java.util.HashMap<>();
 
         @Override
         public LongCounter createCounter(String name, String description, String unit) {
             counterNames.add(name);
             counterValues.put(name, 0L);
-            return value -> counterValues.merge(name, value, Long::sum);
+            return new LongCounter() {
+                @Override public void add(long value) { add(value, MetricAttributes.empty()); }
+                @Override public void add(long value, MetricAttributes attributes) {
+                    dimensionalCounts.computeIfAbsent(name, ignored -> new java.util.HashMap<>())
+                            .merge(attributes, value, Long::sum);
+                    counterValues.merge(name, value, Long::sum);
+                }
+            };
         }
 
         @Override
         public ObservableDoubleGauge createGauge(String name, String description,
                                                   String unit, Supplier<Double> supplier) {
-            return new ObservableDoubleGauge() {};
+            return () -> { /* This recording fixture retains no callback. */ };
         }
 
         @Override
@@ -148,7 +174,14 @@ class HttpMetricsCollectorTest {
                                                 String unit, List<Double> boundaries) {
             histogramNames.add(name);
             histogramValues.put(name, new ArrayList<>());
-            return value -> histogramValues.get(name).add(value);
+            return new DoubleHistogram() {
+                @Override public void record(double value) { record(value, MetricAttributes.empty()); }
+                @Override public void record(double value, MetricAttributes attributes) {
+                    dimensionalValues.computeIfAbsent(name, ignored -> new java.util.HashMap<>())
+                            .computeIfAbsent(attributes, ignored -> new ArrayList<>()).add(value);
+                    histogramValues.get(name).add(value);
+                }
+            };
         }
 
         @Override

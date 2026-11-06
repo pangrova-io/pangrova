@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordinator.query.stage;
 
-import org.pangrova.planner.StagePlanAccess;
+import org.pangrova.planner.core.analysis.StagePlanAccess;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 
 import java.util.List;
@@ -43,20 +43,11 @@ public record StageNode(
         if (parallelism < 1) {
             throw new IllegalArgumentException("parallelism must be >= 1, got " + parallelism);
         }
-        if (stagePlan instanceof org.pangrova.planner.AuthorizedStageGraph.SerializedStage replay
-                && (stageId != replay.stageId() || parallelism != replay.parallelism()
-                        || !taskType.equals(replay.taskType()))) {
-            throw new IllegalArgumentException("Durable stage coordinates differ from its persisted graph identity");
+        var frozen = stagePlan.frozenCoordinates();
+        if (stagePlan.mode() == StagePlanAccess.Mode.DURABLE_REPLAY && frozen.isEmpty()) {
+            throw new IllegalArgumentException("Durable stage plan has no frozen execution coordinates");
         }
-        requirePersistedCoordinates(stagePlan, stageId, parallelism, taskType);
-    }
-
-    private static void requirePersistedCoordinates(StagePlanAccess plan, int stage, int parallelism, String type) {
-        if (plan instanceof org.pangrova.coordinator.generation.template.PersistedStagePlan persisted
-                && (stage != persisted.stage().stageId() || parallelism != persisted.stage().parallelism()
-                        || !type.equals(persisted.taskType()))) {
-            throw new IllegalArgumentException("Durable stage coordinates differ from its immutable metadata graph");
-        }
+        frozen.ifPresent(coordinates -> coordinates.requireMatch(stageId, parallelism, taskType));
     }
 
     /**

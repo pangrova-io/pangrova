@@ -22,9 +22,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.ConditionalBranchDropResult;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.io.IOException;
@@ -46,7 +46,7 @@ class IcebergJdbcConditionalBranchDropIntegrationTest extends ContainerTestBase 
     private static final TableIdentifier IDENTIFIER = TableIdentifier.of("db", "events");
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

@@ -6,7 +6,7 @@ set -eu
 command_line=$(tr '\000' ' ' < /proc/1/cmdline)
 case "$command_line" in
     *org.pangrova.worker.bootstrap.PangrovaWorkerMain*) default_port=8081 ;;
-    *org.pangrova.coordinator.bootstrap.PangrovaCoordinatorMain*|\
+    *org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain*|\
     *org.pangrova.standalone.PangrovaStandaloneMain*) default_port=8080 ;;
     *) echo 'Unknown Pangrova container role' >&2; exit 1 ;;
 esac

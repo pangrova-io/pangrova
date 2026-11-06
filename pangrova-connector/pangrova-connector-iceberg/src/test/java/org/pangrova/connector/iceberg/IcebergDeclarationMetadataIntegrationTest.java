@@ -14,13 +14,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -129,7 +129,7 @@ class IcebergDeclarationMetadataIntegrationTest {
             assertThat(tables.getTableReadMetadata(handle).declarationEvidence())
                     .isEqualTo(ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE);
             assertThatThrownBy(() -> tables.getTableMetadata(handle))
-                    .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
+                    .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
                     .hasMessageContaining("Historical generated declaration evidence is unavailable");
             assertThat(tables.getTableMetadata(IcebergTableHandleFactory.fromTable("db", "declared", table))
                     .columns()).containsExactly("id", "title", "embedding");

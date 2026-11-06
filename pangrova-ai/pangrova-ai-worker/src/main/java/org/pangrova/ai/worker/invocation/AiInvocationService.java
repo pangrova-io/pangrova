@@ -26,21 +26,21 @@ import static org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.emb
 import static org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.embeddingOutputs;
 import static org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.invokeEmbeddingProvider;
 
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
-import org.pangrova.spi.ai.invocation.AiInvocationResult;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.invocation.AiInvocationResult;
 import org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.EmbeddingInputKind;
 import org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.EmbeddingResult;
-import org.pangrova.spi.ai.invocation.EmbeddingProvider;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
-import org.pangrova.spi.ai.invocation.InferenceResult;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.capability.Modality;
+import org.pangrova.ai.spi.embedding.EmbeddingProvider;
+import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.invocation.InferenceResult;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.api.capability.Modality;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.ResourceUsage;
-import org.pangrova.spi.ai.invocation.RerankingBatchResult;
-import org.pangrova.spi.ai.invocation.RerankingProvider;
+import org.pangrova.ai.api.invocation.RerankingBatchResult;
+import org.pangrova.ai.spi.reranking.RerankingProvider;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 
@@ -425,26 +425,26 @@ public final class AiInvocationService {
     }
 
     private static long mediaBytes(
-            org.pangrova.spi.ai.invocation.MultimodalPrompt prompt) {
+            org.pangrova.ai.api.invocation.MultimodalPrompt prompt) {
         long result = 0;
         for (var part : prompt.parts()) {
-            if (part instanceof org.pangrova.spi.ai.invocation.ContentPart.FileRef file) {
+            if (part instanceof org.pangrova.ai.api.invocation.ContentPart.FileRef file) {
                 result = Math.addExact(result, file.reference().size());
-            } else if (part instanceof org.pangrova.spi.ai.invocation.ContentPart.InlineImage image) {
+            } else if (part instanceof org.pangrova.ai.api.invocation.ContentPart.InlineImage image) {
                 result = Math.addExact(result, image.data().length);
             }
         }
         return result;
     }
 
-    private static Modality modalityOf(org.pangrova.spi.ai.invocation.ContentPart part) {
-        if (part instanceof org.pangrova.spi.ai.invocation.ContentPart.Text) {
+    private static Modality modalityOf(org.pangrova.ai.api.invocation.ContentPart part) {
+        if (part instanceof org.pangrova.ai.api.invocation.ContentPart.Text) {
             return Modality.TEXT;
         }
-        if (part instanceof org.pangrova.spi.ai.invocation.ContentPart.InlineImage) {
+        if (part instanceof org.pangrova.ai.api.invocation.ContentPart.InlineImage) {
             return Modality.IMAGE;
         }
-        var reference = ((org.pangrova.spi.ai.invocation.ContentPart.FileRef) part).reference();
+        var reference = ((org.pangrova.ai.api.invocation.ContentPart.FileRef) part).reference();
         return modalityOf(reference.mimeType());
     }
 

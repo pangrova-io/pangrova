@@ -1,9 +1,10 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
+import org.pangrova.query.api.stage.StageState;
+
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -40,7 +41,7 @@ public final class SpeculationStageHandler implements StageLifecycleHandler {
 
     private void evaluateRunningStages(String queryId, StageDAG dag) {
         for (Stage stage : dag.stageEntities()) {
-            if (stage.stateMachine().getState() == StageStateMachine.State.RUNNING) {
+            if (stage.stateMachine().getState() == StageState.RUNNING) {
                 speculativeStageHandler.evaluateStragglers(
                         queryId, String.valueOf(stage.stageId()));
             }

@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.task.write;
 
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
 
 /**
  * Durable execution-ownership fence for the distributed-write commit path.

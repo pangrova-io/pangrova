@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 

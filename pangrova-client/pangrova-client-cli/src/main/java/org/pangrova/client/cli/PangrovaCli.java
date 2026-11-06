@@ -1,9 +1,9 @@
 package org.pangrova.client.cli;
 
-import org.pangrova.client.transport.http.PangrovaRestClient;
-import org.pangrova.client.transport.security.ClientAuthentication;
-import org.pangrova.client.transport.http.PangrovaRestClientConfig.TlsSettings;
-import org.pangrova.transport.security.ResultTransportSecurity;
+import org.pangrova.transport.client.http.PangrovaRestClient;
+import org.pangrova.transport.client.authentication.ClientAuthentication;
+import org.pangrova.transport.client.http.PangrovaRestClientConfig.TlsSettings;
+import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import java.io.BufferedReader;
 import java.io.IOException;

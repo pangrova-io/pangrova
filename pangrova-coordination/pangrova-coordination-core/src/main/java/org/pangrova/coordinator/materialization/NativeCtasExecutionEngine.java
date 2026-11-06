@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.materialization;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -12,7 +14,7 @@ import java.util.Locale;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
 import org.pangrova.materialization.domain.InternalNamespace;
@@ -22,18 +24,18 @@ import org.pangrova.materialization.port.ExecutionEngine;
 import org.pangrova.materialization.port.ExecutionRequest;
 import org.pangrova.materialization.port.ExecutionResult;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Query;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.CreateTableAsSelectStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.SnapshotRange;
-import org.pangrova.spi.connector.materialization.ChangeSetMode;
-import org.pangrova.spi.connector.materialization.ChangeSetPlan;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.SnapshotRange;
+import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.materialization.ChangeSetPlan;
+import org.pangrova.connector.api.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Native CTAS execution adapter for one coordinator command.
@@ -77,7 +79,7 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
         RefreshPlan plan = request.plan().orElseThrow(() -> MaterializationException.requestRejected(
                 "materialization execution requires a resolved refresh plan"));
         Statement parsed = scoped.compiler().parseToAst(plan.canonicalSql());
-        if (!(parsed instanceof Query) && !(parsed instanceof org.pangrova.parser.ast.SetQuery)) {
+        if (!(parsed instanceof Query) && !(parsed instanceof org.pangrova.parser.api.ast.SetQuery)) {
             throw MaterializationException.invalidDefinition(
                     "materialization definition must be a query: " + request.attempt().object().canonicalName());
         }
@@ -89,9 +91,9 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
         QueryStateMachine state = context.stateMachine();
         state.deferTerminalUntilControlPlaneResult();
         ctas.execute(new CreateTableAsSelectStatement(candidateIdentifier(request), false, parsed), scoped);
-        QueryStateMachine.State completion = state.nativeWriteCompletionReady()
-                .getNow(QueryStateMachine.State.FAILED);
-        if (completion != QueryStateMachine.State.FINISHED) {
+        QueryState completion = state.nativeWriteCompletionReady()
+                .getNow(QueryState.FAILED);
+        if (completion != QueryState.FINISHED) {
             throw new IllegalStateException(
                     "native materialization did not commit before publication: " + completion);
         }
@@ -116,7 +118,7 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
         Map<String, SnapshotRange> ranges = incrementalRanges(changeSets);
         UserIdentity definer = new UserIdentity(request.definition().definer().name(),
                 request.definition().definerGroups(), Map.of(), Instant.now());
-        org.pangrova.coordinator.query.session.CoordinatorSessionContext session =
+        org.pangrova.query.api.session.QuerySession session =
                 context.session().withUserIdentity(definer)
                         .withInternalMaterializationExecution();
         if (!snapshots.isEmpty()) {
@@ -231,8 +233,8 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
     }
 
     private void ensureInternalSchema(String catalog) {
-        ConnectorSession session = org.pangrova.coordinator.query.statement.TableResolver
-                .buildSession(context.session(), catalog, InternalNamespace.SCHEMA_NAME);
+        ConnectorSession session = org.pangrova.coordinator.query.session.SessionContextConverter
+                .toConnectorSession(context.session(), catalog, InternalNamespace.SCHEMA_NAME);
         var metadata = catalogs.getCatalog(catalog).getMetadata(session);
         if (!metadata.listSchemaNames(session).contains(InternalNamespace.SCHEMA_NAME)) {
             metadata.createSchema(session, InternalNamespace.SCHEMA_NAME);

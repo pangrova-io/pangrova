@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import java.util.function.Consumer;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.error.QueryFailure;
 
 /**
  * Callback for routing terminal task states to the DAG dispatch engine.
@@ -22,7 +22,7 @@ public interface StageCompletionCallback {
      * @param state   terminal state string (FINISHED, FAILED, CANCELLED)
      * @param error   error detail, nullable (null for FINISHED/CANCELLED)
      */
-    void onTaskTerminal(String queryId, String taskId, String state, ErrorDetail error);
+    void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error);
 
     /**
      * Returns true if the DAG engine considers the query fully complete

@@ -3,8 +3,8 @@ package org.pangrova.coordinator.query.execution.dispatch.adaptive;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.planner.runtimefilter.RuntimeFilter;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilter;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
 import org.pangrova.protocol.v2.BloomFilter;
 import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
@@ -104,7 +104,7 @@ public final class DynamicFilterBinder {
                         .setUpper(typedString(type.name(), filter.rawMax().toString()));
             }
             case VARCHAR, DATE, TIME, TIMESTAMP, TIMESTAMP_TZ, TIMESTAMP_NS, UUID -> {
-                entry.setScope(type == org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR
+                entry.setScope(type == org.pangrova.types.PangrovaType.VARCHAR
                         ? RuntimeFilterScope.RUNTIME_FILTER_SCOPE_BOTH
                         : RuntimeFilterScope.RUNTIME_FILTER_SCOPE_PARTITION_PRUNING);
                 range.setLower(typedString(type.name(), filter.rawMin().toString()))

@@ -3,7 +3,7 @@ package org.pangrova.coordinator.scheduler;
 import org.pangrova.common.http.HttpClientFactory;
 import org.pangrova.common.http.ManagedHttpClient;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.junit.jupiter.api.Test;
 
 import java.net.http.HttpClient;

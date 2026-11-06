@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.connector.api.index.CommitEventType;
 import org.apache.paimon.table.Table;
 
 /**

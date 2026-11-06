@@ -1,0 +1,133 @@
+{
+  "stages": [
+    {
+      "stage": "before",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-batch-api -am -Dtest=ColumnValueBinaryOwnershipTest,RowPageConverterBinaryTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 3.18,
+      "cases": 4,
+      "passed": 0,
+      "failure": 4,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-batch-api -am test",
+      "exit": 0,
+      "seconds": 20.92,
+      "cases": 435,
+      "passed": 435,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-batch-api -am -DskipTests -Pstatic-analysis verify",
+      "exit": 1,
+      "seconds": 11.52,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-batch-api -am -DskipTests -Pstatic-analysis verify",
+      "exit": 1,
+      "seconds": 9.49,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static3",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-batch-api -am -DskipTests -Pstatic-analysis verify",
+      "exit": 1,
+      "seconds": 12.38,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "page-before",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-batch-api -am -Dtest=NativePageDefensiveCopyPropertyTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 2.98,
+      "cases": 2,
+      "passed": 1,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static4",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-batch-api -am -DskipTests -Pstatic-analysis verify",
+      "exit": 0,
+      "seconds": 12.28,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=ColumnValue*Test,TypedRow*Test,NativePage*Test,*Type*Test,BatchClasspathIsolationTest,Columnar*Test,RowPage*Test,BlockRegion*Test,NativePageDefensiveCopyPropertyTest,ConnectorBinaryPageCodecTest,PaimonRowConverterTest,FileFromBytesFunctionTest,AiFunctionFactoryTest,FileColumnMimeValidatorTest,TableWarmupExecutor*Test,BatchSerializer*Test,SpoolBackedExchangeManagerTest,ExchangeSpi*Test,RemoteExchangeManagerPropertyTest,IcebergPageSourceProviderTest,CoordinatorResultWriter*Test,ModuleDependencyPropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 97.23,
+      "cases": 613,
+      "passed": 609,
+      "failure": 3,
+      "error": 1,
+      "skipped": 0
+    },
+    {
+      "stage": "ai-fixtures",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-ai-worker -am -Dtest=AiFunctionFactoryTest,FileFromBytesFunctionTest,EnvironmentSecretProviderTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 19.18,
+      "cases": 20,
+      "passed": 20,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=ColumnValue*Test,TypedRow*Test,NativePage*Test,*Type*Test,BatchClasspathIsolationTest,Columnar*Test,RowPage*Test,BlockRegion*Test,NativePageDefensiveCopyPropertyTest,ConnectorBinaryPageCodecTest,PaimonRowConverterTest,FileFromBytesFunctionTest,AiFunctionFactoryTest,FileColumnMimeValidatorTest,TableWarmupExecutor*Test,BatchSerializer*Test,SpoolBackedExchangeManagerTest,ExchangeSpi*Test,RemoteExchangeManagerPropertyTest,IcebergPageSourceProviderTest,CoordinatorResultWriter*Test,ModuleDependencyPropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 257.02,
+      "cases": 712,
+      "passed": 712,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "final-package",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=CoordinatorResultWriterTest,NativePage*Test,ModuleDependencyPropertyTest,ActivationSmokeE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 118.57,
+      "cases": 34,
+      "passed": 34,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 1014,
+    "passed": 1014,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "scope": "Latest actual reports per test class in this batch. JUnit/jqwik testcase counts, not property trial counts. Not full production regression; earlier batch passes not inherited."
+}

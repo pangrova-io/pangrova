@@ -4,11 +4,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.embedding.BlobReference;
-import org.pangrova.spi.ai.invocation.ContentPart;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.invocation.MultimodalPrompt;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.embedding.BlobReference;
+import org.pangrova.ai.api.invocation.ContentPart;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.api.invocation.MultimodalPrompt;
 
 import java.util.Base64;
 import java.util.Locale;

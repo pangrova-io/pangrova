@@ -1,0 +1,52 @@
+source	line	reference
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelectorModelResolutionTest.java	3	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelectorModelResolutionTest.java	182	new SpillBudget(0),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelectorMemoryFitTest.java	3	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelectorMemoryFitTest.java	138	new SpillBudget(0L));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelectorMemoryFitTest.java	188	new SpillBudget(0L));
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelector.java	3	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelector.java	31	private final SpillBudget spillBudget;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelector.java	38	SpillBudget spillBudget) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/placement/DefaultWorkerSelector.java	47	SpillBudget spillBudget,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcherContext.java	22	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcherContext.java	101	public SpillBudget spillBudget() {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcherContext.java	102	return scheduling.spillBudget();
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/SchedulingContextBundle.java	3	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/SchedulingContextBundle.java	26	SpillBudget spillBudget,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	22	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	342	deps.spillBudget() != null
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	343	? deps.spillBudget() : new SpillBudget(0),
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/SqlE2ETestBase.java	2181	E2eCurrentAuthority.configuredSpillBudget(NATIVE_WRITE_STAGE_BYTES), null);
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/E2eCurrentAuthority.java	11	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/E2eCurrentAuthority.java	104	static SpillBudget configuredSpillBudget(long bytes) {
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/E2eCurrentAuthority.java	107	"""coordinator.task.spill.max-bytes"", Long.toString(bytes)))).spillBudget();"
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/E2eCurrentAuthority.java	113	null, configuredSpillBudget(1024L * 1024 * 1024), services.models());
+pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/resource/SpillBudget.java	15	public record SpillBudget(long maxSpillBytes) {
+pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/resource/SpillBudget.java	16	public static final SpillBudget DISABLED = new SpillBudget(0);
+pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/resource/SpillBudget.java	18	public SpillBudget {
+pangrova-config/src/main/java/org/pangrova/config/CoordinatorOptions.java	208	public static final ConfigOption<Long> TASK_SPILL_MAX_BYTES =
+pangrova-config/src/main/java/org/pangrova/config/CoordinatorOptions.java	209	"ConfigOptions.key(""coordinator.task.spill.max-bytes"")"
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	25	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	39	"@ForAll(""spillBudgets"") SpillBudget budget,"
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	57	"void configuredBudgetReachesTheActualTaskGrant(@ForAll(""spillBudgets"") SpillBudget budget) {"
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	59	"Map.of(""coordinator.task.spill.max-bytes"", Long.toString(budget.maxSpillBytes()))));"
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	83	"Map.of(""coordinator.task.spill.max-bytes"", ""0""),"
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	94	"PangrovaConfiguration.fromYaml(Map.of(""coordinator.task.spill.max-bytes"", value))))"
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	97	assertThatThrownBy(() -> new SpillBudget(-1)).isInstanceOf(IllegalArgumentException.class);
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	103	"Map.of(""coordinator.task.spill.max-bytes"", Long.toString(Long.MAX_VALUE))));"
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	111	var selector = new DefaultWorkerSelector(workers, scheduler, null, config.spillBudget());
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	116	Arbitrary<SpillBudget> spillBudgets() {
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java	117	return Arbitraries.longs().between(0, 100L * 1024 * 1024 * 1024).map(SpillBudget::new);
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryMaterializationWiring.java	99	dependencies.splitAssignmentManager().cacheAffinityAssigner(), dependencies.config().spillBudget(),
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	7	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	224	SpillBudget spillBudget) {
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	234	if (spillBudget == null) spillBudget = SpillBudget.DISABLED;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	242	SpillBudget.DISABLED);
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	250	queryRetentionSeconds, queryCleanupIntervalSeconds, SpillBudget.DISABLED);
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	261	SpillBudget.DISABLED);
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	431	public SpillBudget spillBudget() {
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrapConfig.java	432	return query.spillBudget();
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PangrovaCoordinatorMain.java	12	import org.pangrova.scheduler.api.resource.SpillBudget;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PangrovaCoordinatorMain.java	144	new SpillBudget(
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PangrovaCoordinatorMain.java	145	config.getLong(CoordinatorOptions.TASK_SPILL_MAX_BYTES)));
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java	180	config.spillBudget(),

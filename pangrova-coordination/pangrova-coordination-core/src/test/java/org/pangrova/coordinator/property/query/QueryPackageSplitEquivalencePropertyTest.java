@@ -25,8 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Property 38: Package split behavioral equivalence.
  *
  * <p>Verifies that after splitting {@code coordinator/query/} into sub-packages,
- * all expected classes exist in their designated sub-packages and the root package
- * contains only query lifecycle core classes (≤ 8 files).</p>
+ * all expected classes exist in their designated modules and packages. Query state,
+ * physical cleanup and retention belong to Query Core, not the Coordinator.</p>
  *
  * <p>Behavioral equivalence is ultimately verified by the full test suite passing.
  * This property test validates the structural invariants that guarantee equivalence:
@@ -51,34 +51,41 @@ class QueryPackageSplitEquivalencePropertyTest {
             "execution/split", Set.of(
                     "SplitFetcher.java"),
             "stage", Set.of(
-                    "StageNode.java",
-                    "StageStateMachine.java"),
+                    "StageNode.java"),
             "statement", Set.of(
                     "DdlExecutor.java",
-                    "ShowDescribeExecutor.java",
-                    "StatementClassifier.java"),
+                    "ShowDescribeExecutor.java"),
             "statement/dml", Set.of(
                     "DeleteFilterConverter.java"),
             "audit", Set.of(
                     "QueryAuditEmitter.java"),
             "security", Set.of(
-                    "AccessControlEnforcer.java"),
-            "session", Set.of(
-                    "CoordinatorSessionContext.java")
+                    "AccessControlEnforcer.java")
     );
 
     /**
-     * Classes that must remain in the root query/ package (lifecycle core).
+     * Remaining Coordinator orchestration, pending its separate domain migration.
      */
     private static final Set<String> EXPECTED_ROOT_CLASSES = Set.of(
-            "QueryManager.java",
-            "QueryStateMachine.java"
+            "QueryManager.java"
     );
+
+    private static final Map<String, String> DOMAIN_OWNERS = Map.of(
+            "StatementClassifier.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/statement",
+            "StatementTableTargets.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/statement",
+            "SessionTableNames.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/session",
+            "StatementCategory.java", "pangrova-query-api/src/main/java/org/pangrova/query/api/statement",
+            "QueryStateMachine.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle",
+            "QueryConnectorAuthority.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle",
+            "QueryTerminalCleanup.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle",
+            "QueryRetentionScheduler.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/retention",
+            "StageStateMachine.java", "pangrova-query-core/src/main/java/org/pangrova/query/core/stage",
+            "QuerySession.java", "pangrova-query-api/src/main/java/org/pangrova/query/api/session");
 
     /**
      * Maximum files allowed in the root query/ package (excluding sub-packages).
-     * Governance: ≤8 healthy, 9-15 review zone. Root package holds lifecycle core
-     * classes (QueryManager, QueryStateMachine, SessionContext, etc.) — 10 is acceptable.
+     * This existing cap is not evidence of semantic separation; explicit owners below
+     * also reject duplicate state/cleanup classes in the Coordinator.
      */
     private static final int MAX_ROOT_PACKAGE_FILES = 12;
 
@@ -118,10 +125,6 @@ class QueryPackageSplitEquivalencePropertyTest {
 
     @Provide
     Arbitrary<StructuralCheck> structuralChecks() {
-        if (CHECKS.isEmpty()) {
-            return Arbitraries.just(new StructuralCheck(
-                    "No checks available (query source not found)", true));
-        }
         return Arbitraries.of(CHECKS);
     }
 
@@ -131,9 +134,23 @@ class QueryPackageSplitEquivalencePropertyTest {
 
     private static List<StructuralCheck> buildChecks() {
         List<StructuralCheck> checks = new ArrayList<>();
+        checks.add(new StructuralCheck("Coordinator query source must exist", Files.isDirectory(QUERY_SRC)));
         if (!Files.isDirectory(QUERY_SRC)) {
-            return checks;
+            return List.copyOf(checks);
         }
+
+        for (var entry : DOMAIN_OWNERS.entrySet()) {
+            Path owner = PROJECT_ROOT.resolve("pangrova-query").resolve(entry.getValue()).resolve(entry.getKey());
+            checks.add(new StructuralCheck("Unique domain owner: " + owner, Files.isRegularFile(owner)));
+            try (Stream<Path> files = Files.walk(QUERY_SRC)) {
+                checks.add(new StructuralCheck("No Coordinator duplicate: " + entry.getKey(),
+                        files.noneMatch(path -> path.getFileName().toString().equals(entry.getKey()))));
+            } catch (IOException failure) {
+                throw new java.io.UncheckedIOException(failure);
+            }
+        }
+        checks.add(new StructuralCheck("Old retention scheduler must be removed",
+                !Files.exists(QUERY_SRC.resolve("QueryCleanupScheduler.java"))));
 
         // Check sub-package classes exist
         for (Map.Entry<String, Set<String>> entry : EXPECTED_SUBPACKAGE_CLASSES.entrySet()) {
@@ -180,7 +197,7 @@ class QueryPackageSplitEquivalencePropertyTest {
                     .filter(p -> !p.getFileName().toString().equals("package-info.java"))
                     .count();
         } catch (IOException e) {
-            return 0;
+            throw new java.io.UncheckedIOException(e);
         }
     }
 

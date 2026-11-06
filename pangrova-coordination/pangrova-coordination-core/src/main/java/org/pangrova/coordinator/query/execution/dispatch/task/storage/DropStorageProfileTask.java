@@ -18,11 +18,11 @@ import java.util.List;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.statement.DropStorageProfileStatement;
-import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
+import org.pangrova.parser.api.ast.statement.DropStorageProfileStatement;
+import org.pangrova.persistence.file.api.profile.StorageProfileRegistry;
 
 /**
  * Executes {@code DROP STORAGE PROFILE [IF EXISTS] name}.

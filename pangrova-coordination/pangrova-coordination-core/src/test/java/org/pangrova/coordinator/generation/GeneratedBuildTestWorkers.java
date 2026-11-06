@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.generation;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
-import org.pangrova.coordinator.ai.model.ExactModelResolver;
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
+import org.pangrova.scheduler.core.placement.ExactModelResolver;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
@@ -20,7 +20,7 @@ import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 import java.time.Instant;
 import java.util.List;
 
@@ -109,7 +109,7 @@ final class GeneratedBuildTestWorkers {
                 CapabilityRef capability,
                 UserIdentity user) {
             resolvedUser = user;
-            return ExactModelResolver.resolve(List.of(worker), modelName, capability);
+            return ExactModelResolver.resolve(List.of(worker.capabilityInventory()), modelName, capability);
         }
     }
 

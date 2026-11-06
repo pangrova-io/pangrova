@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
+import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;

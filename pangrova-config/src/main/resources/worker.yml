@@ -76,7 +76,8 @@ worker:
     io: 2
     scheduler: 1
 
-  # Engine-level spill. The directory is the switch: leaving it unset disables
+  # Engine-level spill. Tasks also need a positive coordinator.task.spill.max-bytes
+  # grant. Leaving the directory unset disables
   # spill entirely. The paths below are examples, not defaults — code-side
   # defaults derive from ${java.io.tmpdir}, which is NOT /tmp on macOS.
   # spill:

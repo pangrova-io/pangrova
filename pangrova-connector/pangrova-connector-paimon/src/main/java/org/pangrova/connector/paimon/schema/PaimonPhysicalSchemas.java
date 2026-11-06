@@ -12,7 +12,7 @@ import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.paimon.arrow.ArrowUtils;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.types.RowType;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
 
 /** Obtains complete physical schema metadata from the same SDK conversion used by its file writer. */
 public final class PaimonPhysicalSchemas {

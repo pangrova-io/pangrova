@@ -13,11 +13,11 @@
  */
 package org.pangrova.ai.worker.function.file;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.ai.embedding.BlobReference;
-import org.pangrova.spi.function.metadata.FunctionMetadata;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.ai.api.embedding.BlobReference;
+import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 import org.pangrova.ai.worker.blob.GovernedBlobStore;
 
 import java.time.LocalDateTime;

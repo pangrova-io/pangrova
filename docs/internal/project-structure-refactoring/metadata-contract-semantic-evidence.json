@@ -1,0 +1,34 @@
+[
+  {
+    "path": "pangrova-metadata/pangrova-metadata-codec/src/main/java/org/pangrova/metadata/codec/table/TableMetadataSerializer.java",
+    "java_string_literals_identical": true,
+    "scope": "All string literals including SQL, cache keys, codec fields, log messages. Not a substitute for transaction tests."
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/invalidation/PostgresInvalidationPoller.java",
+    "java_string_literals_identical": true,
+    "scope": "All string literals including SQL, cache keys, codec fields, log messages. Not a substitute for transaction tests."
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-codec/src/main/java/org/pangrova/metadata/codec/json/MetadataJsonMapper.java",
+    "java_string_literals_identical": true,
+    "scope": "All string literals including SQL, cache keys, codec fields, log messages. Not a substitute for transaction tests."
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresMetadataStore.java",
+    "java_string_literals_identical": true,
+    "scope": "All string literals including SQL, cache keys, codec fields, log messages. Not a substitute for transaction tests."
+  },
+  {
+    "path": "org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository",
+    "change": "History lookup now abstract; production PostgreSQL already implements exact incarnation/revision. Historyless test substitutes explicitly reject. CatalogRegistry narrows constructor/field to deployment-only authority."
+  },
+  {
+    "path": "org.pangrova.persistence.catalog.api.invalidation.InvalidationLogMaintenance",
+    "change": "PostgresInvalidationPoller implements borrowed maintenance port; MetadataCleanupScheduler no longer imports PostgreSQL implementation. Existing scheduling/cleanup SQL behavior unchanged."
+  },
+  {
+    "path": "org.pangrova.indexing.api.error.IndexAlreadyExistsException",
+    "change": "Moves to Indexing API and extends PangrovaException directly. Error code/message and explicit DDL catch stay unchanged; current table/tag authorization still requires Metadata Core until atomic workflow extraction."
+  }
+]

@@ -17,11 +17,11 @@
  */
 package org.pangrova.coordinator.query.statement.dml;
 
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.expression.FunctionCall;
+import org.pangrova.types.value.ColumnValue;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

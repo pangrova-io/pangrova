@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.cache;
 
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.ResultValidator;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -207,7 +207,7 @@ class RepeatQueryConsistencyTest extends SqlE2ETestBase {
             org.pangrova.common.value.MemoryPressure pressure) {
         var worker = java.util.Objects.requireNonNull(
                 workerManager.getWorker(WORKER_ID), "E2E Worker must be registered");
-        workerManager.onHeartbeat(WORKER_ID,
+        workerManager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(WORKER_ID, workerManager.getWorker(WORKER_ID).workerExecutionIdentity().admissionDomainId(), workerManager.getWorker(WORKER_ID).workerExecutionIdentity().incarnationId()),
                 new org.pangrova.coordinator.worker.WorkerManager.HeartbeatData(
                         pressure, worker.cpuUtilization(), worker.runningTaskCount(),
                         worker.availableMemoryBytes(), worker.cacheSummary()));

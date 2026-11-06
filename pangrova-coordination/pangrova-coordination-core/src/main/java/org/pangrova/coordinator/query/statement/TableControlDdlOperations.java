@@ -1,24 +1,26 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.table.api.control.OwnershipMode;
-import org.pangrova.table.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.control.TableControlPolicyBinder;
-import org.pangrova.table.api.control.TableControlRecord;
+import org.pangrova.table.api.ownership.OwnershipMode;
+import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.core.policybinding.TableControlPolicyBinder;
+import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.mask.ColumnMaskRecord;
-import org.pangrova.persistence.api.security.mask.ColumnMaskStore;
+import org.pangrova.metadata.api.resolution.MetadataService;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.mask.ColumnMaskRecord;
+import org.pangrova.persistence.security.api.mask.ColumnMaskStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,11 +70,11 @@ final class TableControlDdlOperations {
     }
 
     /** Adopts an external table as LINKED. The physical table is not modified. */
-    List<TypedRow> adopt(AlterTableStatement.Adopt stmt, CoordinatorSessionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
-        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
-        ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
+    List<TypedRow> adopt(AlterTableStatement.Adopt stmt, QuerySession context) {
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, ref.catalog(), ref.schema());
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(catalogRegistry, ref.catalog(), session);
+        ConnectorTableHandle handle = ConnectorTableLookup.requireTableHandle(metadata, session, ref);
         String owner = actor(context);
         validateAdoptionPolicy(stmt.properties());
         var identity = metadata.getTableIdentity(session, handle);
@@ -90,8 +92,8 @@ final class TableControlDdlOperations {
     }
 
     /** Removes LINKED control state. The physical table and its data are untouched. */
-    List<TypedRow> unlink(AlterTableStatement.Unlink stmt, CoordinatorSessionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+    List<TypedRow> unlink(AlterTableStatement.Unlink stmt, QuerySession context) {
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         TableControlRecord record = catalogRegistry.tableControl().unlink(
                 ref.catalog(), ref.schema(), ref.table());
         purgeTableState(record, context);
@@ -109,7 +111,7 @@ final class TableControlDdlOperations {
      * behind would attach the old table's policy and cardinalities to any record
      * that reused the ID.
      */
-    void purgeTableState(TableControlRecord record, CoordinatorSessionContext context) {
+    void purgeTableState(TableControlRecord record, QuerySession context) {
         if (record == null) {
             return;
         }
@@ -138,7 +140,7 @@ final class TableControlDdlOperations {
      * re-keyed explicitly so a renamed table is never left unmasked.
      */
     void moveNameScopedGovernance(QualifiedTableName from, QualifiedTableName to,
-            List<String> columns, CoordinatorSessionContext context) {
+            List<String> columns, QuerySession context) {
         MetadataService service = metadataService;
         var identity = catalogRegistry.tableControl().find(to.catalog(), to.schema(), to.table());
         if (service != null && identity.isPresent()) {
@@ -216,7 +218,7 @@ final class TableControlDdlOperations {
         service.applyAdoptionProperties(record, properties, actor);
     }
 
-    private static String actor(CoordinatorSessionContext context) {
+    private static String actor(QuerySession context) {
         return context.userIdentity() == null ? "" : context.userIdentity().principal();
     }
 }

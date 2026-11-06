@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.table.api.maintenance.MaintenanceOperation;
-import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
-import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
-import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
+import org.pangrova.types.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,21 +33,21 @@ public final class MaintenanceExecutor {
 
     /** Executes a table compaction statement. */
     public List<TypedRow> executeCompact(CompactStatement stmt,
-            CoordinatorSessionContext context) {
+            QuerySession context) {
         LOG.info("event=compact_table table={}", String.join(".", stmt.tableName().parts()));
         return maintenance.execute(MaintenanceOperation.COMPACT, stmt.tableName(), context);
     }
 
     /** Executes a table vacuum statement. */
     public List<TypedRow> executeVacuum(VacuumStatement stmt,
-            CoordinatorSessionContext context) {
+            QuerySession context) {
         LOG.info("event=vacuum_table table={}", String.join(".", stmt.tableName().parts()));
         return maintenance.execute(MaintenanceOperation.VACUUM, stmt.tableName(), context);
     }
 
     /** Executes a table optimization statement. */
     public List<TypedRow> executeOptimize(OptimizeStatement stmt,
-            CoordinatorSessionContext context) {
+            QuerySession context) {
         LOG.info("event=optimize_table table={}", String.join(".", stmt.tableName().parts()));
         return maintenance.execute(MaintenanceOperation.OPTIMIZE, stmt.tableName(), context);
     }

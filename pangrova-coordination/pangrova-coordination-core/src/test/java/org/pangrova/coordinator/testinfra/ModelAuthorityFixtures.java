@@ -2,8 +2,8 @@ package org.pangrova.coordinator.testinfra;
 
 import org.pangrova.ai.control.store.jdbc.embedding.JdbcCurrentModelAuthority;
 import org.pangrova.metadata.assembly.generation.GenerationStores;
-import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.persistence.jdbc.security.policy.JdbcCurrentDirectRoleReader;
+import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
+import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 
 /** Composes real model and artifact authorities for cross-domain consumer tests. */
 public final class ModelAuthorityFixtures {

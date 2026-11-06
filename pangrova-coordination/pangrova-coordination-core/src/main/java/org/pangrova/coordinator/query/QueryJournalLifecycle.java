@@ -1,11 +1,17 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryTerminalCleanup;
+
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.api.session.QuerySession;
 
 import java.util.Optional;
-import org.pangrova.spi.query.state.QueryStateEvent;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
-import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.query.api.commit.JournalWriteException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,12 +33,12 @@ final class QueryJournalLifecycle {
         if (state.hasJournalOwnership()) journal.purgeQuery(queryId);
     }
 
-    void queued(String queryId, String sql, CoordinatorSessionContext session, QueryStateMachine state) {
-        QueryStateEvent fact = state.journalEvent(QueryStateMachine.State.QUEUED,
-                () -> new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(
+    void queued(String queryId, String sql, QuerySession session, QueryStateMachine state) {
+        QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
+                () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), queryId, sql,
                         org.pangrova.coordinator.query.session.JournalSessionPayload.encode(session),
-                        QueryStateMachine.State.QUEUED.name(), state.lineageStart()));
+                        QueryState.QUEUED.name(), state.lineageStart()));
         record(state, () -> journal.appendQueryEventSync(fact));
     }
 
@@ -42,7 +48,7 @@ final class QueryJournalLifecycle {
             return;
         }
         journal.appendQueryEventSync(context.state().journalEvent(context.state().getState(),
-                () -> new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(
+                () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), context.queryId(), null, null,
                         context.state().getState().name(), audit == null ? null
                                 : audit.terminalFact(context.queryId(), context.state(), context.state().getState()))));
@@ -51,13 +57,13 @@ final class QueryJournalLifecycle {
     void registerListener(String queryId, QueryStateMachine state) {
         state.setTransitionRecorder((previous, current) -> {
             if (!state.hasJournalOwnership()) return;
-            if (current == QueryStateMachine.State.PLANNING || current == QueryStateMachine.State.SCHEDULING
-                    || current == QueryStateMachine.State.RUNNING || current == QueryStateMachine.State.FINISHING
-                    || current == QueryStateMachine.State.CANCELLED) {
+            if (current == QueryState.PLANNING || current == QueryState.SCHEDULING
+                    || current == QueryState.RUNNING || current == QueryState.FINISHING
+                    || current == QueryState.CANCELLED) {
                 journal.appendQueryEvent(state.journalEvent(current,
-                        () -> new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(
+                        () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                                 System.currentTimeMillis(), coordinatorId), queryId, null, null, current.name(),
-                                current == QueryStateMachine.State.CANCELLED && audit != null
+                                current == QueryState.CANCELLED && audit != null
                                         ? audit.terminalFact(queryId, state, current) : null)));
             }
         });
@@ -75,10 +81,10 @@ final class QueryJournalLifecycle {
         }
     }
 
-    Optional<QueryStateMachine.State> lookup(String queryId) {
+    Optional<QueryState> lookup(String queryId) {
         return journal.latestQueryEvent(queryId).flatMap(event -> {
             try {
-                return Optional.of(QueryStateMachine.State.valueOf(event.state()));
+                return Optional.of(QueryState.valueOf(event.state()));
             } catch (IllegalArgumentException malformed) {
                 LOG.warn("event=journal_state_unparseable queryId={} state={}", queryId, event.state());
                 return Optional.empty();

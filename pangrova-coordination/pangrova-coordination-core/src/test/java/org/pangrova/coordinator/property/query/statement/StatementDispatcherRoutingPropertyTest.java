@@ -3,35 +3,35 @@ package org.pangrova.coordinator.property.query.statement;
 import net.jqwik.api.*;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.*;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.statement.AlterDynamicTableAction;
-import org.pangrova.parser.ast.statement.AlterDynamicTableStatement;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.parser.ast.statement.DescribeDynamicTableStatement;
-import org.pangrova.parser.ast.statement.DescribeTableStatement;
-import org.pangrova.parser.ast.statement.DropCatalogStatement;
-import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
-import org.pangrova.parser.ast.statement.dml.MergeStatement;
-import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.parser.ast.statement.ShowCatalogsStatement;
-import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
-import org.pangrova.parser.ast.statement.ShowTablesStatement;
-import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
-import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
+import org.pangrova.parser.api.ast.*;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableAction;
+import org.pangrova.parser.api.ast.statement.AlterDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.parser.api.ast.statement.DescribeDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DescribeTableStatement;
+import org.pangrova.parser.api.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DropDynamicTableStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+import org.pangrova.parser.api.ast.statement.ShowCatalogsStatement;
+import org.pangrova.parser.api.ast.statement.ShowDynamicTablesStatement;
+import org.pangrova.parser.api.ast.statement.ShowTablesStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
 
 import java.util.HashMap;
 import java.util.List;
@@ -101,7 +101,7 @@ class StatementDispatcherRoutingPropertyTest {
                 new CreateTableStatement(
                         Identifier.of("cat", "sch", "tbl"),
                         List.of(new CreateTableStatement.ColumnDefinition("id",
-                                org.pangrova.parser.ast.type.DataTypeSpec.fromRawTypeString("INTEGER"))),
+                                org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("INTEGER"))),
                         false, List.of(), List.of(), Optional.empty(),
                         java.util.Map.of()),
                 new DropTableStatement(Identifier.of("cat", "sch", "tbl"), false),
@@ -133,7 +133,7 @@ class StatementDispatcherRoutingPropertyTest {
                 new MergeStatement(
                         Identifier.of("cat", "sch", "tbl"),
                         Optional.empty(),
-                        new org.pangrova.parser.ast.TableRef(Identifier.of("cat", "sch", "src")),
+                        new org.pangrova.parser.api.ast.TableRef(Identifier.of("cat", "sch", "src")),
                         new BinaryExpression(Identifier.of("id"),
                                 BinaryExpression.Operator.EQUAL, Literal.ofInteger(1)),
                         List.of()));

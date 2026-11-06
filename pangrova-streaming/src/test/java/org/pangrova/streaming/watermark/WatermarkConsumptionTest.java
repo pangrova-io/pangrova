@@ -1,12 +1,12 @@
 package org.pangrova.streaming.watermark;
 
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.write.model.TableFormat;
-import org.pangrova.spi.connector.data.write.TableWriter;
-import org.pangrova.spi.connector.data.write.model.WriteContext;
-import org.pangrova.spi.connector.data.write.model.WriteMode;
-import org.pangrova.spi.connector.data.write.model.WriteRecord;
-import org.pangrova.spi.connector.data.write.model.WriteResult;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.write.TableFormat;
+import org.pangrova.connector.spi.write.TableWriter;
+import org.pangrova.connector.api.write.WriteContext;
+import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.api.write.WriteRecord;
+import org.pangrova.connector.api.write.WriteResult;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

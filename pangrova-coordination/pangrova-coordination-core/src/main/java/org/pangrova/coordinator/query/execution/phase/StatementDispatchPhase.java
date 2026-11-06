@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query.execution.phase;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 
 /**
@@ -15,9 +17,9 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
 
     @FunctionalInterface
     public interface MetadataListingResolver {
-        org.pangrova.planner.MetadataTableQuery resolve(java.util.List<String> parts,
-                org.pangrova.spi.connector.metadata.MetadataTableKind kind,
-                org.pangrova.coordinator.query.session.CoordinatorSessionContext session);
+        org.pangrova.planner.core.analysis.MetadataTableQuery resolve(java.util.List<String> parts,
+                org.pangrova.connector.api.metadata.MetadataTableKind kind,
+                org.pangrova.query.api.session.QuerySession session);
     }
 
     private final StatementDispatcher statementDispatcher;
@@ -38,7 +40,7 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
             LOG.debug("event=ddl_dml_skip reason=metadata_disabled");
             return new PhaseResult.Continue(context);
         }
-        org.pangrova.parser.ast.Statement parsed = null;
+        org.pangrova.parser.api.ast.Statement parsed = null;
         try {
             parsed = context.compiler().parseToAst(context.sql());
         } catch (RuntimeException parseFailure) {
@@ -67,8 +69,8 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
         // DDL/DML may complete without a DispatchResult (no resultService).
         // If the state machine already reached a terminal state, stop here.
         var state = context.stateMachine().getState();
-        if (state == org.pangrova.coordinator.query.QueryStateMachine.State.FINISHED
-                || state == org.pangrova.coordinator.query.QueryStateMachine.State.FAILED) {
+        if (state == QueryState.FINISHED
+                || state == QueryState.FAILED) {
             return new PhaseResult.Terminal(null);
         }
         return new PhaseResult.Continue(context);

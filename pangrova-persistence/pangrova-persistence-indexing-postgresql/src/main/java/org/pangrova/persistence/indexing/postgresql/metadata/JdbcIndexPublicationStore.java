@@ -1,0 +1,405 @@
+package org.pangrova.persistence.indexing.postgresql.metadata;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Optional;
+
+import javax.sql.DataSource;
+
+import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
+import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
+
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
+
+/** Transactional validation and activation of immutable index generations. */
+final class JdbcIndexPublicationStore extends JdbcStoreSupport {
+
+    private final JdbcIndexDescriptorStore descriptors;
+
+    JdbcIndexPublicationStore(DataSource dataSource, JdbcIndexDescriptorStore descriptors) {
+        super(dataSource);
+        this.descriptors = java.util.Objects.requireNonNull(descriptors, "descriptors");
+    }
+
+    IndexGenerationManifest publish(IndexPublicationRequest request) {
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                AuthorizationTransactionGate.lockPublication(connection);
+                DescriptorFence descriptor = lockDescriptor(connection, request.indexId());
+                descriptors.requireCurrentScalarPublicationAuthority(
+                        connection, request.indexId());
+                List<IndexFileMapping> mappings = loadMappings(connection, request);
+                Optional<IndexGenerationManifest> existing =
+                        loadGeneration(connection, request.indexId(), request.generation());
+                if (isIdempotentRetry(descriptor, request, mappings, existing)) {
+                    connection.commit();
+                    return existing.orElseThrow();
+                }
+                PublicationMode mode = validatePublicationFence(
+                        connection, descriptor, request);
+                IndexGenerationManifest manifest = buildManifest(
+                        request, mappings, nextPublicationEpoch(connection, request.indexId()));
+                retireActiveGeneration(connection, request.indexId());
+                insertManifest(connection, manifest);
+                activateDescriptor(connection, descriptor, request, mode);
+                if (mode == PublicationMode.ONLINE_REPLACEMENT) {
+                    completeBuildingGeneration(connection, request);
+                }
+                connection.commit();
+                return manifest;
+            } catch (SQLException | RuntimeException failure) {
+                rollback(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to publish index generation", failure);
+        }
+    }
+
+    Optional<IndexGenerationManifest> findActive(String indexId) {
+        String sql = "SELECT * FROM index_generation_manifests "
+                + "WHERE index_id=? AND state='ACTIVE'";
+        return executeQuery(sql, statement -> statement.setString(1, indexId),
+                result -> result.next()
+                        ? Optional.of(mapManifest(result))
+                        : Optional.empty());
+    }
+
+    private static DescriptorFence lockDescriptor(
+            Connection connection, String indexId) throws SQLException {
+        String sql = "SELECT state, generation, updated_at FROM index_descriptors "
+                + "WHERE index_id=? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, indexId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException("Index disappeared before publication: " + indexId);
+                }
+                return new DescriptorFence(
+                        IndexState.valueOf(result.getString("state")),
+                        result.getInt("generation"),
+                        getInstant(result, "updated_at"));
+            }
+        }
+    }
+
+    private static PublicationMode validatePublicationFence(
+            Connection connection,
+            DescriptorFence descriptor,
+            IndexPublicationRequest request) throws SQLException {
+        if (descriptor.state() == IndexState.BUILDING
+                && descriptor.generation() == request.generation()
+                && descriptor.updatedAt().equals(request.expectedUpdatedAt())) {
+            return PublicationMode.INITIAL_BUILD;
+        }
+        if ((descriptor.state() == IndexState.READY || descriptor.state() == IndexState.STALE)
+                && descriptor.generation() == request.generation() - 1
+                && hasExpectedBuildingGeneration(connection, request, descriptor.generation())) {
+            return PublicationMode.ONLINE_REPLACEMENT;
+        }
+        throw new IllegalStateException(
+                "Index publication fence does not match initial or staging generation: "
+                        + request.indexId());
+    }
+
+    private static boolean hasExpectedBuildingGeneration(
+            Connection connection,
+            IndexPublicationRequest request,
+            int baseGeneration) throws SQLException {
+        String sql = "SELECT 1 FROM index_generation_builds WHERE index_id=? "
+                + "AND generation=? AND base_generation=? AND source_snapshot=? "
+                + "AND state='BUILDING' AND updated_at=? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, request.indexId());
+            statement.setInt(2, request.generation());
+            statement.setInt(3, baseGeneration);
+            statement.setString(4, request.sourceSnapshot());
+            setInstant(statement, 5, request.expectedUpdatedAt());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next();
+            }
+        }
+    }
+
+    private static List<IndexFileMapping> loadMappings(
+            Connection connection, IndexPublicationRequest request) throws SQLException {
+        String sql = "SELECT * FROM index_file_mappings "
+                + "WHERE index_id=? AND generation=? ORDER BY data_file_path";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, request.indexId());
+            statement.setInt(2, request.generation());
+            try (ResultSet result = statement.executeQuery()) {
+                List<IndexFileMapping> mappings = IndexMetadataMapper.mapMappingList(result);
+                validateMappings(request, mappings);
+                return mappings;
+            }
+        }
+    }
+
+    private static void validateMappings(
+            IndexPublicationRequest request, List<IndexFileMapping> mappings) {
+        if (mappings.size() != request.expectedObjectCount()) {
+            throw new IllegalStateException(
+                    "Index generation object count mismatch: expected="
+                            + request.expectedObjectCount() + " actual=" + mappings.size());
+        }
+    }
+
+    private static IndexGenerationManifest buildManifest(
+            IndexPublicationRequest request,
+            List<IndexFileMapping> mappings,
+            long publicationEpoch) {
+        long rowCount = mappings.stream()
+                .mapToLong(IndexFileMapping::rowCount)
+                .reduce(0L, Math::addExact);
+        long totalBytes = mappings.stream()
+                .mapToLong(IndexFileMapping::indexSizeBytes)
+                .reduce(0L, Math::addExact);
+        String digest = manifestDigest(request, mappings);
+        return new IndexGenerationManifest(
+                request.indexId(), request.sourceId(), request.generation(),
+                request.sourceSnapshot(),
+                request.artifactType(), request.format(), mappings.size(),
+                rowCount, totalBytes, digest,
+                publicationEpoch, canonicalInstant(request.publishedAt()));
+    }
+
+    private static long nextPublicationEpoch(
+            Connection connection, String indexId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COALESCE(MAX(publication_epoch),0) FROM index_generation_manifests "
+                        + "WHERE index_id=?")) {
+            statement.setString(1, indexId);
+            try (ResultSet result = statement.executeQuery()) {
+                result.next();
+                return Math.addExact(result.getLong(1), 1L);
+            }
+        }
+    }
+
+    private static String manifestDigest(
+            IndexPublicationRequest request, List<IndexFileMapping> mappings) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            update(digest, request.indexId());
+            update(digest, request.sourceId());
+            update(digest, Integer.toString(request.generation()));
+            update(digest, request.sourceSnapshot());
+            update(digest, request.artifactType());
+            update(digest, request.format().formatId());
+            update(digest, Integer.toString(request.format().majorVersion()));
+            update(digest, Integer.toString(request.format().minorVersion()));
+            update(digest, request.format().schemaSha256());
+            mappings.stream().sorted(Comparator.comparing(IndexFileMapping::dataFilePath))
+                    .forEach(mapping -> updateMapping(digest, mapping));
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("SHA-256 digest is unavailable", failure);
+        }
+    }
+
+    private static void updateMapping(MessageDigest digest, IndexFileMapping mapping) {
+        update(digest, mapping.dataFilePath());
+        update(digest, mapping.indexFilePath());
+        update(digest, mapping.checksum());
+        update(digest, Long.toString(mapping.rowCount()));
+        update(digest, Long.toString(mapping.indexSizeBytes()));
+        update(digest, mapping.snapshotToken());
+        update(digest, Long.toString(mapping.sequenceNum()));
+    }
+
+    private static void update(MessageDigest digest, String value) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+        digest.update(bytes);
+    }
+
+    private static void retireActiveGeneration(
+            Connection connection, String indexId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE index_generation_manifests SET state='RETIRED' "
+                        + "WHERE index_id=? AND state='ACTIVE'")) {
+            statement.setString(1, indexId);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void insertManifest(
+            Connection connection, IndexGenerationManifest manifest) throws SQLException {
+        String sql = "INSERT INTO index_generation_manifests "
+                + "(index_id,generation,source_id,source_snapshot,artifact_type,format_id,"
+                + "format_major,format_minor,schema_sha256,writer_build_id,object_count,"
+                + "row_count,total_bytes,manifest_sha256,publication_epoch,state,published_at) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            bindManifest(statement, manifest);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void bindManifest(
+            PreparedStatement statement, IndexGenerationManifest manifest) throws SQLException {
+        int parameter = 1;
+        statement.setString(parameter++, manifest.indexId());
+        statement.setInt(parameter++, manifest.generation());
+        statement.setString(parameter++, manifest.sourceId());
+        statement.setString(parameter++, manifest.sourceSnapshot());
+        statement.setString(parameter++, manifest.artifactType());
+        statement.setString(parameter++, manifest.format().formatId());
+        statement.setInt(parameter++, manifest.format().majorVersion());
+        statement.setInt(parameter++, manifest.format().minorVersion());
+        statement.setString(parameter++, manifest.format().schemaSha256());
+        statement.setString(parameter++, manifest.format().writerBuildId());
+        statement.setLong(parameter++, manifest.objectCount());
+        statement.setLong(parameter++, manifest.rowCount());
+        statement.setLong(parameter++, manifest.totalBytes());
+        statement.setString(parameter++, manifest.manifestSha256());
+        statement.setLong(parameter++, manifest.publicationEpoch());
+        statement.setString(parameter++, "ACTIVE");
+        setInstant(statement, parameter, manifest.publishedAt());
+    }
+
+    private static void activateDescriptor(
+            Connection connection,
+            DescriptorFence descriptor,
+            IndexPublicationRequest request,
+            PublicationMode mode) throws SQLException {
+        String sql = "UPDATE index_descriptors SET state=?, generation=?, "
+                + "build_snapshot_id=?, stale_reason=NULL, last_indexed_snapshot_id=?, updated_at=? "
+                + "WHERE index_id=? AND state=? AND generation=? AND updated_at=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, IndexState.READY.name());
+            statement.setInt(2, request.generation());
+            statement.setString(3, request.sourceSnapshot());
+            statement.setString(4, request.sourceSnapshot());
+            setInstant(statement, 5, request.publishedAt());
+            statement.setString(6, request.indexId());
+            statement.setString(7, descriptor.state().name());
+            statement.setInt(8, descriptor.generation());
+            setInstant(statement, 9, descriptor.updatedAt());
+            if (statement.executeUpdate() != 1) {
+                throw new IllegalStateException(
+                        "Index activation fence was lost for " + mode.name().toLowerCase());
+            }
+        }
+    }
+
+    private static void completeBuildingGeneration(
+            Connection connection, IndexPublicationRequest request) throws SQLException {
+        String sql = "UPDATE index_generation_builds SET state='PUBLISHED', updated_at=?, "
+                + "failure_reason=NULL WHERE index_id=? AND generation=? "
+                + "AND state='BUILDING' AND updated_at=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            setInstant(statement, 1, request.publishedAt());
+            statement.setString(2, request.indexId());
+            statement.setInt(3, request.generation());
+            setInstant(statement, 4, request.expectedUpdatedAt());
+            if (statement.executeUpdate() != 1) {
+                throw new IllegalStateException("Index staging-generation fence was lost");
+            }
+        }
+    }
+
+    private static Optional<IndexGenerationManifest> loadGeneration(
+            Connection connection, String indexId, int generation) throws SQLException {
+        String sql = "SELECT * FROM index_generation_manifests "
+                + "WHERE index_id=? AND generation=? AND state='ACTIVE'";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(mapManifest(result)) : Optional.empty();
+            }
+        }
+    }
+
+    private static boolean isIdempotentRetry(
+            DescriptorFence descriptor,
+            IndexPublicationRequest request,
+            List<IndexFileMapping> mappings,
+            Optional<IndexGenerationManifest> existing) {
+        if (existing.isEmpty()
+                || descriptor.state() != IndexState.READY
+                || descriptor.generation() != request.generation()) {
+            return false;
+        }
+        IndexGenerationManifest candidate = buildManifest(
+                request, mappings, existing.get().publicationEpoch());
+        if (!samePublishedIdentity(existing.get(), candidate)) {
+            throw new IllegalStateException(
+                    "Published generation differs from idempotent retry: " + request.indexId());
+        }
+        return true;
+    }
+
+    private static boolean samePublishedIdentity(
+            IndexGenerationManifest left, IndexGenerationManifest right) {
+        return sameManifestIdentity(left, right)
+                && sameManifestTotals(left, right);
+    }
+
+    private static boolean sameManifestIdentity(
+            IndexGenerationManifest left, IndexGenerationManifest right) {
+        return left.indexId().equals(right.indexId())
+                && left.sourceId().equals(right.sourceId())
+                && left.generation() == right.generation()
+                && left.sourceSnapshot().equals(right.sourceSnapshot())
+                && left.artifactType().equals(right.artifactType())
+                && left.format().equals(right.format());
+    }
+
+    private static boolean sameManifestTotals(
+            IndexGenerationManifest left, IndexGenerationManifest right) {
+        return left.objectCount() == right.objectCount()
+                && left.rowCount() == right.rowCount()
+                && left.totalBytes() == right.totalBytes()
+                && left.manifestSha256().equals(right.manifestSha256());
+    }
+
+    private static IndexGenerationManifest mapManifest(ResultSet result) throws SQLException {
+        IndexGenerationFormat format = new IndexGenerationFormat(
+                result.getString("format_id"), result.getInt("format_major"),
+                result.getInt("format_minor"), result.getString("schema_sha256"),
+                result.getString("writer_build_id"));
+        return new IndexGenerationManifest(
+                result.getString("index_id"), result.getString("source_id"),
+                result.getInt("generation"),
+                result.getString("source_snapshot"), result.getString("artifact_type"),
+                format, result.getLong("object_count"), result.getLong("row_count"),
+                result.getLong("total_bytes"), result.getString("manifest_sha256"),
+                result.getLong("publication_epoch"),
+                getInstant(result, "published_at"));
+    }
+
+    private static void rollback(Connection connection, Exception original) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackFailure) {
+            original.addSuppressed(rollbackFailure);
+        }
+    }
+
+    private enum PublicationMode {
+        INITIAL_BUILD,
+        ONLINE_REPLACEMENT
+    }
+
+    private record DescriptorFence(IndexState state, int generation, java.time.Instant updatedAt) {}
+}

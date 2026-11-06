@@ -10,31 +10,30 @@
     </parent>
     <artifactId>pangrova-generation-core</artifactId>
     <name>Pangrova Generation Core</name>
-    <description>Immutable generation graph codecs, construction factories and publication routing</description>
+    <description>Generation construction, immutable publication resolution and publication routing</description>
     <properties>
         <module.name>org.pangrova.generation.core</module.name>
     </properties>
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>io.substrait</groupId><artifactId>core</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-codec</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
+        <dependency><groupId>com.google.protobuf</groupId><artifactId>protobuf-java</artifactId></dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-api</artifactId>
+            <artifactId>pangrova-persistence-generation-api</artifactId>
         </dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
         <dependency>

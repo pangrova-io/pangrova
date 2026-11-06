@@ -88,6 +88,16 @@ system properties (`-D...`) on every coordinator:
 |-----|------|---------|-------------|
 | `coordinator.query.timeout` | duration | `"5m"` | Maximum query execution time before timeout |
 | `coordinator.query.max-concurrent` | int | `100` | Maximum number of concurrently executing queries |
+| `coordinator.task.spill.max-bytes` | long | `0` | Per-task spill byte ceiling; zero disables task spilling. Requires Worker-local spill directory. |
+
+Task spill budgets are signed 64-bit non-negative byte counts. Invalid, negative,
+or overflowing values fail configuration before startup. The grant applies to
+**each task**, not the sum of tasks in a query. A positive grant does not reserve
+disk space: the Worker must configure its own `worker.spill.directory`, and Native
+uses the smaller positive task and node limit when a node cap exists. A zero task
+grant disables task spilling even if the Worker has a directory. The Coordinator
+never supplies a filesystem path for another machine. These settings also apply
+to Standalone, which uses the same Coordinator configuration loader.
 
 ## coordinator.worker
 
@@ -159,8 +169,9 @@ and rejected, so restarting a coordinator cannot restore revoked permissions.
 Every access check reads current roles and grants; unavailable SQL state fails
 closed instead of reusing an earlier permission. RLS and column masking match
 the independently resolved role set while retaining the authenticated identity's
-original groups and attributes. SQL role/grant administration is not yet exposed
-by this configuration surface; provision the persistent authority explicitly.
+original groups and attributes. SQL privilege administration is available with OAuth2/LDAP and PostgreSQL.
+Provision initial roles, memberships and root authority explicitly; no administrator
+role name is automatically trusted. NOOP/bypass cannot administer SQL privileges.
 For storage profiles, provision `VIEW_STORAGE_PROFILE`,
 `MANAGE_STORAGE_PROFILE`, or `READ_STORAGE_PROFILE` in `security_grants` with
 `object_type = 'STORAGE_PROFILE'`, `catalog_name` equal to the exact profile
@@ -169,8 +180,9 @@ scope columns set to `NULL`. Bind the grant's `role_name` through
 `pangrova_roles` and `pangrova_user_roles` or `pangrova_group_roles`.
 `MANAGE_STORAGE_PROFILE` also permits viewing the same profile. Reading source
 object bytes requires a separate `READ_STORAGE_PROFILE` grant; viewing or managing
-a profile does not imply it. This uses the existing PostgreSQL administrative
-provisioning path; Pangrova SQL `GRANT` for storage profiles is not exposed.
+a profile does not imply it. Trusted provisioning can establish initial authority; subsequent grants can use
+`GRANT READ_STORAGE_PROFILE ON STORAGE PROFILE profile_name TO ROLE role_name`
+with current OWNER or WITH GRANT OPTION. See the [SQL privilege contract](../architecture/security.md#sql-privilege-administration).
 Profile definitions are stored in the metadata PostgreSQL authority with immutable
 incarnation and revision history. An unavailable authority fails profile operations;
 there is no coordinator-local profile fallback.

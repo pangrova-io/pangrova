@@ -13,8 +13,8 @@
  */
 package org.pangrova.ai.worker.governance;
 
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
 
 /** Fail-closed permission and budget check executed before provider dispatch. */
 @FunctionalInterface

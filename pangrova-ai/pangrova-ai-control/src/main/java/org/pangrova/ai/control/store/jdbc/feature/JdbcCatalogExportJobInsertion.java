@@ -8,7 +8,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Locale;
 
-import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 
 /** Inserts or validates the immutable catalog-to-artifact export link. */
 final class JdbcCatalogExportJobInsertion {

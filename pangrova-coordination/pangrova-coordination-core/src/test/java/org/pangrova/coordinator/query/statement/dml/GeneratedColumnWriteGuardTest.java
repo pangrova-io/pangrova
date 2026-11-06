@@ -2,19 +2,19 @@ package org.pangrova.coordinator.query.statement.dml;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 
 import java.util.List;
 import java.util.Map;
@@ -50,7 +50,7 @@ class GeneratedColumnWriteGuardTest {
         assertThatThrownBy(() -> GeneratedColumnWriteGuard.requireNativeMaterializationPlan(
                 metadata(GeneratedColumnMetadataCodec.encode(definitions)),
                 session, handle, TABLE, "INSERT", null,
-                new org.pangrova.spi.security.UserIdentity(
+                new org.pangrova.security.api.identity.UserIdentity(
                         "alice", java.util.Set.of(), Map.of(), java.time.Instant.EPOCH)))
                 .hasMessageContaining("control plane is not installed");
         assertThatThrownBy(() -> GeneratedColumnWriteGuard.requireNativeMaterializationPlan(
@@ -60,7 +60,7 @@ class GeneratedColumnWriteGuardTest {
         assertThatThrownBy(() -> GeneratedColumnWriteGuard.requireNativeMaterializationPlan(
                 metadata(GeneratedColumnMetadataCodec.encode(definitions)),
                 new Session(Map.of()), handle, TABLE, "INSERT", null,
-                new org.pangrova.spi.security.UserIdentity(
+                new org.pangrova.security.api.identity.UserIdentity(
                         "alice", java.util.Set.of(), Map.of(), java.time.Instant.EPOCH)))
                 .hasMessageContaining("authenticated user and resolved tenant");
     }
@@ -110,7 +110,7 @@ class GeneratedColumnWriteGuardTest {
 
     private record Session(Map<String, String> properties) implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

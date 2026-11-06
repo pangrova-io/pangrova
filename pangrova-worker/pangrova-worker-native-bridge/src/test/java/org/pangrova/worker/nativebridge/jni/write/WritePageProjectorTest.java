@@ -1,7 +1,8 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.batch.arrow.ColumnarBatch;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.types.value.ColumnValue;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.BatchSink;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.RowSink;
 import org.apache.arrow.memory.RootAllocator;
@@ -218,11 +219,11 @@ class WritePageProjectorTest {
         try (var allocator = new RootAllocator(1024 * 1024)) {
             try (ColumnarBatch owner = ColumnarBatch.open(ByteBuffer.wrap(bytes), allocator, 1, 2)) {
                 assertThat(owner.columns()).containsExactly("id", "id");
-                try (ColumnarBatch view = WritePageProjector.projectToWriteSchema(owner, List.of("id"), false)) {
+                try (ReadableBatch view = WritePageProjector.projectToWriteSchema(owner, List.of("id"), false)) {
                     assertThat(view.value(0, 0)).isEqualTo(2);
                 }
                 assertThat(owner.value(0, 0)).isEqualTo(1);
-                try (ColumnarBatch remaining = WritePageProjector.projectToWriteSchema(owner, List.of("id"), false)) {
+                try (ReadableBatch remaining = WritePageProjector.projectToWriteSchema(owner, List.of("id"), false)) {
                     owner.close();
                     assertThatThrownBy(remaining::columns).isInstanceOf(IllegalStateException.class);
                     assertThatThrownBy(() -> remaining.value(0, 0)).isInstanceOf(IllegalStateException.class);

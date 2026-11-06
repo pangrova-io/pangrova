@@ -10,9 +10,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 
-import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 /** A real, bounded round-trip codec for the in-memory DML connector fixtures. */
 final class FixtureOutputHandleCodec implements ConnectorOutputHandleCodec {

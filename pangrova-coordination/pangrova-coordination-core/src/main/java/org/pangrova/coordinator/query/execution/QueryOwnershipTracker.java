@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
+import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
 
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -165,7 +165,7 @@ public final class QueryOwnershipTracker {
         return cancelRetrier;
     }
 
-    void registerConnectorAuthority(org.pangrova.spi.connector.metadata.ConnectorMetadataScope authority) {
+    void registerConnectorAuthority(org.pangrova.connector.spi.metadata.ConnectorMetadataScope authority) {
         var previous = queryAuthorities.putIfAbsent(authority.queryId(), authority);
         if (previous != null && previous != authority) {
             throw new IllegalStateException("Query cleanup already belongs to another connector lifetime");

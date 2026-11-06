@@ -1,0 +1,8 @@
+{
+  "read_ports_have_no_mutations": true,
+  "signatures": {
+    "org.pangrova.persistence.catalog.api.projection.TableProjectionRepository": "Compiled from \"TableProjectionRepository.java\"\npublic interface org.pangrova.persistence.catalog.api.projection.TableProjectionRepository {\n  public abstract java.util.Optional<org.pangrova.metadata.api.object.TableMetadata> loadTable(java.lang.String, java.lang.String, java.lang.String);\n  public abstract java.util.List<org.pangrova.metadata.api.object.QualifiedTableRef> searchTables(java.lang.String);\n}\n",
+    "org.pangrova.persistence.catalog.api.projection.SchemaProjectionRepository": "Compiled from \"SchemaProjectionRepository.java\"\npublic interface org.pangrova.persistence.catalog.api.projection.SchemaProjectionRepository {\n  public abstract java.util.List<java.lang.String> loadSchemas(java.lang.String);\n}\n",
+    "org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions": "Compiled from \"MetadataProjectionTransactions.java\"\npublic interface org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions {\n  public abstract org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt apply(org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation);\n  public abstract java.util.Optional<org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt> findReceipt(java.util.UUID);\n}\n"
+  }
+}

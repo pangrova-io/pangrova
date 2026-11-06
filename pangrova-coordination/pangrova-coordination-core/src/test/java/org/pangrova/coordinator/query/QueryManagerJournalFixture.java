@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -7,24 +11,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.tenant.ResourceQuota;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.scheduler.admission.InMemoryClusterConcurrencySlots;
-import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
-import org.pangrova.security.tenant.InMemoryTenantStore;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.testing.testkit.coordination.admission.InMemoryClusterConcurrencySlots;
+import org.pangrova.scheduler.core.admission.TenantQuotaAdmissionController;
+import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -37,8 +41,8 @@ final class QueryManagerJournalFixture implements AutoCloseable {
     final TenantQuotaAdmissionController admission;
     final QueryManager manager;
     final QueryDispatcher dispatcher;
-    final HighAvailabilityCoordinationService authority = new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
-    final HighAvailabilityCoordinationService foreignAuthority = new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
+    final HighAvailabilityCoordinationService authority;
+    final HighAvailabilityCoordinationService foreignAuthority;
     private final RemoteTaskDispatcher transport = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
 
     QueryManagerJournalFixture(int capacity) throws java.sql.SQLException {
@@ -49,15 +53,17 @@ final class QueryManagerJournalFixture implements AutoCloseable {
                 List.of(), List.of(), "default", Map.of(), Instant.EPOCH, "test"));
         admission = new TenantQuotaAdmissionController(tenants, null, slots);
         var backend = new JdbcExecutionAnchorStore(store.administrator());
-        authority.setExecutionAnchorStore(backend);
-        foreignAuthority.setExecutionAnchorStore(backend);
+        authority = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), backend);
+
+        foreignAuthority = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), backend);
+
         var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, transport,
-                new TaskScheduler(new WorkerPerformanceScorer()),
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()), tracker, null, null, null, 0L);
         dispatcher = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
         dispatcher.setOwnershipTracking(authority, "journal-local");
         manager = new QueryManager(new QueryManagerContext(dispatcher, TestObservability.TRACING,
-                null, null, null, null, null, null, null, null, store.journal(), null), clock::get);
+                null, null, null, null, null, null, null, null, store.journal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()), clock::get);
         manager.setClusterAdmissionController(admission);
         manager.setLocalCoordinatorId("journal-local");
     }
@@ -65,13 +71,13 @@ final class QueryManagerJournalFixture implements AutoCloseable {
     void retry() { clock.addAndGet(TimeUnit.SECONDS.toNanos(31)); manager.retryPendingTerminalCompletions(); }
 
     QueryStateMachine running(String queryId) {
-        store.journal().appendQueryEventSync(new org.pangrova.spi.query.state.QueryStateEvent(
-                org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "journal-local"),
+        store.journal().appendQueryEventSync(new org.pangrova.query.api.journal.QueryStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "journal-local"),
                 queryId, null, null, "RUNNING"));
         var state = new QueryStateMachine();
-        state.tryTransition(QueryStateMachine.State.PLANNING);
-        state.tryTransition(QueryStateMachine.State.SCHEDULING);
-        state.tryTransition(QueryStateMachine.State.RUNNING);
+        state.tryTransition(QueryState.PLANNING);
+        state.tryTransition(QueryState.SCHEDULING);
+        state.tryTransition(QueryState.RUNNING);
         manager.registerStateMachine(queryId, state);
         return state;
     }

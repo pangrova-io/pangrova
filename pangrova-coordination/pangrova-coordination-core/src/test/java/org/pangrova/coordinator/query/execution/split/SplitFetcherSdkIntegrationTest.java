@@ -1,21 +1,23 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.metadata.ReadBindingSdkFixture;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.protocol.v2.DataSplit;
-import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
@@ -103,7 +105,7 @@ class SplitFetcherSdkIntegrationTest extends ContainerTestBase {
 
         @Override
         public void close() {
-            state.tryTransition(QueryStateMachine.State.CANCELLED);
+            state.tryTransition(QueryState.CANCELLED);
             tracker.sealQueryIssuance(fixture.context.queryId());
             authority.cleanupMetadata().requireSuccess();
             tracker.retireQueryIssuance(fixture.context.queryId());

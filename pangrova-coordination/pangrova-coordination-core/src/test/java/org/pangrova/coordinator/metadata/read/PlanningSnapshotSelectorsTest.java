@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.metadata.read;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 
 import java.util.Map;
@@ -13,8 +13,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PlanningSnapshotSelectorsTest {
     @Test
     void selectorsAreCaseNormalizedAndPreserveAdmittedIdentity() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext("query",
-                Map.of("catalog", "Cat", "schema", "Db", "user", "reader"), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession("query",
+                Map.of("catalog", "Cat", "schema", "Db", "user", "reader"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         var selected = PlanningSnapshotSelectors.bind(session, Map.of("Cat.Db.Table", 7L));
         assertThat(PlanningSnapshotSelectors.snapshot(selected, "cat", "db", "table")).hasValue(7);
         assertThat(selected.getProperties()).containsEntry("queryId", "query").containsEntry("tenant_id", "tenant");
@@ -24,7 +24,7 @@ class PlanningSnapshotSelectorsTest {
 
     @Test
     void contradictoryCaseAliasesAndNonpositiveVersionsAreRejected() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext("query", Map.of(), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession("query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         assertThatThrownBy(() -> PlanningSnapshotSelectors.bind(session, Map.of("cat.db.table", 0L)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> PlanningSnapshotSelectors.bind(session,
@@ -34,7 +34,7 @@ class PlanningSnapshotSelectorsTest {
 
     @Test
     void literalIdentifierDotsDoNotCollideWithQualification() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext("query", Map.of(), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession("query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         var selected = PlanningSnapshotSelectors.bind(session, Map.of(
                 PlanningSnapshotSelectors.tableKey("cat", "a.b", "rows"), 2L,
                 PlanningSnapshotSelectors.tableKey("cat", "a", "b.rows"), 3L));
@@ -44,7 +44,7 @@ class PlanningSnapshotSelectorsTest {
 
     @Test
     void replacingSelectorsDoesNotCarryAnEarlierSelectedSnapshotForward() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext("query", Map.of(), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession("query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         var selected = PlanningSnapshotSelectors.bind(session, Map.of("cat.db.first", 7L));
         var replaced = PlanningSnapshotSelectors.bind(selected, Map.of("cat.db.second", 9L));
         assertThat(PlanningSnapshotSelectors.snapshot(replaced, "cat", "db", "first")).isEmpty();
@@ -53,9 +53,9 @@ class PlanningSnapshotSelectorsTest {
 
     @Test
     void trustedKernelSnapshotsBindWhileClientSelectorsAreStripped() {
-        var context = new CoordinatorSessionContext("query", Map.of(
+        var context = new QuerySession("query", Map.of(
                 "catalog", "cat",
-                "pangrova.source_snapshot.cat.db.forged", "99"), null, "tenant")
+                "pangrova.source_snapshot.cat.db.forged", "99"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())
                 .withSourceSnapshots(Map.of(
                         PlanningSnapshotSelectors.tableKey("cat", "db", "orders"), 7L));
 

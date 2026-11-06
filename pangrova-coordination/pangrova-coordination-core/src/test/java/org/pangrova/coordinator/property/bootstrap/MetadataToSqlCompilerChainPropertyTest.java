@@ -13,16 +13,13 @@ import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.secret.SecretResolverRegistry;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.rel.RelNode;
 import org.apache.iceberg.Schema;
@@ -35,7 +32,6 @@ import org.apache.iceberg.types.Types;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -105,7 +101,7 @@ class MetadataToSqlCompilerChainPropertyTest {
      * produces a valid RelNode when compiling SQL.
      *
      * <p>Verifies the complete chain:
-     * InMemoryMetadataStore → CatalogRegistry → PluginConnectorHandleFactory
+     * InMemoryCatalogDeployments → CatalogRegistry → PluginConnectorHandleFactory
      * → IcebergConnectorFactory → IcebergConnector → MetadataSchemaBuilder
      * → PangrovaPlanner (SqlParser + AstBuilder) → SqlCompiler.compileToRelNode().</p>
      *
@@ -122,9 +118,9 @@ class MetadataToSqlCompilerChainPropertyTest {
         shutdownBootstrap();
         createIcebergTable(tableName);
 
-        InMemoryMetadataStore store = new InMemoryMetadataStore();
+        InMemoryCatalogDeployments store = new InMemoryCatalogDeployments();
         store.saveCatalogDescriptor(icebergCatalogDescriptor());
-        metadataBootstrap = MetadataBootstrap.initialize(store, connectorFactory);
+        metadataBootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository(), connectorFactory);
 
         // Verify: CatalogRegistry loaded the connector catalog (Req 15.1, 97.1-97.5)
         assertThat(metadataBootstrap.catalogRegistry().listCatalogNames())
@@ -215,25 +211,16 @@ class MetadataToSqlCompilerChainPropertyTest {
     }
 
     /**
-     * In-memory MetadataStore for testing without database dependency.
+     * In-memory CatalogDeploymentRepository for testing without database dependency.
      */
-    static final class InMemoryMetadataStore implements MetadataStore {
-
-        private final CopyOnWriteArrayList<CatalogDescriptor> catalogs = new CopyOnWriteArrayList<>();
-
+    static final class InMemoryCatalogDeployments implements CatalogDeploymentRepository {
         @Override
-        public void saveTable(TableMetadata metadata) { }
-
-        @Override
-        public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
-            return Optional.empty();
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
         }
 
-        @Override
-        public void deleteTable(String catalog, String schema, String table) { }
-
-        @Override
-        public List<QualifiedTableRef> searchTables(String pattern) { return List.of(); }
+        private final CopyOnWriteArrayList<CatalogDescriptor> catalogs = new CopyOnWriteArrayList<>();
 
         @Override
         public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
@@ -256,16 +243,5 @@ class MetadataToSqlCompilerChainPropertyTest {
             return List.copyOf(catalogs);
         }
 
-        @Override
-        public Optional<Instant> getLastSyncTime(String catalogName) { return Optional.empty(); }
-
-        @Override
-        public void updateSyncTime(String catalogName, Instant syncTime) { }
-
-        @Override
-        public void recordSyncHistory(SyncResult result) { }
-
-        @Override
-        public void saveSchemas(String catalogName, List<String> schemas) { }
     }
 }

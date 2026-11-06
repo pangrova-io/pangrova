@@ -1,15 +1,14 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
-import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
-import org.pangrova.spi.observability.Span;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.noop.NoOpMetricsProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
+import org.pangrova.observability.api.tracing.Span;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -202,7 +201,7 @@ class WriteMetricsTest {
         @Override
         public ObservableDoubleGauge createGauge(String name, String description,
                                                   String unit, Supplier<Double> supplier) {
-            return new ObservableDoubleGauge() {};
+            return () -> { /* This recording fixture retains no callback. */ };
         }
 
         @Override

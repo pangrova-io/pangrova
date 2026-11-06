@@ -14,6 +14,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -47,6 +48,295 @@ class ModuleDependencyPropertyTest {
             Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*");
 
     private static final Model MODEL = Model.load(ROOT);
+
+    @Test
+    void coordinatorProductionClosureExcludesWorkerRuntime() {
+        Set<String> forbidden = Set.of("pangrova-worker-core", "pangrova-worker-native-bridge");
+        for (String root : List.of("pangrova-coordination-core", "pangrova-server-coordinator")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("Coordinator production dependency path: %s", path)
+                        .doesNotContain(artifact);
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void shuffleProvidersAndServiceProductionClosuresExcludeEngineCoreAndProcessAssembly() {
+        Set<String> forbidden = Set.of("pangrova-shuffle-core", "pangrova-worker-core",
+                "pangrova-worker-native-bridge", "pangrova-shuffle-native-adapter",
+                "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-testing-kit",
+                "pangrova-planner-core");
+        for (String root : List.of("pangrova-shuffle-api", "pangrova-shuffle-local",
+                "pangrova-shuffle-pangrova", "pangrova-shuffle-service")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("Shuffle production dependency path: %s", path)
+                        .doesNotContain(artifact);
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void queryProductionClosureExcludesBackendsAndProcessAssembly() {
+        Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
+                "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
+                "pangrova-persistence-file-postgresql",
+                "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-worker-core",
+                "pangrova-worker-native-bridge", "pangrova-planner-core");
+        for (String root : List.of("pangrova-query-api", "pangrova-query-core")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("Query production dependency path: %s", path).doesNotContain(artifact);
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void tableProductionClosureExcludesBackendsAndProcessAssembly() {
+        Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
+                "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
+                "pangrova-persistence-file-postgresql",
+                "pangrova-persistence-security-postgresql", "pangrova-persistence-security-memory",
+                "pangrova-testing-kit", "pangrova-coordination-core", "pangrova-server-coordinator",
+                "pangrova-worker-core", "pangrova-worker-native-bridge", "pangrova-metadata-core",
+                "pangrova-planner-core");
+        for (String root : List.of("pangrova-table-api", "pangrova-table-core")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("Table production dependency path: %s", path).doesNotContain(artifact);
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void indexingApiProductionClosureExcludesImplementations() {
+        Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
+                "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
+                "pangrova-persistence-file-postgresql",
+                "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-worker-core",
+                "pangrova-worker-native-bridge", "pangrova-planner-core", "pangrova-indexing-core", "pangrova-indexing-codec",
+                "pangrova-metadata-core", "pangrova-protocol", "pangrova-persistence-generation-api", "pangrova-indexing-planner-adapter");
+        for (String root : List.of("pangrova-indexing-api")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("Indexing API production dependency path: %s", path).doesNotContain(artifact);
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void indexingImplementationBoundariesExcludeReverseDependencies() {
+        Map<String, Set<String>> boundaries = Map.of(
+                "pangrova-indexing-core", Set.of("pangrova-indexing-strategies-builtin",
+                        "pangrova-planner-core", "pangrova-indexing-planner-adapter"),
+                "pangrova-indexing-planner-adapter", Set.of("pangrova-indexing-core",
+                        "pangrova-coordination-core", "pangrova-worker-core", "pangrova-persistence-generation-postgresql",
+                        "pangrova-persistence-security-postgresql"),
+                "pangrova-indexing-codec", Set.of("pangrova-indexing-core", "pangrova-indexing-strategies-builtin"),
+                "pangrova-indexing-strategies-builtin", Set.of("pangrova-indexing-core",
+                        "pangrova-planner-core", "pangrova-coordination-core", "pangrova-worker-core"));
+        for (String root : boundaries.keySet()) {
+            Set<String> forbidden = boundaries.get(root);
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("Indexing implementation dependency path: %s", path).doesNotContain(artifact);
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void centralSpiArtifactAndNamespaceAreRetired() {
+        assertThat(MODEL.policies()).doesNotContainKey("pangrova-spi");
+        assertThat(ROOT.resolve("pangrova-spi")).doesNotExist();
+        for (Policy policy : MODEL.policies().values()) {
+            assertThat(scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml")))
+                    .as("%s must not restore the retired central SPI", policy.path())
+                    .doesNotContainKey("pangrova-spi");
+        }
+    }
+
+    @Test
+    void filePersistenceBackendIsSelectedOnlyByAssembly() {
+        for (String root : List.of("pangrova-persistence-file-api", "pangrova-file-core",
+                "pangrova-coordination-core", "pangrova-worker-core")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(artifact).as("File authority production dependency path: %s", path)
+                        .isNotEqualTo("pangrova-persistence-file-postgresql");
+                if (root.equals("pangrova-worker-core")) {
+                    assertThat(artifact).as("Worker file bytes use signed descriptors, not registry authority: %s", path)
+                            .isNotEqualTo("pangrova-persistence-file-api");
+                }
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void fileProductionClosureExcludesBackendsAndProcessAssembly() {
+        Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
+                "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
+                "pangrova-persistence-file-postgresql",
+                "pangrova-persistence-security-postgresql", "pangrova-persistence-security-memory",
+                "pangrova-testing-kit", "pangrova-coordination-core", "pangrova-server-coordinator",
+                "pangrova-worker-core", "pangrova-worker-native-bridge", "pangrova-metadata-core",
+                "pangrova-planner-core");
+        for (String root : List.of("pangrova-file-api", "pangrova-file-core", "pangrova-file-worker-adapter")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("File production dependency path: %s", path).doesNotContain(artifact);
+                if (root.equals("pangrova-file-worker-adapter")) {
+                    assertThat(artifact).as("Worker file adapter dependency path: %s", path)
+                            .isNotIn("pangrova-file-core", "pangrova-persistence-generation-api");
+                } else {
+                    assertThat(artifact).as("File domain dependency path: %s", path)
+                            .isNotEqualTo("pangrova-file-worker-adapter");
+                }
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
+
+    @Test
+    void securityProductionClosureExcludesBackendsAndTestFixtures() {
+        Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
+                "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
+                "pangrova-persistence-file-postgresql",
+                "pangrova-persistence-security-postgresql", "pangrova-persistence-security-memory",
+                "pangrova-testing-kit", "pangrova-coordination-core", "pangrova-server-coordinator",
+                "pangrova-worker-core", "pangrova-worker-native-bridge");
+        for (String root : List.of("pangrova-security-api", "pangrova-security-core")) {
+            var pending = new ArrayDeque<List<String>>();
+            var visited = new HashSet<String>();
+            pending.add(List.of(root));
+            while (!pending.isEmpty()) {
+                List<String> path = pending.removeFirst();
+                String artifact = path.get(path.size() - 1);
+                if (!visited.add(artifact)) continue;
+                assertThat(forbidden).as("Security production dependency path: %s", path).doesNotContain(artifact);
+                Policy policy = MODEL.policies().get(artifact);
+                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
+                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
+                        .forEach((target, scope) -> {
+                            if (!Set.of("compile", "runtime").contains(scope)) return;
+                            var next = new ArrayList<>(path);
+                            next.add(target);
+                            pending.addLast(next);
+                        });
+            }
+        }
+    }
 
     @Test
     void reactorIsFullyDeclared() {

@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.session.QuerySession;
 
 import java.util.Map;
 
@@ -12,15 +14,15 @@ import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.phase.StatementDispatchPhase;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,7 +60,7 @@ class DdlDmlSkipLoggingTest {
                 TestWorkerInfoBuilder.active("w1", "localhost", 9999, 0));
         var deps = QueryDispatcherContext.withDefaults(
                 compiler, null, null, null, httpDispatcher,
-                new TaskScheduler(new WorkerPerformanceScorer()),
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 workerManager, new CoordinatorTaskTracker(),
                 null, null, null, 0L);
         // statementDispatcher = null → QueryDispatcher skips DDL/DML dispatch
@@ -74,8 +76,8 @@ class DdlDmlSkipLoggingTest {
     @Test
     void statementDispatcherNull_emitsDebugLogOnExecute() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "q-ddl-skip", Map.of(), null, null);
+        QuerySession session = new QuerySession(
+                "q-ddl-skip", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         // Execute a SELECT — tryExecuteDdlDml is called first, finds statementDispatcher==null,
         // logs the skip, then falls through to normal query dispatch.

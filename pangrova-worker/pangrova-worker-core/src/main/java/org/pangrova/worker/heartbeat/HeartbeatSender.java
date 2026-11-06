@@ -74,6 +74,8 @@ public class HeartbeatSender {
     private volatile int consecutiveFailures;
     private volatile Runnable reRegistrationCallback;
     private volatile Runnable degradationCallback;
+    private volatile Runnable fencedCallback;
+    private final AtomicBoolean fenced = new AtomicBoolean();
     private volatile LongConsumer coordinatorEpochObserver;
     private final AtomicBoolean degraded = new AtomicBoolean(false);
     private final String internalAuthSecret;
@@ -203,6 +205,14 @@ public class HeartbeatSender {
      * Returns true if the worker has entered degraded mode due to
      * sustained heartbeat failures.
      */
+    public void setFencedCallback(Runnable callback) {
+        this.fencedCallback = checkNotNull(callback, "fenced callback must not be null");
+    }
+
+    public boolean isFenced() {
+        return fenced.get();
+    }
+
     public boolean isDegraded() {
         return degraded.get();
     }
@@ -225,6 +235,7 @@ public class HeartbeatSender {
     }
 
     void sendHeartbeat() {
+        if (fenced.get()) return;
         HeartbeatPayload payload = collectPayload();
         if (payload == null) {
             return;
@@ -289,8 +300,8 @@ public class HeartbeatSender {
     private void handleResponse(HttpResponse<String> response) {
         if (response.statusCode() == HTTP_OK) {
             handleSuccessResponse(response.body());
-        } else if (isReRegistrationRequired(response)) {
-            handleReRegistrationResponse();
+        } else if (response.statusCode() == HTTP_CONFLICT) {
+            handleConflictResponse(response.body());
         } else {
             handleErrorResponse(response.statusCode());
         }
@@ -326,10 +337,27 @@ public class HeartbeatSender {
         }
     }
 
-    private boolean isReRegistrationRequired(HttpResponse<String> response) {
-        return response.statusCode() == HTTP_CONFLICT
-                && response.body() != null
-                && response.body().contains("re-register");
+    private void handleConflictResponse(String body) {
+        try {
+            var response = mapper.readValue(body, org.pangrova.protocol.rest.worker.WorkerControlResponse.class);
+            response.requireStatus("error");
+            if ("fenced".equals(response.action())) {
+                // Run the actual admission seal before recording terminal state. If it fails,
+                // the next heartbeat retries instead of treating an unsealed Worker as fenced.
+                Runnable callback = checkNotNull(fencedCallback, "fenced callback must be wired");
+                callback.run();
+                fenced.set(true);
+                degraded.set(true);
+                LOG.error("event=worker_incarnation_fenced workerId={}", config.workerId());
+            } else if ("re-register".equals(response.action())) {
+                handleReRegistrationResponse();
+            } else {
+                handleErrorResponse(HTTP_CONFLICT);
+            }
+        } catch (Exception failure) {
+            LOG.warn("event=heartbeat_conflict_invalid workerId={} error={}", config.workerId(), failure.getMessage());
+            handleErrorResponse(HTTP_CONFLICT);
+        }
     }
 
     private void handleReRegistrationResponse() {

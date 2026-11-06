@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.http.endpoint.file;
 
-import org.pangrova.spi.file.access.FileAccessGrant;
+import org.pangrova.file.api.access.FileAccessGrant;
 
 import java.util.UUID;
 
@@ -16,12 +16,12 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
-import org.pangrova.file.space.FileSpaceAccessService;
-import org.pangrova.file.space.FileUrlService;
+import org.pangrova.file.core.access.FileSpaceAccessService;
+import org.pangrova.file.core.access.FileUrlService;
 import org.pangrova.coordinator.file.StageFileUrlService;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Files API access ticket for Volume and Stage objects.

@@ -1,8 +1,10 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.parser.ast.Statement;
+import org.pangrova.query.core.statement.StatementTableTargets;
+
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.api.ast.Statement;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -14,7 +16,7 @@ public record StatementCompletionEvent(
         String queryId,
         Statement statement,
         StatementResult result,
-        CoordinatorSessionContext session) {
+        QuerySession session) {
 
     public StatementCompletionEvent {
         checkNotNull(queryId, "queryId");
@@ -24,7 +26,7 @@ public record StatementCompletionEvent(
 
     /** Resolves the typed target from the original statement and its admitted session. */
     public QualifiedTableName mutatedTableIdentity() {
-        return TableNameExtractor.extractQualified(statement, session);
+        return StatementTableTargets.resolve(statement, session);
     }
 
     /** Convenience accessor for the display table name, or null. */

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "mvn",
+    "-q",
+    "-pl",
+    ":pangrova-persistence-catalog-postgresql,:pangrova-metadata-core",
+    "-am",
+    "-DskipTests",
+    "-Pstatic-analysis",
+    "spotbugs:spotbugs"
+  ],
+  "exit": 1,
+  "seconds": 18.27622699737549,
+  "scope": "Diagnostic report generation only; the blocking verify failed upstream in pangrova-types and is retained separately."
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/transaction/PostgresCatalogPersistenceSupport.java",
+    "finding": "Existing declaration/Javadoc exceeds 120 characters",
+    "old_line_length": 125,
+    "change": "Whitespace/Javadoc wrapping only; no behavior, API, dependencies or SQL changed."
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/catalog/PostgresCatalogDeploymentRepository.java",
+    "finding": "Existing declaration/Javadoc exceeds 120 characters",
+    "old_line_length": 137,
+    "change": "Whitespace/Javadoc wrapping only; no behavior, API, dependencies or SQL changed."
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/invalidation/PostgresInvalidationPoller.java",
+    "finding": "Existing declaration/Javadoc exceeds 120 characters",
+    "old_line_length": 150,
+    "change": "Whitespace/Javadoc wrapping only; no behavior, API, dependencies or SQL changed."
+  }
+]

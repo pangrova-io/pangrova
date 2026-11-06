@@ -8,9 +8,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.coordinator.query.statement.TableWarmupExecutor;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +36,7 @@ import org.slf4j.LoggerFactory;
  *   SET SESSION cache_warmup_tables = 'catalog.schema.table1,catalog.schema.table2'
  * </pre>
  * When the coordinator processes this property (at session start or via a SET
- * command), it calls {@link #warmupTables(String, CoordinatorSessionContext)} which parses the
+ * command), it calls {@link #warmupTables(String, QuerySession)} which parses the
  * comma-separated list and warms each table in sequence. Tables that fail
  * warmup are logged but do not prevent subsequent tables from being warmed.</p>
  *
@@ -81,7 +81,7 @@ public final class CacheWarmupService {
      * @param tableList comma-separated FQN table references
      * @return summary of warmup results (one entry per table attempted)
      */
-    public List<WarmupResult> warmupTables(String tableList, CoordinatorSessionContext context) {
+    public List<WarmupResult> warmupTables(String tableList, QuerySession context) {
         if (tableList == null || tableList.isBlank()) {
             return List.of();
         }
@@ -104,7 +104,7 @@ public final class CacheWarmupService {
      * @param fullyQualifiedName e.g. "iceberg_catalog.analytics.orders"
      * @return the warmup result
      */
-    public WarmupResult warmupSingleTable(String fullyQualifiedName, CoordinatorSessionContext context) {
+    public WarmupResult warmupSingleTable(String fullyQualifiedName, QuerySession context) {
         String[] parts = parseFullyQualifiedName(fullyQualifiedName);
         if (parts == null) {
             LOG.warn("event=cache_warmup_invalid_fqn fqn={}", fullyQualifiedName);
@@ -116,8 +116,8 @@ public final class CacheWarmupService {
         String table = parts[2];
 
         try {
-            Map<String, String> args = Map.of("arg0", schema, "arg1", table);
-            List<TypedRow> rows = warmupExecutor.execute(catalog, args, context);
+            List<TypedRow> rows = warmupExecutor.execute(
+                    new org.pangrova.connector.api.metadata.table.QualifiedTableName(catalog, schema, table), context);
             TypedRow summary = rows.get(0);
             long splitsProcessed = summary.getLong("splits_processed");
             long splitsFailed = summary.getLong("splits_failed");
@@ -215,7 +215,7 @@ public final class CacheWarmupService {
      * @param tableList comma-separated FQN table references
      * @return warmup results
      */
-    public List<WarmupResult> warmupAndPinTables(String tableList, CoordinatorSessionContext context) {
+    public List<WarmupResult> warmupAndPinTables(String tableList, QuerySession context) {
         List<WarmupResult> results = warmupTables(tableList, context);
         // Pin all successfully warmed tables.
         for (WarmupResult r : results) {

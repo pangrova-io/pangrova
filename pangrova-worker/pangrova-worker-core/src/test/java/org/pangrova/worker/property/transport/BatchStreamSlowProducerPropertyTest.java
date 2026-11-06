@@ -12,7 +12,7 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import org.pangrova.protocol.transport.DataTicket;
 import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.worker.transport.TransportClient;
-import org.pangrova.worker.transport.TransportServer;
+import org.pangrova.transport.flight.TransportServer;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;

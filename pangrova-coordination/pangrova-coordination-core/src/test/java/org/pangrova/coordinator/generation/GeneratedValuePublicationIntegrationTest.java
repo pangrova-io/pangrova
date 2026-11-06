@@ -1,28 +1,33 @@
 package org.pangrova.coordinator.generation;
 
+import org.pangrova.coordinator.generation.read.GeneratedValueGenerationBindingResolver;
+
+
+import org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver;
+
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
+import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
-import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
-import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.job.GenerationOutput;
-import org.pangrova.spi.generation.GenerationOutputScope;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.spi.generation.job.GenerationPageCompletion;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.output.GenerationOutput;
+import org.pangrova.generation.api.output.GenerationOutputScope;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.generation.api.page.GenerationPageCompletion;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
 import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
-import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
-import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
-import org.pangrova.coordinator.generation.template.FrozenStageBindings;
+import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
+import org.pangrova.generation.core.execution.template.FrozenStageBindings;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.metadata.generation.jdbc.JdbcGeneratedValuePublicationStore;
 import org.pangrova.protocol.generation.PublishedGenerationBindingChecksum;
@@ -122,7 +127,7 @@ class GeneratedValuePublicationIntegrationTest {
             pool.setConnectionTimeout(500);
             var claimed = ModelAuthorityFixtures.artifacts().stages(pool).preparePartition(
                     new GenerationStageExecutionStore.PartitionClaim(
-                            new org.pangrova.spi.generation.job.GenerationJobKey(TENANT, consumerJob), owner,
+                            new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob), owner,
                             0, 0, 0, 10, Duration.ofSeconds(30), START), prepared -> {
                         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
                         var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read), List.of(encoded),
@@ -167,7 +172,7 @@ class GeneratedValuePublicationIntegrationTest {
         assertThatThrownBy(() -> buildStore.claimReadyForPublication(
                 "tenant-b", JOB_ID, executions.takeOwnership("tenant-b", JOB_ID, "publisher-b", 9), 9,
                 Duration.ofMinutes(1), START.plusSeconds(2)))
-                .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class)
+                .isInstanceOf(org.pangrova.security.api.error.AuthorizationDeniedException.class)
                 .hasMessageContaining("no scoped dispatch specification");
         GenerationJob claim = buildStore.claimReadyForPublication(
                 TENANT, JOB_ID, executions.takeOwnership(TENANT, JOB_ID, "publisher-a", 9), 9,
@@ -260,10 +265,10 @@ class GeneratedValuePublicationIntegrationTest {
                 TENANT, JOB_ID, ARTIFACT_ID,
                 GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
                 GENERATION, SOURCE_ID, SNAPSHOT,
-                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
-                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.generation.api.execution.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.dependency.GenerationDependencySet.sourceSnapshot(
                         SOURCE_ID, SNAPSHOT),
-                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://warehouse/system/generated-values-test", format.getFormatId(),
                 format.getMajorVersion(), format.getMinorVersion(),
                 HexFormat.of().formatHex(format.getSchemaSha256().toByteArray()),
@@ -289,7 +294,7 @@ class GeneratedValuePublicationIntegrationTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 HexFormat.of().parseHex(
-                                        org.pangrova.spi.generation.GenerationDependencySet
+                                        org.pangrova.generation.api.dependency.GenerationDependencySet
                                                 .sourceSnapshot(SOURCE_ID, SNAPSHOT).sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2.ArtifactEmptyPartitionPolicy
                         .ARTIFACT_EMPTY_PARTITION_POLICY_FORBID)
@@ -306,10 +311,10 @@ class GeneratedValuePublicationIntegrationTest {
                                 0, 2, GenerationPageKind.SOURCE_MAP, new byte[] {1},
                                 GenerationStageTemplate.of(OperatorBindingSet.newBuilder().addBindings(sink).build().toByteArray(), List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),
                 TENANT, "alice",
-                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
-                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "sales", "documents"),
+                org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(
+                        new org.pangrova.connector.api.metadata.table.QualifiedTableName("lake", "sales", "documents"),
                         java.util.Set.of("text"),
-                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "sales", "documents")),
+                        new org.pangrova.connector.api.metadata.table.QualifiedTableName("lake", "sales", "documents")),
                 new GenerationDispatchSpec.ResourceGrant(1024, 1, 1024, 10_000));
     }
 

@@ -1,5 +1,10 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
+
+
+import org.pangrova.query.api.stage.StageState;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -9,9 +14,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageRetryPolicy;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.stage.StageRetryPolicy;
+import org.pangrova.query.core.stage.StageStateMachine;
+import org.pangrova.query.api.error.QueryFailure;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
@@ -43,12 +48,12 @@ class TaskStageBridgeIntegrationTest {
 
     private static StageNode outputNode(int id) {
         RelNode plan = LogicalValues.createOneRow(CLUSTER);
-        return new StageNode(id, new org.pangrova.planner.PlanFragment(plan, -1L, -1L), 1, "OUTPUT", List.of());
+        return new StageNode(id, new org.pangrova.planner.core.analysis.PlanFragment(plan, -1L, -1L), 1, "OUTPUT", List.of());
     }
 
     private static StageNode computeNode(int id) {
         RelNode plan = LogicalValues.createOneRow(CLUSTER);
-        return new StageNode(id, new org.pangrova.planner.PlanFragment(plan, -1L, -1L), 1, "COMPUTE", List.of());
+        return new StageNode(id, new org.pangrova.planner.core.analysis.PlanFragment(plan, -1L, -1L), 1, "COMPUTE", List.of());
     }
 
     /**
@@ -73,22 +78,22 @@ class TaskStageBridgeIntegrationTest {
         // (mirrors DAGDispatchEngine.registerListeners + onStageFinished logic)
         CompletableFuture<Boolean> dagComplete = new CompletableFuture<>();
         stage0.stateMachine().addStateChangeListener((id, old, next) -> {
-            if (next == StageStateMachine.State.FINISHED
+            if (next == StageState.FINISHED
                     && DAGCompletionEvaluator.allStagesFinished(dag)) {
                 dagComplete.complete(true);
             }
         });
 
         // Simulate dispatch: PLANNED → SCHEDULING → RUNNING, register one task
-        stage0.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage0.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage0.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage0.stateMachine().transitionTo(StageState.RUNNING);
         stage0.addTaskId("task-0");
 
         // Simulate worker reporting task completion (the bridge under test)
         stage0.onTaskFinished("task-0");
 
         // Verify: stage transitioned to FINISHED, DAG completion future resolved
-        assertThat(stage0.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(stage0.stateMachine().getState()).isEqualTo(StageState.FINISHED);
         assertThat(dagComplete.get(2, TimeUnit.SECONDS)).isTrue();
     }
 
@@ -120,7 +125,7 @@ class TaskStageBridgeIntegrationTest {
         CompletableFuture<Boolean> dagComplete = new CompletableFuture<>();
         for (Stage stage : dag.stageEntities()) {
             stage.stateMachine().addStateChangeListener((id, old, next) -> {
-                if (next == StageStateMachine.State.FINISHED
+                if (next == StageState.FINISHED
                         && DAGCompletionEvaluator.allStagesFinished(dag)) {
                     dagComplete.complete(true);
                 }
@@ -129,23 +134,23 @@ class TaskStageBridgeIntegrationTest {
 
         // Simulate dispatch for all stages
         for (Stage stage : dag.stageEntities()) {
-            stage.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-            stage.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+            stage.stateMachine().transitionTo(StageState.SCHEDULING);
+            stage.stateMachine().transitionTo(StageState.RUNNING);
             stage.addTaskId("task-" + stage.stageId());
         }
 
         // Complete root stages first (stage0, stage1)
         stage0.onTaskFinished("task-0");
-        assertThat(stage0.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(stage0.stateMachine().getState()).isEqualTo(StageState.FINISHED);
         assertThat(dagComplete.isDone()).isFalse();
 
         stage1.onTaskFinished("task-1");
-        assertThat(stage1.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(stage1.stateMachine().getState()).isEqualTo(StageState.FINISHED);
         assertThat(dagComplete.isDone()).isFalse();
 
         // Complete the join/output stage last
         stage2.onTaskFinished("task-2");
-        assertThat(stage2.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(stage2.stateMachine().getState()).isEqualTo(StageState.FINISHED);
         assertThat(dagComplete.get(2, TimeUnit.SECONDS)).isTrue();
     }
 
@@ -160,27 +165,27 @@ class TaskStageBridgeIntegrationTest {
 
         // Wire a future that captures the stage failure
         CompletableFuture<Void> dagFailed = new CompletableFuture<>();
-        AtomicReference<StageStateMachine.State> capturedState = new AtomicReference<>();
+        AtomicReference<StageState> capturedState = new AtomicReference<>();
         stage0.stateMachine().addStateChangeListener((id, old, next) -> {
-            if (next == StageStateMachine.State.FAILED) {
+            if (next == StageState.FAILED) {
                 capturedState.set(next);
                 dagFailed.complete(null);
             }
         });
 
         // Simulate dispatch
-        stage0.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage0.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage0.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage0.stateMachine().transitionTo(StageState.RUNNING);
         stage0.addTaskId("task-0");
 
         // Simulate worker reporting task failure
-        ErrorDetail error = new ErrorDetail("RUNTIME-0001", "RuntimeException", "OOM on worker");
+        QueryFailure error = new QueryFailure("RUNTIME-0001", "RuntimeException", "OOM on worker");
         stage0.onTaskFailed("task-0", error);
 
         // Verify: stage is FAILED (not stuck in RUNNING waiting for timeout)
         dagFailed.get(2, TimeUnit.SECONDS);
-        assertThat(capturedState.get()).isEqualTo(StageStateMachine.State.FAILED);
-        assertThat(stage0.stateMachine().getState()).isEqualTo(StageStateMachine.State.FAILED);
+        assertThat(capturedState.get()).isEqualTo(StageState.FAILED);
+        assertThat(stage0.stateMachine().getState()).isEqualTo(StageState.FAILED);
         assertThat(stage0.lastError()).isNotNull();
         assertThat(stage0.lastError().message()).isEqualTo("OOM on worker");
     }
@@ -200,16 +205,16 @@ class TaskStageBridgeIntegrationTest {
         assertThat(DAGCompletionEvaluator.allStagesFinished(dag)).isFalse();
 
         // Finish stage0 only
-        stage0.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage0.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage0.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage0.stateMachine().transitionTo(StageState.RUNNING);
         stage0.addTaskId("t0");
         stage0.onTaskFinished("t0");
-        assertThat(stage0.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(stage0.stateMachine().getState()).isEqualTo(StageState.FINISHED);
         assertThat(DAGCompletionEvaluator.allStagesFinished(dag)).isFalse();
 
         // Finish stage1
-        stage1.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage1.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage1.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage1.stateMachine().transitionTo(StageState.RUNNING);
         stage1.addTaskId("t1");
         stage1.onTaskFinished("t1");
         assertThat(DAGCompletionEvaluator.allStagesFinished(dag)).isTrue();
@@ -222,8 +227,8 @@ class TaskStageBridgeIntegrationTest {
         StageNode node0 = outputNode(0);
         Stage stage0 = Stage.create(node0, QUERY_ID);
 
-        stage0.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage0.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage0.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage0.stateMachine().transitionTo(StageState.RUNNING);
         stage0.addTaskId("task-a");
         stage0.addTaskId("task-b");
         stage0.addTaskId("task-c");
@@ -231,10 +236,10 @@ class TaskStageBridgeIntegrationTest {
         // Complete 2 of 3 tasks
         stage0.onTaskFinished("task-a");
         stage0.onTaskFinished("task-b");
-        assertThat(stage0.stateMachine().getState()).isEqualTo(StageStateMachine.State.RUNNING);
+        assertThat(stage0.stateMachine().getState()).isEqualTo(StageState.RUNNING);
 
         // Complete the last task
         stage0.onTaskFinished("task-c");
-        assertThat(stage0.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(stage0.stateMachine().getState()).isEqualTo(StageState.FINISHED);
     }
 }

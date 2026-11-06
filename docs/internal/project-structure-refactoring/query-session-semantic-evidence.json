@@ -1,0 +1,518 @@
+{
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/http/WorkerHttpServer.java": {
+    "normalized_body_identical": false,
+    "review": "Separates explicit bindHost from advertised identity; defaults preserve wildcard. Failed start closes acquired endpoint resources, preserves original exception and suppresses cleanup failures; non-started Jetty skips graceful drain. No dispatch retry/auth change.",
+    "before_sha256": "e7357a0a7a3935e6afe7501e1466f405712f99e403781fd7f42e22b00755a4a1",
+    "after_sha256": "e66f05226d628cbd964287d0fcf8027f8492f67844b165de4f606a34827f7a1d"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/http/CoordinatorHttpServer.java": {
+    "normalized_body_identical": false,
+    "review": "Server explicitly selects stateless OtelExecutionTraceContextFactory and supplies it to domain constructors; no exporter, executor, query lifetime or extra close owner created.",
+    "before_sha256": "ff6531ad61e7719b0475f362a17de0a3616ab9f50602d3e378283a563bdf86f9",
+    "after_sha256": "2284d735adf3452a74adc446d97987ab771e7b2a99c1b21796783005534880a9"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java": {
+    "normalized_body_identical": false,
+    "review": "Server explicitly selects stateless OtelExecutionTraceContextFactory and supplies it to domain constructors; no exporter, executor, query lifetime or extra close owner created.",
+    "before_sha256": "839cc8c9c27c6fd0db7bce6da3af4810c9748fcb4916bcb7de7084aada69528c",
+    "after_sha256": "c3faebc32116f4b4deb7cb2faa77fb3f8f537daea43c5733d0aa0dc359f65f0e"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryBootstrap.java": {
+    "normalized_body_identical": false,
+    "review": "Server explicitly selects stateless OtelExecutionTraceContextFactory and supplies it to domain constructors; no exporter, executor, query lifetime or extra close owner created.",
+    "before_sha256": "dd200b3d834df225a71ebede71833f6ed60c35f59c4186c8b9f1a8cbeff53a39",
+    "after_sha256": "53d7a1395c9f5606966bc76a736df340e9271ff5981ba1bea6ec5d8dca0291b1"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryRuntimeWiring.java": {
+    "normalized_body_identical": false,
+    "review": "Server explicitly selects stateless OtelExecutionTraceContextFactory and supplies it to domain constructors; no exporter, executor, query lifetime or extra close owner created.",
+    "before_sha256": "b2a26d1b05c5ddfc8380b29a96a6099f0f87a1ec37a76a27cd8c8fcb66bbbe0d",
+    "after_sha256": "017f11ef008a30dc37f9b251aeb13fd204959d5ae79306ecc3d446bfee6a3eac"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/ModuleIntegrationBootstrap.java": {
+    "normalized_body_identical": false,
+    "review": "Server explicitly selects stateless OtelExecutionTraceContextFactory and supplies it to domain constructors; no exporter, executor, query lifetime or extra close owner created.",
+    "before_sha256": "dc815c4d2579e3136632514211316106a286c472da129940725afe097f978333",
+    "after_sha256": "1b2ac479473f06682e0f1b2025a88a1f5d0dc6cafc8b79007a6b144b96a4e230"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryMaterializationWiring.java": {
+    "normalized_body_identical": false,
+    "review": "Server explicitly selects stateless OtelExecutionTraceContextFactory and supplies it to domain constructors; no exporter, executor, query lifetime or extra close owner created.",
+    "before_sha256": "1c372b11c424fee465101114600e665c7f179c1fff8fa8adccd68340a8a7b758",
+    "after_sha256": "82fab2812253baa8affb2486c592c7d09e9819fa5bbc475c4f4cb32c8a20c474"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/GenerationDispatchRequestFactory.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "63533fa50420c604bf013b3c4feed65e4e96319e5b27eae5c61dfcb6ad06f3c6",
+    "after_sha256": "96634f83716357969bd733ddda90afcd49910ca70241b04cec2bc6d4ffc444e1"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/GeneratedValueReadResolver.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "2f124d60c456fe7c1f84463ff0bd98daa7536de6a207ec752b07d2e3ac604c2e",
+    "after_sha256": "c93f4decc5ed3f6b02fa9cdf955672ad8bbe90a82520e55cad16ea63ad243baa"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableGenerationDispatcher.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "1670950b19a19e08ceaf12f576d050a038ff281dcaa57416e84b9e1f2c88acba",
+    "after_sha256": "861c6d0068d7238ce7f2c90960dd822580b4e9a74463bceb20dde5ce941ae86d"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/session/SessionTableNames.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "355bd7150f2759f5de77f8f3cf917169d1eb47e334862fc6a11f73e57aae58ff",
+    "after_sha256": "c51f239bd5ce156f4cb8d101318ed47843e0c9c6d920a9181db2646fcaee51e4"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/session/JournalSessionPayload.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "a5945acd7097732756fe7fbe2cbfad8e7504c6dce73d618c008b9b3933a1180f",
+    "after_sha256": "375875f8bb4a25bd44bfb37daaeb5890a6f7396933465ad641c125bc5efe83df"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/session/SessionContextConverter.java": {
+    "normalized_body_identical": false,
+    "review": "SPI session conversion uses supplied factory; never promotes raw user text into authenticated identity or tenant.",
+    "before_sha256": "a449cb9ddfe993659a2e08b067273fb60850562138ffad3aee15f4aabad40f3d",
+    "after_sha256": "4127aa43ac943b5b6f520c095446159834f08e8581a58e2db87fcb9e92a37fad"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAdmission.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "5671bcc6879152844e8e77617eea7c200374b83283c2f39c6b2a9c061925d7aa",
+    "after_sha256": "e7254eef200bd148654dd173e863f61d86c98ee808c4d992351e318c65e86be9"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "ce7c8081c6b70cfbaf563da4f9c1fe256b005218561f30ffb7dcebcce284481b",
+    "after_sha256": "7cfd87408164d775bf80adf85b6109034ac8b7fdbf7245f3a4a1c3b199d1c765"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/TimeTravelExtractor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "fd3a4efcfec36f7b463217f21370b1fbf0137144a2c7a3e6eca0f58820fb4849",
+    "after_sha256": "486e904490f336d290cc2f498e752c3df46da50c381a18cd74d7ce21e9fa3cd9"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/ViewExpander.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "6a3ff3c3390d1ed46e94ade48576db5c70479f5d08324d88aab5c01f6c518bc1",
+    "after_sha256": "9afe83fc4983a56a1fb042386747b9d57e9a7514b1ba634d53154eb28326218f"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/semantic/SemanticViewStatementService.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "9a1e242679d6881df81406727d359f03c664e7f53862cab1eb1bf5d9d9751d10",
+    "after_sha256": "3c7b40b17b43fb76a7c330d6934014ca2079a106350a14980c7844f3dc86939d"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/TableNameExtractor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "cbace7903b3d2aa16f22d1f70c5924bec64637252692d12a55f0ccfadc188405",
+    "after_sha256": "a53cb5d1379931183da5884812f60b4116b1481992717f63fd64dec5eca11eb6"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/GeneratedSourceCompiler.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "984f1e4e9bdecd1affcea946cb1c185b84216e06e48bd84c497dde935860db36",
+    "after_sha256": "bbe785f1b264e30b1868256e80a969b3b99fa78fe2c91aa564ae7e06990f39b4"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/GeneratedSourceReads.java": {
+    "normalized_body_identical": false,
+    "review": "Receives factory from DurableGeneratedValueBuildService; internal session capture at original boundary; source authority and JDBC reads unchanged.",
+    "before_sha256": "f2009883f06cd5e338d7d93b6f3fc1c06235a4003f8ade6671062af660a48228",
+    "after_sha256": "eaf9b94f247b788c2107fff2b8bdbb102ba778324515a16101c0e3184a7e9257"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/DurableGeneratedValueBuildService.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "1e6aee16e23e23b703794039b168b7e5de009ef6dd109848c04486b8f4a79484",
+    "after_sha256": "b222df139e2e11ba1081f24419b2bfe5cde9c78ceec2d87066023c8d0266a105"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/branch/BranchDdlExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "cdbeb49e7172da9b4fc0f47a8fbd399d156cb22b19bbfeded8ceedb4149b976b",
+    "after_sha256": "e6f0472cefe4abb57f5aaba21bb42163b29d253391d1b1bba5ffde95381ea7f0"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactoryContext.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "941a93d30152394f380a45a4ef7197ed11824003f215f8ef95107901771cdd48",
+    "after_sha256": "40bd1887eceaf07bba82566039fcddae57eaf4cc15cef3609757d0934834dc9c"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "470d54c5e6cf3a27cdd1f4c202085870cc2e04f524f0e2ceab00081428e07b52",
+    "after_sha256": "7a5ffaa14afdd4fcd24e87c17cea73299bd091caea052fb65012faa485771aea"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "a1436966b5277cc4c90088682b3ee6605f6be56961f7763b92c2a0f69ed231ce",
+    "after_sha256": "d6061ebd7b2ed2941024d4b37d80157b02ce096e5bfef077675a9e8dee7d075f"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/security/SecurityPolicyApplier.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "b459a224314f98142f2404c14072b2afbb20a0944e05a5a2e73a6739ef033c94",
+    "after_sha256": "4928fcd4e289004f62e9096dbcb3582b5a31754b3e10def888b839d12c15c2e0"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryResource.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "15db438722ff731b5856df80d15bc0ed6d8bad076275379db38b3e0d24500a95",
+    "after_sha256": "32e139ab88ff5bcb3743d1b9aa6282092efdc44cdf01128d7759dfa425d1a3ed"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/QueryExecutionContext.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "312ec8ca0264dfc0d214e11d6adb10c535d54a9e32a56e47a786a1446e8adbad",
+    "after_sha256": "ff10e32ac5fee3d9a46daa9c035820437faab941a387a7f09180c0b8e75b435a"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/StatementDispatchPhase.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "483709647ccd7a8a6c38f5c9d3ccc964bb606b991ff4779128b198b80c3eb9a1",
+    "after_sha256": "13a58bf2867b17b8884bbdcce5b0472740b0c39135eaf5005fe538b24c833a97"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/CompilationPhase.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "b68260e3a2646bb797284fc530d5a99f2f425712257a2dc4ecbc718760293d44",
+    "after_sha256": "3c1559f24ded42aa7757ae6271377da35115fa3fd1971f9f53ba71e6f137b244"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "b270bf2f18046409107ab7d9f3ed853ad692d027c944e0d954ec51731aaba1e2",
+    "after_sha256": "317ab4a69e55aaec4813aa6c59762362b8eaecb2c7c4000891252866357a1a5f"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/split/StageSplitSource.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "e9fbf24adb2ef48a34a42da2a1a5177ff9a5f40427d146fd341ad067f15fef8c",
+    "after_sha256": "44f9745e8cb4d7cd631beb445fe8208ac24bfa11ecd63c545bf01d2bb5d0a363"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/split/SplitFetcher.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "b6bc357bff1afd53f275116a84ff3c67ebdecdbb473c08fd2741c37a7c320e0f",
+    "after_sha256": "57b90a85c29df597522b4a0b3e913985e57e52d58b5f0c330c99e7efd34e37af"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/split/CatalogStageSplitSource.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "825c5cebc127c0686e3df41f2880fdab18e71c7531ce591a1f18288b5fcf73d7",
+    "after_sha256": "0663bde6fd7ab53bc4333d212af3825baebdf9fdf626e1bfa2f0bff0359f721b"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/audit/QueryAuditEmitter.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "99283f2c9537351d62be5199fd8fc4dd735c9ce3db49aca6a9619a0b3d737278",
+    "after_sha256": "bc152e62cd603ccd086bc846ee943a85fc2563856673c75f723e4d2562d91751"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/audit/TableControlAuditEmitter.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "23f76fd7d61f49f423beb56aafb57cfaeea2d6eb95f44122391a157f2c890b38",
+    "after_sha256": "dd5d3d10d5360551b5d54f871f6ac483dfd43b11bc0284dd8e29661bb9b299de"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "1707578fdf4b40be0c7b2a69f04aaf0a85b785d6e377327f3406e25cbada33f2",
+    "after_sha256": "89e8ce30697d723b4afeab0d5c0b587ecdc47683ce4464eb71754e879dcdcde3"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "a8fdf5f9ce166beb33566eab51f71dbd60693ef77e490ae9bf7e706b913a7a3e",
+    "after_sha256": "a9e9e5ad5b0d3be3cdd02ee172971fbdc5d9e559813757aeb0c726d69a1b36a8"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/file/VolumeTasks.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "1f7470482cc7b6e435302a5cd1a96f7b87e6eb592e7bbac85c39b8497caa19f9",
+    "after_sha256": "5f513dff407daf427465fc228e9755bc9c1f825216c792bcf087d6e591e2baae"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/file/FileSpaceTaskSupport.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "99c12bc174cdc72ab9fa0c58454abead88e87200806262d1a6e11434e475ce73",
+    "after_sha256": "edbf14127f4943819a7176f670964219bcfeea5a8ab25170f8c8bb5273ef1655"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/file/StageTasks.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "552d3b2a8f3413f3a0d2a06b88ddcf33faa3a70db3e9799517313d6a9bff496b",
+    "after_sha256": "7c7af95113c1ac5997e63395c538382f2621d70f532dbd7a430cd2d301c5a4bb"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/lifecycle/CoordinatorQueryLifecycle.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "526926c43d9acc67bf9dea920e20a1a7160ca6d7bb5d1d7cf4d853169b8f4082",
+    "after_sha256": "8714e382597b23af537d670a675fe1a91707159b8b5e8a7a70a64a0163c85a67"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementCompletionEvent.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "9a9cd1b596dfd427ac1a787bc79b0ee540c07e28108805e60fb5f1e924559563",
+    "after_sha256": "6377b1659dea48a83b9de41540adeb0d43a2e1eb9957fdbcca791fb7d8d2c01a"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/NativeDmlCompileFunction.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "7daac3b23f1a0a38f59b756bdb8dc2d78987e40e5a1bc32c4d9536811c0a8f89",
+    "after_sha256": "f9802431586066e07c2ca4edc92e82634bf9850102860e75c7a26bd4f349ce30"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PermissionChecker.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "014f5dfbf4c7a762485c8defe9fb8215c6ebbf4424721db0351a436412199e08",
+    "after_sha256": "5592533bbb22a045a29d31fff41ffc9de295776b7653aa080741fd55af6d39b0"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "6523a9d821ccced83340d4ebe15f91642e8c8bf44746225a6e07a4fa6e1c5f5c",
+    "after_sha256": "d5c533f766c8f6088fc1ed180141d16d5d67b21dbb65e022e0505c05b4b1183b"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/ControlledTableMaintenance.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "3326a3403cac80ad12468e5b12eca1c823973b1e7c008e4be756927c5964fcd3",
+    "after_sha256": "0fdf40a8b0bf04ea1a2f889e455f9d6bf0ac20b27f9c1cfbd6eb37ec657952bc"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "3a1e4eec6deeba9dd2337fba47502dc08fb0ad196131379349f77babee1f834d",
+    "after_sha256": "634f3b2df9e044ac1ea30195c25016a1f4c8bbe83b979d94fa5db207c07d02d5"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/TableWarmupExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "2bf336ed4c0650e72ed5ac0506911c3d75341e205c7c962c4df93f3459464ee5",
+    "after_sha256": "4a813c6926664affab0672fa9634543f0ec2a872a231903909467ef3b02b0939"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "df51786c79700d797bc242dda13f076db169c1d959a564b7738f67a87c9e92e9",
+    "after_sha256": "64fbf2e71116bb618f6e896a62ce8c921b50a59f7bc0798b4e8dfd41bbfa1ee9"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/ShowDescribeExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "46fe4b1bf20dd2a5a382c5ab9c610115f3e713edbd7be12380bf2587fec2f0e1",
+    "after_sha256": "e4833345bd505c7e3bc449718dda603615909e07162a53a328abfd14a09456dc"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "21b23e000f087e070690f0c922d14d18e0b107d086099560a328eb88a67a446e",
+    "after_sha256": "4be12339c9e2c2ead9c73208a4ac74ed92bf5cf40c028a4e3e7f4d931b62a504"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/StatementClassifier.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "86b13a7bb4c2ad6dfb9bf15e75eede8161375ca0ace6803805f00a55b192dc13",
+    "after_sha256": "61c14e88e739390e3443abdbb1ade8d714f5cd3e30f1db0108b72c05b8b196c5"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/AnalyzeExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "79305f573fa15edb16276e2c9e3d6083c373c97b982cf3dbd65c38ca213e441f",
+    "after_sha256": "db347a131e13308937fb08126413ec36a2d1b30832abd3a2e1975bc14c961fc3"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/TableControlDdlOperations.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "5e57388b93b45867615f8c022fae04163d90f7f6825b0c1bdbf192f3f73830de",
+    "after_sha256": "e37bf68bab773205e2f74ae46f8549e56eb93881afdc34782ad9790ca5a82741"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/StreamStatementExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "d6ef6b291011de3540e23ce45f80695fd0e9cac151085e4730b57b1f67fd3bb8",
+    "after_sha256": "68ae1847a7af4d955ab92016ee2d7236c5c04eea2bbfb23f5100f6e60bdef79c"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/StageExecutionContext.java": {
+    "normalized_body_identical": false,
+    "review": "SDK trace replaced by API value; remove implicit-capture convenience constructors. Durable/Deferred callers supply exact snapshot; lifetime/epoch/attempt ownership unchanged.",
+    "before_sha256": "7317bc86affacbeed8fccf2d3b97c817c49b8c5e1070b941fad03e6301046e4b",
+    "after_sha256": "d52b78817a6c3a8dc05531051c2494fcf2a60c2d061b3eca9fe9f65e8702c43a"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurableStageRuntime.java": {
+    "normalized_body_identical": false,
+    "review": "Dependency record requires trace factory; capture occurs at prior runtime creation point. Original DAG, retries, attempt state and lease ownership unchanged.",
+    "before_sha256": "9c375836891d878af66e332c5cdfd4fad91f56684d4ec6ad2e21406347de95c9",
+    "after_sha256": "0bb78d7b7a30e1f918d5e8f98a72f4bb1e4da98338ec415b271a8dd23190662a"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java": {
+    "normalized_body_identical": false,
+    "review": "Delete implicit SDK capture overload; actual preparation now receives explicit snapshot. Authority reads, locks, fencing, partition preparation and Proto binding unchanged.",
+    "before_sha256": "a025e390ea0acc5bcdef8d576ede1172066c122ecaaf947c1a3540f65ea8b9ca",
+    "after_sha256": "8e90761605454c14bd53044af6f339aa72ac25a7f9da4397bf07676935798bd4"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestFactory.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "76b8a7dfff683440c382b6f60873186307a0b1c0c54cb75648f23664a75b89a2",
+    "after_sha256": "ac4d51c4695a2816c047744107e33b7fb55a2fa6b401ad78b8c0a3706e1dc1c5"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/ExchangeSourceBuilder.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "836b647d44470b0e2c9b3110426dcf7de09dabc0cce1efdacc5665a9b59a9de5",
+    "after_sha256": "68e465d6e3fd569941c035813cae7615686903e643561310767f91cfca3878b9"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGQueryContext.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "d2d94cdb6d9bbb96dade94ccc7f23838cfbed66706cbc95e001ce7afb1b1f3de",
+    "after_sha256": "17bf1ef7a6b7d425e4b23a2a703ff9b11eca3ae11e7a90af770ead0dfb292f64"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchEngine.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "b2852d0381f49e39b451daeeb9a26a11935fa31b6dec7ff07f65168001d3019f",
+    "after_sha256": "a034f097e5610c98d22796b22c4b5286f1f5439e19bfd62281cedf9ddfc0da35"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/CoordinatorPhysicalGenerationStore.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "8336a584880841e0954683dd95ef6610064b0fcbe1f2d62b8418a79b107e0a97",
+    "after_sha256": "3989f29dce7fc6933e846f4ab3221503b3a78909bbaeed37255f53d608d5d06c"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/CoordinatorMaterializationAuthorizer.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "81fca3de0ebe0342f48ab7e68e2b0434616e1e790b52ec078c24fd7cb09bb883",
+    "after_sha256": "dadcfaea0c95eefda4d4320536ae3be52ffdafd255967afb80dfb67166dfbb48"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/CoordinatorMaterializationPlanner.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "d6210ce44844f0d891d5a4b10af809896ce5511293c8813e076735a8d4be4bbf",
+    "after_sha256": "12d00e076a42ea216f211a4528bdfa5712f23909e361f761c8f4115aff7f7ee5"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/KernelMaterializedViewService.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "0eabfe1a2c440de0c287d7c1ad38c80df5125e43d139202a1c0fab08b5bc9cf0",
+    "after_sha256": "73400923c16b00916ea760c74deb2a415df9651d5bc0015b879a1229ad5770bc"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/KernelDynamicTableService.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "e282aec10b09a08ec7256b8ade28cee48518f006c57ad8a7316457ae322c01c9",
+    "after_sha256": "474599b86c926166681769e19d7d2995b41674ed69e9aff4e5b973450592d1b9"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/NativeCtasExecutionEngine.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "341d786a256e997fd35759178f8a0e809a79a5dc47e0727eb7a1465501175dbf",
+    "after_sha256": "0b532a5951fd11d8664d7dac326944f418aec92367313ecfe6178c0e73292d8f"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/MaterializationMaintenance.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "230060e68be8624efac0bb5af79e2be1cb81dab4a8c4828fd29002ff94aceaa2",
+    "after_sha256": "64b1875e37dbbe2bbbff9febce5840dc993aa1dc2f2c9ca5f0bee37ff4bf6d9d"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java": {
+    "normalized_body_identical": false,
+    "review": "Tenant resolution now copies all trusted selectors/markers via withTenantId; capture at existing submit span uses injected factory; MDC uses same captured identity. Original authority, admission, state, cancel and journal owners unchanged.",
+    "before_sha256": "79c0b94bdabdbe582701caaf6307945e3cb59d53cbc6d5e60b16ce74e7057b9b",
+    "after_sha256": "9a40155f7f111c0fb1d07f837bc7db19b6c7f973bf6f2313bfe6701a18ae1908"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "92c3398a6422e3755988152509cf8f9a9b147e5b74296050ae0a5378e35fa4f5",
+    "after_sha256": "f47a0009ee8d75ac76c00ca95755690aa9a10537f84e4c1eba37b2f14f3fdaab"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/StageSplitFetcher.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "849e510a1f6f5425f51849a9cb5e7f2fa511ee23603f42b62e41749ac76020b0",
+    "after_sha256": "2c3c97405a2d5f427aa462272e2cc0c19bfacfb186bba0817d002e5c477c032f"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/cache/CacheWarmupService.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "d1ae53d7c79c3319ad1a538fba723421413b344d3a2615ce98abe6509d91be3b",
+    "after_sha256": "1c4c03ac9defe3f8a72a282d3639a6237e67ab9dab31b198b82621cc4736d0f2"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManagerContext.java": {
+    "normalized_body_identical": false,
+    "review": "All construction requires a nonnull trace factory; no implicit SDK/global selection. Journal and other borrowed dependencies unchanged.",
+    "before_sha256": "669c1ef9c2464277c7e74f0185f78ee5c6980a7fcacfc29e488bb0968d3e1db5",
+    "after_sha256": "b61a3c80e6aac16421331173c9ce1cff6f26ec6f3871ff8685c1499a2333e3ab"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGExecutionState.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "1dbc2e10643bef0ba52792befd02fd1d5a6c33ebbeba081888fbccf545d3ac66",
+    "after_sha256": "dd7efa586570636f761b1fc13fb63542b9017467158df8aba9e9b019f7de908a"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementExecutionContext.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "631d273e059b77c554089753475fa73329fffd843a24625c7864e3fa3062ada3",
+    "after_sha256": "63d576088248c18519c9661647c060274b68a6f1f71a759de17809bbac9513c0"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "3ad225b362263aee297801c34cb4c0f30fb91564649cb531e8b0f7f26e0aef91",
+    "after_sha256": "334495ae9a69f1d95a957d4d9ce49bae87cbe6bea141f6ba8621ac56d218babd"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/clustering/ClusteringDdlExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "c7ae82c942459c20d35bd152baad0518bd3aae6046b5e5fc862b63eb30b502f4",
+    "after_sha256": "1a527fe6b350690888f38fbbd2eacbcc985b1092556f04a13ceb11930567968a"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/maintenance/ControlledTableMaintenanceSpi.java": {
+    "normalized_body_identical": false,
+    "review": "Constructor-injected trace factory replaces implicit SDK capture at original session/runtime boundary; borrowed factory has no close. Existing permissions, authority, execution and lifecycle owner preserved.",
+    "before_sha256": "758d4032f62a2e72fd8705628b61cee29d4cb1e9e7696345a5409ec4648ef011",
+    "after_sha256": "107d7dc2e75bf14d41c61f3b02c3f299b8ce5fc50ddd7e7a2d1ec008f8313ca7"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/feature/FeatureSourceCompiler.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "df0ba87cf6d680c0e78f5add5c2e942285c5a0f19c282d8dd7a2808dc85ec662",
+    "after_sha256": "ce8aaf64ba5b0a7826749068a4ddeedd3ac1b39f3971f91f814880207f848e90"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/feature/FeatureViewStatementService.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "0376954fddbaa7305bf98b517652688e198a11311eeef9ce789fbf18079a18b0",
+    "after_sha256": "486c7a1af5fcc792083d4675cc122858cb2aa97deb47ce9d68af50ef5cdbc06c"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/ddl/DurableIndexBuildService.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "0347f6a5298a8ab4e2dd7b95e9389dbff26de1b22c33f383e9c63cddca9ef5fe",
+    "after_sha256": "1fc6766e7faa6a0d20bb8610898b179e21de6582f56f6a1bdae89e844208f7ae"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/ddl/IndexDdlExecutor.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "2d7d0c0070eff2273e27eb124294106e8d02d9892046dfe30e87dc0e52e53503",
+    "after_sha256": "193d6031f42c57ebd229be3939b68c572db194c5206b555e1cc038e37f4bd6ec"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/IndexAwareSplitFetcher.java": {
+    "normalized_body_identical": true,
+    "review": "QuerySession / trace contract FQN substitution only; normalized body identical. Existing responsibilities, permissions, state, SQL and resource lifecycle unchanged.",
+    "before_sha256": "473fd9141ed526a6291dec8e34d8bcec3516869b03b710d372c7fe0c984c0ed0",
+    "after_sha256": "501dc232d2ab27b960a54989f71765a96aab857a551e2938ebdd8efd43aa83cb"
+  }
+}

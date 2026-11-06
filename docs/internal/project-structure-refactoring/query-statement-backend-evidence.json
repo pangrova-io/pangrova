@@ -1,0 +1,34 @@
+{
+  "Native": {
+    "baseline_text_files": 744,
+    "changed": [],
+    "added_source_files": []
+  },
+  "Schema": {
+    "baseline_text_files": 99,
+    "changed": [],
+    "added_source_files": []
+  },
+  "Persistence": {
+    "baseline_text_files": 208,
+    "changed": [
+      "pangrova-persistence/pangrova-persistence-security-memory/src/main/java/org/pangrova/persistence/security/memory/tenant/InMemoryTenantStore.java",
+      "pangrova-persistence/pangrova-persistence-security-api/src/main/java/org/pangrova/persistence/security/api/tenant/TenantStore.java",
+      "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java"
+    ],
+    "added_source_files": [
+      "pangrova-persistence/pangrova-persistence-security-memory/src/test/java/org/pangrova/persistence/security/memory/tenant/MemoryTenantMembershipTest.java",
+      "pangrova-persistence/pangrova-persistence-security-postgresql/src/test/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantMembershipTest.java"
+    ]
+  },
+  "Protocol": {
+    "baseline_text_files": 268,
+    "changed": [],
+    "added_source_files": []
+  },
+  "Client": {
+    "baseline_text_files": 81,
+    "changed": [],
+    "added_source_files": []
+  }
+}

@@ -1,8 +1,10 @@
 package org.pangrova.indexing.store;
 
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

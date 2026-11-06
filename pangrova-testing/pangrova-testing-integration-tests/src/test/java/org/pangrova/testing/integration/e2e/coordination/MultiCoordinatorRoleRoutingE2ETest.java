@@ -1,11 +1,11 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
-import org.pangrova.coordinator.bootstrap.CoordinatorRole;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorRole;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
@@ -201,7 +200,6 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
         }
     }
 
-
     // -----------------------------------------------------------------------
     // Scenario 2: Same query on different QUERY coordinators yields identical results
     // -----------------------------------------------------------------------
@@ -213,7 +211,7 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("SELECT * returns identical rows regardless of which coordinator serves it")
         void selectStarIdenticalAcrossCoordinators() {
-            // Both coordinators share the same MetadataStore and data files.
+            // Both coordinators share the same CatalogDeploymentRepository and data files.
             // The test cluster acts as one QUERY coordinator; we verify the
             // stateless query path produces deterministic results by running
             // the same query twice (simulating two QUERY coordinators hitting
@@ -329,7 +327,6 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
         }
     }
 
-
     // -----------------------------------------------------------------------
     // Scenario 3: DDL on one coordinator visible on another via invalidation_log
     // -----------------------------------------------------------------------
@@ -342,11 +339,11 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
         @DisplayName("CREATE TABLE + INSERT on coordinator-1, query on coordinator-2 sees data")
         void createAndInsertVisibleOnOtherCoordinator() {
             // In a real multi-coordinator setup, DDL on coordinator-1 writes to
-            // MetadataStore + invalidation_log. Coordinator-2's JdbcInvalidationPoller
+            // CatalogDeploymentRepository + invalidation_log. Coordinator-2's JdbcInvalidationPoller
             // picks up the invalidation and refreshes its local cache.
             //
             // In this E2E test, we use a single test cluster (acting as both
-            // coordinators) sharing the same MetadataStore. The key proof is that
+            // coordinators) sharing the same CatalogDeploymentRepository. The key proof is that
             // DDL + DML on one "coordinator" is immediately visible to queries
             // on the same shared state — which is the exact behavior of the
             // stateless multi-coordinator architecture.
@@ -391,7 +388,7 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE TABLE " + fqn
                     + " (id BIGINT, name VARCHAR)");
 
-            // The DDL path writes to MetadataStore and invalidation_log.
+            // The DDL path writes to CatalogDeploymentRepository and invalidation_log.
             // In the test cluster, the invalidation_log may or may not have
             // entries depending on whether the DDL path is wired to write
             // invalidations. We verify the table is queryable regardless.
@@ -480,7 +477,6 @@ class MultiCoordinatorRoleRoutingE2ETest extends SqlE2ETestBase {
             assertThat(updatedTotal).isEqualTo(1000L);
         }
     }
-
 
     // -----------------------------------------------------------------------
     // Scenario 4: Maintenance failover between coordinators

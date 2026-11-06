@@ -41,7 +41,11 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-parser</artifactId>
+            <artifactId>pangrova-parser-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-parser-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

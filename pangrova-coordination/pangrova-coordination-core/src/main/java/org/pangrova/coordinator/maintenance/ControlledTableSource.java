@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.maintenance;
 
-import org.pangrova.table.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.table.api.control.TableControlState;
+import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.api.ownership.TableControlRecord;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.table.api.ownership.TableControlState;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.streaming.maintenance.MaintenanceTableSource;
 

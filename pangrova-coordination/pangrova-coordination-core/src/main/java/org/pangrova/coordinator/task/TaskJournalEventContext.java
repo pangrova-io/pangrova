@@ -3,7 +3,7 @@ package org.pangrova.coordinator.task;
 import com.google.protobuf.CodedOutputStream;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.spi.query.state.JournalEventContext;
+import org.pangrova.query.api.journal.JournalEventContext;
 
 import java.io.IOException;
 import java.io.OutputStream;

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.query.api.lifecycle.QueryState;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -9,32 +10,34 @@ import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.security.secret.SecretResolverRegistry;
-import org.pangrova.spi.connector.plugin.ConnectorFactory;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.security.UserIdentity;
-
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.security.api.identity.UserIdentity;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Actual migrated PG directory, production plugin loader and physical SDK commits. */
 public final class ReadBindingSdkFixture implements AutoCloseable {
     public final Catalog sdk;
     public final MetadataBootstrap bootstrap;
-    public final CoordinatorSessionContext context = new CoordinatorSessionContext("bound-query",
+    public final QuerySession context = new QuerySession("bound-query",
             Map.of("catalog", "bound", "schema", "db"),
-            new UserIdentity("reader", Set.of(), Map.of(), Instant.EPOCH), "tenant");
+            new UserIdentity("reader", Set.of(), Map.of(), Instant.EPOCH), "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     public final ConnectorSession session = SessionContextConverter.toConnectorSession(context);
     private final PluginConnectorHandleFactory factory;
 
@@ -46,10 +49,11 @@ public final class ReadBindingSdkFixture implements AutoCloseable {
                 new SecretResolverRegistry(), ignored -> Optional.empty());
         try {
             sdk.createDatabase("db", false);
-            var store = new JdbcMetadataStore(SharedPostgresContainer.migratedDataSource("read_binding"));
+            var dataSource = SharedPostgresContainer.migratedDataSource("read_binding");
+            var store = new PostgresCatalogDeploymentRepository(dataSource);
             store.saveCatalogDescriptor(new CatalogDescriptor("bound", CatalogType.CONNECTOR, "paimon",
                     CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "", Set.of("tenant")));
-            bootstrap = MetadataBootstrap.initialize(store, factory);
+            bootstrap = MetadataBootstrap.initialize(store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), factory);
         } catch (Exception | Error failure) {
             try { factory.shutdown(); } catch (Throwable error) { failure.addSuppressed(error); }
             try { sdk.close(); } catch (Throwable error) { failure.addSuppressed(error); }
@@ -77,14 +81,14 @@ public final class ReadBindingSdkFixture implements AutoCloseable {
         }
     }
 
-    public List<org.pangrova.spi.connector.metadata.ConnectorSplit> splits(
-            org.pangrova.spi.connector.metadata.table.ConnectorReadBinding binding,
+    public List<org.pangrova.connector.api.metadata.ConnectorSplit> splits(
+            org.pangrova.connector.api.metadata.table.ConnectorReadBinding binding,
             Map<String, Long> overrides) {
-        var descriptor = new org.pangrova.planner.SplitSourceDescriptor("bound", "db",
-                binding.declaration().metadata().table().table(), org.pangrova.spi.connector.metadata.Constraint.EMPTY,
+        var descriptor = new org.pangrova.planner.core.analysis.SplitSourceDescriptor("bound", "db",
+                binding.declaration().metadata().table().table(), org.pangrova.connector.api.metadata.Constraint.EMPTY,
                 binding.declaration().metadata().columns(), Optional.of(binding));
         var tracker = new org.pangrova.coordinator.task.CoordinatorTaskTracker();
-        var state = new org.pangrova.coordinator.query.QueryStateMachine();
+        var state = new org.pangrova.query.core.lifecycle.QueryStateMachine();
         var authority = state.bindConnectorAuthority(tracker.openQueryIssuance(context.queryId()));
         var admitted = context.withQueryAuthority(authority);
         var actor = SessionContextConverter.toConnectorSession(admitted, "bound", "db");
@@ -94,7 +98,7 @@ public final class ReadBindingSdkFixture implements AutoCloseable {
                     List.of(descriptor), bootstrap.catalogRegistry(), overrides,
                     binding.declaration().metadata().columns(), admitted);
         } finally {
-            state.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.CANCELLED);
+            state.tryTransition(QueryState.CANCELLED);
             tracker.sealQueryIssuance(context.queryId());
             authority.cleanupMetadata().requireSuccess();
             tracker.retireQueryIssuance(context.queryId());

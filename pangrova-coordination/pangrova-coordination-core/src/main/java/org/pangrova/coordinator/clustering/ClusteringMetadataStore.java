@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.clustering;
 
-import org.pangrova.spi.connector.clustering.ClusteringDescriptor;
-import org.pangrova.spi.connector.clustering.ClusteringTableRef;
+import org.pangrova.connector.api.clustering.ClusteringDescriptor;
+import org.pangrova.connector.api.clustering.ClusteringTableRef;
 
 import java.util.Optional;
 

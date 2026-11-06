@@ -16,6 +16,7 @@
     <description>Coordinator process and ZooKeeper coordination backend</description>
 
     <modules>
+        <module>pangrova-coordination-api</module>
 
         <module>pangrova-coordination-core</module>
         <module>pangrova-coordination-zookeeper</module>

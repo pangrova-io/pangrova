@@ -13,7 +13,7 @@ import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.QueryId;
 import org.pangrova.materialization.domain.ReaderPin;
 
-import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 
 /**
  * Lease and reader-pin statements of the materialization repository.

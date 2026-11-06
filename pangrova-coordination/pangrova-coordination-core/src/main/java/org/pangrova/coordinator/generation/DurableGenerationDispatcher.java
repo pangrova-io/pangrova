@@ -1,15 +1,17 @@
 package org.pangrova.coordinator.generation;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.spi.generation.job.GenerationLease;
-import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.generation.api.page.GenerationLease;
+import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,8 +45,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     private final String coordinatorId;
     private final LongSupplier epochSupplier;
     private final GenerationExecutionOwnership executionOwnership;
-    private final ConcurrentHashMap<org.pangrova.spi.generation.job.GenerationJobKey,
-            org.pangrova.spi.query.coordination.ExecutionAnchor> ownedJobs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<org.pangrova.generation.api.identity.GenerationJobKey,
+            org.pangrova.query.api.ownership.ExecutionAnchor> ownedJobs = new ConcurrentHashMap<>();
     private final Duration leaseDuration;
     private final Duration retryBackoff;
     private final int maxInFlight;
@@ -65,8 +67,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             String coordinatorId,
             LongSupplier epochSupplier,
             GenerationExecutionOwnership executionOwnership,
-            org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore stages,
-            org.pangrova.persistence.api.generation.exchange.GenerationStageExchangeStore exchanges,
+            org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore stages,
+            org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore exchanges,
             org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine) {}
 
     /** Bounded lease and concurrency settings for durable artifact dispatch. */
@@ -76,14 +78,15 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             int maxInFlight) {}
 
     public DurableGenerationDispatcher(
-            Dependencies dependencies, Settings settings) {
-        this(dependencies, settings, Clock.systemUTC());
+            Dependencies dependencies, Settings settings, ExecutionTraceContextFactory traceContexts) {
+        this(dependencies, settings, Clock.systemUTC(), traceContexts);
     }
 
     DurableGenerationDispatcher(
             Dependencies dependencies,
             Settings settings,
-            Clock clock) {
+            Clock clock, ExecutionTraceContextFactory traceContexts) {
+        java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         Objects.requireNonNull(dependencies, "dependencies must not be null");
         Objects.requireNonNull(settings, "settings must not be null");
         this.store = Objects.requireNonNull(
@@ -118,11 +121,11 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         }
         this.maxInFlight = settings.maxInFlight();
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
-        this.requestFactory = new GenerationDispatchRequestFactory(dependencies.stages());
+        this.requestFactory = new GenerationDispatchRequestFactory(dependencies.stages(), traceContexts);
         var runtime = new org.pangrova.coordinator.query.execution.dispatch.dag.control
                 .DurableStageRuntime.Dependencies(
                 dependencies.stages(), workerManager, scheduler, epochSupplier, leaseDuration,
-                this::registerGraphAttempt, dependencies.exchanges());
+                this::registerGraphAttempt, dependencies.exchanges(), traceContexts);
         this.graphs = new org.pangrova.coordinator.generation.runtime.DurableGenerationGraphs(
                 new org.pangrova.coordinator.generation.runtime.DurableGenerationGraphs.Dependencies(
                         store, runtime, dependencies.dagEngine(), retryBackoff), clock);
@@ -150,7 +153,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             return 0;
         }
         int dispatched = 0;
-        Map<org.pangrova.spi.generation.job.GenerationJobKey, Long> memoryGrants =
+        Map<org.pangrova.generation.api.identity.GenerationJobKey, Long> memoryGrants =
                 new java.util.HashMap<>();
         boolean madeProgress;
         do {
@@ -175,7 +178,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
                     if (dispatched == capacity) {
                         break;
                     }
-                } catch (org.pangrova.spi.security.AuthorizationDeniedException revoked) {
+                } catch (org.pangrova.security.api.error.AuthorizationDeniedException revoked) {
                     store.cancelJob(lease.tenantId(), lease.jobId(), revoked.getMessage(), now);
                     LOG.warn("event=artifact_dispatch_revoked jobId={} tenantId={} reason={}",
                             lease.jobId(), lease.tenantId(), revoked.getMessage());
@@ -190,7 +193,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     }
 
     private java.util.Optional<GenerationLease> claimAuthorizedPage(
-            org.pangrova.spi.generation.job.GenerationJobKey job, long epoch, Instant now) {
+            org.pangrova.generation.api.identity.GenerationJobKey job, long epoch, Instant now) {
         try {
             var anchor = executionOwnership.acquire(job);
             if (anchor.isEmpty()) {
@@ -201,7 +204,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
                 return java.util.Optional.empty();
             }
             return store.claimNextPage(job.tenantId(), job.jobId(), anchor.orElseThrow(), epoch, leaseDuration, now);
-        } catch (org.pangrova.spi.security.AuthorizationDeniedException revoked) {
+        } catch (org.pangrova.security.api.error.AuthorizationDeniedException revoked) {
             store.cancelJob(job.tenantId(), job.jobId(), revoked.getMessage(), now);
             LOG.warn("event=artifact_claim_revoked jobId={} tenantId={} reason={}",
                     job.jobId(), job.tenantId(), revoked.getMessage());
@@ -215,8 +218,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         }
     }
 
-    private void settleOwnedJob(org.pangrova.spi.generation.job.GenerationJobKey key,
-            org.pangrova.spi.query.coordination.ExecutionAnchor anchor) {
+    private void settleOwnedJob(org.pangrova.generation.api.identity.GenerationJobKey key,
+            org.pangrova.query.api.ownership.ExecutionAnchor anchor) {
         boolean activePage = active.values().stream().anyMatch(attempt ->
                 attempt.lease.tenantId().equals(key.tenantId()) && attempt.lease.jobId().equals(key.jobId()));
         if (activePage || graphs.isActive(key)) {
@@ -265,12 +268,13 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     private void dispatch(GenerationLease lease, Instant now) {
         GenerationDispatchRequestFactory.PreparedRequest prepared =
                 requestFactory.prepare(lease, now);
-        List<WorkerInfo> candidates = workerManager.getActiveWorkers().stream()
+        List<WorkerInfo> candidates = scheduler.eligibleWorkersForTenant(
+                prepared.maxMemoryBytes(), workerManager.getActiveWorkers(), lease.tenantId()).stream()
                 .filter(candidate -> hasUnreservedMemory(candidate, prepared.maxMemoryBytes()))
                 .toList();
         WorkerInfo worker = scheduler.selectWorkerWithBindings(
                 prepared.maxMemoryBytes(), candidates,
-                prepared.bindings())
+                prepared.bindings(), WorkerInfo::capabilityInventory)
                 .orElseThrow(() -> workerSelectionFailure(
                         candidates, prepared.bindings(), prepared.maxMemoryBytes()));
         String taskId = prepared.taskId();
@@ -301,7 +305,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             List<org.pangrova.protocol.v2.OperatorBinding> bindings,
             long requestedMemoryBytes) {
         List<WorkerInfo> capable = candidates.stream()
-                .filter(worker -> WorkerCapabilityMatcher.supports(worker, bindings))
+                .filter(worker -> WorkerCapabilityMatcher.supports(worker.capabilityInventory(), bindings))
                 .toList();
         if (!capable.isEmpty() && capable.stream().allMatch(
                 worker -> worker.availableMemoryBytes() < requestedMemoryBytes)) {
@@ -399,7 +403,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         try {
             renewed = store.renewPage(attempt.lease, leaseDuration, now);
         } catch (RuntimeException unavailableOrRevoked) {
-            if (unavailableOrRevoked instanceof org.pangrova.spi.security.AuthorizationDeniedException) {
+            if (unavailableOrRevoked instanceof org.pangrova.security.api.error.AuthorizationDeniedException) {
                 cancelRevokedJob(attempt.lease, unavailableOrRevoked.getMessage(), now);
             }
             LOG.warn("event=artifact_renewal_denied taskId={} reason={}", taskId, unavailableOrRevoked.getMessage());

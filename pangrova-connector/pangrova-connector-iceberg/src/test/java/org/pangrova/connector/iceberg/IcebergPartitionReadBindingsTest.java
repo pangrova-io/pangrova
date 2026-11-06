@@ -21,8 +21,8 @@ import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,7 +30,7 @@ class IcebergPartitionReadBindingsTest {
     @TempDir Path warehouse;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
-        @Override public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
+        @Override public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority>
                 getQueryAuthority() { return java.util.Optional.empty(); }
         @Override public String getUser() { return "partitions-test"; }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of("bound"); }

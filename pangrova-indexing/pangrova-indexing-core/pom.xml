@@ -19,9 +19,24 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-api</artifactId></dependency>
+
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-strategies-builtin</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-codec</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-jdbc</artifactId>
+            <artifactId>pangrova-persistence-generation-postgresql</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -30,35 +45,17 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-planner</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-protocol</artifactId>
+            <artifactId>pangrova-persistence-generation-api</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
-        <!-- Index JDBC store owns index metadata tables, tenant scoping, and authz gates. -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-metadata</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
-        </dependency>
+
+
+
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -71,11 +68,6 @@
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
-        </dependency>
-        <!-- Official RoaringBitmap library (version managed by parent BOM) -->
-        <dependency>
-            <groupId>org.roaringbitmap</groupId>
-            <artifactId>RoaringBitmap</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -98,14 +90,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-metadata</artifactId>
-            <version>${project.version}</version>
-            <type>test-jar</type>
-            <classifier>tests</classifier>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
             <scope>test</scope>
@@ -117,7 +101,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-query</artifactId>
+            <artifactId>pangrova-query-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

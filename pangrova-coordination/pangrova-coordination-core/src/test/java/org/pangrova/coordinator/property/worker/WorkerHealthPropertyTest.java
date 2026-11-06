@@ -92,7 +92,7 @@ class WorkerHealthPropertyTest {
             @ForAll("workerIds") String workerId,
             @ForAll("elapsedMillis") long elapsedMs) {
 
-        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         Instant now = Instant.now();
         Instant lastHeartbeat = now.minusMillis(elapsedMs);
         manager.registerWorker(createWorker(workerId, lastHeartbeat));
@@ -120,13 +120,13 @@ class WorkerHealthPropertyTest {
             @ForAll("elapsedMillis") long elapsedMs,
             @ForAll("heartbeatData") WorkerManager.HeartbeatData data) {
 
-        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         Instant now = Instant.now();
         Instant staleHeartbeat = now.minusMillis(elapsedMs);
         manager.registerWorker(createWorker(workerId, staleHeartbeat));
 
         // Send heartbeat — should reset to ACTIVE regardless of prior state
-        manager.onHeartbeat(workerId, data);
+        manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(workerId, manager.getWorker(workerId).workerExecutionIdentity().admissionDomainId(), manager.getWorker(workerId).workerExecutionIdentity().incarnationId()), data);
 
         HealthState afterHeartbeat = manager.evaluateHealth(workerId, Instant.now());
         assertThat(afterHeartbeat)
@@ -148,7 +148,7 @@ class WorkerHealthPropertyTest {
             @ForAll("workerCounts") int activeCount,
             @ForAll("workerCounts") int deadCount) {
 
-        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         Instant now = Instant.now();
 
         List<String> activeIds = IntStream.range(0, activeCount)

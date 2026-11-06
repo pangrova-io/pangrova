@@ -16,9 +16,9 @@ import org.pangrova.materialization.usecase.MaterializationService;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog;
 import org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Builds kernel collaborators bound to one coordinator statement.

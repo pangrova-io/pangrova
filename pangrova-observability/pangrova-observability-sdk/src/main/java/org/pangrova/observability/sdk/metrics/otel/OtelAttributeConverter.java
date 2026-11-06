@@ -2,7 +2,7 @@ package org.pangrova.observability.sdk.metrics.otel;
 
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
-import org.pangrova.spi.observability.MetricAttributes;
+import org.pangrova.observability.api.metrics.MetricAttributes;
 
 /**
  * Converts Pangrova's {@link MetricAttributes} to OpenTelemetry's {@link Attributes}.

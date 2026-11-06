@@ -1,7 +1,9 @@
 package org.pangrova.coordinator.result;
 
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.query.core.task.DispatchResult;
+
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.types.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,13 +21,6 @@ public final class CoordinatorResultService implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorResultService.class);
 
-    /**
-     * Lightweight result descriptor produced by bounded control-plane dispatch.
-     * Mirrors DispatchResult semantics without depending on the query.execution.dispatch package.
-     */
-    public record ControlPlaneDispatchResult(
-            String workerHost, String taskId, ResultEndpoint resultEndpoint) {}
-
     private final CoordinatorResultBuffer buffer;
     private final CoordinatorResultWriter writer;
     private final ResultEndpoint transportEndpoint;
@@ -42,7 +37,7 @@ public final class CoordinatorResultService implements AutoCloseable {
      * Serializes a bounded DDL/SHOW/DML acknowledgement response and transitions
      * the control-plane statement to FINISHED.
      */
-    public ControlPlaneDispatchResult dispatchControlPlaneRows(
+    public DispatchResult dispatchControlPlaneRows(
             String queryId, List<TypedRow> rows, List<String> columnNames,
             Runnable finisher) {
         Objects.requireNonNull(queryId, "queryId");
@@ -57,13 +52,13 @@ public final class CoordinatorResultService implements AutoCloseable {
         return buildResult(queryId);
     }
 
-    private ControlPlaneDispatchResult buildResult(String queryId) {
+    private DispatchResult buildResult(String queryId) {
         ResultEndpoint endpoint = new ResultEndpoint(
                 transportEndpoint.host(),
                 transportEndpoint.port(),
                 queryId,
                 transportEndpoint.protocol());
-        return new ControlPlaneDispatchResult("coordinator-control", queryId, endpoint);
+        return new DispatchResult("coordinator-control", queryId, endpoint);
     }
 
     /** Retires acknowledgement timers only after accepted query/publication owners drain. */

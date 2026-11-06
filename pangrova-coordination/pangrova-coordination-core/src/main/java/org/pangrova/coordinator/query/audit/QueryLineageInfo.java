@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.audit;
 
-import org.pangrova.planner.lineage.ColumnDerivation;
+import org.pangrova.planner.api.lineage.ColumnDerivation;
 
 import java.util.List;
 

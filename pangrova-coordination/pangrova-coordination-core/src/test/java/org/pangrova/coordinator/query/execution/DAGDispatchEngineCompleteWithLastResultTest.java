@@ -9,11 +9,11 @@ import java.util.concurrent.ExecutionException;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGCompletionEvaluator;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -200,12 +200,12 @@ class DAGDispatchEngineCompleteWithLastResultTest {
                 new ResultEndpoint("localhost", 8080, "ticket-1", "http"));
     }
 
-    private static org.pangrova.planner.PlanFragment dummyFragment() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyFragment() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

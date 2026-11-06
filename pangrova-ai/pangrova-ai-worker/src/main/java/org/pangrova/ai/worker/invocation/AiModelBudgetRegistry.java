@@ -3,7 +3,7 @@ package org.pangrova.ai.worker.invocation;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 
-import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.ai.api.error.AiInvocationException;
 
 /** Shares one concurrency semaphore per live exact model deployment. */
 final class AiModelBudgetRegistry {

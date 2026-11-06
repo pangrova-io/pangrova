@@ -2,7 +2,7 @@ package org.pangrova.worker.copy;
 
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.security.api.error.AccessDeniedException;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.filesystem.api.blob.ManagedBlobStorage;

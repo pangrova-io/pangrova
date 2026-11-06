@@ -2,11 +2,11 @@ package org.pangrova.coordinator.result;
 
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.protocol.transport.DataTicket;
 import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.worker.transport.TransportClient;
-import org.pangrova.worker.transport.TransportServer;
+import org.pangrova.transport.flight.TransportServer;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon.scan;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
-import org.pangrova.spi.connector.metadata.table.TypePromotion;
+import org.pangrova.connector.api.metadata.table.ColumnMapping;
+import org.pangrova.connector.api.metadata.table.TypePromotion;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.Table;
@@ -12,7 +12,7 @@ import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.RowType;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.api.error.ConnectorException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

@@ -1,7 +1,7 @@
 package org.pangrova.streaming.maintenance;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.connector.data.write.model.WriteResult;
+import org.pangrova.connector.api.write.WriteResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

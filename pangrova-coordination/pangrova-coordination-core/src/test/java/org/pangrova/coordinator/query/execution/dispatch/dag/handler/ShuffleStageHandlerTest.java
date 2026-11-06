@@ -15,8 +15,8 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.planner.ShuffleType;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.planner.core.analysis.ShuffleType;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.shuffle.api.ShuffleAccess;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
@@ -30,6 +30,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ShuffleStageHandlerTest {
+
+    @Test
+    void externalStageFailsBeforeAllocatingWhenNoLifecycleIsConfigured() {
+        var lifecycle = org.pangrova.coordinator.query.execution.dispatch.shuffle.UnavailableExternalShuffleLifecycle.INSTANCE;
+        var handler = new ShuffleStageHandler(lifecycle);
+        Stage producer = stage(3, 2, 100);
+        var graph = dag(producer, edge(3, 4, ShuffleType.HASH, 2));
+        assertThatThrownBy(() -> handler.onScheduling(event(producer, graph, "q-unavailable")))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("not configured");
+        assertThat(producer.shuffleHandle()).isNull();
+    }
 
     @Test
     void registersAndFinalizesHashOutput() {
@@ -131,8 +142,8 @@ class ShuffleStageHandlerTest {
     private static StageLifecycleEvent event(
             Stage stage, StageDAG dag, String queryId) {
         return new StageLifecycleEvent(stage, dag, queryId,
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext(queryId, Map.of(), null, "tenant-test")));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(
+                        new org.pangrova.query.api.session.QuerySession(queryId, Map.of(), null, "tenant-test", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())));
     }
 
     private static StageDAG dag(Stage stage, StageEdge... edges) {

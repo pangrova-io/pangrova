@@ -19,10 +19,10 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.service.DefaultMetadataService;
-import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.security.authn.AuthenticationManager;
-import org.pangrova.spi.security.authn.AuthenticationRequest;
-import org.pangrova.security.authn.oauth2.OAuth2Authenticator;
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.api.authentication.AuthenticationRequest;
+import org.pangrova.security.auth.oauth2.OAuth2Authenticator;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.worker.nativebridge.jni.write.catalog.CatalogDeploymentClient;
 
@@ -131,14 +131,14 @@ class CatalogDeploymentResourceIntegrationTest extends ContainerTestBase {
         private SignedOidcIssuer issuer;
         private OAuth2Authenticator authenticator;
         private AuthenticationManager authentication;
-        private JdbcMetadataStore store;
+        private PostgresCatalogDeploymentRepository store;
         private CatalogDeploymentClient client;
         private Server server;
         private final HttpClient http = HttpClient.newHttpClient();
 
         private CatalogHttpFixture() throws Exception {
             try {
-                store = new JdbcMetadataStore(SharedPostgresContainer.migratedDataSource("catalog_http"));
+                store = new PostgresCatalogDeploymentRepository(SharedPostgresContainer.migratedDataSource("catalog_http"));
                 issuer = new SignedOidcIssuer();
                 authenticator = new OAuth2Authenticator();
                 authenticator.init(Map.of("issuerUri", issuer.uri(), "audience", "catalog-tests"));

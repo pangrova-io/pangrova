@@ -1,32 +1,32 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.indexing.assembly.serde.DefaultTypeSerializers;
+import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.indexing.registry.IndexEngineRegistry;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.config.IndexingConfig;
-import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.storage.IndexStorageManager;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.index.CommitEventType;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.index.CommitEventType;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.index.statistics.DataFileStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -79,7 +79,7 @@ class IndexCommitHandlerStatisticsTest {
         var files = merged(CommitEventType.OVERWRITE, List.of("f1.parquet"), List.of("old.parquet"));
 
         assertThatThrownBy(() -> env.handler.processTableCommit(files))
-                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class)
                 .hasMessageContaining("trusted authorization scope");
         assertThat(env.store.insertedStats).isEmpty();
         assertThat(env.store.deletedStatsPaths).isEmpty();
@@ -272,7 +272,7 @@ class IndexCommitHandlerStatisticsTest {
             // operation identity; production maintenance still requires a
             // persisted subject and current security reauthorization.
             resolver = resolver.forSession(new ConnectorSession() {
-                @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
+                @Override public Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority>
                         getQueryAuthority() { return Optional.empty(); }
                 @Override public String getUser() { return "statistics-fixture-reader"; }
                 @Override public Optional<String> getCatalog() { return Optional.of("cat"); }
@@ -287,7 +287,7 @@ class IndexCommitHandlerStatisticsTest {
         var config = new IndexingConfig("/tmp/test-index", false, null, null);
         var engineRegistry = new IndexEngineRegistry(List.of());
         var storageManager = new IndexStorageManager();
-        var serializer = new IndexSerializer(DefaultTypeSerializers.createRegistry());
+        var serializer = new IndexSerializer(BuiltinIndexSerializers.createRegistry());
         var buildCtx = new IndexBuildContext(config, engineRegistry, storageManager, serializer);
         buildCoordinator = new IndexBuildCoordinator(buildCtx, null);
 
@@ -317,7 +317,7 @@ class IndexCommitHandlerStatisticsTest {
 
         @Override public String loadAuthorizedBuildPrincipal(IndexDescriptor descriptor) {
             if (!authorizedFixture) {
-                throw new org.pangrova.spi.security.AccessDeniedException(
+                throw new org.pangrova.security.api.error.AccessDeniedException(
                         "Index connector access requires a trusted authorization scope");
             }
             return "statistics-fixture-reader";
@@ -345,9 +345,9 @@ class IndexCommitHandlerStatisticsTest {
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
                 Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
-        @Override public org.pangrova.indexing.store.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.indexing.store.IndexPublicationRequest request) { throw new AssertionError(); }
-        @Override public Optional<org.pangrova.indexing.store.IndexGenerationManifest>
+        @Override public org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
         @Override public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) { return indexesForTable; }
@@ -383,11 +383,11 @@ class IndexCommitHandlerStatisticsTest {
         }
 
         @Override public List<String> listSchemaNames(ConnectorSession s) { return List.of(); }
-        @Override public List<org.pangrova.spi.connector.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
-        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.spi.connector.metadata.table.SchemaTableName n) { return null; }
-        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return null; }
-        @Override public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return Map.of(); }
-        @Override public org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN; }
+        @Override public List<org.pangrova.connector.api.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
+        @Override public org.pangrova.connector.api.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.connector.api.metadata.table.SchemaTableName n) { return null; }
+        @Override public org.pangrova.connector.api.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.connector.api.metadata.table.ConnectorTableHandle t) { return null; }
+        @Override public Map<String, org.pangrova.connector.api.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.connector.api.metadata.table.ConnectorTableHandle t) { return Map.of(); }
+        @Override public org.pangrova.connector.api.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.connector.api.metadata.table.ConnectorTableHandle t) { return org.pangrova.connector.api.metadata.table.TableStatistics.UNKNOWN; }
     }
 
     /** ConnectorMetadata that throws on getFileStatistics. */
@@ -399,11 +399,11 @@ class IndexCommitHandlerStatisticsTest {
         }
 
         @Override public List<String> listSchemaNames(ConnectorSession s) { return List.of(); }
-        @Override public List<org.pangrova.spi.connector.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
-        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.spi.connector.metadata.table.SchemaTableName n) { return null; }
-        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return null; }
-        @Override public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return Map.of(); }
-        @Override public org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN; }
+        @Override public List<org.pangrova.connector.api.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
+        @Override public org.pangrova.connector.api.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.connector.api.metadata.table.SchemaTableName n) { return null; }
+        @Override public org.pangrova.connector.api.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.connector.api.metadata.table.ConnectorTableHandle t) { return null; }
+        @Override public Map<String, org.pangrova.connector.api.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.connector.api.metadata.table.ConnectorTableHandle t) { return Map.of(); }
+        @Override public org.pangrova.connector.api.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.connector.api.metadata.table.ConnectorTableHandle t) { return org.pangrova.connector.api.metadata.table.TableStatistics.UNKNOWN; }
     }
 
     /** Minimal Connector delegating to a ConnectorMetadata. */
@@ -416,22 +416,21 @@ class IndexCommitHandlerStatisticsTest {
         @Override public ConnectorPageSourceProvider getPageSourceProvider() { return null; }
     }
 
-    /** Minimal MetadataStore for CatalogRegistry initialization. */
-    static final class MinimalPersistenceStore implements org.pangrova.metadata.api.catalog.MetadataStore {
+    /** Minimal CatalogDeploymentRepository for CatalogRegistry initialization. */
+    static final class MinimalPersistenceStore implements org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final CatalogDescriptor descriptor;
         MinimalPersistenceStore(CatalogDescriptor d) { this.descriptor = d; }
 
-        @Override public void saveTable(org.pangrova.metadata.api.object.TableMetadata m) {}
-        @Override public Optional<org.pangrova.metadata.api.object.TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) {}
-        @Override public List<org.pangrova.metadata.api.object.QualifiedTableRef> searchTables(String p) { return List.of(); }
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) {}
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return descriptor.name().equals(n) ? Optional.of(descriptor) : Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String n) {}
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(descriptor); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) {}
-        @Override public void recordSyncHistory(org.pangrova.metadata.api.catalog.SyncResult r) {}
-        @Override public void saveSchemas(String c, List<String> s) {}
+
     }
 }

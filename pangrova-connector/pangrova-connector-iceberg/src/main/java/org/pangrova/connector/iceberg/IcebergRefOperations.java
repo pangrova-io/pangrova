@@ -2,7 +2,7 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.api.error.ConnectorException;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
@@ -15,7 +15,7 @@ import org.apache.iceberg.hadoop.HadoopTableOperations;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.jdbc.JdbcCatalog;
-import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
+import org.pangrova.connector.api.metadata.ConditionalBranchDropResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +33,7 @@ final class IcebergRefOperations {
 
     /** Publishes the selected source and retention in one SDK metadata update. */
     static void createBranch(Table icebergTable, IcebergTableHandle handle, String branchName,
-            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
+            org.pangrova.connector.api.metadata.BranchCreationOptions options) {
         java.util.Objects.requireNonNull(options, "options");
         long snapshot;
         if (options.sourceSnapshotId().isPresent()) {

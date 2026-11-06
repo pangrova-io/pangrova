@@ -1,0 +1,100 @@
+{
+  "stages": [
+    {
+      "stage": "core",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-query-core -am '-Dtest=QueryStateMachine*Test,QueryTerminalCleanupContractTest,QueryRetentionSchedulerTest,QueryApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 13.91,
+      "cases": 2,
+      "passed": 2,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "core-repair",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-query-core -am '-Dtest=QueryStateMachine*Test,QueryTerminalCleanupContractTest,QueryRetentionSchedulerTest,QueryApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 16.15,
+      "cases": 20,
+      "passed": 20,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "core-readiness-before",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-query-core -am '-Dtest=QueryStateMachine*Test,QueryTerminalCleanupContractTest,QueryRetentionSchedulerTest,QueryApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 15.39,
+      "cases": 30,
+      "passed": 28,
+      "failure": 2,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "core-readiness-after",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-query-core -am '-Dtest=QueryStateMachine*Test,QueryTerminalCleanupContractTest,QueryRetentionSchedulerTest,QueryApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 14.74,
+      "cases": 30,
+      "passed": 30,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "coordinator",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression '-Dtest=QueryLifecycleIsolationTest,QueryStateMachine*Test,QueryTerminal*Test*,QueryTransitionOwnershipTest,ConnectorQueryAuthorityTest,QueryManager*Test*,QueryRetentionSchedulerTest,QueryLifecycleResponsibilityBoundaryTest,QueryPackageSplitEquivalencePropertyTest,CoordinatorQueryLifecycleTest,QueryTimeoutOwnerTest,QueryDispatcher*Test*,QuerySession*Test,QueryApiClasspathTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 21.56,
+      "cases": 24,
+      "passed": 23,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "coordinator-repair",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression '-Dtest=QueryLifecycleIsolationTest,QueryStateMachine*Test,QueryTerminal*Test*,QueryTransitionOwnershipTest,ConnectorQueryAuthorityTest,QueryManager*Test*,QueryRetentionSchedulerTest,QueryLifecycleResponsibilityBoundaryTest,QueryPackageSplitEquivalencePropertyTest,CoordinatorQueryLifecycleTest,QueryTimeoutOwnerTest,QueryDispatcher*Test*,QuerySession*Test,QueryApiClasspathTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 117.9,
+      "cases": 210,
+      "passed": 210,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "package",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=QueryLifecycleIsolationTest,QueryStateMachine*Test,QueryTerminal*Test*,QueryTransitionOwnershipTest,ConnectorQueryAuthorityTest,QueryManager*Test*,QueryRetentionSchedulerTest,QueryLifecycleResponsibilityBoundaryTest,QueryPackageSplitEquivalencePropertyTest,CoordinatorQueryLifecycleTest,QueryTimeoutOwnerTest,QueryDispatcher*Test*,QuerySession*Test,QueryApiClasspathTest,QueryLifecycleE2ETest*,SqlPrivilegeAuthorityE2ETest*,PhysicalTwoWorkerShuffleE2ETest*,QueryCancellationE2ETest*,ModuleDependencyPropertyTest,PackageStructurePropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 223.49,
+      "cases": 223,
+      "passed": 223,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "full-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12 -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression verify",
+      "exit": 1,
+      "seconds": 78.99,
+      "cases": 2108,
+      "passed": 2107,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 223,
+    "passed": 223,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

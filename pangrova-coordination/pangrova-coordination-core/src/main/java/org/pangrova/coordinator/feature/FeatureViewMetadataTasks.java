@@ -19,12 +19,12 @@ package org.pangrova.coordinator.feature;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.statement.CreateFeatureViewStatement;
-import org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
-import org.pangrova.parser.ast.statement.PublishFeatureViewStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.statement.CreateFeatureViewStatement;
+import org.pangrova.parser.api.ast.statement.MaterializeFeatureViewStatement;
+import org.pangrova.parser.api.ast.statement.PublishFeatureViewStatement;
+import org.pangrova.types.value.TypedRow;
 
 import java.util.List;
 import java.util.Objects;

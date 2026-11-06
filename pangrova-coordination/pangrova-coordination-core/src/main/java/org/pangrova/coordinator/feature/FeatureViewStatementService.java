@@ -22,21 +22,21 @@ import org.pangrova.coordinator.feature.FeatureViewDefinitionValidator.Validated
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.store.jdbc.catalog.MetadataJsonMapper;
+import org.pangrova.metadata.codec.json.MetadataJsonMapper;
 import org.pangrova.ai.control.api.AiControlException;
 import org.pangrova.ai.control.feature.FeatureCatalogStore;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeaturePublication;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewId;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewVersion;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.CreateFeatureViewStatement;
-import org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
-import org.pangrova.parser.ast.statement.PublishFeatureViewStatement;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.CreateFeatureViewStatement;
+import org.pangrova.parser.api.ast.statement.MaterializeFeatureViewStatement;
+import org.pangrova.parser.api.ast.statement.PublishFeatureViewStatement;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Clock;
 import java.util.List;
@@ -81,7 +81,7 @@ public final class FeatureViewStatementService {
 
     /** Creates one immutable version and authorizes its exact source table. */
     public FeatureViewVersion create(
-            CreateFeatureViewStatement statement, CoordinatorSessionContext session) {
+            CreateFeatureViewStatement statement, QuerySession session) {
         Actor actor = requireActor(session);
         FeatureViewId id = resolveId(statement.viewName(), actor);
         accessControl.checkCanCreateTable(
@@ -119,7 +119,7 @@ public final class FeatureViewStatementService {
 
     /** Publishes an immutable version under the requested publication-epoch CAS fence. */
     public FeaturePublication publish(
-            PublishFeatureViewStatement statement, CoordinatorSessionContext session) {
+            PublishFeatureViewStatement statement, QuerySession session) {
         Actor actor = requireActor(session);
         FeatureViewId id = resolveId(statement.viewName(), actor);
         accessControl.checkCanAlterTable(
@@ -137,7 +137,7 @@ public final class FeatureViewStatementService {
     /** Submits one single-source immutable snapshot to the generic Native export state machine. */
     public CatalogExportRequest materialize(
             MaterializeFeatureViewStatement statement,
-            CoordinatorSessionContext session) {
+            QuerySession session) {
         Actor actor = requireActor(session);
         FeatureViewId id = resolveId(statement.viewName(), actor);
         accessControl.checkCanAlterTable(
@@ -203,30 +203,30 @@ public final class FeatureViewStatementService {
 
     private void authorizeSource(
             UserIdentity user,
-            org.pangrova.spi.connector.metadata.table.QualifiedTableName source) {
+            org.pangrova.connector.api.metadata.table.QualifiedTableName source) {
         accessControl.checkCanSelectFromTable(
                 user, source.catalog(), source.schema(), source.table());
     }
 
-    private static org.pangrova.spi.connector.metadata.table.QualifiedTableName source(
+    private static org.pangrova.connector.api.metadata.table.QualifiedTableName source(
             FeatureViewVersion version) {
         String[] parts = version.sourceTable().split("\\.", -1);
         if (parts.length != 3 || java.util.Arrays.stream(parts).anyMatch(String::isBlank)) {
             throw invalid("Persisted Feature View source identity is invalid");
         }
-        return new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+        return new org.pangrova.connector.api.metadata.table.QualifiedTableName(
                 parts[0], parts[1], parts[2]);
     }
 
-    private static CoordinatorSessionContext sourceSession(CoordinatorSessionContext session,
-            org.pangrova.spi.connector.metadata.table.QualifiedTableName source) {
+    private static QuerySession sourceSession(QuerySession session,
+            org.pangrova.connector.api.metadata.table.QualifiedTableName source) {
         var properties = new java.util.HashMap<>(session.sessionProperties());
         properties.put("catalog", source.catalog());
         properties.put("schema", source.schema());
         return session.withSessionProperties(properties);
     }
 
-    private Actor requireActor(CoordinatorSessionContext session) {
+    private Actor requireActor(QuerySession session) {
         requireAuthenticated(session);
         String catalog = session.sessionProperties().getOrDefault(
                 "catalog", DEFAULT_NAMESPACE);
@@ -238,7 +238,7 @@ public final class FeatureViewStatementService {
         return new Actor(session.userIdentity(), session.tenantId(), catalog, schema);
     }
 
-    private void requireAuthenticated(CoordinatorSessionContext session) {
+    private void requireAuthenticated(QuerySession session) {
         if (accessControl == null || session == null || session.userIdentity() == null
                 || session.userIdentity().principal() == null
                 || session.userIdentity().principal().isBlank()

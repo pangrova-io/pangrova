@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.materialization.domain.Binding;
 import org.pangrova.materialization.domain.ColumnDefinition;
@@ -33,20 +33,20 @@ import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PlannedDefinition;
 import org.pangrova.materialization.port.PlanningRequest;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.SplitSourceDescriptor;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.lineage.ColumnDerivation;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.materialization.ChangeSetMode;
-import org.pangrova.spi.connector.materialization.MaterializationCapabilities;
-import org.pangrova.spi.connector.materialization.MaterializationSourceException;
-import org.pangrova.spi.connector.materialization.SourceProvider;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.core.analysis.SplitSourceDescriptor;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.api.lineage.ColumnDerivation;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.materialization.MaterializationCapabilities;
+import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Production definition planner for the materialization kernel.
@@ -62,7 +62,7 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
     private static final long VECTOR_VERSION = 1;
 
     private final SqlCompiler compiler;
-    private final CoordinatorSessionContext session;
+    private final QuerySession session;
     private final CatalogRegistry catalogs;
     private final MaterializationCatalog materializations;
     private final TenantId tenant;
@@ -78,7 +78,7 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
      * @param tenant authenticated tenant
      * @param accessControl access-control policy source, or null when disabled
      */
-    public CoordinatorMaterializationPlanner(SqlCompiler compiler, CoordinatorSessionContext session,
+    public CoordinatorMaterializationPlanner(SqlCompiler compiler, QuerySession session,
             CatalogRegistry catalogs, MaterializationCatalog materializations, TenantId tenant,
             AccessControl accessControl) {
         this.compiler = java.util.Objects.requireNonNull(compiler, "compiler");
@@ -205,7 +205,7 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
         return true;
     }
 
-    private CoordinatorSessionContext planningSession(Map<String, String> requestProperties) {
+    private QuerySession planningSession(Map<String, String> requestProperties) {
         Map<String, String> properties = new java.util.HashMap<>(session.sessionProperties());
         properties.putAll(requestProperties);
         return session.withSessionProperties(properties);

@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.query.core.task.DispatchResult;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -7,14 +11,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.result.CoordinatorResultService;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.AlterCatalogStatement;
-import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.AccessControl;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
+import org.pangrova.parser.api.ast.statement.DescribeCatalogStatement;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.spi.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +56,7 @@ public final class StatementDispatcher {
      */
     public DispatchResult tryDispatch(
             QueryStateMachine sm, String sql,
-            String queryId, CoordinatorSessionContext session) {
+            String queryId, QuerySession session) {
         // Snapshot the volatile compiler reference once per dispatch to ensure
         // a consistent compiler version throughout this request's lifecycle.
         SqlCompiler currentCompiler = this.compiler;
@@ -89,7 +93,7 @@ public final class StatementDispatcher {
      */
     public DispatchResult executeDirect(
             Statement ast, QueryStateMachine sm,
-            String queryId, CoordinatorSessionContext session) {
+            String queryId, QuerySession session) {
         if (!isRoutable(ast)) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Statement is not routable: " + ast.getClass().getSimpleName());
@@ -122,7 +126,7 @@ public final class StatementDispatcher {
      * Enforces table-level access control before factory execution.
      * Delegates to PermissionChecker for consistent permission enforcement.
      */
-    private void checkPermission(Statement stmt, CoordinatorSessionContext session) {
+    private void checkPermission(Statement stmt, QuerySession session) {
         PermissionChecker.check(stmt, session, accessControl);
     }
 
@@ -164,7 +168,7 @@ public final class StatementDispatcher {
 
     private void fireCompletionEvent(
             String queryId, Statement stmt,
-            StatementResult result, CoordinatorSessionContext session) {
+            StatementResult result, QuerySession session) {
         var event = new StatementCompletionEvent(queryId, stmt, result, session);
         for (StatementCompletionListener listener : listeners) {
             try {
@@ -189,12 +193,12 @@ public final class StatementDispatcher {
             // needs to publish its metadata head and acknowledge the statement.
             sm.setResultEndpoint(control.resultEndpoint());
             sm.toFinisher().run();
-            return DispatchResult.fromControlPlane(control);
+            return control;
         }
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.tryTransition(QueryStateMachine.State.FINISHING);
-        sm.tryTransition(QueryStateMachine.State.FINISHED);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
+        sm.tryTransition(QueryState.FINISHING);
+        sm.tryTransition(QueryState.FINISHED);
         return null;
     }
 

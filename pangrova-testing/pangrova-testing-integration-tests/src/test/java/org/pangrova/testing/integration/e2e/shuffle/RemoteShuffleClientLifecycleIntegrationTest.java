@@ -4,9 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClient;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientException;
-import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;
+import org.pangrova.shuffle.pangrova.client.PangrovaShuffleClient;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -22,6 +22,25 @@ import static org.awaitility.Awaitility.await;
 class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
     @TempDir Path directory;
 
+    @Test void invalidReadConstructionReturnsTransferredActualChannelLease() throws Exception {
+        try (var service = new ActualShuffleService(directory, 1, 1);
+             var pool = service.clientPool()) {
+            var producer = ActualShufflePublication.publish(service);
+            var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
+            var invalidRequestLease = pool.borrow(binding.selectedEndpoint());
+            assertThatThrownBy(() -> new RemoteShuffleExchangeSource(null, binding.readAccess(), invalidRequestLease))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(invalidRequestLease::client).isInstanceOf(IllegalStateException.class);
+            var invalidAccessLease = pool.borrow(binding.selectedEndpoint());
+            assertThatThrownBy(() -> new RemoteShuffleExchangeSource(
+                    ActualShuffleService.partitionRead(binding), null, invalidAccessLease))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(invalidAccessLease::client).isInstanceOf(IllegalStateException.class);
+            pool.close();
+            assertThat(pool.activeConnectionCount()).isZero();
+        }
+    }
+
     @Test void closedActualRpcWakesBlockedConsumerWithoutReportingCleanEof() throws Exception {
         try (var service = new ActualShuffleService(directory, 1, 1);
              var pool = service.clientPool()) {
@@ -29,7 +48,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
             service.wire(0).pauseReadOutput = true;
             var lease = pool.borrow(binding.selectedEndpoint());
-            try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+            try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                 assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
                 var started = new java.util.concurrent.CountDownLatch(1);
                 var actualReader = new java.util.concurrent.atomic.AtomicReference<Thread>();
@@ -59,7 +78,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
         try (var service = new ActualShuffleService(directory, 1, 1)) {
             var producer = service.registerProducer();
             var request = producer.request();
-            try (var egress = new org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress(
+            try (var egress = new org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress(
                     service.clientPool())) {
                 assertThat(egress.installTask(request)).isTrue();
                 egress.onTaskCompleted(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId());
@@ -67,7 +86,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             service.finalizeProducer(producer);
             var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
             try (var pool = service.clientPool();
-                 var source = new RemoteShuffleExchangeSource(binding, pool.borrow(binding.selectedEndpoint()))) {
+                 var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), pool.borrow(binding.selectedEndpoint()))) {
                 assertThat(source.nextVerifiedChunk()).isNull();
                 assertThat(source.isFinished()).isTrue();
                 assertThat(source.nextVerifiedChunk()).isNull();
@@ -93,8 +112,8 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             var binding = service.delegateRead(producer, consumer);
             service.wire(0).pauseReadOutput = true;
             var lease = pool.borrow(binding.selectedEndpoint());
-            RemoteShuffleClient actualChannel = lease.client();
-            try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+            PangrovaShuffleClient actualChannel = lease.client();
+            try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                 assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
                 await().during(Duration.ofMillis(300)).atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
                     pool.cleanUp();
@@ -121,7 +140,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             service.wire(0).pauseReadOutput = true;
             var lease = pool.borrow(binding.selectedEndpoint());
             var actualChannel = lease.client();
-            try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+            try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                 assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThatThrownBy(pool::close).isInstanceOf(IllegalStateException.class).hasMessageContaining("active");
                 assertThat(actualChannel.isTerminated()).isFalse();
@@ -144,7 +163,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
             var lease = pool.borrow(binding.selectedEndpoint());
             var actualChannel = lease.client();
-            try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+            try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                 assertThat(source.nextVerifiedChunk()).isNotNull();
                 assertThat(source.nextVerifiedChunk()).isNull();
             }
@@ -171,7 +190,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             service.wire(0).pauseReadOutput = true;
             var lease = pool.borrow(binding.selectedEndpoint());
             var actualChannel = lease.client();
-            try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+            try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                 assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
                 var first = CompletableFuture.runAsync(pool::close);
                 var second = CompletableFuture.runAsync(pool::close);
@@ -193,7 +212,7 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
             var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
             var lease = pool.borrow(binding.selectedEndpoint());
             var actualChannel = lease.client();
-            try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+            try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                 assertThat(source.nextVerifiedChunk().getData().toStringUtf8()).isEqualTo("actual-partition");
                 assertThat(source.nextVerifiedChunk()).isNull();
                 assertThat(source.isFinished()).isTrue();

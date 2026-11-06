@@ -1,17 +1,17 @@
 package org.pangrova.ai.worker.provider;
 
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
-import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
-import org.pangrova.spi.ai.invocation.EmbeddingProvider;
-import org.pangrova.spi.ai.embedding.EmbeddingBatchResult;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
-import org.pangrova.spi.ai.invocation.InferenceResult;
-import org.pangrova.spi.ai.capability.Modality;
-import org.pangrova.spi.ai.invocation.MultimodalPrompt;
-import org.pangrova.spi.ai.invocation.RerankingBatchResult;
-import org.pangrova.spi.ai.invocation.RerankingProvider;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
+import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.spi.embedding.EmbeddingProvider;
+import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.invocation.InferenceResult;
+import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.invocation.MultimodalPrompt;
+import org.pangrova.ai.api.invocation.RerankingBatchResult;
+import org.pangrova.ai.spi.reranking.RerankingProvider;
 
 import java.io.Closeable;
 import java.util.List;

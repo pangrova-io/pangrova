@@ -1,0 +1,401 @@
+source	line	reference
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	6	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	74	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	90	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	104	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	123	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	135	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	148	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	158	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	168	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	180	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultServiceTest.java	192	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/TaskTrackerRegistrationPropertyTest.java	12	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/TaskTrackerRegistrationPropertyTest.java	101	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryPackageSplitEquivalencePropertyTest.java	75	"""QueryStateMachine.java"", ""pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle"","
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryPackageSplitEquivalencePropertyTest.java	76	"""QueryConnectorAuthority.java"", ""pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle"","
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryPackageSplitEquivalencePropertyTest.java	77	"""QueryTerminalCleanup.java"", ""pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle"","
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryPackageSplitEquivalencePropertyTest.java	78	"""QueryRetentionScheduler.java"", ""pangrova-query-core/src/main/java/org/pangrova/query/core/retention"","
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	16	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	67	private static QueryStateMachine createInState(QueryState target) {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	68	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	73	private static void transitionTo(QueryStateMachine sm, QueryState target) {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	150	ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	151	List<QueryStateMachine> machines = IntStream.range(0, count)
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	163	QueryStateMachine sm = machines.get(i);
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	189	ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	190	List<QueryStateMachine> machines = IntStream.range(0, count)
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/CoordinatorWorkerProtocolPropertyTest.java	11	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/CoordinatorWorkerProtocolPropertyTest.java	140	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/TaskStatusPropagationPropertyTest.java	32	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/TaskStatusPropagationPropertyTest.java	67	// Pre-register a QueryStateMachine so onAllTasksFinished/onTaskFailed can find it
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/TaskStatusPropagationPropertyTest.java	68	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/TaskStatusPropagationPropertyTest.java	99	".as(""QueryStateMachine should reach FINISHED"")"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/TaskStatusPropagationPropertyTest.java	106	".as(""QueryStateMachine should reach FAILED"")"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/phase/QueryPipelinePropertyTest.java	13	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/phase/QueryPipelinePropertyTest.java	144	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/phase/LifecycleCoordinatorPropertyTest.java	13	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/phase/LifecycleCoordinatorPropertyTest.java	126	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/dispatch/ExecutionFactoryPropertyTest.java	15	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/dispatch/ExecutionFactoryPropertyTest.java	102	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/dispatch/StatementDispatcherPropertyTest.java	780	* QueryStateMachine is null (pure metadata operation), so {@code toDispatchResult}
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/dispatch/StatementDispatcherPropertyTest.java	793	// executeDirect with null QueryStateMachine — factory executes, events fire
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/SourceFreeNativeWorkerFixtureIntegrationTest.java	6	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/SourceFreeNativeWorkerFixtureIntegrationTest.java	102	"var result = worker.execute(dispatcher, new QueryStateMachine(), ""SELECT 42"","
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/SourceFreeNativeWorkerFixture.java	8	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/SourceFreeNativeWorkerFixture.java	224	public DispatchResult execute(QueryDispatcher dispatcher, QueryStateMachine state,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/materialization/MaterializationReadPinIntegrationTest.java	14	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/materialization/MaterializationReadPinIntegrationTest.java	45	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/materialization/MaterializationReadPinIntegrationTest.java	64	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/speculation/SpeculativeExecutionSchedulerTest.java	20	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/speculation/SpeculativeExecutionSchedulerTest.java	96	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	13	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	88	QueryStateMachine sm1 = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	95	QueryStateMachine sm2 = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	138	QueryStateMachine smRunning = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	144	QueryStateMachine smFinished = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	178	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	197	"QueryStateMachine sm = queryManager.getStateMachine(""status-page-"" + i);"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	207	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	239	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	267	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/QueryStatusResourceTest.java	316	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/WebUiResourceIntegrationTest.java	12	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/http/endpoint/WebUiResourceIntegrationTest.java	92	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/task/TestConnectorQuery.java	5	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/task/TestConnectorQuery.java	17	private final QueryStateMachine state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/task/ConnectorIssuedScopeTest.java	6	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/task/ConnectorIssuedScopeTest.java	35	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/task/ConnectorIssuedScopeTest.java	64	var oldState = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/task/ConnectorIssuedScopeTest.java	71	"var fresh = new QueryStateMachine().bindConnectorAuthority(registry.openQuery(""same-text-id""));"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/feature/FeatureViewSqlIntegrationTest.java	21	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/feature/FeatureViewSqlIntegrationTest.java	391	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerErrorTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerErrorTest.java	29	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerErrorTest.java	44	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerErrorTest.java	67	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalControlFixture.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalControlFixture.java	51	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTimeoutOwnerTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTimeoutOwnerTest.java	62	var replacement = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAuditTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAuditTest.java	88	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAuditTest.java	110	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerTenantTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerTenantTest.java	266	QueryStateMachine state, String sql, QuerySession session) {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTransitionOwnershipTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTransitionOwnershipTest.java	23	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTransitionOwnershipTest.java	54	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTransitionOwnershipTest.java	67	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerStructuredLoggingTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerStructuredLoggingTest.java	85	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerStructuredLoggingTest.java	98	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	44	QueryStateMachine finished = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	57	QueryStateMachine active = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	69	QueryStateMachine finished = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	82	QueryStateMachine failed = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	86	QueryStateMachine cancelled = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	99	QueryStateMachine finished = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	116	QueryStateMachine finished = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerCleanupTest.java	125	private static void transitionToFinished(QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	115	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	249	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	291	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	333	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	380	var executingState = new AtomicReference<QueryStateMachine>();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	396	public DispatchResult execute(QueryStateMachine sm, String sql, QuerySession session) {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	426	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerAsyncSubmitTest.java	510	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/TaskResourceLimitPropagationTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/TaskResourceLimitPropagationTest.java	92	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/TaskResourceLimitPropagationTest.java	106	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/TaskResourceLimitPropagationTest.java	146	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherTest.java	82	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherTest.java	94	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherTest.java	112	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherTest.java	156	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/CatalogHandleAndStatusProtocolConsistencyTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/CatalogHandleAndStatusProtocolConsistencyTest.java	212	"qm.registerStateMachine(""q1"", new QueryStateMachine());"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/CatalogHandleAndStatusProtocolConsistencyTest.java	234	"qm.registerStateMachine(""q1"", new QueryStateMachine());"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/DdlDmlSkipLoggingTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/DdlDmlSkipLoggingTest.java	78	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/ConnectorQueryAuthorityTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/ConnectorQueryAuthorityTest.java	27	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/ConnectorQueryAuthorityTest.java	40	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/ConnectorQueryAuthorityTest.java	59	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerJournalFixture.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerJournalFixture.java	71	QueryStateMachine running(String queryId) {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerJournalFixture.java	75	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryAdmissionCircuitBreakerTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryAdmissionCircuitBreakerTest.java	181	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryLifecycleResponsibilityBoundaryTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryLifecycleResponsibilityBoundaryTest.java	67	// QueryDispatcher receives QueryStateMachine as parameter, does not own the map
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryLifecycleResponsibilityBoundaryTest.java	174	for (Class<?> type : java.util.List.of(QueryManager.class, QueryStateMachine.class,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerOnAllTasksFinishedTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerOnAllTasksFinishedTest.java	91	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerMetricsRecordingTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerMetricsRecordingTest.java	108	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalFrontendOwnershipTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalFrontendOwnershipTest.java	129	var replacement = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalFrontendOwnershipTest.java	212	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherCleanupOnFailureTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherCleanupOnFailureTest.java	141	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherCleanupOnFailureTest.java	168	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryDispatcherCleanupOnFailureTest.java	200	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerJournalTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerJournalTest.java	36	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerJournalTest.java	100	var registered = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerJournalTest.java	127	"QueryStateMachine state = fixture.running(""slow-journal"");"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/CoordinatorQueryLifecycleTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/CoordinatorQueryLifecycleTest.java	163	var sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/CoordinatorQueryLifecycleTest.java	180	QueryStateMachine sm = queryManager.getStateMachine(id.id());
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/CoordinatorQueryLifecycleTest.java	190	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	68	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	87	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	108	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	133	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	243	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	290	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	381	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryManagerDrainConcurrencyTest.java	420	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/CompilerSnapshotConsistencyTest.java	13	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/CompilerSnapshotConsistencyTest.java	114	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherUnifiedPathTest.java	5	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherUnifiedPathTest.java	85	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherUnifiedPathTest.java	101	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherUnifiedPathTest.java	118	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherUnifiedPathTest.java	134	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherUnifiedPathTest.java	147	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteCompletionTest.java	6	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteCompletionTest.java	40	private static QueryStateMachine runningQuery() {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteCompletionTest.java	41	var query = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherOwnershipReleaseTest.java	9	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherOwnershipReleaseTest.java	145	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QueryDispatcherOwnershipReleaseTest.java	170	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteAdmissionTest.java	22	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteAdmissionTest.java	470	QueryStateMachine write = schedulingState();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteAdmissionTest.java	485	QueryStateMachine read = schedulingState();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteAdmissionTest.java	495	private static QueryStateMachine schedulingState() {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngineWriteAdmissionTest.java	496	QueryStateMachine state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/split/SplitFetcherSdkIntegrationTest.java	10	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/split/SplitFetcherSdkIntegrationTest.java	84	private final QueryStateMachine state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/phase/ShowMetadataQueryExpanderTest.java	7	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/phase/ShowMetadataQueryExpanderTest.java	61	var context = QueryExecutionContext.initial(new QueryStateMachine(), sql, session, null)
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactoryDeleteTestSupport.java	16	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactoryDeleteTestSupport.java	88	final QueryStateMachine stateMachine = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactoryInsertTest.java	16	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactoryInsertTest.java	168	QueryStateMachine stateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactoryInsertTest.java	179	stateMachine = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcherRelationalIsolationTest.java	12	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcherRelationalIsolationTest.java	25	new QueryStateMachine(),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/TaskStatusReceiverWriteCommitTest.java	13	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/TaskStatusReceiverWriteCommitTest.java	200	QueryStateMachine state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/TaskStatusReceiverCommitFinalizationRaceTest.java	9	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/TaskStatusReceiverCommitFinalizationRaceTest.java	91	QueryStateMachine sm = runningStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/TaskStatusReceiverCommitFinalizationRaceTest.java	155	QueryStateMachine sm = runningStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/TaskStatusReceiverCommitFinalizationRaceTest.java	218	private static QueryStateMachine runningStateMachine() {
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/TaskStatusReceiverCommitFinalizationRaceTest.java	219	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/metadata/ReadBindingSdkFixture.java	89	var state = new org.pangrova.query.core.lifecycle.QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/metadata/DdlColumnTagGovernanceSdkIntegrationTest.java	10	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/metadata/DdlColumnTagGovernanceSdkIntegrationTest.java	84	var state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/generation/DurableGeneratedValueBuildServiceTest.java	12	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/generation/DurableGeneratedValueBuildServiceTest.java	308	new QueryStateMachine(), session.queryId(), session, null, null));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/generation/DurableGeneratedValueBuildServiceTest.java	322	new QueryStateMachine(), unauthenticated.queryId(),
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/MaterializationMaintenance.java	23	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/MaterializationMaintenance.java	301	QueryStateMachine state = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/MaterializationMaintenance.java	332	private void finish(QueryStateMachine state, String queryId) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/MaterializationMaintenance.java	341	private void fail(QueryStateMachine state, boolean registered, String queryId,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/NativeCtasExecutionEngine.java	17	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/NativeCtasExecutionEngine.java	91	QueryStateMachine state = context.stateMachine();
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/WebUiResource.java	12	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/WebUiResource.java	51	Map<String, QueryStateMachine> machines = queryManager.getStateMachines();
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/WebUiResource.java	89	private static QuerySummary toQuerySummary(String queryId, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java	16	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java	65	Map<String, QueryStateMachine> allQueries = queryManager.getStateMachines();
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java	70	.sorted(Comparator.<Map.Entry<String, QueryStateMachine>, Instant>comparing(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java	92	QueryStateMachine sm = queryManager.getStateMachine(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java	110	QueryStateMachine sm = queryManager.getStateMachine(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java	130	private static QueryInfo toQueryInfo(String queryId, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java	140	private static QueryDetail toQueryDetail(String queryId, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	3	import org.pangrova.query.core.retention.QueryRetentionScheduler;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	5	import org.pangrova.query.core.lifecycle.QueryTerminalCleanup;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	7	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	63	private final ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	64	private final QueryTerminalCleanup terminalCleanup;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	78	private final QueryRetentionScheduler cleanupScheduler;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	111	this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	116	this.cleanupScheduler = new QueryRetentionScheduler(queries,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	157	QueryStateMachine stateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	209	String queryId, QueryStateMachine state, Throwable original) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	220	QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	264	QuerySession session, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	270	QuerySession session, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	285	private QueryStateMachine resolveOrCreateStateMachine(String queryId, QuerySession session) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	286	QueryStateMachine sm = new QueryStateMachine(true, session != null && session.userIdentity() != null
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	290	QueryStateMachine existing = queries.putIfAbsent(queryId, sm);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	306	private void registerJournalListener(String queryId, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	310	private void applyDispatchResult(String queryId, QueryStateMachine sm, DispatchResult result) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	334	QueryStateMachine sm = queries.get(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	345	QueryStateMachine sm = queries.get(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	363	QueryStateMachine sm = queries.get(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	367	public QueryStateMachine getStateMachine(String queryId) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	372	public void registerStateMachine(String queryId, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	455	public Map<String, QueryStateMachine> getStateMachines() {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	487	QueryStateMachine sm = queries.get(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	506	private void completeFinishedQuery(String queryId, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	510	private void completeTerminalQuery(String queryId, QueryStateMachine sm, String reason) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	514	private void appendTerminalJournal(QueryTerminalCleanup.Context context) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	518	private void emitTerminalEvents(QueryTerminalCleanup.Context context) { terminalEvents.emit(context); }
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	520	private void releasePhysicalQuery(QueryTerminalCleanup.Context context) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	561	QueryStateMachine sm = queries.get(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	578	QueryStateMachine sm = queries.get(queryId);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	591	String queryId, QueryStateMachine sm, DispatchResult result, List<String> columnNames) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java	45	String queryId, String sql, QuerySession session, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java	149	void accept(String queryId, QueryStateMachine state, DispatchResult result);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java	153	String queryId, String sql, QuerySession session, QueryStateMachine state,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	49	void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	61	void emitAuditCompleted(String queryId, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	66	void emitAuditFailed(String queryId, QueryStateMachine state, QueryFailure error) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	72	void emitAuditCancelled(String queryId, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	107	QueryLineageFact terminalFact(String queryId, QueryStateMachine state, QueryState target) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	124	void persistTerminalLineage(String queryId, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	134	private void emitTerminal(String queryId, QueryStateMachine state, QueryState finalState,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java	144	private static QueryAuditEmitter.AuditSubject subject(QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java	3	import org.pangrova.query.core.lifecycle.QueryTerminalCleanup;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java	5	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java	32	void purge(String queryId, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java	36	void queued(String queryId, String sql, QuerySession session, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java	45	void terminal(QueryTerminalCleanup.Context context) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java	57	void registerListener(String queryId, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java	72	private static void record(QueryStateMachine state, Runnable append) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalEvents.java	3	import org.pangrova.query.core.lifecycle.QueryTerminalCleanup;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalEvents.java	28	void emit(QueryTerminalCleanup.Context context) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalEvents.java	40	private void unsuccessful(QueryTerminalCleanup.Context context) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAdmission.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAdmission.java	32	QueryManagerContext context, java.util.Collection<QueryStateMachine> queries) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAdmission.java	62	void checkCluster(String queryId, String tenantId, QueryStateMachine state) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/state/JournalRecoveryService.java	13	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/state/JournalRecoveryService.java	180	QueryStateMachine sm = new QueryStateMachine();
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/state/JournalRecoveryService.java	324	* Advances a fresh QueryStateMachine through the valid transition path
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/state/JournalRecoveryService.java	327	private static void advanceToState(QueryStateMachine sm, QueryState target) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java	15	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java	90	DispatchResult doExecute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java	213	DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java	222	DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java	248	DispatchResult executeDmlStatement(QueryStateMachine sm,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	29	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	113	DispatchResult dispatchQuery(QueryStateMachine sm,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	144	private DispatchResult dispatchToWorker(QueryStateMachine sm,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	361	QueryStateMachine sm,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	406	static void onTaskReady(QueryStateMachine sm, DispatchQueryContext context,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	444	static void awaitWriteCompletion(QueryStateMachine query, String queryId, String taskId,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	490	void registerStageListeners(StageDAG dag, QueryStateMachine querySm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	10	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	117	public DispatchResult execute(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	138	public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	150	public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	161	QueryStateMachine sm,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	174	private QuerySession bindConnectorAuthority(QueryStateMachine state,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	182	QueryStateMachine state, String queryId) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryOwnershipTracker.java	132	// QueryStateMachine writes the durable intent before its terminal
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/QueryExecutionContext.java	7	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/QueryExecutionContext.java	18	QueryStateMachine stateMachine,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/QueryExecutionContext.java	42	QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementExecutionContext.java	5	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementExecutionContext.java	16	QueryStateMachine stateMachine,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java	15	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java	58	QueryStateMachine sm, String sql,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java	92	* QueryStateMachine is nullable for pure metadata operations.
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java	95	Statement ast, QueryStateMachine sm,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java	184	StatementResult result, String queryId, QueryStateMachine sm) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/NativeDmlCompileFunction.java	6	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/NativeDmlCompileFunction.java	27	DispatchResult apply(QueryStateMachine stateMachine,
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	3	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	15	* Unit tests for {@link QueryRetentionScheduler}.
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	22	var scheduler = new QueryRetentionScheduler(new ConcurrentHashMap<>(), ignored -> true, retried::countDown);
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	39	ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	40	QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	43	QueryStateMachine sm = terminalStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	54	ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	55	QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	58	QueryStateMachine active = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	70	ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	71	QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	87	var queries = new ConcurrentHashMap<String, QueryStateMachine>();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	88	var scheduler = new QueryRetentionScheduler(queries, ignored -> false, () -> { });
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	98	private static QueryStateMachine terminalStateMachine() {
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	104	private static QueryStateMachine logicalTerminal() {
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/retention/QueryRetentionSchedulerTest.java	105	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	17	location(QueryStateMachine.class),
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	28	"""org.pangrova.query.core.lifecycle.QueryStateMachine"","
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	29	"""org.pangrova.query.core.lifecycle.QueryConnectorAuthority"","
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	30	"""org.pangrova.query.core.lifecycle.QueryTerminalCleanup"","
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	31	"""org.pangrova.query.core.lifecycle.QueryTerminalCleanup$Context"","
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	32	"""org.pangrova.query.core.retention.QueryRetentionScheduler"")) {"
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	41	"var stateType = loader.loadClass(""org.pangrova.query.core.lifecycle.QueryStateMachine"");"
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryLifecycleIsolationTest.java	49	"""org.pangrova.coordinator.query.QueryStateMachine"","
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineListenerTest.java	16	* Tests verifying QueryStateMachine listener mechanism for journal integration.
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineListenerTest.java	23	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineListenerTest.java	39	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineListenerTest.java	71	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineListenerTest.java	84	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineListenerTest.java	99	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineStageViewTest.java	15	* Unit tests for QueryStateMachine Stage state aggregation view.
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineStageViewTest.java	22	QueryStateMachine qsm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineStageViewTest.java	35	QueryStateMachine qsm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineStageViewTest.java	47	QueryStateMachine qsm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineStageViewTest.java	63	QueryStateMachine qsm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanupContractTest.java	36	var state = new QueryStateMachine(true);
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanupContractTest.java	67	private static QueryStateMachine terminal(QueryState target) {
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanupContractTest.java	68	var state = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanupContractTest.java	78	private final QueryTerminalCleanup cleanup = new QueryTerminalCleanup(
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineReadinessTest.java	13	var state = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineReadinessTest.java	30	var state = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineReadinessTest.java	45	private static void running(QueryStateMachine state) {
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineAuditTest.java	15	"assertThat(new QueryStateMachine().getAuditPrincipal()).isEqualTo(""anonymous"");"
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineAuditTest.java	16	"assertThat(new QueryStateMachine(false, ""anonymous"")"
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineAuditTest.java	22	"var alice = new QueryStateMachine(true, ""alice"");"
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineAuditTest.java	23	"var bob = new QueryStateMachine(true, ""bob"");"
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineAuditTest.java	36	var state = new QueryStateMachine(true);
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineAuditTest.java	51	var state = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachineAuditTest.java	69	assertThat(new QueryStateMachine(true, (String) null).getAuditPrincipal()).isNull();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachinePropertyTest.java	18	* Property-based tests for QueryStateMachine state transitions.
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachinePropertyTest.java	41	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachinePropertyTest.java	62	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/test/java/org/pangrova/query/core/lifecycle/QueryStateMachinePropertyTest.java	97	QueryStateMachine sm = new QueryStateMachine();
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	3	import org.pangrova.query.core.lifecycle.QueryTerminalCleanup;
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	5	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	24	* Physical cleanup remains owned by {@link QueryTerminalCleanup}.
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	27	public final class QueryRetentionScheduler {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	29	private static final Logger LOG = LoggerFactory.getLogger(QueryRetentionScheduler.class);
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	38	private final ConcurrentHashMap<String, QueryStateMachine> queries;
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	42	public QueryRetentionScheduler(ConcurrentHashMap<String, QueryStateMachine> queries,
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java	99	// QueryTerminalCleanup enforces its per-tick attempt cap and backoff.
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanup.java	22	public final class QueryTerminalCleanup {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanup.java	23	private static final Logger LOG = LoggerFactory.getLogger(QueryTerminalCleanup.class);
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanup.java	37	public QueryTerminalCleanup(QueryExecutionCleanup executionCleanup, Consumer<Context> journal,
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanup.java	58	public void complete(String queryId, QueryStateMachine state, String reason) {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanup.java	174	public record Context(String queryId, QueryStateMachine state, String reason) { }
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryStateMachine.java	41	public class QueryStateMachine {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryStateMachine.java	146	private QueryConnectorAuthority connectorAuthority;
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryStateMachine.java	155	if (connectorAuthority == null) connectorAuthority = new QueryConnectorAuthority(this, issued);
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryStateMachine.java	185	public QueryStateMachine() {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryStateMachine.java	190	public QueryStateMachine(boolean ownershipPending) {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryStateMachine.java	195	public QueryStateMachine(boolean ownershipPending, String auditPrincipal) {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryConnectorAuthority.java	17	final class QueryConnectorAuthority implements ConnectorMetadataScope {
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryConnectorAuthority.java	18	private final QueryStateMachine state;
+pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryConnectorAuthority.java	23	QueryConnectorAuthority(QueryStateMachine state, ConnectorQueryAuthority issued) {
+pangrova-query/pangrova-query-api/src/main/java/org/pangrova/query/api/journal/QueryStateEvent.java	10	* Captures the essential state needed to rebuild a QueryStateMachine on HA recovery.
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/PipelineIntegrationTest.java	8	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/PipelineIntegrationTest.java	156	QueryStateMachine sm = queryManager.getStateMachine(QUERY_ID);
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/PipelineIntegrationTest.java	176	/** Validates: R14.3 — compile failure transitions QueryStateMachine to FAILED. */
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/PipelineIntegrationTest.java	296	QueryStateMachine sm = new QueryStateMachine();
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/QueryTimeoutSchedulerBootstrapTest.java	5	import org.pangrova.query.core.lifecycle.QueryStateMachine;
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/QueryTimeoutSchedulerBootstrapTest.java	58	QueryStateMachine sm = new QueryStateMachine();
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/QueryTimeoutSchedulerBootstrapTest.java	82	QueryStateMachine sm = new QueryStateMachine();

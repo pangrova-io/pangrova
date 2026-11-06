@@ -1,0 +1,71 @@
+[
+  {
+    "capability": "exclusive claim acquisition",
+    "entry": "scalar SQL index build / replacement",
+    "contract": "IndexBuildClaimRepository.tryClaim",
+    "implementation": "JdbcIndexBuildClaimRepository",
+    "wiring": "CoordinatorBootstrap -> ModuleIntegrationBootstrap -> IndexingBootstrap -> IndexBuildContext",
+    "owner": "index_build_claims(index_id,generation,owner_id)",
+    "status": "支持",
+    "verification": [
+      "JdbcIndexBuildClaimOwnershipTest",
+      "IndexBuildClaimLifecycleTest",
+      "IndexDdlLifecycleE2ETest",
+      "IndexIncrementalCorrectnessE2ETest"
+    ]
+  },
+  {
+    "capability": "exact-owner release and monotonic heartbeat",
+    "entry": "IndexBuildCoordinator file completion and finally",
+    "contract": "IndexBuildClaimRepository.release/heartbeat",
+    "implementation": "JdbcIndexBuildClaimRepository",
+    "owner": "same unique attempt owner from acquisition",
+    "status": "支持",
+    "verification": [
+      "JdbcIndexBuildClaimOwnershipTest",
+      "IndexBuildClaimLifecycleTest",
+      "IndexBuildCancellationTest",
+      "BuildResourceClosurePropertyTest"
+    ],
+    "limits": "Heartbeat is per-file. This is not full publication fencing or an automatically renewable takeover lease."
+  },
+  {
+    "capability": "explicit expiry",
+    "entry": "management port only; no production scheduler caller",
+    "contract": "IndexBuildClaimRepository.expireBefore",
+    "implementation": "JdbcIndexBuildClaimRepository",
+    "owner": "claim rows only",
+    "status": "有限支持",
+    "verification": [
+      "JdbcIndexBuildClaimOwnershipTest"
+    ],
+    "limits": "SQL primitive tested. Automatic expiry/recovery is not wired; fence files, mappings, failure transitions and publication before enabling takeover."
+  },
+  {
+    "capability": "atomic claim/mapping/publication workflow",
+    "entry": "DDL and incremental refresh",
+    "owner": "Indexing/Persistence workflow",
+    "status": "未实现",
+    "limits": "Existing descriptor/generation/authorization CAS remains, but claim is released before publication. A heartbeat check does not close the mapping callback race."
+  },
+  {
+    "capability": "attempt-isolated files and abandoned-attempt cleanup",
+    "entry": "IndexFileBuilder / IndexStorageLayout / retention",
+    "status": "未实现",
+    "limits": "Existing deterministic generation paths remain; no unsafe delete on unknown publication outcome."
+  },
+  {
+    "capability": "retired duplicate claim contracts",
+    "entry": null,
+    "status": "退役",
+    "types": [
+      "BuildClaimHandler",
+      "MetadataBackedBuildClaimHandler",
+      "JdbcIndexStateStore"
+    ],
+    "verification": [
+      "clean reactor",
+      "retired class and reference JAR audit"
+    ]
+  }
+]

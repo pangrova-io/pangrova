@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.provider;
 
-import org.pangrova.spi.ai.model.AiModelDescriptor;
+import org.pangrova.ai.api.model.AiModelDescriptor;
 
 /** Strict typed access to canonical model properties. */
 final class AiModelProperties {

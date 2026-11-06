@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.planner.PlanFragment;
+import org.pangrova.planner.core.analysis.PlanFragment;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;

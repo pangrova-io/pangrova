@@ -11,13 +11,25 @@ are unchanged by this unit.
 
 ## Verified production chain and defects
 
-`QueryRuntimeWiring` creates the sole journal through `QueryStateJournalFactory`;
+`QueryRuntimeWiring` selects the sole journal: an explicit process-local instance
+for an in-memory deployment, or `QueryStateJournalFactory` for PostgreSQL;
 `QueryBootstrap` retains it and passes it to `QueryManager` and
 `TaskStatusReceiver`. Query events originate in `QueryJournalLifecycle`; task
 events originate in `TaskStatusReceiver` and `LeafStageDispatcher`. PostgreSQL
 uses `JdbcQueryStateJournal`. The previous singleton no-op NONE implementation is
 replaced by an instance-owned bounded process-local store. NONE explicitly remains
 non-durable and cannot validate PostgreSQL durability.
+
+`QueryManagerContext` requires that selected journal, and `QueryManager` uses the
+same instance without constructing a fallback backend. A missing journal fails
+configuration before query execution. The process owner closes it after query
+drain; the manager borrows it. Minimal test assemblies live only in Coordinator
+test sources as `QueryManagerTestContexts`, including an explicit memory journal.
+Integration tests consume its narrow `query-fixtures` classifier, attached during
+`test-compile`; it contains no unrelated test SPI implementations or Native resources.
+`QueryRuntimeWiring` validates the journal before allocating its async executor
+and cleans up that executor if context or manager construction fails, preserving
+the primary exception and attaching any cleanup exception.
 
 The pre-change JDBC implementation silently accepted writes after close, dropped full-queue
 events, removed a flush batch before acquiring a connection, and discarded failed

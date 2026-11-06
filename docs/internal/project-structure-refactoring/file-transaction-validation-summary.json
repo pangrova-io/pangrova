@@ -1,0 +1,67 @@
+{
+  "stages": [
+    {
+      "stage": "regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-file-postgresql -am -Pnative-runtime,full-regression -Dtest=FileTransactionFailureTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 146.6,
+      "cases": 91,
+      "passed": 48,
+      "failure": 43,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "copy-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-coordination-core -am -Pnative-runtime,full-regression -Dtest=CopyAdmissionTransactionFailureTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 91.38,
+      "cases": 28,
+      "passed": 16,
+      "failure": 12,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-file-postgresql -am -Pnative-runtime,full-regression -Dtest=FileTransactionFailureTest,JdbcStorageProfileRegistryTest,JdbcFileSpaceRegistryTest,JdbcFileDirectoryIndexTest,JdbcCopyFileClaimStoreTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 208.99,
+      "cases": 131,
+      "passed": 131,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -Dtest=FileTransactionFailureTest,JdbcStorageProfileRegistryTest,JdbcFileSpaceRegistryTest,JdbcFileDirectoryIndexTest,JdbcCopyFileClaimStoreTest,CopyAdmissionTransactionFailureTest,JdbcCopySourceReadAdmissionsTest,JdbcCopyFilePublicationPostgresTest,FileContractsIsolationTest,FileProviderClasspathIsolationTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,FileSpaceAccessServiceTest,FileUrlServiceTest,FileSpaceTaskIntegrationTest,JdbcFileSpaceAuthorityTest,JdbcWorkerRegistryPostgresTest,JdbcRoleStoreTest,JdbcTenantMembershipTest,JdbcTenantStoreTest,JdbcTableControlGovernanceBindingStoreTest,FileSpaceControlPlaneContractE2ETest,FileSpaceDdlE2ETest -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 563.14,
+      "cases": 345,
+      "passed": 345,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-copy",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=CopySourceReadHttpE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 79.82,
+      "cases": 4,
+      "passed": 4,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 349,
+    "passed": 349,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

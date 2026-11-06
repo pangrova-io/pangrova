@@ -5,7 +5,7 @@ import java.util.List;
 
 import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission;
 import org.pangrova.worker.task.TaskManager;
 
 /** Retains the partially initialized task subsystem until its actual owners have drained. */

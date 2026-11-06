@@ -13,7 +13,7 @@
  */
 package org.pangrova.client.jdbc;
 
-import org.pangrova.transport.ColumnDescriptor;
+import org.pangrova.transport.client.ColumnDescriptor;
 import io.substrait.proto.Type;
 
 import java.sql.ResultSetMetaData;

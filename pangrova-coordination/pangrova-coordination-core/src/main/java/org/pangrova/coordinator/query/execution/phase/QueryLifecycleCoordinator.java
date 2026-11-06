@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.phase;
 
 import java.util.List;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

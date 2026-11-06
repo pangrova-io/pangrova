@@ -1,0 +1,100 @@
+{
+  "stages": [
+    {
+      "stage": "baseline",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-jdbc,:pangrova-persistence-memory,:pangrova-table-core -am -Pnative-runtime,full-regression '-Dtest=*TableControl*Test*,*ControlledTable*Test*,TableContractsIsolationTest,TableProviderClasspathIsolationTest,TableServiceIsolationTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 52.02,
+      "cases": 108,
+      "passed": 108,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused-move",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-table-api,:pangrova-persistence-table-postgresql,:pangrova-persistence-table-memory,:pangrova-table-core -am -Pnative-runtime,full-regression '-Dtest=*TableControl*Test*,*ControlledTable*Test*,TableContractsIsolationTest,TableProviderClasspathIsolationTest,TableServiceIsolationTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 49.34,
+      "cases": 108,
+      "passed": 108,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "binding-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -fae -pl :pangrova-persistence-table-postgresql,:pangrova-persistence-table-memory,:pangrova-table-core -am -Pnative-runtime,full-regression '-Dtest=*TableControlGovernanceBindingStoreTest,TableControlPolicyBinderTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 25.53,
+      "cases": 9,
+      "passed": 5,
+      "failure": 4,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "binding-core-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-table-core -am -Pnative-runtime,full-regression -Dtest=TableControlPolicyBinderTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 3.16,
+      "cases": 8,
+      "passed": 7,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused-fixed",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-table-api,:pangrova-persistence-table-postgresql,:pangrova-persistence-table-memory,:pangrova-table-core -am -Pnative-runtime,full-regression '-Dtest=*TableControl*Test*,*ControlledTable*Test*,TableContractsIsolationTest,TableProviderClasspathIsolationTest,TableServiceIsolationTest' -Dsurefire.failIfNoSpecifiedTests=false clean test",
+      "exit": 0,
+      "seconds": 55.07,
+      "cases": 113,
+      "passed": 113,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "integration",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=*TableControl*Test*,*ControlledTable*Test*,TableContractsIsolationTest,TableProviderClasspathIsolationTest,TableServiceIsolationTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest,PhysicalTwoWorkerShuffleE2ETest,ActivationSmokeE2ETest,WorkerWithdrawalIdentityIntegrationTest,WorkerRegistryE2ETest*,ClusterRegistryE2ETest*,CoordinatorHaE2ETest*' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 247.4,
+      "cases": 230,
+      "passed": 229,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=*TableControl*Test*,*ControlledTable*Test*,TableContractsIsolationTest,TableProviderClasspathIsolationTest,TableServiceIsolationTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 0,
+      "seconds": 172.22,
+      "cases": 198,
+      "passed": 198,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-bootstrap",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=WorkerBootstrapE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 90.13,
+      "cases": 5,
+      "passed": 5,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 235,
+    "passed": 234,
+    "failure": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

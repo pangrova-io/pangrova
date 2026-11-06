@@ -1,0 +1,170 @@
+source	line	reference
+pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/NativeRuntime.java	227	public static void nativeRegisterEgress(Object egress) {
+pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/NativeRuntime.java	229	nativeRegisterEgress0(egress);
+pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/NativeRuntime.java	275	private static native void nativeRegisterEgress0(Object egress);
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/bootstrap/ownership/WorkerTaskOwnershipTest.java	5	import org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/bootstrap/ownership/WorkerTaskOwnershipTest.java	6	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/NativeExchangeTransport.java	21	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/NativeExchangeTransport.java	22	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/NativeExchangeTransport.java	23	import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/ExternalShuffleInputSession.java	9	import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/PangrovaWorkerMain.java	245	new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java	9	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java	10	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java	231	org.pangrova.worker.nativebridge.jni.NativeRuntime.nativeRegisterEgress(egress);
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/config/WorkerBootstrapConfig.java	212	org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/config/WorkerBootstrapConfig.java	263	new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/ownership/WorkerTaskOwnership.java	8	import org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/embedding/EmbeddedWorker.java	133	new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution/NativeTaskExecutor.java	4	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution/NativeCreationOwners.java	69	org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress egress,
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution/NativeCreationOwners.java	82	Owner owner, org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress egress) {
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution/NativeCreationRecovery.java	57	org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress egress,
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskCompletionMonitor.java	498	private static org.pangrova.shuffle.pangrova.client.RemoteShuffleAdmissionException
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskCompletionMonitor.java	503	org.pangrova.shuffle.pangrova.client.RemoteShuffleAdmissionException admission) {
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	12	class CanonicalBatchChunksTest {
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	16	byte[] batch = new byte[CanonicalBatchChunks.MAX_CHUNK_BYTES + 17];
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	20	Checksum batchChecksum = CanonicalBatchChunks.sha256(batch);
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	22	var first = CanonicalBatchChunks.chunk(batch, 4, 0, 2, batchChecksum);
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	23	var second = CanonicalBatchChunks.chunk(batch, 4, 1, 2, batchChecksum);
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	26	.isEqualTo(CanonicalBatchChunks.MAX_CHUNK_BYTES);
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	40	assertThatThrownBy(() -> CanonicalBatchChunks.chunkCount(new byte[0]))
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	43	assertThatThrownBy(() -> CanonicalBatchChunks.chunk(
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	44	batch, 0, 1, 1, CanonicalBatchChunks.sha256(batch)))
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	50	int batchSize = CanonicalBatchChunks.MAX_CHUNK_BYTES + 11;
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	60	Checksum checksum = CanonicalBatchChunks.sha256(direct);
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	61	var first = CanonicalBatchChunks.chunk(direct, 0, 0, 2, checksum);
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	62	var second = CanonicalBatchChunks.chunk(direct, 0, 1, 2, checksum);
+pangrova-protocol/src/test/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunksTest.java	64	assertThat(first.getData().size()).isEqualTo(CanonicalBatchChunks.MAX_CHUNK_BYTES);
+pangrova-protocol/src/main/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunks.java	12	public final class CanonicalBatchChunks {
+pangrova-protocol/src/main/java/org/pangrova/protocol/shuffle/codec/CanonicalBatchChunks.java	17	private CanonicalBatchChunks() {}
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	16	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	17	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	19	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	93	int size = CanonicalBatchChunks.MAX_CHUNK_BYTES + 13;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	106	.containsExactly(CanonicalBatchChunks.MAX_CHUNK_BYTES, 13);
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	111	frames.get(1).getChunk().getData().copyTo(received, CanonicalBatchChunks.MAX_CHUNK_BYTES);
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	141	assertThat(frame.getChunk().getBatchChecksum()).isEqualTo(CanonicalBatchChunks.sha256(bytes));
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleByteEgressIntegrationTest.java	142	assertThat(frame.getChunk().getChunkChecksum()).isEqualTo(CanonicalBatchChunks.sha256(bytes));
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeExchangeTransportExternalIntegrationTest.java	19	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeExchangeTransportExternalIntegrationTest.java	21	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeExchangeTransportExternalIntegrationTest.java	22	import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeExchangeTransportExternalIntegrationTest.java	69	assertThat(actualIpc.length).isGreaterThan(CanonicalBatchChunks.MAX_CHUNK_BYTES);
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeExchangeTransportExternalIntegrationTest.java	92	byte[] batch = new byte[CanonicalBatchChunks.MAX_CHUNK_BYTES + 7];
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeExchangeTransportExternalIntegrationTest.java	108	.containsExactly(CanonicalBatchChunks.MAX_CHUNK_BYTES, 7);
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	23	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	99	return clientPool(new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission(
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	100	new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(100, 8)));
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	103	RemoteShuffleClientPool clientPool(org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission admission) {
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	111	return shortIdleClientPool(new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission(
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	112	new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(100, 8)));
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	115	RemoteShuffleClientPool shortIdleClientPool(org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission admission) {
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleReadRenewalTest.java	12	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleReadRenewalTest.java	13	import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleChannelAdmissionIntegrationTest.java	11	import org.pangrova.shuffle.pangrova.client.RemoteShuffleAdmissionException;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleChannelAdmissionIntegrationTest.java	12	import org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleChannelAdmissionIntegrationTest.java	13	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleChannelAdmissionIntegrationTest.java	14	import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeShuffleEgressContractIntegrationTest.java	19	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/NativeShuffleEgressContractIntegrationTest.java	45	NativeRuntime.nativeRegisterEgress(callbacks);
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleClientLifecycleIntegrationTest.java	7	import org.pangrova.shuffle.pangrova.client.PangrovaShuffleClient;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleClientLifecycleIntegrationTest.java	8	import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleClientLifecycleIntegrationTest.java	9	import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleClientLifecycleIntegrationTest.java	62	try (var egress = new org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress(
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleClientLifecycleIntegrationTest.java	96	PangrovaShuffleClient actualChannel = lease.client();
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShufflePublication.java	6	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/WorkerShuffleChannelAdmissionIntegrationTest.java	22	import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/WorkerShuffleChannelAdmissionIntegrationTest.java	23	import org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/arch/ArchitectureRegressionE2ETest.java	33	// 20 = 19 lifecycle/control methods + nativeRegisterEgress0 (egress routing
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/arch/SpiWiringVerificationTest.java	218	"""org.pangrova.shuffle.pangrova.client.HybridExchangeManager"","
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/arch/SpiWiringVerificationTest.java	219	"""org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeManager"","
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/arch/SpiWiringVerificationTest.java	220	"""org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSink"","
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/arch/SpiWiringVerificationTest.java	221	"""org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource"","
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleChannelPoolAdmissionTest.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleChannelSnapshotTest.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleProviderIsolationTest.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleProviderIsolationTest.java	17	ClassLoader loader = PangrovaShuffleClient.class.getClassLoader();
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleProviderIsolationTest.java	24	"""org.pangrova.worker.exchange.codec.CanonicalBatchChunks"")) {"
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleProviderIsolationTest.java	27	Path artifact = Path.of(PangrovaShuffleClient.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleProviderIsolationTest.java	29	assertThat(classes).contains(PangrovaShuffleClient.class.getName(), RemoteShuffleByteEgress.class.getName(),
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleProviderIsolationTest.java	45	"String prefix = ""org/pangrova/shuffle/pangrova/"";"
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	10	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	17	byte[] batch = new byte[CanonicalBatchChunks.MAX_CHUNK_BYTES + 19];
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	21	Checksum checksum = CanonicalBatchChunks.sha256(batch);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	24	validator.accept(CanonicalBatchChunks.chunk(batch, 0, 0, 2, checksum), 7L);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	29	.isEqualTo(CanonicalBatchChunks.MAX_CHUNK_BYTES);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	31	validator.accept(CanonicalBatchChunks.chunk(batch, 0, 1, 2, checksum), 7L);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	46	byte[] batch = new byte[CanonicalBatchChunks.MAX_CHUNK_BYTES + 1];
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	47	Checksum checksum = CanonicalBatchChunks.sha256(batch);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	51	CanonicalBatchChunks.chunk(batch, 0, 1, 2, checksum), 1L))
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	55	var corrupt = CanonicalBatchChunks.chunk(batch, 0, 0, 2, checksum)
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	67	byte[] batch = new byte[CanonicalBatchChunks.MAX_CHUNK_BYTES + 1];
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	68	Checksum checksum = CanonicalBatchChunks.sha256(batch);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	71	validator.accept(CanonicalBatchChunks.chunk(batch, 0, 0, 2, checksum), 2L);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidatorTest.java	74	CanonicalBatchChunks.chunk(batch, 0, 1, 2, checksum), 3L))
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	12	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	27	var chunk = CanonicalBatchChunks.chunk(
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	28	batch, 3L, 0, 1, CanonicalBatchChunks.sha256(batch));
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	29	var request = PangrovaShuffleClient.buildWriteRequest(
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	31	new PangrovaShuffleClient.WriteFrame(5, 7L, chunk, batch.length, 9L),
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	41	PangrovaShuffleClient.toProtocol(context().taskAttempt()));
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	53	var request = PangrovaShuffleClient.buildCommitRequest(
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	68	PangrovaShuffleClient.toProtocol(context().taskAttempt()));
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	81	var request = PangrovaShuffleClient.buildReadRequest(
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProtocolContractTest.java	86	PangrovaShuffleClient.toProtocol(context));
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPoolTest.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPoolTest.java	128	PangrovaShuffleClient original;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/test/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleChannelAdmissionTest.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java	7	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java	36	CanonicalBatchChunks.MAX_CHUNK_BYTES, batchSize - batchBytes);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java	77	|| chunk.getBatchSizeBytes() > CanonicalBatchChunks.MAX_BATCH_BYTES) {
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java	87	long expectedChunks = (size + CanonicalBatchChunks.MAX_CHUNK_BYTES - 1)
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/StreamingBatchChunkValidator.java	88	/ CanonicalBatchChunks.MAX_CHUNK_BYTES;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java	17	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java	96	int chunkCount = CanonicalBatchChunks.chunkCount(data);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java	97	var batchChecksum = CanonicalBatchChunks.sha256(data);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java	102	var chunk = CanonicalBatchChunks.chunk(
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java	104	requestStream.onNext(PangrovaShuffleClient.buildWriteRequest(
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleProducerStream.java	105	shuffleId, taskAttempt, new PangrovaShuffleClient.WriteFrame(
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RenewableShuffleAccess.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RenewableShuffleAccess.java	13	private final PangrovaShuffleClient client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RenewableShuffleAccess.java	20	PangrovaShuffleClient client,
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleClient.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleClient.java	27	* <p>Thread-safe: gRPC stubs are thread-safe. Each PangrovaShuffleClient wraps
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleClient.java	30	public final class PangrovaShuffleClient implements Closeable {
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/PangrovaShuffleClient.java	39	public PangrovaShuffleClient(ManagedChannel channel, long writeTimeoutMs, long readTimeoutMs) {
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientLease.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientLease.java	16	private final PangrovaShuffleClient client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientLease.java	21	RemoteShuffleClientLease(RemoteShuffleClientPool pool, PangrovaShuffleClient client) {
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientLease.java	26	public PangrovaShuffleClient client() {
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientOwner.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientOwner.java	15	volatile PangrovaShuffleClient client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientOwner.java	32	if (channel != null) PangrovaShuffleClient.closeChannel(channel);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShufflePartitionStats.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShufflePartitionStats.java	10	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShufflePartitionStats.java	36	byte[] payloadChecksum = CanonicalBatchChunks.sha256(data)
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleExchangeSource.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleExchangeSource.java	26	private final PangrovaShuffleClient client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleChannelAdmission.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleByteEgress.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShufflePartitionRead.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleAdmissionException.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientException.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleTaskEgress.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	1	package org.pangrova.shuffle.pangrova.client;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	23	import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	24	import org.pangrova.shuffle.pangrova.client.security.RemoteShuffleCredentials;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	25	import org.pangrova.shuffle.pangrova.client.security.ShuffleClientTlsConfig;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	35	* Connection pool for {@link PangrovaShuffleClient} instances, keyed by remote shuffle server
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	58	static final int MAX_INBOUND_MESSAGE_BYTES = CanonicalBatchChunks.MAX_CHUNK_BYTES * 2;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	60	private final Cache<RemoteShuffleChannelAdmission.Endpoint, PangrovaShuffleClient> clients;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	69	private final Map<PangrovaShuffleClient, RemoteShuffleClientOwner> owners = new HashMap<>();
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	178	PangrovaShuffleClient client,
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	354	candidate.client = new PangrovaShuffleClient(channel, writeTimeoutMs, readTimeoutMs);
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/RemoteShuffleClientPool.java	371	void returnLease(PangrovaShuffleClient client, boolean firstReturn) {
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/security/ShuffleClientTlsConfig.java	1	package org.pangrova.shuffle.pangrova.client.security;
+pangrova-shuffle/pangrova-shuffle-pangrova/src/main/java/org/pangrova/shuffle/pangrova/client/security/RemoteShuffleCredentials.java	1	package org.pangrova.shuffle.pangrova.client.security;

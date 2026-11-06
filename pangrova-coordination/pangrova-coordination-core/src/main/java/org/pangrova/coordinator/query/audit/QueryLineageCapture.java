@@ -14,9 +14,9 @@
 package org.pangrova.coordinator.query.audit;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.lineage.ColumnDerivation;
-import org.pangrova.spi.observability.event.QueryLineageMetadata;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.api.lineage.ColumnDerivation;
+import org.pangrova.query.api.lineage.QueryLineageMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,12 +94,12 @@ public final class QueryLineageCapture {
      * Source tables come from table references (scans); write targets come from
      * the DML write target if present.
      */
-    public org.pangrova.spi.observability.event.QueryLineageMetadata captureLineageInfo(
+    public org.pangrova.query.api.lineage.QueryLineageMetadata captureLineageInfo(
             String queryId, String sql, PlannedQuery plannedQuery) {
         List<String> sources = new ArrayList<>();
         List<String> targets = new ArrayList<>();
         for (List<String> ref : plannedQuery.tableReferences()) {
-            var physical = org.pangrova.spi.connector.metadata.table.QualifiedTableName.resolve(ref);
+            var physical = org.pangrova.connector.api.metadata.table.QualifiedTableName.resolve(ref);
             sources.add(plannedQuery.physicalToLogicalDynamicTables()
                     .getOrDefault(physical, physical).toString());
         }

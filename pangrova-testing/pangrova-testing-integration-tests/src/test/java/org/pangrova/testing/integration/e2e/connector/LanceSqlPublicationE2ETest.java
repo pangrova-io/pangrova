@@ -6,14 +6,14 @@ import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
-import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -152,18 +152,18 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
         }
     }
 
-    private static org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot(LanceTableHandle table) {
+    private static org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot(LanceTableHandle table) {
         var descriptor = metadataBootstrap.catalogRegistry().getCatalog(CATALOG).getDescriptor();
         var authority = new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(stateStoreDataSource(),
-                new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
+                new org.pangrova.connector.api.metadata.SourceCatalogDeployment(
                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                 execution -> e2eCoordinationForTest().requireExecutionAnchor(execution),
-                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence(),
+                new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
                 ModelAuthorityFixtures.models());
-        var key = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableKey(table.tenantId(), table.table());
+        var key = new org.pangrova.connector.api.metadata.SourceTableKey(table.tenantId(), table.table());
         var actual = authority.load(key).orElseThrow();
         assertThat(actual.tableId()).isEqualTo(table.tableId());
-        var selector = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableState(actual.key(), actual.tableId(),
+        var selector = new org.pangrova.connector.api.metadata.SourceTableState(actual.key(), actual.tableId(),
                 actual.datasetUri(), actual.generation(), actual.revision(), table.version(), actual.rows(),
                 actual.schemaSha256(), actual.payload());
         return authority.snapshot(selector).reference();

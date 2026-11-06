@@ -2,13 +2,13 @@ package org.pangrova.ai.worker.invocation;
 
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 import org.pangrova.ai.worker.governance.AiInvocationAuthorizer;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.model.AiModelIdentity;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
-import org.pangrova.spi.ai.capability.AiRequestConstraints;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.invocation.EmbeddingProvider;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.model.AiModelIdentity;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.capability.AiRequestConstraints;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.spi.embedding.EmbeddingProvider;
+import org.pangrova.ai.spi.inference.InferenceProvider;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 import org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry;
@@ -161,7 +161,7 @@ final class GovernedAiTestModels implements AutoCloseable {
                 context.queryId(), context.traceId(), binding.modelId(), binding.modelVersion(),
                 binding.modelSignatureSha256(), binding.modelVersion(), operation, mode,
                 operation == AiCapabilityDescriptor.Operation.EMBEDDING
-                        ? Optional.of(org.pangrova.spi.ai.embedding.EmbeddingPurpose.DOCUMENT) : Optional.empty(),
+                        ? Optional.of(org.pangrova.ai.api.embedding.EmbeddingPurpose.DOCUMENT) : Optional.empty(),
                 inputs, GenerationParameters.DEFAULTS, context.deadline().orElseThrow(),
                 binding.idempotencyBase() + ":" + "0".repeat(64), Map.of("task_id", taskId,
                         "task_attempt_base64", java.util.Base64.getEncoder().encodeToString(context.taskAttempt().toByteArray())));

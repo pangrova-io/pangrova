@@ -1,0 +1,32 @@
+{
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/claim/JdbcCopyFileClaimStore.java": {
+    "all_string_literals_unchanged": 36,
+    "authority_fence_commit_nonce_calls_unchanged": 2,
+    "review": "Changes limited to protected try scope, cleanup catch types and self-suppression guard; SQL and success operations unchanged."
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/space/JdbcFileSpaceRegistry.java": {
+    "all_string_literals_unchanged": 114,
+    "authority_fence_commit_nonce_calls_unchanged": 13,
+    "review": "Changes limited to protected try scope, cleanup catch types and self-suppression guard; SQL and success operations unchanged."
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/space/JdbcFileSpaceAuthority.java": {
+    "all_string_literals_unchanged": 12,
+    "authority_fence_commit_nonce_calls_unchanged": 3,
+    "review": "Changes limited to protected try scope, cleanup catch types and self-suppression guard; SQL and success operations unchanged."
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/copy/JdbcCopySourceReadAdmissions.java": {
+    "all_string_literals_unchanged": 78,
+    "authority_fence_commit_nonce_calls_unchanged": 37,
+    "review": "Changes limited to protected try scope, cleanup catch types and self-suppression guard; SQL and success operations unchanged."
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/profile/JdbcStorageProfileRegistry.java": {
+    "all_string_literals_unchanged": 31,
+    "authority_fence_commit_nonce_calls_unchanged": 7,
+    "review": "Changes limited to protected try scope, cleanup catch types and self-suppression guard; SQL and success operations unchanged."
+  },
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/directory/JdbcFileDirectoryIndex.java": {
+    "all_string_literals_unchanged": 69,
+    "authority_fence_commit_nonce_calls_unchanged": 2,
+    "review": "Changes limited to protected try scope, cleanup catch types and self-suppression guard; SQL and success operations unchanged."
+  }
+}

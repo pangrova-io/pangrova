@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.plugin.ConnectorContext;
-import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.ConnectorContext;
+import org.pangrova.connector.spi.plugin.ConnectorFactory;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;

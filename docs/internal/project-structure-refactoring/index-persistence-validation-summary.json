@@ -1,0 +1,156 @@
+{
+  "baseline": "8883 current-worktree text files saved before this batch; unrelated changes preserved.",
+  "stages": [
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-postgresql,:pangrova-indexing-core -am -Pnative-runtime,full-regression -Dtest=IndexPersistenceApiIsolationTest,IndexStateUpdateContractTest,IndexFileSelectionTest,IndexMetadataStoreCommitLogDefaultsTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest,JdbcIndexGenerationPublicationTest,JdbcIndexGenerationPublicationStoreTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 2.13,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-postgresql,:pangrova-indexing-core -am -Pnative-runtime,full-regression -Dtest=IndexPersistenceApiIsolationTest,IndexStateUpdateContractTest,IndexFileSelectionTest,IndexMetadataStoreCommitLogDefaultsTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest,JdbcIndexGenerationPublicationTest,JdbcIndexGenerationPublicationStoreTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 21.86,
+      "cases": 8,
+      "passed": 8,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused3",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-postgresql,:pangrova-indexing-core -am -Pnative-runtime,full-regression -Dtest=IndexPersistenceApiIsolationTest,IndexStateUpdateContractTest,IndexFileSelectionTest,IndexMetadataStoreCommitLogDefaultsTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest,JdbcIndexGenerationPublicationTest,JdbcIndexGenerationPublicationStoreTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 59.7,
+      "cases": 35,
+      "passed": 35,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-postgresql -am -Pstatic-analysis -Dtest=IndexPersistenceApiIsolationTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 87.71,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-postgresql -am -Pstatic-analysis -Dtest=IndexPersistenceApiIsolationTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 88.14,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static3",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-postgresql -am -Pstatic-analysis -Dtest=IndexPersistenceApiIsolationTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 128.66,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "static4",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-postgresql -am -Pstatic-analysis -Dtest=IndexPersistenceApiIsolationTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 130.01,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=BTreeCompositePropertyTest,BTreeCompositeRoundTripTest,BitmapDirectAccumulationTest,BloomFilterDeserializationPropertyTest,BloomFilterIndexDataPropertyTest,BloomFilterStrategyProviderTest,BoundingBoxPropertyTest,BuildFileMappingTest,CachedBloomFilterIndexDataTest,CircuitBreakerEventRecordingPropertyTest,CircuitBreakerOpenBlockingPropertyTest,CircuitBreakerStateMachinePropertyTest,CompositeIndexKeyTest,DistanceMetricTest,DynamicFilterSummaryTest,GenerationExecutionFenceLockIntegrationTest,GenerationPublicationFenceLockIntegrationTest,HashStrategyProviderTest,IndexBufferOwnershipTest,IndexBuildSnapshotPinTest,IndexCacheCompactionPropertyTest,IndexCacheConsistencyPropertyTest,IndexCacheDataFileIndexTest,IndexCacheLookupComplexityTest,IndexCachePropertyTest,IndexCodecGoldenTest,IndexDataTest,IndexDescriptorTest,IndexEvalCircuitBreakerTest,IndexEvaluationPreparationTest,IndexFileReadResultTest,IndexFileSelectionTest,IndexMetadataStoreCommitLogDefaultsTest,IndexPersistenceApiIsolationTest,IndexSerializerRoundTripPropertyTest,IndexSnapshotEvaluationTest,IndexStateUpdateContractTest,IndexStorageLayoutTest,IndexTypeStableIdTest,IndexingApiIsolationTest,JdbcIndexCommitQueueMigrationTest,JdbcIndexCommitQueueScaleTest,JdbcIndexCommitQueueTest,JdbcIndexGenerationPublicationStoreTest,JdbcIndexGenerationPublicationTest,JdbcIndexStateFencingTest,JdbcIndexStatisticsStoreIntegrationTest,JdbcScalarIndexAuthorityTest,JdbcSupportPostgresTest,MultiHintAggregationPropertyTest,PrefixBinarySearchPropertyTest,RTreeTraversalEquivalencePropertyTest,RTreeTraversalPropertyTest,RoaringBitmapCodecGoldenTest,RoaringBitmapCodecPropertyTest,SerdeCodecCompositeKeyTest,SerdeCodecTypeFidelityPropertyTest,SparseBinarySearchPropertyTest,TypeSerializerRegistryTest,VectorHybridSearchStrategyTest,VectorQueryOwnershipTest,VectorSearchRewriterCastTest,Index*Test,BuildClaimMutualExclusionPropertyTest,CommitLogPollerDeduplicationTest,GeneratedValueCommitLogIntegrationTest,GenerationPublicationFenceLockIntegrationTest,GenerationExecutionFenceLockIntegrationTest,ModuleDependencyPropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest,QueryAssemblyWiringTest,TaskRequestFactoryResourceGrantTest' -Dsurefire.failIfNoSpecifiedTests=false clean install",
+      "exit": 1,
+      "seconds": 29.24,
+      "cases": 142,
+      "passed": 141,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=BTreeCompositePropertyTest,BTreeCompositeRoundTripTest,BitmapDirectAccumulationTest,BloomFilterDeserializationPropertyTest,BloomFilterIndexDataPropertyTest,BloomFilterStrategyProviderTest,BoundingBoxPropertyTest,BuildFileMappingTest,CachedBloomFilterIndexDataTest,CircuitBreakerEventRecordingPropertyTest,CircuitBreakerOpenBlockingPropertyTest,CircuitBreakerStateMachinePropertyTest,CompositeIndexKeyTest,DistanceMetricTest,DynamicFilterSummaryTest,GenerationExecutionFenceLockIntegrationTest,GenerationPublicationFenceLockIntegrationTest,HashStrategyProviderTest,IndexBufferOwnershipTest,IndexBuildSnapshotPinTest,IndexCacheCompactionPropertyTest,IndexCacheConsistencyPropertyTest,IndexCacheDataFileIndexTest,IndexCacheLookupComplexityTest,IndexCachePropertyTest,IndexCodecGoldenTest,IndexDataTest,IndexDescriptorTest,IndexEvalCircuitBreakerTest,IndexEvaluationPreparationTest,IndexFileReadResultTest,IndexFileSelectionTest,IndexMetadataStoreCommitLogDefaultsTest,IndexPersistenceApiIsolationTest,IndexSerializerRoundTripPropertyTest,IndexSnapshotEvaluationTest,IndexStateUpdateContractTest,IndexStorageLayoutTest,IndexTypeStableIdTest,IndexingApiIsolationTest,JdbcIndexCommitQueueMigrationTest,JdbcIndexCommitQueueScaleTest,JdbcIndexCommitQueueTest,JdbcIndexGenerationPublicationStoreTest,JdbcIndexGenerationPublicationTest,JdbcIndexStateFencingTest,JdbcIndexStatisticsStoreIntegrationTest,JdbcScalarIndexAuthorityTest,JdbcSupportPostgresTest,MultiHintAggregationPropertyTest,PrefixBinarySearchPropertyTest,RTreeTraversalEquivalencePropertyTest,RTreeTraversalPropertyTest,RoaringBitmapCodecGoldenTest,RoaringBitmapCodecPropertyTest,SerdeCodecCompositeKeyTest,SerdeCodecTypeFidelityPropertyTest,SparseBinarySearchPropertyTest,TypeSerializerRegistryTest,VectorHybridSearchStrategyTest,VectorQueryOwnershipTest,VectorSearchRewriterCastTest,Index*Test,BuildClaimMutualExclusionPropertyTest,CommitLogPollerDeduplicationTest,GeneratedValueCommitLogIntegrationTest,GenerationPublicationFenceLockIntegrationTest,GenerationExecutionFenceLockIntegrationTest,ModuleDependencyPropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest,QueryAssemblyWiringTest,TaskRequestFactoryResourceGrantTest' -Dsurefire.failIfNoSpecifiedTests=false clean install",
+      "exit": 0,
+      "seconds": 1033.31,
+      "cases": 702,
+      "passed": 702,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "ownerstatic",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-api,:pangrova-persistence-indexing-postgresql,:pangrova-persistence-jdbc-api,:pangrova-indexing-core -Pstatic-analysis -Dtest=IndexPersistenceApiIsolationTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 8.8,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "ownerstatic2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-indexing-api,:pangrova-persistence-indexing-postgresql,:pangrova-persistence-jdbc-api,:pangrova-indexing-core -Pstatic-analysis -Dtest=IndexPersistenceApiIsolationTest,JdbcIndexStateFencingTest,JdbcScalarIndexAuthorityTest,IndexDescriptorTest -Dsurefire.failIfNoSpecifiedTests=false install",
+      "exit": 1,
+      "seconds": 31.1,
+      "cases": 48,
+      "passed": 48,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "package",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator,:pangrova-server-worker,:pangrova-standalone -am -Pnative-runtime -DskipTests install",
+      "exit": 1,
+      "seconds": 1.28,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "package2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator,:pangrova-standalone -am -Pnative-runtime -DskipTests install",
+      "exit": 0,
+      "seconds": 60.01,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 702,
+    "passed": 702,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "scope": "Current-batch JUnit/jqwik testcase reports, not repeated trials. Selected clean reactor/E2E does not equal full production regression."
+}

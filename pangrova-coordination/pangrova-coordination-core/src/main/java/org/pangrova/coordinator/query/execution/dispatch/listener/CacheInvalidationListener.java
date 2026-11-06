@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.listener;
 
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionListener;
 import org.pangrova.coordinator.query.execution.result.QueryCacheService;

@@ -14,15 +14,15 @@
 package org.pangrova.ai.worker.function;
 
 import org.pangrova.ai.worker.function.file.FileStructHelper;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
-import org.pangrova.spi.ai.invocation.InferenceResult;
-import org.pangrova.spi.ai.capability.Modality;
-import org.pangrova.spi.ai.invocation.MultimodalPrompt;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.function.metadata.FunctionMetadata;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.invocation.InferenceResult;
+import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.invocation.MultimodalPrompt;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 
 import java.util.List;
 import java.util.function.Function;

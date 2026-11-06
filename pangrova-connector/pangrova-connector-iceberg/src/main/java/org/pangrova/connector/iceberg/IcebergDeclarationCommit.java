@@ -9,7 +9,7 @@ import org.apache.iceberg.hadoop.HadoopTableOperations;
 import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.api.error.ConnectorException;
 
 import java.net.URI;
 

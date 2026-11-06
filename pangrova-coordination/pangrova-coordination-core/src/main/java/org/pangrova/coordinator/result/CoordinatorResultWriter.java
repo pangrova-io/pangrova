@@ -17,9 +17,8 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -36,10 +35,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Converts bounded control-plane statement rows to columnar IPC bytes.
  *
- * <p>Supports three result paths:</p>
+ * <p>Provides two serialization operations:</p>
  * <ul>
- *   <li>Direct VectorSchemaRoot serialization (zero-copy from columnar-native sources)</li>
- *   <li>NativePage passthrough (pre-serialized IPC)</li>
+ *   <li>VectorSchemaRoot serialization to IPC from existing columnar vectors</li>
  *   <li>DDL/DML: TypedRow list → columnar fill → IPC</li>
  * </ul>
  *
@@ -58,20 +56,11 @@ public final class CoordinatorResultWriter {
 
     /**
      * Serializes a pre-built VectorSchemaRoot directly to columnar IPC bytes.
-     * This is the zero-overhead path for columnar-native result sources.
+     * Uses existing columnar vectors without constructing intermediate row objects.
      */
     public byte[] serializeFromRoot(VectorSchemaRoot root) {
         Objects.requireNonNull(root, "root");
         return serializeRoot(root);
-    }
-
-    /**
-     * Serializes an ArrowPage to columnar IPC bytes.
-     * Delegates to the ArrowPage's underlying IPC data if already serialized.
-     */
-    public byte[] serializeFromNativePage(NativePage page) {
-        Objects.requireNonNull(page, "page");
-        return page.serializedBatch();
     }
 
     /**

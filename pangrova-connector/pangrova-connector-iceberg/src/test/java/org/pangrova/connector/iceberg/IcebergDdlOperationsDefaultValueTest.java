@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.types.PangrovaType;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;

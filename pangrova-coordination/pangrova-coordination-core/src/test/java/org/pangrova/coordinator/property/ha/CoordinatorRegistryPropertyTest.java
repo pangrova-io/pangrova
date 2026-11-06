@@ -7,8 +7,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryCoordinatorRegistry;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -51,7 +51,7 @@ class CoordinatorRegistryPropertyTest {
 
         var registry = new InMemoryCoordinatorRegistry();
         var lease = new InMemoryDistributedLease();
-        var haService = new HighAvailabilityCoordinationService(lease);
+        var haService = new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         haService.setCoordinatorRegistry(registry, host, HTTP_PORT);
 
         try {
@@ -81,7 +81,7 @@ class CoordinatorRegistryPropertyTest {
 
         var registry = new InMemoryCoordinatorRegistry();
         var lease = new InMemoryDistributedLease();
-        var haService = new HighAvailabilityCoordinationService(lease);
+        var haService = new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         haService.setCoordinatorRegistry(registry, host, HTTP_PORT);
 
         try {
@@ -109,7 +109,7 @@ class CoordinatorRegistryPropertyTest {
 
         var registry = new InMemoryCoordinatorRegistry();
         var lease = new InMemoryDistributedLease();
-        var haService = new HighAvailabilityCoordinationService(lease);
+        var haService = new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         haService.setCoordinatorRegistry(registry, host, HTTP_PORT);
 
         try {

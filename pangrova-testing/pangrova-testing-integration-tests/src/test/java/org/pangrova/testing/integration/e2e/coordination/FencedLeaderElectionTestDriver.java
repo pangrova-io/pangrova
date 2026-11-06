@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
-import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.coordination.api.lease.LeaseEntry;
 
 import java.util.Objects;
 import java.util.Optional;

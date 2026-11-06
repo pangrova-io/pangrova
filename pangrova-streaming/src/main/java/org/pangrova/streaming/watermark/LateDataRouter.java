@@ -1,11 +1,11 @@
 package org.pangrova.streaming.watermark;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.write.model.WriteContext;
-import org.pangrova.spi.connector.data.write.model.WriteMode;
-import org.pangrova.spi.connector.data.write.TableWriter;
-import org.pangrova.spi.connector.data.write.model.WriteRecord;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.write.WriteContext;
+import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.spi.write.TableWriter;
+import org.pangrova.connector.api.write.WriteRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,0 +1,53 @@
+source	line	reference
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/SourceFreeNativeWorkerFixture.java	39	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/SourceFreeNativeWorkerFixture.java	143	"new TransportRefs(new NativeShuffleTransport(executor::executeCommand, LOOPBACK_HOST, """"), results, exchange), monitors);"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/testing/nativefixture/ActualNativeTaskFixture.java	33	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/testing/nativefixture/ActualNativeTaskFixture.java	89	"transports = new TransportRefs(new NativeShuffleTransport(executor::executeCommand, ""127.0.0.1"", """"), results, exchange);"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/exchange/NativeExchangeTransportTest.java	13	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/exchange/NativeExchangeTransportTest.java	32	"var servers = new NativeShuffleTransport(runtime.executor()::executeCommand, ""127.0.0.1"", """");"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	3	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	24	"var transport = new NativeShuffleTransport(runtime.executor()::executeCommand, ""test-host"", ""worker-1.internal"");"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	41	"var transport = new NativeShuffleTransport(runtime.executor()::executeCommand, ""127.0.0.1"", """");"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	54	"var transport = new NativeShuffleTransport(runtime.executor()::executeCommand, ""127.0.0.1"", """");"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	64	"var transport = new NativeShuffleTransport(runtime.executor()::executeCommand, ""127.0.0.1"", """");"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	75	"var transport = new NativeShuffleTransport(runtime.executor()::executeCommand, ""127.0.0.1"", """");"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	88	var transport = new NativeShuffleTransport(runtime.executor()::executeCommand, null, null);
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/ShuffleRequestRouter.java	3	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/ShuffleRequestRouter.java	41	* @see NativeShuffleTransport
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java	11	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java	183	var shuffleTransport = new NativeShuffleTransport(executor::executeCommand, shuffleHost, tlsIdentity);
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/WorkerTaskBootstrap.java	198	return new TransportRefs(shuffleTransport, resultTransport, exchangeTransport);
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	3	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	21	private final NativeShuffleTransport shuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	28	* @param shuffleTransport shuffle transport used to stop per-executor servers
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	33	NativeShuffleTransport shuffleTransport,
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	36	this.shuffleTransport = shuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	77	if (shuffleTransport != null) {
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	80	shuffleTransport.stopServer(handle);
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TransportRefs.java	5	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TransportRefs.java	13	* @param shuffleTransport task-owned Native serving adapter, or unavailable
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TransportRefs.java	18	NativeShuffleTransport shuffleTransport,
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TransportRefs.java	24	return shuffleTransport != null && resultTransport != null && exchangeTransport != null;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	13	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	42	private final NativeShuffleTransport shuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	61	this.shuffleTransport = deps.shuffleTransport();
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	65	shuffleTransport, deps, this::releaseMemoryIfNeeded);
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	126	if (shuffleTransport != null && isComputeTaskWithDirectShuffle(info)) {
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	230	ShuffleServerHandle shuffleHandle = shuffleTransport.startServer(
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	389	if (isComputeTaskWithDirectShuffle(info) && shuffleTransport == null) {
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskManagerContext.java	7	import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskManagerContext.java	65	public NativeShuffleTransport shuffleTransport() {
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskManagerContext.java	66	return transportDeps.shuffleTransport();
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/SqlE2ETestBase.java	2054	var shuffleTransport = new org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport(
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/SqlE2ETestBase.java	2062	return new TransportRefs(shuffleTransport, resultTransport, exchangeTransport);
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/test/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleAdapterIsolationTest.java	22	URL[] urls = List.of(NativeShuffleTransport.class, Preconditions.class, RuntimeCommand.class,
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/test/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleAdapterIsolationTest.java	33	for (String name : List.of(NativeShuffleTransport.class.getName(),
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/test/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleAdapterIsolationTest.java	34	NativeShuffleTransport.CommandChannel.class.getName())) {
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/main/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleTransport.java	32	public final class NativeShuffleTransport {
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/main/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleTransport.java	36	public interface CommandChannel {
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/main/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleTransport.java	41	private static final Logger LOG = LoggerFactory.getLogger(NativeShuffleTransport.class);
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/main/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleTransport.java	43	private final CommandChannel commandChannel;
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/main/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleTransport.java	52	public NativeShuffleTransport(
+pangrova-shuffle/pangrova-shuffle-native-adapter/src/main/java/org/pangrova/shuffle/adapter/nativebridge/NativeShuffleTransport.java	53	CommandChannel commandChannel, String localHost, String localTlsIdentity) {
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleContractIsolationTest.java	25	"""org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport"","
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleByteEgress.java	10	* <p>Today the native shuffle path is <em>purely control-channel</em>: {@code NativeShuffleTransport}

@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.protocol.batch.ColumnarBatch;
+import org.pangrova.batch.arrow.ColumnarBatch;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.IntVector;

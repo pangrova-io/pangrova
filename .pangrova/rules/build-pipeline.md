@@ -118,6 +118,28 @@ separate release gate and must not be inferred from the macOS result.
 # Target: pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/{os}/{arch}/libpangrova_native.*
 ```
 
+Before testing with `-Pnative-runtime`, install the platform classifier from these
+same staged bytes. That profile consumes the classifier; it does not rebuild it.
+Without `native.platform.classifier`, the bundle module skips installation, so a
+normal reactor install can leave an older classifier in the local Maven repository.
+The loader must keep rejecting conflicting native payloads on the classpath.
+
+For macOS AArch64, from the repository root:
+
+```bash
+pangrova_native_resource_dir="$PWD/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/osx/aarch64"
+mvn -q -pl pangrova-native-bundle \
+  -Dnative.platform.classifier=osx-aarch_64 \
+  -Dnative.resource.os=osx -Dnative.resource.arch=aarch64 \
+  -Dnative.resource.dir="$pangrova_native_resource_dir" \
+  -Dnative.library.path="$pangrova_native_resource_dir/libpangrova_native.dylib" \
+  clean install
+```
+
+Use the matching classifier, resource OS/architecture and library filename on
+other platforms. The built library, staged resource and installed classifier entry
+must have the same SHA-256 before running Java/native tests.
+
 ### Lance FFI (Rust → C static library, required)
 
 ```bash
@@ -150,7 +172,7 @@ Ordering follows artifact dependencies, rather than a fixed list of repeated run
 | Same-source production image | Verified image ID, source revision, classifier and runtime manifest |
 | Complete installed Java reactor | Independent-process integration tests that resolve reactor artifacts |
 | `native-runtime,full-regression verify` | Unit/integration/E2E/activation smoke in one reactor run |
-| Five isolated `native-runtime-owner` E2E selections | Process-owning Native tests, each in its own JVM; LOCAL FILE selects its own deployment |
+| Seven isolated `native-runtime-owner` E2E selections | Process-owning Native tests, each in its own JVM; LOCAL FILE selects its own deployment |
 | Selected native ASan/UBSan builds + tests | Zero findings before production correctness acceptance |
 
 ```
@@ -186,7 +208,7 @@ Ordering follows artifact dependencies, rather than a fixed list of repeated run
 │ Step 6: Java Full Test (all modules, shared E2E and smoke)       │
 │   mvn -q -Pfull-regression verify                               │
 │                                                                  │
-│ Step 7: Isolated Native owner E2E (five separate JVMs)          │
+│ Step 7: Isolated Native owner E2E (seven separate JVMs)          │
 │   see commands below                                             │
 │                                                                  │
 │ ALL REQUIRED STEPS MUST PASS; report blockers accurately.                           │
@@ -207,6 +229,8 @@ Complete Step 7 by running each owner selection in its own Maven invocation/JVM:
 set -e
 for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
              WorkerShuffleChannelAdmissionIntegrationTest \
+             NativeShuffleEgressContractIntegrationTest \
+             NativeAiFailureProjectionRegistrationTest \
              'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes' \
              LocalGovernedFileSqlE2ETest; do
   file_backend=s3
@@ -217,10 +241,10 @@ for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTe
 done
 ```
 
-The Step 6 shared run, including `ActivationSmokeE2ETest`, and all five isolated
+The Step 6 shared run, including `ActivationSmokeE2ETest`, and all seven isolated
 owner selections must pass; report their test counts
 separately. A single shared JVM run that excludes these selections without the
-five isolated results is incomplete.
+seven isolated results is incomplete.
 It does not turn routing integration into independent-process distributed evidence.
 Record discovered test counts and FAIL/SKIPPED/BLOCKED results; a successful Maven
 command that selects no applicable tests is not validation. Use the optional

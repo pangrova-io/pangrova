@@ -7,15 +7,15 @@ import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.read.IcebergPageSource;
 import org.pangrova.connector.iceberg.read.IcebergParquetReader;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -134,7 +134,7 @@ public class IcebergPageSourceProvider implements ConnectorPageSourceProvider {
                 }
             }
         } catch (java.io.IOException e) {
-            throw new org.pangrova.spi.connector.base.ConnectorException(
+            throw new org.pangrova.connector.api.error.ConnectorException(
                     org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_READ_ERROR,
                     "Failed to read position deletes: " + deleteFile.filePath(), e);
         }
@@ -164,7 +164,7 @@ public class IcebergPageSourceProvider implements ConnectorPageSourceProvider {
             bitmap.deserialize(java.nio.ByteBuffer.wrap(dvBytes));
             bitmap.forEach((org.roaringbitmap.IntConsumer) pos -> positions.add((long) pos));
         } catch (java.io.IOException e) {
-            throw new org.pangrova.spi.connector.base.ConnectorException(
+            throw new org.pangrova.connector.api.error.ConnectorException(
                     org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_READ_ERROR,
                     "Failed to read deletion vector: " + dvPath, e);
         }

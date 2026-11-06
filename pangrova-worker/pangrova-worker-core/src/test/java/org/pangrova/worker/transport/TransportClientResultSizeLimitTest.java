@@ -1,5 +1,7 @@
 package org.pangrova.worker.transport;
 
+import org.pangrova.transport.flight.TransportServer;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

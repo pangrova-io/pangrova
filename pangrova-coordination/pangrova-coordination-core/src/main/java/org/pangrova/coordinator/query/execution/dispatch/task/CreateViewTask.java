@@ -1,18 +1,19 @@
 package org.pangrova.coordinator.query.execution.dispatch.task;
 
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
 import java.util.List;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.parser.ast.statement.CreateViewStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.parser.api.ast.statement.CreateViewStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,20 +33,21 @@ public final class CreateViewTask implements MetadataTask<CreateViewStatement> {
 
     @Override
     public StatementResult execute(CreateViewStatement statement, StatementExecutionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(statement.viewName().parts(), context.session());
-        ConnectorSession session = TableResolver.buildSession(context.session(), ref.catalog(), ref.schema());
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(statement.viewName().parts(), context.session());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context.session(), ref.catalog(), ref.schema());
         ConnectorMetadata metadata = catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
         SchemaTableName viewName = new SchemaTableName(ref.schema(), ref.table());
 
-        if (statement.ifNotExists()) {
-            var existing = metadata.getViewDefinition(session, viewName);
-            if (existing.isPresent()) {
-                LOG.info("event=view_exists_skip view={}", ref);
-                return new StatementResult(List.of(), List.of(), null, StatementCategory.DDL);
-            }
+        if (statement.ifNotExists() && statement.orReplace()) {
+            throw new org.pangrova.common.exception.PangrovaException(
+                    org.pangrova.common.exception.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "CREATE VIEW cannot combine OR REPLACE with IF NOT EXISTS");
         }
-
-        metadata.createView(session, viewName, statement.viewSql());
+        var mode = statement.orReplace()
+                ? org.pangrova.connector.api.metadata.view.ViewCreateMode.CREATE_OR_REPLACE
+                : statement.ifNotExists() ? org.pangrova.connector.api.metadata.view.ViewCreateMode.IF_NOT_EXISTS
+                : org.pangrova.connector.api.metadata.view.ViewCreateMode.CREATE;
+        metadata.createView(session, viewName, statement.viewSql(), mode);
         LOG.info("event=view_created view={}", ref);
         return new StatementResult(List.of(), List.of(), null, StatementCategory.DDL);
     }

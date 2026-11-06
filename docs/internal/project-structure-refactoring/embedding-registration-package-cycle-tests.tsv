@@ -1,0 +1,2 @@
+class	name	status	report
+org.pangrova.testing.property.PackageDependencyAcyclicityPropertyTest	noPackageDependencyCycles	failure	pangrova-testing/pangrova-testing-kit/target/surefire-reports/TEST-org.pangrova.testing.property.PackageDependencyAcyclicityPropertyTest.xml

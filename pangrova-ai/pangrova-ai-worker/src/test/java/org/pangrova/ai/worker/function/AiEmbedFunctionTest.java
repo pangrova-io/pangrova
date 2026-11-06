@@ -1,8 +1,8 @@
 package org.pangrova.ai.worker.function;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.types.value.ColumnValue;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 import org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider;
@@ -55,7 +55,7 @@ class AiEmbedFunctionTest {
     void embedRejectsProviderDimensionThatDiffersFromExactModelBindingBeforeIo() {
         var binding = new BoundAiInvocation("ai-embed-test", "local", "v1", new byte[32],
                 AiCapabilityDescriptor.Operation.EMBEDDING, "query:stage:task:ai-embed-test",
-                new org.pangrova.spi.ai.capability.AiRequestConstraints(1000, 0, 262144, 1048576),
+                new org.pangrova.ai.api.capability.AiRequestConstraints(1000, 0, 262144, 1048576),
                 8, 100, 400, 1048576, 4194304, 0, 383);
         assertThatThrownBy(() -> AiExecutionContext.callWithBoundInvocation(binding,
                 () -> function.invoke(arguments(new ColumnValue.StringValue("local"),

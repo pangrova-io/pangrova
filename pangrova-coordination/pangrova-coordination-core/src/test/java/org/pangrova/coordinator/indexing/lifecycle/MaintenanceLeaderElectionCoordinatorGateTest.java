@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

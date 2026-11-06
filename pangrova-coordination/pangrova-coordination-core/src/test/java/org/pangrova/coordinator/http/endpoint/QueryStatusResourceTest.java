@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.http.endpoint;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.stage.StageState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -7,9 +10,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.api.error.QueryFailure;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
@@ -44,7 +46,7 @@ class QueryStatusResourceTest {
     static void startServer() throws Exception {
         queryManager = org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture.create(
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000,
-                        new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
+                        new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker());
 
         ResourceConfig config = new ResourceConfig();
@@ -85,18 +87,18 @@ class QueryStatusResourceTest {
     void listQueriesReturnsRegisteredQueries() throws Exception {
         QueryStateMachine sm1 = new QueryStateMachine();
         sm1.setTenantId("user-a");
-        sm1.tryTransition(QueryStateMachine.State.PLANNING);
-        sm1.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm1.tryTransition(QueryStateMachine.State.RUNNING);
+        sm1.tryTransition(QueryState.PLANNING);
+        sm1.tryTransition(QueryState.SCHEDULING);
+        sm1.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine("status-test-q1", sm1);
 
         QueryStateMachine sm2 = new QueryStateMachine();
         sm2.setTenantId("user-b");
-        sm2.tryTransition(QueryStateMachine.State.PLANNING);
-        sm2.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm2.tryTransition(QueryStateMachine.State.RUNNING);
-        sm2.tryTransition(QueryStateMachine.State.FINISHING);
-        sm2.tryTransition(QueryStateMachine.State.FINISHED);
+        sm2.tryTransition(QueryState.PLANNING);
+        sm2.tryTransition(QueryState.SCHEDULING);
+        sm2.tryTransition(QueryState.RUNNING);
+        sm2.tryTransition(QueryState.FINISHING);
+        sm2.tryTransition(QueryState.FINISHED);
         queryManager.registerStateMachine("status-test-q2", sm2);
 
         try {
@@ -126,25 +128,25 @@ class QueryStatusResourceTest {
             assertThat(q2.get("terminal")).isEqualTo(true);
         } finally {
             // Cleanup: move sm1 to terminal so it doesn't affect other tests
-            sm1.tryTransition(QueryStateMachine.State.FINISHING);
-            sm1.tryTransition(QueryStateMachine.State.FINISHED);
+            sm1.tryTransition(QueryState.FINISHING);
+            sm1.tryTransition(QueryState.FINISHED);
         }
     }
 
     @Test
     void listQueriesWithStateFilter() throws Exception {
         QueryStateMachine smRunning = new QueryStateMachine();
-        smRunning.tryTransition(QueryStateMachine.State.PLANNING);
-        smRunning.tryTransition(QueryStateMachine.State.SCHEDULING);
-        smRunning.tryTransition(QueryStateMachine.State.RUNNING);
+        smRunning.tryTransition(QueryState.PLANNING);
+        smRunning.tryTransition(QueryState.SCHEDULING);
+        smRunning.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine("status-filter-running", smRunning);
 
         QueryStateMachine smFinished = new QueryStateMachine();
-        smFinished.tryTransition(QueryStateMachine.State.PLANNING);
-        smFinished.tryTransition(QueryStateMachine.State.SCHEDULING);
-        smFinished.tryTransition(QueryStateMachine.State.RUNNING);
-        smFinished.tryTransition(QueryStateMachine.State.FINISHING);
-        smFinished.tryTransition(QueryStateMachine.State.FINISHED);
+        smFinished.tryTransition(QueryState.PLANNING);
+        smFinished.tryTransition(QueryState.SCHEDULING);
+        smFinished.tryTransition(QueryState.RUNNING);
+        smFinished.tryTransition(QueryState.FINISHING);
+        smFinished.tryTransition(QueryState.FINISHED);
         queryManager.registerStateMachine("status-filter-finished", smFinished);
 
         try {
@@ -164,8 +166,8 @@ class QueryStatusResourceTest {
                     .anyMatch(q -> "status-filter-finished".equals(q.get("queryId"))))
                     .isFalse();
         } finally {
-            smRunning.tryTransition(QueryStateMachine.State.FINISHING);
-            smRunning.tryTransition(QueryStateMachine.State.FINISHED);
+            smRunning.tryTransition(QueryState.FINISHING);
+            smRunning.tryTransition(QueryState.FINISHED);
         }
     }
 
@@ -174,7 +176,7 @@ class QueryStatusResourceTest {
         // Register several queries
         for (int i = 0; i < 5; i++) {
             QueryStateMachine sm = new QueryStateMachine();
-            sm.tryTransition(QueryStateMachine.State.PLANNING);
+            sm.tryTransition(QueryState.PLANNING);
             queryManager.registerStateMachine("status-page-" + i, sm);
         }
 
@@ -194,7 +196,7 @@ class QueryStatusResourceTest {
             for (int i = 0; i < 5; i++) {
                 QueryStateMachine sm = queryManager.getStateMachine("status-page-" + i);
                 if (sm != null) {
-                    sm.tryTransition(QueryStateMachine.State.FAILED);
+                    sm.tryTransition(QueryState.FAILED);
                 }
             }
         }
@@ -204,12 +206,12 @@ class QueryStatusResourceTest {
     void getQueryDetailReturnsDetailedInfo() throws Exception {
         QueryStateMachine sm = new QueryStateMachine();
         sm.setTenantId("detail-user");
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         // Add stage state
-        sm.updateStageState("stage-0", StageStateMachine.State.FINISHED);
-        sm.updateStageState("stage-1", StageStateMachine.State.RUNNING);
+        sm.updateStageState("stage-0", StageState.FINISHED);
+        sm.updateStageState("stage-1", StageState.RUNNING);
         queryManager.registerStateMachine("status-detail-q1", sm);
 
         try {
@@ -227,19 +229,19 @@ class QueryStatusResourceTest {
             assertThat(body.get("errorCode")).isNull();
             assertThat(body.get("errorMessage")).isNull();
         } finally {
-            sm.tryTransition(QueryStateMachine.State.FINISHING);
-            sm.tryTransition(QueryStateMachine.State.FINISHED);
+            sm.tryTransition(QueryState.FINISHING);
+            sm.tryTransition(QueryState.FINISHED);
         }
     }
 
     @Test
     void getQueryDetailReturnsErrorInfoForFailedQuery() throws Exception {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.setError(new ErrorDetail("INTERNAL_ERROR", "E001", "Something went wrong"));
-        sm.tryTransition(QueryStateMachine.State.FAILED);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
+        sm.setError(new QueryFailure("INTERNAL_ERROR", "E001", "Something went wrong"));
+        sm.tryTransition(QueryState.FAILED);
         queryManager.registerStateMachine("status-failed-q1", sm);
 
         HttpResponse<String> response = sendGet("/v1/query-status/status-failed-q1");
@@ -249,7 +251,7 @@ class QueryStatusResourceTest {
         assertThat(body.get("queryId")).isEqualTo("status-failed-q1");
         assertThat(body.get("state")).isEqualTo("FAILED");
         assertThat(body.get("terminal")).isEqualTo(true);
-        // ErrorDetail fields: errorCode and errorMessage come from the QueryDetail record
+        // QueryFailure fields: errorCode and errorMessage come from the QueryDetail record
         assertThat(body.get("errorCode")).isEqualTo("INTERNAL_ERROR");
         assertThat(body.get("errorMessage")).isEqualTo("Something went wrong");
     }
@@ -263,12 +265,12 @@ class QueryStatusResourceTest {
     @Test
     void getQueryStagesReturnsStageBreakdown() throws Exception {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.updateStageState("stage-0", StageStateMachine.State.FINISHED);
-        sm.updateStageState("stage-1", StageStateMachine.State.RUNNING);
-        sm.updateStageState("stage-2", StageStateMachine.State.SCHEDULING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
+        sm.updateStageState("stage-0", StageState.FINISHED);
+        sm.updateStageState("stage-1", StageState.RUNNING);
+        sm.updateStageState("stage-2", StageState.SCHEDULING);
         queryManager.registerStateMachine("status-stages-q1", sm);
 
         try {
@@ -298,8 +300,8 @@ class QueryStatusResourceTest {
                     .findFirst().orElseThrow();
             assertThat(s2.get("state")).isEqualTo("SCHEDULING");
         } finally {
-            sm.tryTransition(QueryStateMachine.State.FINISHING);
-            sm.tryTransition(QueryStateMachine.State.FINISHED);
+            sm.tryTransition(QueryState.FINISHING);
+            sm.tryTransition(QueryState.FINISHED);
         }
     }
 
@@ -312,7 +314,7 @@ class QueryStatusResourceTest {
     @Test
     void getQueryStagesReturnsEmptyWhenNoStages() throws Exception {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
+        sm.tryTransition(QueryState.PLANNING);
         queryManager.registerStateMachine("status-no-stages-q1", sm);
 
         try {
@@ -324,7 +326,7 @@ class QueryStatusResourceTest {
             List<Map<String, Object>> stages = (List<Map<String, Object>>) body.get("stages");
             assertThat(stages).isEmpty();
         } finally {
-            sm.tryTransition(QueryStateMachine.State.FAILED);
+            sm.tryTransition(QueryState.FAILED);
         }
     }
 

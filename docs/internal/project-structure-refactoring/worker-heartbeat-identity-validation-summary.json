@@ -1,0 +1,89 @@
+{
+  "stages": [
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-coordination-core,:pangrova-persistence-jdbc,:pangrova-persistence-memory,:pangrova-worker-core -am -Pnative-runtime,full-regression '-Dtest=Heartbeat*Test,TaskAdmissionRegistryTest,RequestLimit*Test,WorkerHeartbeatIdentityTest,WorkerHeartbeatIdentityIntegrationTest,WorkerBootstrapDeregistrationTest,WorkerRegistrationSerializationTest,UnifiedBudgetObservabilityTest,CoordinationApiClasspathTest,WorkerManager*Test,WorkerSnapshotResultPortPropertyTest,WorkerCapabilityInventorySharingTest,WorkerHealthConfigurableThresholdsTest,WorkerResourceVersionCheckTest,QueryBootstrapWorkerRegistryWiringTest,DeadWorkerDrainTest,WorkerMembershipFencingTest,WorkerHealthSchedulerTest,WorkerHealthPropertyTest,InMemoryWorkerRegistryTest,InMemoryWorkerRegistryPropertyTest,JdbcWorkerRegistryTest,JdbcWorkerRegistryIntegrationTest,JdbcWorkerRegistryPostgresTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 128.32,
+      "cases": 200,
+      "passed": 200,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "integration",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=Heartbeat*Test,TaskAdmissionRegistryTest,RequestLimit*Test,WorkerHeartbeatIdentityTest,WorkerHeartbeatIdentityIntegrationTest,WorkerBootstrapDeregistrationTest,WorkerRegistrationSerializationTest,UnifiedBudgetObservabilityTest,CoordinationApiClasspathTest,WorkerManager*Test,WorkerSnapshotResultPortPropertyTest,WorkerCapabilityInventorySharingTest,WorkerHealthConfigurableThresholdsTest,WorkerResourceVersionCheckTest,QueryBootstrapWorkerRegistryWiringTest,DeadWorkerDrainTest,WorkerMembershipFencingTest,WorkerHealthSchedulerTest,WorkerHealthPropertyTest,InMemoryWorkerRegistryTest,InMemoryWorkerRegistryPropertyTest,JdbcWorkerRegistryTest,JdbcWorkerRegistryIntegrationTest,JdbcWorkerRegistryPostgresTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest,PhysicalTwoWorkerShuffleE2ETest,ActivationSmokeE2ETest,WorkerWithdrawalIdentityIntegrationTest,WorkerRegistryE2ETest*,ClusterRegistryE2ETest*,CoordinatorHaE2ETest*' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 273.58,
+      "cases": 275,
+      "passed": 273,
+      "failure": 1,
+      "error": 1,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -Dtest=ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,WorkerWithdrawalIdentityIntegrationTest,WorkerHeartbeatIdentityIntegrationTest,InternalAuthSecretWiringTest,WorkerHeartbeatIdentityTest,RequestLimitControlIsolationTest,JdbcWorkerRegistryTest,JdbcWorkerRegistryIntegrationTest,HeartbeatRequestTest,HeartbeatSenderTest -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 1,
+      "seconds": 24.37,
+      "cases": 28,
+      "passed": 28,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact-corrected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -Dtest=ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,WorkerWithdrawalIdentityIntegrationTest,WorkerHeartbeatIdentityIntegrationTest,InternalAuthSecretWiringTest,WorkerHeartbeatIdentityTest,RequestLimitControlIsolationTest,JdbcWorkerRegistryTest,JdbcWorkerRegistryIntegrationTest,HeartbeatRequestTest,HeartbeatSenderTest -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 1,
+      "seconds": 98.92,
+      "cases": 73,
+      "passed": 72,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact-final",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -Dtest=ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,WorkerWithdrawalIdentityIntegrationTest,WorkerHeartbeatIdentityIntegrationTest,InternalAuthSecretWiringTest,WorkerHeartbeatIdentityTest,RequestLimitControlIsolationTest,JdbcWorkerRegistryTest,JdbcWorkerRegistryIntegrationTest,HeartbeatRequestTest,HeartbeatSenderTest -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 0,
+      "seconds": 125.19,
+      "cases": 75,
+      "passed": 75,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-admission",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=WorkerMembershipAdmissionE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 77.12,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-cancellation",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=TaskAdmissionCancellationE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 81.35,
+      "cases": 5,
+      "passed": 5,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 286,
+    "passed": 285,
+    "failure": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

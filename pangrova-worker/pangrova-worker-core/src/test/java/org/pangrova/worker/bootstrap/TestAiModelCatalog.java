@@ -1,8 +1,8 @@
 package org.pangrova.worker.bootstrap;
 
-import org.pangrova.spi.ai.model.AiModelConfigParser;
-import org.pangrova.spi.ai.model.AiModelDescriptor;
-import org.pangrova.spi.ai.runtime.AiModelCatalog;
+import org.pangrova.ai.control.config.AiModelConfigParser;
+import org.pangrova.ai.api.model.AiModelDescriptor;
+import org.pangrova.ai.spi.model.AiModelCatalog;
 
 import java.util.List;
 import java.util.Map;

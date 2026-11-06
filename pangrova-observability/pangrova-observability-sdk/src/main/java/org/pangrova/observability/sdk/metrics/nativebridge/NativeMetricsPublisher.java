@@ -1,7 +1,8 @@
 package org.pangrova.observability.sdk.metrics.nativebridge;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.observability.core.metrics.MetricsScope;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,7 @@ public final class NativeMetricsPublisher {
     private static final Logger LOG = LoggerFactory.getLogger(NativeMetricsPublisher.class);
 
     private final NativeMetricsPuller puller;
+    private final MetricsScope metrics;
 
     private volatile boolean stopped;
     private volatile long memoryUsedBytes;
@@ -28,9 +30,20 @@ public final class NativeMetricsPublisher {
     private volatile long ioBytesRead;
     private volatile double cacheHitRatio;
 
+    /** Registers owned gauges using the borrowed puller and metrics provider. */
     public NativeMetricsPublisher(NativeMetricsPuller puller, MetricsProvider metricsProvider) {
         this.puller = puller;
-        registerGauges(metricsProvider);
+        this.metrics = new MetricsScope(metricsProvider);
+        try {
+            registerGauges(metrics);
+        } catch (RuntimeException | Error failure) {
+            try {
+                metrics.close();
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
     }
 
     private void registerGauges(MetricsProvider metricsProvider) {
@@ -69,12 +82,13 @@ public final class NativeMetricsPublisher {
     }
 
     /**
-     * Stops the publisher, resetting all gauge values to zero.
+     * Stops the publisher, unregistering its gauges and resetting local values.
      * After stop(), pullAndPublish() becomes a no-op.
      * Safe to call multiple times.
      */
     public void stop() {
         stopped = true;
+        metrics.close();
         resetValues();
         LOG.info("NativeMetricsPublisher stopped");
     }

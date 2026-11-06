@@ -11,13 +11,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
-import org.pangrova.spi.coordination.CoordinatorRole;
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
-import org.pangrova.persistence.api.query.coordination.ExecutionAnchorStore;
-import org.pangrova.spi.coordination.LeaseEntry;
-import org.pangrova.persistence.memory.query.coordination.InMemoryExecutionAnchorStore;
+import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
+import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
+import org.pangrova.coordination.api.lease.LeaseEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,28 +89,19 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     private volatile CoordinatorRegistry coordinatorRegistryRef;
     private volatile CoordinatorExecutionAuthority processAuthority;
 
-    public HighAvailabilityCoordinationService(DistributedLease lease) {
-        this(lease, CoordinationConfig.defaults());
+    public HighAvailabilityCoordinationService(DistributedLease lease, ExecutionAnchorStore anchors) {
+        this(lease, CoordinationConfig.defaults(), anchors);
     }
 
     /** Creates coordination with explicit bounded query ownership and heartbeat configuration. */
-    public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config) {
+    public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config, ExecutionAnchorStore anchors) {
         Objects.requireNonNull(lease, "lease must not be null");
         this.leaseElection = new LeaseBackedLeaderElection(lease);
         this.config = Objects.requireNonNull(config, "config must not be null");
         this.ownership = new QueryOwnershipRegistry(
                 this.config.maxQueryOwnershipEntries(),
                 Duration.ofMillis(this.config.leaseTimeoutMs()),
-                new InMemoryExecutionAnchorStore());
-    }
-
-    /** Installs the shared durable execution-anchor backend before query admission. */
-    public void setExecutionAnchorStore(ExecutionAnchorStore store) {
-        if (processAuthority != null) {
-            throw new IllegalStateException("Bound process execution backend cannot change");
-        }
-        ownership.setStore(Objects.requireNonNull(store, "store must not be null"),
-                Duration.ofMillis(config.leaseTimeoutMs()));
+                Objects.requireNonNull(anchors, "execution anchor store must be selected explicitly"));
     }
 
     /** Uses the process-wide backend/incarnation binding without adding a second ownership authority. */
@@ -121,7 +111,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         if (processAuthority != null) {
             throw new IllegalStateException("Execution authority is already bound");
         }
-        ownership.setStore(authority.backend(), authority.leaseDuration());
+        ownership.bindLeaseDuration(authority.backend(), authority.leaseDuration());
         authority.bindQueryOwnership(ownership);
         localIncarnation.set(authority.incarnation());
         processAuthority = authority;
@@ -150,8 +140,18 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
             LOG.debug("event=leader_election_rejected candidate={}", coordinatorId);
             return false;
         }
-        onLeaderAcquired(acquired.orElseThrow());
-        return true;
+        try {
+            onLeaderAcquired(acquired.orElseThrow());
+            return true;
+        } catch (RuntimeException | Error failure) {
+            // The grant is real even if publishing its role failed. Seal local leadership first.
+            try {
+                stepDown(coordinatorId);
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
     }
 
     private void onLeaderAcquired(LeaseEntry acquired) {
@@ -186,17 +186,22 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     public boolean stepDown(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
         LeaseEntry held = localLease.get();
-        boolean released = held != null && coordinatorId.equals(held.holderId())
-                && leaseElection.release(coordinatorId, held.epoch());
-        if (released) {
-            localLease.compareAndSet(held, null);
-            role.set(Role.STANDBY);
-            // Reacquisition must restart leader-only control loops.
-            knownLeaderId.set(null);
-            updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY);
-            notifyDemotion();
-            LOG.info("event=leader_step_down leader={} epoch={}", coordinatorId, epoch.get());
+        if (held == null || !coordinatorId.equals(held.holderId())) return false;
+        localLease.compareAndSet(held, null);
+        role.set(Role.STANDBY);
+        knownLeaderId.set(null);
+        Throwable failure = cleanup(null, this::notifyDemotion);
+        boolean released = false;
+        try {
+            released = leaseElection.release(coordinatorId, held.epoch());
+        } catch (RuntimeException | Error releaseFailure) {
+            if (failure == null) failure = releaseFailure;
+            else if (failure != releaseFailure) failure.addSuppressed(releaseFailure);
         }
+        failure = cleanup(failure, () -> updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY));
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
+        LOG.info("event=leader_step_down leader={} epoch={} released={}", coordinatorId, epoch.get(), released);
         return released;
     }
 
@@ -324,7 +329,9 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     /**
      * Registers a callback invoked when this node loses singleton control leadership.
      * The callback stops only leader-exclusive control loops; query admission and
-     * execution remain active on this healthy Coordinator.
+     * execution remain active on this healthy Coordinator. The callback must be idempotent:
+     * shutdown may repeat cleanup after a partially failed demotion. Failures propagate to the
+     * lifecycle owner and do not prevent remote release/registry cleanup from being attempted.
      */
     public void onDemotion(Runnable callback) {
         this.demotionCallback.set(callback);
@@ -348,18 +355,27 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         }
         localNodeId.set(coordinatorId);
         localIncarnation.compareAndSet(null, UUID.randomUUID().toString());
-        electionScheduler = new ElectionScheduler(config, running, createSchedulerCallback());
-        electionScheduler.start();
-        syncEpochFromLease();
-        registerWithRegistry(coordinatorId);
-        if (tryBecomeLeader(coordinatorId)) {
-            role.set(Role.LEADER);
-            electionScheduler.scheduleLeaseRenewal(coordinatorId);
-            LOG.info("event=ha_started coordinatorId={} role=LEADER", coordinatorId);
-        } else {
-            role.set(Role.STANDBY);
-            electionScheduler.scheduleFailureDetection(coordinatorId);
-            LOG.info("event=ha_started coordinatorId={} role=STANDBY", coordinatorId);
+        try {
+            electionScheduler = new ElectionScheduler(config, running, createSchedulerCallback());
+            electionScheduler.start();
+            syncEpochFromLease();
+            registerWithRegistry(coordinatorId);
+            if (tryBecomeLeader(coordinatorId)) {
+                role.set(Role.LEADER);
+                electionScheduler.scheduleLeaseRenewal(coordinatorId);
+                LOG.info("event=ha_started coordinatorId={} role=LEADER", coordinatorId);
+            } else {
+                role.set(Role.STANDBY);
+                electionScheduler.scheduleFailureDetection(coordinatorId);
+                LOG.info("event=ha_started coordinatorId={} role=STANDBY", coordinatorId);
+            }
+        } catch (RuntimeException | Error failure) {
+            try {
+                close();
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+            throw failure;
         }
     }
 
@@ -394,8 +410,11 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         public void onLeaseRenewalFailed(String coordinatorId) {
             localLease.set(null);
             role.set(Role.STANDBY);
-            updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY);
-            notifyDemotion();
+            knownLeaderId.set(null);
+            Throwable failure = cleanup(null, HighAvailabilityCoordinationService.this::notifyDemotion);
+            failure = cleanup(failure, () -> updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY));
+            if (failure instanceof RuntimeException runtime) throw runtime;
+            if (failure instanceof Error error) throw error;
             LOG.info("event=lease_renewal_failed coordinator={} epoch={} queryOwnershipRetained=true",
                     coordinatorId, epoch.get());
             LOG.error("event=coordinator_alarm severity=CRITICAL component=ha_lease_renewal "
@@ -414,58 +433,56 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     @Override
     public void close() {
         running.set(false);
+        role.set(Role.STOPPED);
+        knownLeaderId.set(null);
+        Throwable failure = null;
         ElectionScheduler sched = electionScheduler;
         if (sched != null) {
-            sched.cancelScheduledTask();
-            sched.shutdown();
+            failure = cleanup(failure, sched::cancelScheduledTask);
+            failure = cleanup(failure, sched::shutdown);
         }
+        failure = cleanup(failure, this::notifyDemotion);
         String nodeId = localNodeId.get();
         String incarnation = localIncarnation.get();
         if (nodeId != null && incarnation != null) {
-            int yielded = yieldLocalExecutions();
-            LOG.info("event=execution_anchors_yielded coordinatorId={} "
-                            + "incarnation={} count={}",
-                    nodeId, incarnation, yielded);
+            failure = cleanup(failure, this::yieldLocalExecutions);
         }
+        LeaseEntry held = localLease.getAndSet(null);
         if (nodeId != null) {
-            LeaseEntry held = localLease.get();
             if (held != null && nodeId.equals(held.holderId())) {
-                leaseElection.release(nodeId, held.epoch());
-                localLease.compareAndSet(held, null);
+                failure = cleanup(failure, () -> leaseElection.release(nodeId, held.epoch()));
             }
-            unregisterFromRegistry(nodeId);
+            failure = cleanup(failure, () -> unregisterFromRegistry(nodeId));
         }
-        role.set(Role.STOPPED);
-        ownership.clear();
+        failure = cleanup(failure, ownership::clear);
         CoordinatorExecutionAuthority authority = processAuthority;
         if (authority != null) {
-            authority.unbindQueryOwnership(ownership);
+            failure = cleanup(failure, () -> authority.unbindQueryOwnership(ownership));
         }
         localIncarnation.set(null);
         LOG.info("event=ha_service_closed epoch={}", epoch.get());
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
+    }
+
+    private static Throwable cleanup(Throwable primary, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException | Error failure) {
+            if (primary == null) return failure;
+            if (failure != primary) primary.addSuppressed(failure);
+        }
+        return primary;
     }
 
     private void notifyFailover(String newLeaderId) {
         Consumer<String> callback = failoverCallback.get();
-        if (callback != null) {
-            try {
-                callback.accept(newLeaderId);
-            } catch (Exception e) {
-                LOG.error("event=failover_callback_error newLeader={} error={}",
-                        newLeaderId, e.getMessage(), e);
-            }
-        }
+        if (callback != null) callback.accept(newLeaderId);
     }
 
     private void notifyDemotion() {
         Runnable callback = demotionCallback.get();
-        if (callback != null) {
-            try {
-                callback.run();
-            } catch (Exception e) {
-                LOG.error("event=demotion_callback_error error={}", e.getMessage(), e);
-            }
-        }
+        if (callback != null) callback.run();
     }
 
     /**

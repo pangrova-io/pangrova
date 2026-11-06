@@ -3,13 +3,13 @@ package org.pangrova.coordinator.query.execution.dispatch.task;
 import java.util.List;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
+import org.pangrova.query.core.statement.StatementTableTargets;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.types.value.TypedRow;
 
 /**
  * Executes ALTER TABLE by delegating to {@link DdlExecutor#executeAlterTable}.
@@ -26,7 +26,7 @@ public final class AlterTableTask implements MetadataTask<AlterTableStatement> {
     public StatementResult execute(AlterTableStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeAlterTable(
                 statement, context.session());
-        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
+        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
     }
 

@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.coordination.api.lease.LeaseEntry;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.RetryOneTime;
@@ -160,7 +160,7 @@ class ZooKeeperDistributedLeaseTest {
         // the ZooKeeper backend.
         try (ZooKeeperLeaseProvider provider =
                      new ZooKeeperLeaseProvider("127.0.0.1:" + port, "/pangrova/provider-leases")) {
-            org.pangrova.persistence.api.coordination.DistributedLease l = provider.lease();
+            org.pangrova.persistence.coordination.api.lease.DistributedLease l = provider.lease();
             assertThat(l.tryAcquire("k", "A", Duration.ofSeconds(30))).isPresent();
             assertThat(l.tryAcquire("k", "B", Duration.ofSeconds(30)))
                     .as("provider lease enforces mutual exclusion").isEmpty();

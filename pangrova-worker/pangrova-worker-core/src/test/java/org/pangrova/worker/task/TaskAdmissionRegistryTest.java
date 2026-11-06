@@ -255,4 +255,21 @@ class TaskAdmissionRegistryTest {
         @Override public Instant instant() { return Instant.ofEpochMilli(millis()); }
         @Override public long millis() { return time.get(); }
     }
+    @Test
+    void membershipFenceClosesReservationAndPendingPublicationWithoutClaimingDrain() {
+        var registry = new TaskAdmissionRegistry(4, NOW);
+        var request = request("fenced-task", 2000);
+        var pending = registry.reserve(request, "worker-task");
+        registry.closeAdmissions();
+        registry.closeAdmissions();
+        var published = new java.util.concurrent.atomic.AtomicBoolean();
+        assertThatThrownBy(() -> registry.reserve(request("new-task", 2000), "new-worker-task"))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("closed");
+        assertThatThrownBy(() -> pending.publish(() -> published.set(true)))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("closed");
+        assertThat(published).isFalse();
+        pending.rejectedBeforeOwnership(new IllegalStateException("membership fenced"));
+        registry.sealAndAwaitAdmissions();
+    }
+
 }

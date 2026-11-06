@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.generation.protocol.GenerationStageGraphCodec;
+import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 
 import com.google.protobuf.Any;
 import io.substrait.proto.ExchangeRel;
@@ -14,10 +14,10 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelRoot;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.generation.template.FrozenStageBindings;
-import org.pangrova.spi.generation.execution.GenerationStageGraph;
-import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
-import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.generation.core.execution.template.FrozenStageBindings;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
+import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
+import org.pangrova.generation.api.execution.GenerationPageKind;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.BatchSerde;

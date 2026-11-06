@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>The AI function provider lives in {@code pangrova-ai-worker}, while the registration
  * bootstraps belong to {@code pangrova-worker}; only this deployment assembly sees both.
  */
+@Tag("native-required")
 @Tag("native-runtime-owner")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class NativeAiFailureProjectionRegistrationTest {

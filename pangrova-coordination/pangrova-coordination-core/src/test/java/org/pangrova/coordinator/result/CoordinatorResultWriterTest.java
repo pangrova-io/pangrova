@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.result;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -35,6 +35,22 @@ class CoordinatorResultWriterTest {
     @AfterEach
     void tearDown() {
         allocator.close();
+    }
+
+    @Test
+    void binarySnapshotsSurviveArrowSerializationAfterCallerMutation() throws Exception {
+        byte[] source = {(byte) 0xff, 0, (byte) 0x80};
+        var row = TypedRow.builder().putRaw("payload", source).build();
+        source[0] = 7;
+        ((byte[]) row.getRaw("payload"))[1] = 7;
+
+        byte[] ipc = writer.serializeTypedRows(List.of(row), List.of("payload"));
+
+        try (ArrowStreamReader reader = newReader(ipc)) {
+            assertThat(reader.loadNextBatch()).isTrue();
+            assertThat((byte[]) reader.getVectorSchemaRoot().getVector("payload").getObject(0))
+                    .containsExactly((byte) 0xff, (byte) 0, (byte) 0x80);
+        }
     }
 
     @Test

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
+import org.pangrova.query.core.task.StageDispatchRecord;
+
 import io.substrait.proto.Plan;
 import io.substrait.proto.ReadRel;
 import io.substrait.proto.Rel;
@@ -7,19 +9,19 @@ import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.stage.QueryExecutionScope;
+import org.pangrova.execution.core.authority.StageExecutionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.planner.SerializedPlanFragment;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.cost.distribution.PangrovaDistribution;
-import org.pangrova.planner.cost.distribution.PangrovaExchange;
-import org.pangrova.planner.PlannedQuery;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.cost.distribution.PangrovaDistribution;
+import org.pangrova.planner.core.cost.distribution.PangrovaExchange;
+import org.pangrova.planner.core.analysis.PlannedQuery;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;
@@ -39,11 +41,12 @@ class DAGStageExchangeBindingTest {
     })
     void liveExchangeUsesActualProducerSchemaInsteadOfPresentationNames(String sql) throws Exception {
         var fixture = fixture(sql);
-        var prepared = fixture.state().serializePlan(fixture.producer(), fixture.context());
+        var prepared = fixture.state().serializePlan(fixture.producer(), fixture.context().preOptColumnNames());
         recordDispatchedProducer(fixture, prepared.planBytes());
         var source = Plan.parseFrom(prepared.planBytes()).getRelations(0).getRoot();
         var expected = SubstraitRelationLayout.describe(source.getInput()).outputSchema();
-        var output = Plan.parseFrom(fixture.state().serializePlan(fixture.consumer(), fixture.context()).planBytes())
+        var output = Plan.parseFrom(fixture.state().serializePlan(
+                fixture.consumer(), fixture.context().preOptColumnNames()).planBytes())
                 .getRelations(0).getRoot();
         var input = output.getInput().getExtensionLeaf().getDetail()
                 .unpack(RelationDetailEnvelope.class).getExchangeInput();
@@ -56,7 +59,8 @@ class DAGStageExchangeBindingTest {
     @Test
     void refusesToSerializeConsumerBeforeItsProducerIsPrepared() {
         var fixture = fixture("SELECT 2 AS x");
-        assertThatThrownBy(() -> fixture.state().serializePlan(fixture.consumer(), fixture.context()))
+        assertThatThrownBy(() -> fixture.state().serializePlan(
+                fixture.consumer(), fixture.context().preOptColumnNames()))
                 .hasMessageContaining("no dispatched producer plan");
     }
 
@@ -65,7 +69,8 @@ class DAGStageExchangeBindingTest {
         var fixture = fixture("SELECT 2 AS x");
         var bound = boundProducer(fixture, false);
         recordDispatchedProducer(fixture, bound.planBytes());
-        var output = Plan.parseFrom(fixture.state().serializePlan(fixture.consumer(), fixture.context()).planBytes())
+        var output = Plan.parseFrom(fixture.state().serializePlan(
+                fixture.consumer(), fixture.context().preOptColumnNames()).planBytes())
                 .getRelations(0).getRoot();
         var input = output.getInput().getExtensionLeaf().getDetail()
                 .unpack(RelationDetailEnvelope.class).getExchangeInput();
@@ -78,7 +83,8 @@ class DAGStageExchangeBindingTest {
         var fixture = fixture("SELECT 2 AS x");
         var bound = boundProducer(fixture, true);
         recordDispatchedProducer(fixture, bound.planBytes());
-        assertThatThrownBy(() -> fixture.state().serializePlan(fixture.consumer(), fixture.context()))
+        assertThatThrownBy(() -> fixture.state().serializePlan(
+                fixture.consumer(), fixture.context().preOptColumnNames()))
                 .hasMessageContaining("input type differs from producer");
     }
 
@@ -86,13 +92,12 @@ class DAGStageExchangeBindingTest {
         var request = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
                 "producer-task", "live-wire-query", fixture.producer().stageId(), 0,
                 org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, plan);
-        fixture.state().dispatched().add(new org.pangrova.coordinator.query.execution.dispatch.dag
-                .DAGDispatchEngine.StageDispatchRecord(fixture.producer().stageId(), null, 0, 0,
+        fixture.state().dispatched().add(new StageDispatchRecord(fixture.producer().stageId(), null, 0, 0,
                         request));
     }
 
     private static SerializedPlanFragment boundProducer(Fixture fixture, boolean changeType) throws Exception {
-        var serialized = fixture.state().serializePlan(fixture.producer(), fixture.context());
+        var serialized = fixture.state().serializePlan(fixture.producer(), fixture.context().preOptColumnNames());
         var plan = Plan.parseFrom(serialized.planBytes());
         var root = plan.getRelations(0).getRoot();
         var schema = SubstraitRelationLayout.describe(root.getInput()).outputSchema().toBuilder()
@@ -120,13 +125,13 @@ class DAGStageExchangeBindingTest {
         var edge = dag.stageEdges().get(0);
         var producer = dag.findStageNode(edge.upstreamStageId());
         var consumer = dag.findStageNode(edge.downstreamStageId());
-        var session = new CoordinatorSessionContext("live-wire-query", Map.of(),
-                new UserIdentity("owner", Set.of(), Map.of(), Instant.EPOCH), "tenant-a");
+        var session = new QuerySession("live-wire-query", Map.of(),
+                new UserIdentity("owner", Set.of(), Map.of(), Instant.EPOCH), "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
                 compiler, null, null, ignored -> { });
-        var context = DAGQueryContext.readOnly(session);
+        var context = QueryExecutionScope.readOnly(session);
         return new Fixture(state, context, producer, consumer);
     }
 
-    private record Fixture(DAGExecutionState state, DAGQueryContext context, StageNode producer, StageNode consumer) {}
+    private record Fixture(DAGExecutionState state, QueryExecutionScope context, StageNode producer, StageNode consumer) {}
 }

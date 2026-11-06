@@ -7,31 +7,27 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.table.control.TableControlSettings;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.statement.ShowTableControlsStatement;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.table.core.config.TableControlSettings;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.statement.ShowTableControlsStatement;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +39,7 @@ import static org.pangrova.coordinator.query.statement.StatementTestSessions.con
 
 class ShowTableControlsTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
     private TestMetadata metadata;
     private CatalogRegistry registry;
     private ShowDescribeExecutor executor;
@@ -55,7 +51,7 @@ class ShowTableControlsTest {
         metadata.create("default", "events", "uuid-events");
         ConnectorHandleFactory factory = descriptor ->
                 new ConnectorCatalogHandle(descriptor, new TestConnector(metadata));
-        registry = new CatalogRegistry(new EmptyMetadataStore(), factory, null, null);
+        registry = new CatalogRegistry(new EmptyCatalogDeployments(), factory, null, null);
         registry.register(new CatalogDescriptor(
                 "test_cat", CatalogType.CONNECTOR, "test",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -247,19 +243,19 @@ class ShowTableControlsTest {
 
     private record Handle(String key) implements ConnectorTableHandle { }
 
-    private static final class EmptyMetadataStore implements MetadataStore {
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
-        @Override public void saveTable(TableMetadata m) { }
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) { }
-        @Override public java.util.List<QualifiedTableRef> searchTables(String p) { return java.util.List.of(); }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.ofNullable(descriptors.get(n)); }
         @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public java.util.List<CatalogDescriptor> listAllCatalogDescriptors() { return java.util.List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) { }
-        @Override public void recordSyncHistory(SyncResult r) { }
-        @Override public void saveSchemas(String c, java.util.List<String> s) { }
+
     }
 }

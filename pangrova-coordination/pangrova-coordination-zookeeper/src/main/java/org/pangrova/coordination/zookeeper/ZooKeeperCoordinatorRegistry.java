@@ -13,9 +13,9 @@
  */
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
-import org.pangrova.spi.coordination.CoordinatorRole;
-import org.pangrova.spi.coordination.CoordinatorSnapshot;
+import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
+import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
@@ -42,8 +42,9 @@ import java.util.function.UnaryOperator;
  * each other. Staleness mirrors {@code JdbcCoordinatorRegistry}: a coordinator is active while
  * {@code now - lastHeartbeatMs < threshold}.</p>
  *
- * <p>All operations are fail-safe: ZooKeeper errors are logged and yield empty/no-op results rather
- * than propagating. The supplied {@link CuratorFramework} must already be started.</p>
+ * <p>Backend/payload failures and exhausted mutation contention propagate. Only explicit missing
+ * records are absence/no-op; an incomplete listing is never returned as a complete topology.
+ * The supplied client must already be started and remains owned by its caller.</p>
  */
 public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
 
@@ -77,6 +78,7 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
         } catch (Exception e) {
             LOG.error("event=coordinator_register_error coordinatorId={} error={}",
                     coordinator.coordinatorId(), e.toString(), e);
+            throw ZooKeeperFailures.storageFailure("register", coordinator.coordinatorId(), e);
         }
     }
 
@@ -113,6 +115,7 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
         } catch (Exception e) {
             LOG.error("event=coordinator_unregister_error coordinatorId={} error={}",
                     coordinatorId, e.toString(), e);
+            throw ZooKeeperFailures.storageFailure("unregister", coordinatorId, e);
         }
     }
 
@@ -151,7 +154,7 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
         } catch (Exception e) {
             LOG.error("event=coordinator_lookup_error coordinatorId={} error={}",
                     coordinatorId, e.toString(), e);
-            return Optional.empty();
+            throw ZooKeeperFailures.storageFailure("lookup", coordinatorId, e);
         }
     }
 
@@ -168,9 +171,10 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
                 }
             }
         } catch (KeeperException.NoNodeException noBase) {
-            return 0;
+            throw ZooKeeperFailures.storageFailure("missing registry root", basePath, noBase);
         } catch (Exception e) {
             LOG.error("event=coordinator_expire_stale_error error={}", e.toString(), e);
+            throw ZooKeeperFailures.storageFailure("expire", basePath, e);
         }
         if (removed > 0) {
             LOG.info("event=coordinator_stale_expired count={}", removed);
@@ -220,11 +224,11 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
             } catch (Exception e) {
                 LOG.error("event=coordinator_mutate_error coordinatorId={} error={}",
                         coordinatorId, e.toString(), e);
-                return;
+                throw ZooKeeperFailures.storageFailure("mutate", coordinatorId, e);
             }
         }
-        LOG.warn("event=coordinator_mutate_contended coordinatorId={} attempts={}",
-                coordinatorId, MAX_CAS_RETRIES);
+        throw ZooKeeperFailures.storageFailure("mutate contention exhausted", coordinatorId,
+                new java.util.ConcurrentModificationException("CAS attempts=" + MAX_CAS_RETRIES));
     }
 
     private List<CoordinatorSnapshot> readAll() {
@@ -238,9 +242,10 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
                 }
             }
         } catch (KeeperException.NoNodeException noBase) {
-            return List.of();
+            throw ZooKeeperFailures.storageFailure("missing registry root", basePath, noBase);
         } catch (Exception e) {
             LOG.error("event=coordinator_read_all_error error={}", e.toString(), e);
+            throw ZooKeeperFailures.storageFailure("list", basePath, e);
         }
         return all;
     }
@@ -253,7 +258,7 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
         } catch (KeeperException.NodeExistsException concurrent) {
             // created concurrently
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to initialize coordinator registry base " + basePath, e);
+            throw ZooKeeperFailures.storageFailure("initialize registry", basePath, e);
         }
     }
 

@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.coordinator.query.admission.QueryRejectedException;
 
 import java.time.Duration;
@@ -8,12 +12,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.spi.query.state.JournalEventContext;
-import org.pangrova.spi.connector.coordination.JournalWriteException;
-import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.persistence.query.api.commit.JournalWriteException;
+import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,8 +29,8 @@ class QueryManagerJournalTest {
         try (var store = new QueryTerminalJournalFixture()) {
             String queryId = "q-\"\\\n";
             String tenant = "tenant-\"\\\n\r\t";
-            var session = new org.pangrova.coordinator.query.session.CoordinatorSessionContext(
-                    queryId, java.util.Map.of("exact_planning_setting", "unchanged"), null, tenant);
+            var session = new org.pangrova.query.api.session.QuerySession(
+                    queryId, java.util.Map.of("exact_planning_setting", "unchanged"), null, tenant, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
             var owner = new QueryJournalLifecycle(store.journal());
             owner.setOwner("session-issuer");
             var state = new QueryStateMachine();
@@ -94,7 +98,7 @@ class QueryManagerJournalTest {
     @Test void duplicateTerminalQueryIdPreservesRegisteredStateAndJournal() throws Exception {
         try (var fixture = new QueryManagerJournalFixture(2)) {
             var registered = new QueryStateMachine();
-            registered.tryTransition(QueryStateMachine.State.FAILED);
+            registered.tryTransition(QueryState.FAILED);
             fixture.manager.registerStateMachine("shared-id", registered);
             assertThatThrownBy(() -> fixture.manager.submitQuery("shared-id", "SELECT 2", SourceFreeQueryFixture.session("shared-id")))
                     .isInstanceOf(QueryRejectedException.class).hasMessageContaining("already registered");
@@ -150,7 +154,7 @@ class QueryManagerJournalTest {
     @Test void onTaskFailedJournalsFailedSync() throws Exception {
         try (var fixture = new QueryManagerJournalFixture(2)) {
             fixture.running("q-3");
-            fixture.manager.onTaskFailed("q-3", new ErrorDetail("ERR", "test error", null));
+            fixture.manager.onTaskFailed("q-3", new QueryFailure("ERR", "test error", null));
             var terminal = fixture.store.committedEvents("q-3").stream().filter(event -> event.state().equals("FAILED")).toList();
             assertThat(terminal).hasSize(1);
             assertThat(terminal.get(0).queryId()).isEqualTo("q-3");

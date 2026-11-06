@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -15,22 +17,22 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.throttle.QueryThrottlingService;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.throttle.QueryThrottlingService;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -46,7 +48,7 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
     private final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
     private SourceFreeNativeWorkerFixture worker;
     private RemoteTaskDispatcher transport;
-    private org.pangrova.coordinator.task.QueryIssuanceOperation operation;
+    private org.pangrova.query.api.lifecycle.QueryOperation operation;
     QueryManager manager;
     ResultEndpoint endpoint;
 
@@ -68,11 +70,11 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
         transport.setExecutionOwnerResolver(ignored -> new ExecutionOwnerIdentity("terminal-coordinator",
                 "terminal-coordinator-incarnation", 1L));
         var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, transport,
-                new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker, null, null, null, 30L);
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker, null, null, null, 30L);
         var dispatcher = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
         manager = new QueryManager(new QueryManagerContext(dispatcher, TestObservability.TRACING,
                 null, null, null, null, audit, null, null, throttle, store.journal(),
-                null, null, AsyncSubmitConfig.defaultEnabled(), submissions), clock::get);
+                null, null, AsyncSubmitConfig.defaultEnabled(), submissions, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()), clock::get);
         worker.connect(dispatcher, tracker, workers, manager);
         tracker.openQueryIssuance(queryId);
         operation = tracker.enterQueryOperation(queryId);
@@ -86,14 +88,14 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
     void submitNativeFailure(String sql) {
         try { submit(sql); }
         catch (RuntimeException failure) {
-            assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FAILED);
+            assertThat(manager.getQueryState(queryId)).contains(QueryState.FAILED);
             endpoint = manager.getStateMachine(queryId).getResultEndpoint().orElse(null);
         }
     }
 
     void consume() { worker.consume(java.util.Objects.requireNonNull(endpoint)); }
 
-    void awaitLogicalTerminal(QueryStateMachine.State state) {
+    void awaitLogicalTerminal(QueryState state) {
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30))
                 .untilAsserted(() -> assertThat(manager.getQueryState(queryId)).contains(state));
     }

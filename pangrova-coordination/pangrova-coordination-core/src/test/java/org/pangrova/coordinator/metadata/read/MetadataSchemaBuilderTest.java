@@ -3,10 +3,10 @@ package org.pangrova.coordinator.metadata.read;
 import org.pangrova.coordinator.metadata.MetadataPlanningTestSessions;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.ResolvedTable;
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.api.schema.SchemaChange;
+import org.pangrova.metadata.api.resolution.MetadataService;
+import org.pangrova.metadata.api.resolution.ResolvedTable;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.junit.jupiter.api.Test;
 
@@ -103,10 +103,10 @@ class MetadataSchemaBuilderTest {
 
         /** Intentional no-op: test only exercises listCatalogs/listSchemas. */
         @Override
-        public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) { }
+        public void beginQuery(org.pangrova.metadata.api.session.MetadataSessionContext context) { }
 
         /** Intentional no-op: test only exercises listCatalogs/listSchemas. */
         @Override
-        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
+        public void cleanupQuery(org.pangrova.connector.api.query.ConnectorQueryAuthority authority) { }
     }
 }

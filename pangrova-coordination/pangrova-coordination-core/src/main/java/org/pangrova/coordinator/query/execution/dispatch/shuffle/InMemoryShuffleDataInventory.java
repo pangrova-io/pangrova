@@ -6,16 +6,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.common.api.annotation.ThreadSafe;
 import org.pangrova.shuffle.api.ShuffleDataInventory;
+import org.pangrova.shuffle.api.DecommissionAssessment;
 import org.pangrova.shuffle.api.ShuffleDataRef;
 
 /**
- * In-memory implementation of {@link ShuffleDataInventory} for the coordinator (G-RES-08).
- *
- * <p>Tracks committed shuffle data references in a ConcurrentHashMap, keyed by a composite
- * of (queryId, stageId, workerId). The coordinator populates this inventory as stages commit
- * shuffle data and cleans it up when queries complete.
- *
- * <p>Thread-safe: all mutation goes through ConcurrentHashMap atomic operations.
+ * Diagnostic references supplied manually, not a production-complete Worker residency view.
+ * The current key has no worker incarnation or exchange generation and no admission fence.
+ * Consequently this implementation cannot authorize decommission, even when its map is empty.
+ * It must be replaced by an authoritative view when production removal is wired.
  */
 @ThreadSafe
 public final class InMemoryShuffleDataInventory implements ShuffleDataInventory {
@@ -26,6 +24,12 @@ public final class InMemoryShuffleDataInventory implements ShuffleDataInventory 
     private record RefKey(String queryId, int stageId, String workerId) {}
 
     private final ConcurrentHashMap<RefKey, ShuffleDataRef> refs = new ConcurrentHashMap<>();
+
+    @Override
+    public DecommissionAssessment assessDecommission(String workerId) {
+        if (workerId == null || workerId.isBlank()) throw new IllegalArgumentException("workerId must not be blank");
+        return DecommissionAssessment.UNKNOWN;
+    }
 
     @Override
     public List<ShuffleDataRef> getLiveDataOnWorker(String workerId) {

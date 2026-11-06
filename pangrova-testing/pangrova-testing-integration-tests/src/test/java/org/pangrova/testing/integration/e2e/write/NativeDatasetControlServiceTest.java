@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.write;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
-import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 
 import com.google.protobuf.Any;
 import org.junit.jupiter.api.Test;
@@ -115,7 +115,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
             var control = fixture.control();
             tasks.requireControlEpochHandshake();
             tasks.observeControlEpoch(2);
-            var anchors = new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore(stateStoreDataSource());
+            var anchors = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(stateStoreDataSource());
             String execution = "control-recovery-" + java.util.UUID.randomUUID();
             var previous = anchors.tryAcquire(execution, "control-original", java.util.UUID.randomUUID().toString(),
                     java.time.Duration.ofSeconds(60)).orElseThrow();
@@ -171,7 +171,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
                         .setSha256(ProtocolChecksums.sha256(metadata))).build();
     }
 
-    private static ExecutionOwnerIdentity owner(org.pangrova.spi.query.coordination.ExecutionAnchor anchor) {
+    private static ExecutionOwnerIdentity owner(org.pangrova.query.api.ownership.ExecutionAnchor anchor) {
         return ExecutionOwnerIdentity.newBuilder().setOwnerId(anchor.ownerId()).setOwnerIncarnation(anchor.ownerIncarnation())
                 .setFencingToken(anchor.fencingToken()).build();
     }

@@ -1,0 +1,36 @@
+[
+  {
+    "report": "pangrova-persistence/pangrova-persistence-table-postgresql/target/spotbugsXml.xml",
+    "sha256": "c343b3e42b59ae3623c63bb513a82bebab25821bc656fec5c948ced4aee04ab0",
+    "findings": [
+      {
+        "type": "EI_EXPOSE_REP2",
+        "priority": "2",
+        "class": "org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore",
+        "message": "new org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore(DataSource) may expose internal representation by storing an externally mutable object into JdbcTableControlStore.dataSource"
+      },
+      {
+        "type": "EI_EXPOSE_REP2",
+        "priority": "2",
+        "class": "org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore",
+        "message": "new org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore(DataSource) may expose internal representation by storing an externally mutable object into JdbcTableControlGovernanceBindingStore.dataSource"
+      },
+      {
+        "type": "EI_EXPOSE_REP2",
+        "priority": "2",
+        "class": "org.pangrova.persistence.table.postgresql.maintenance.JdbcTableControlMaintenanceStore",
+        "message": "new org.pangrova.persistence.table.postgresql.maintenance.JdbcTableControlMaintenanceStore(DataSource) may expose internal representation by storing an externally mutable object into JdbcTableControlMaintenanceStore.dataSource"
+      }
+    ],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "makeConcatWithConstants"
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-table-postgresql/target/checkstyle-result.xml",
+    "sha256": "4ffd8aa5a0baf5cd01e6081edfed43066117fe8b56233ac165ff883b4e1db922",
+    "diagnostics": []
+  }
+]

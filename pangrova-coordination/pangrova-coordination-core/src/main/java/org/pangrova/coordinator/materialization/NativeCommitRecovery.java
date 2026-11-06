@@ -15,7 +15,7 @@ import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.port.CommitRecovery;
 import org.pangrova.materialization.port.PhysicalGenerationStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.CommitEvidence;
 
 /**
  * Authoritative Native commit recovery for unsettled materialization attempts.

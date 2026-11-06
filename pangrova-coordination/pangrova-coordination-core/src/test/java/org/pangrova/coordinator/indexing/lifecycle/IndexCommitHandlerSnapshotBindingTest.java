@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
 import org.pangrova.indexing.build.IndexBuildResult;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -140,9 +140,9 @@ class IndexCommitHandlerSnapshotBindingTest {
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
                 Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
-        @Override public org.pangrova.indexing.store.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.indexing.store.IndexPublicationRequest request) { throw new AssertionError(); }
-        @Override public Optional<org.pangrova.indexing.store.IndexGenerationManifest>
+        @Override public org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(

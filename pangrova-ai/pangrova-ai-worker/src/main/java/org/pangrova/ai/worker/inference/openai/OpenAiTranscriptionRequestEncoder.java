@@ -1,10 +1,10 @@
 package org.pangrova.ai.worker.inference.openai;
 
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.embedding.BlobReference;
-import org.pangrova.spi.ai.invocation.ContentPart;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.invocation.MultimodalPrompt;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.embedding.BlobReference;
+import org.pangrova.ai.api.invocation.ContentPart;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.api.invocation.MultimodalPrompt;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;

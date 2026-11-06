@@ -13,12 +13,12 @@
  */
 package org.pangrova.coordinator.query.execution.security;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
 
 /**
  * Compiles SQL to a planned query and applies security policies (access control,
@@ -72,7 +72,7 @@ public class SecurityPolicyApplier {
      * 2. Column masking
      * 3. Row-level filtering
      */
-    public PlannedQuery compileAndApplyPolicies(String sql, CoordinatorSessionContext session) {
+    public PlannedQuery compileAndApplyPolicies(String sql, QuerySession session) {
         return compileAndApplyPolicies(sql, session, compilerHolder.compiler());
     }
 
@@ -87,14 +87,14 @@ public class SecurityPolicyApplier {
      * 3. Row-level filtering</p>
      */
     public PlannedQuery applyPolicies(PlannedQuery plannedQuery,
-                                      CoordinatorSessionContext session) {
+                                      QuerySession session) {
         return applyPoliciesObserved(plannedQuery, session).plan();
     }
 
     /** Applies the same authority while retaining the exact policy values consumed. */
-    public ObservedPlan applyPoliciesObserved(PlannedQuery plan, CoordinatorSessionContext session) {
+    public ObservedPlan applyPoliciesObserved(PlannedQuery plan, QuerySession session) {
         if (accessControlEnforcer == null || columnMaskApplier == null || rowFilterApplier == null) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "Protected compilation requires complete authorization and policy enforcement");
         }
         var physicalToLogical = plan.physicalToLogicalDynamicTables();
@@ -112,7 +112,7 @@ public class SecurityPolicyApplier {
     /** One protected plan and observations from exactly that policy application. */
     public record ObservedPlan(PlannedQuery plan,
             java.util.Map<String,
-                    org.pangrova.spi.security.authz.DeferredAuthorizationScope.PolicySnapshot> policies) {
+                    org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot> policies) {
         public ObservedPlan {
             policies = java.util.Map.copyOf(policies);
         }
@@ -123,7 +123,7 @@ public class SecurityPolicyApplier {
      * all security policies. Use this overload when a consistent compiler reference
      * must be shared across compile and serialize phases.
      */
-    public PlannedQuery compileAndApplyPolicies(String sql, CoordinatorSessionContext session,
+    public PlannedQuery compileAndApplyPolicies(String sql, QuerySession session,
                                                 SqlCompiler compilerSnapshot) {
         SqlCompiler compiler = compilerSnapshot.forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
@@ -144,7 +144,7 @@ public class SecurityPolicyApplier {
      * @param timeTravel whether the inner statement requested a historical snapshot
      * @return optimized plan and rewrite decision
      */
-    public ExplainCompilation compileForExplain(String sql, CoordinatorSessionContext session,
+    public ExplainCompilation compileForExplain(String sql, QuerySession session,
             boolean timeTravel) {
         SqlCompiler compiler = compilerHolder.compiler().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
@@ -152,16 +152,16 @@ public class SecurityPolicyApplier {
         ObservedPlan observed = applyPoliciesObserved(query, session);
         boolean allowRewrite = !timeTravel && observed.policies().isEmpty();
         PlannedQuery optimized = compiler.optimizeProtectedQuery(observed.plan(), allowRewrite);
-        org.pangrova.planner.mv.MaterializedViewRewriteDecision decision = allowRewrite
+        org.pangrova.planner.core.mv.MaterializedViewRewriteDecision decision = allowRewrite
                 ? compiler.lastMaterializedViewRewrite()
-                : org.pangrova.planner.mv.MaterializedViewRewriteDecision.skipped(
+                : org.pangrova.planner.core.mv.MaterializedViewRewriteDecision.skipped(
                         timeTravel ? "time_travel" : "policies_applied");
         return new ExplainCompilation(optimized, decision);
     }
 
     /** An EXPLAIN compilation and the rewrite decision that produced it. */
     public record ExplainCompilation(PlannedQuery plan,
-            org.pangrova.planner.mv.MaterializedViewRewriteDecision rewrite) {
+            org.pangrova.planner.core.mv.MaterializedViewRewriteDecision rewrite) {
         public ExplainCompilation {
             if (plan == null || rewrite == null) {
                 throw new IllegalArgumentException("plan and rewrite decision must not be null");

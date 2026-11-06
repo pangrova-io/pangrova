@@ -1,20 +1,23 @@
 package org.pangrova.coordinator.speculation;
 
-import org.pangrova.scheduler.speculation.SpeculationConfig;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.speculation.StragglerDetector;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.scheduler.core.speculation.SpeculationConfig;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.core.speculation.StragglerDetector;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.scheduler.SpeculationAdapters;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.TaskDuration;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 
 import java.time.Instant;
 import java.util.List;
@@ -31,7 +34,7 @@ class SpeculativeExecutionAlgorithmTest {
         registerDurationInput(tracker, "t1");
         var launcher = new SpeculativeTaskLauncher();
         var handler = new SpeculativeStageHandler(SpeculationConfig.DISABLED,
-                new StragglerDetector(), launcher, SpeculationAdapters.taskRegistry(tracker));
+                new StragglerDetector(), launcher, new CoordinatorSpeculativeTaskRegistry(tracker));
 
         handler.evaluateStragglers("duration-query", "1");
 
@@ -66,11 +69,11 @@ class SpeculativeExecutionAlgorithmTest {
         try (var dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider())) {
             var launcher = new SpeculativeTaskLauncher();
             launcher.setDispatchDependencies(
-                    SpeculationAdapters.dispatcher(dispatcher),
-                    SpeculationAdapters.workerInventory(workers),
-                    SpeculationAdapters.taskRegistry(tracker));
+                    new CoordinatorSpeculativeAttemptDispatcher(dispatcher),
+                    new CoordinatorSpeculativeWorkerInventory(workers),
+                    new CoordinatorSpeculativeTaskRegistry(tracker));
             var retrier = new TaskCancelRetrier(dispatcher, tracker);
-            launcher.setCancelRetrier(SpeculationAdapters.canceller(retrier));
+            launcher.setCancelRetrier(new CoordinatorSpeculativeAttemptCanceller(retrier));
 
             assertThat(launcher.launchSpeculative("to", "unissued-worker", "duration-query")).isNull();
             assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
@@ -106,7 +109,7 @@ class SpeculativeExecutionAlgorithmTest {
         };
         var handler = new SpeculativeStageHandler(new SpeculationConfig(true,
                 SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS),
-                detector, launcher, SpeculationAdapters.taskRegistry(tracker));
+                detector, launcher, new CoordinatorSpeculativeTaskRegistry(tracker));
 
         handler.evaluateStragglers("duration-query", "1");
 

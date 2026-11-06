@@ -2,12 +2,12 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.parser.ast.statement.AutoEmbeddingColumnSpec;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.type.BaseType;
-import org.pangrova.parser.ast.type.DataTypeSpec;
+import org.pangrova.parser.api.ast.statement.AutoEmbeddingColumnSpec;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.type.BaseType;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
@@ -71,7 +71,7 @@ final class GeneratedColumnDefinitionCompiler {
             throw validation(
                     "auto-embedding target '" + column.name() + "' must have VECTOR type");
         }
-        if (vector.elementType() != org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT) {
+        if (vector.elementType() != org.pangrova.types.VectorType.ElementType.FLOAT) {
             throw validation("auto-embedding target '" + column.name() + "' must have FLOAT32 VECTOR storage");
         }
         if (column.defaultValue().isPresent()) {

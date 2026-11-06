@@ -1,5 +1,6 @@
 package org.pangrova.testing.property;
 
+
 import org.pangrova.testing.testkit.TestProjectPaths;
 
 import net.jqwik.api.Arbitraries;
@@ -33,8 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * contract modules (the {@code -api}/{@code -spi} artifacts declared in
  * {@code .pangrova/modules.yaml}, plus {@code pangrova-protocol}).</p>
  *
- * <p>Internal state machines (QueryStateMachine.State, worker.task.state.TaskState,
- * TaskStateMachine.State, StageStateMachine.State) are allowed as module-internal
+ * <p>Internal task state machines (worker.task.state.TaskState,
+ * TaskStateMachine.State) are allowed as module-internal
  * representations, provided they do not duplicate the SPI enum name in a different
  * stable upstream module.</p>
  *
@@ -49,7 +50,10 @@ class StateEnumUniquenessPropertyTest {
      * in stable upstream contract modules.
      */
     private static final Set<String> SPI_AUTHORITATIVE_ENUMS = Set.of(
+            "TableControlState", "MaintenanceRunState", "IndexState",
             "QueryState",
+            "StatementCategory", // Shared Query API observation; not a second query lifecycle.
+            "StageState",
             "SnapshotState",
             "TransportStatus",
             "GenerationJobState"
@@ -67,50 +71,44 @@ class StateEnumUniquenessPropertyTest {
      * than the SPI enums and have proper mapping layers.
      */
     private static final Set<String> KNOWN_INTERNAL_STATE_ENUMS = Set.of(
-            "pangrova-coordination-core:QueryStateMachine.State",
             "pangrova-streaming:ConnectorPageSinkCdcWriter.PublicationState",
             "pangrova-coordination-core:TaskStateMachine.State",
-            "pangrova-coordination-core:StageStateMachine.State",
-            "pangrova-scheduler:HealthState",
+            "pangrova-scheduler-api:HealthState",
             "pangrova-worker-core:TaskState",
             // One-shot local assembly admission/cleanup phases, not distributed Worker health or task state.
             "pangrova-worker-core:WorkerBootstrapLifecycle.State",
             "pangrova-worker-core:ExchangeClient.State",
             "pangrova-worker-core:RemoteShuffleProducerStream.State",
             "pangrova-operations:DdlJob.DdlJobState",
-            "pangrova-metadata:CatalogState",
-            "pangrova-table:TableControlState",  // LINKED/MANAGED control-plane lifecycle
-            "pangrova-table:MaintenanceRunState",  // control-plane maintenance run lifecycle
+            "pangrova-metadata-core:CatalogState",
             "pangrova-streaming:CdcStreamState",
             "pangrova-streaming:WatermarkState",
-            "pangrova-spi:TenantStatus",
+            "pangrova-security-api:TenantStatus",
             "pangrova-coordination-core:CircuitBreaker.State",
             "pangrova-coordination-core:SplitRetryManager.SplitState",
-            "pangrova-spi:HealthCheckResult.HealthStatus",
+            "pangrova-connector-api:HealthCheckResult.HealthStatus",
             "pangrova-protocol:TaskStatus.TaskState",
-            "pangrova-spi:StatusCode",
-            "pangrova-planner:ValidationStatus",
+            "pangrova-observability-api:StatusCode",  // trace outcome, not query/task lifecycle
+            "pangrova-planner-core:ValidationStatus",
             "pangrova-coordination-core:SchedulerCancelResult.Status",
-            "pangrova-spi:AuthenticatorHealthStatus",
+            "pangrova-security-api:AuthenticatorHealthStatus",
             "pangrova-worker-core:TaskCancelResult.Status",
             "pangrova-streaming:StreamLifecycleState",
             "pangrova-semantic:SemanticViewValidationState",
             "pangrova-ai-control:EvaluationRunState",
-            "pangrova-spi:ClusteringState",
-            "pangrova-spi:IndexState",
+            "pangrova-connector-api:ClusteringState",
             "pangrova-common:StateStoreType",  // moved from pangrova-config in cbe99e06 module merge
             "pangrova-config:StateStoreType",  // legacy copy retained for StateStoreFactory/CoordinatorOptions
             "pangrova-streaming:CdcRegistration.CdcStreamState",
-            "pangrova-coordination-core:StatementCategory",
             "pangrova-coordination-core:ReclusterJob.State",  // data recluster lifecycle
-            "pangrova-parser:StatementType",  // false positive — discriminator enum, "StatementType" contains "State" substring
+            "pangrova-parser-api:StatementType",  // false positive — discriminator enum, "StatementType" contains "State" substring
             "pangrova-streaming:CdcCommitState",  // CDC two-phase commit coordinator (Req 10.6)
             "pangrova-operations:JfrState",  // JFR profiling lifecycle
             "pangrova-coordination-core:SettableDynamicFilter.State",  // adaptive dynamic filter state
             "pangrova-indexing-core:IndexFileReadResult.Status",  // index file read result status
-            "pangrova-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
-            "pangrova-metadata:SemanticViewValidationState",
-            "pangrova-metadata:EvaluationRunState",
+            "pangrova-persistence-query-api:WriteCommitEntry.State",  // distributed write commit lifecycle
+            "pangrova-metadata-core:SemanticViewValidationState",
+            "pangrova-metadata-core:EvaluationRunState",
             // Unified materialization kernel lifecycle enums.
             "pangrova-materialization-core:GcLedgerEntry.GcState",
             "pangrova-materialization-core:PinState",
@@ -217,7 +215,7 @@ class StateEnumUniquenessPropertyTest {
             modules.add("pangrova-protocol");
             for (Object key : artifacts.keySet()) {
                 String name = (String) key;
-                if (name.equals("pangrova-spi") || name.endsWith("-api") || name.endsWith("-spi")) {
+                if (name.endsWith("-api") || name.endsWith("-spi")) {
                     modules.add(name);
                 }
             }

@@ -1,0 +1,105 @@
+[
+  {
+    "stage": "red",
+    "errors": [
+      "[ERROR] Tests run: 2, Failures: 2, Errors: 0, Skipped: 0, Time elapsed: 3.447 s <<< FAILURE! -- in org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexBuildClaimOwnershipTest",
+      "[ERROR] org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexBuildClaimOwnershipTest.delayedOldHeartbeatMustNotRenewReplacementClaim -- Time elapsed: 0.084 s <<< FAILURE!",
+      "[ERROR] org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexBuildClaimOwnershipTest.delayedOldReleaseMustNotDeleteReplacementClaim -- Time elapsed: 0.053 s <<< FAILURE!",
+      "[ERROR] Failures: ",
+      "[ERROR]   JdbcIndexBuildClaimOwnershipTest.delayedOldHeartbeatMustNotRenewReplacementClaim:59 ",
+      "[ERROR]   JdbcIndexBuildClaimOwnershipTest.delayedOldReleaseMustNotDeleteReplacementClaim:35 ",
+      "[ERROR] Tests run: 2, Failures: 2, Errors: 0, Skipped: 0",
+      "[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.2:test (default-test) on project pangrova-persistence-indexing-postgresql: There are test failures.",
+      "[ERROR] ",
+      "[ERROR] Please refer to pangrova-persistence/pangrova-persistence-indexing-postgresql/target/surefire-reports for the individual test results.",
+      "[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.",
+      "[ERROR] -> [Help 1]",
+      "[ERROR] ",
+      "[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.",
+      "[ERROR] Re-run Maven using the -X switch to enable full debug logging.",
+      "[ERROR] ",
+      "[ERROR] For more information about the errors and possible solutions, please read the following articles:",
+      "[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException"
+    ]
+  },
+  {
+    "stage": "focused",
+    "errors": [
+      "[ERROR] COMPILATION ERROR : ",
+      "[ERROR] pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/IndexBuildCancellationTest.java:[235,19] 错误: 不兼容的类型: 意外的返回值",
+      "[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:testCompile (default-testCompile) on project pangrova-indexing-core: Compilation failure",
+      "[ERROR] pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/IndexBuildCancellationTest.java:[235,19] 错误: 不兼容的类型: 意外的返回值",
+      "[ERROR] ",
+      "[ERROR] -> [Help 1]",
+      "[ERROR] ",
+      "[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.",
+      "[ERROR] Re-run Maven using the -X switch to enable full debug logging.",
+      "[ERROR] ",
+      "[ERROR] For more information about the errors and possible solutions, please read the following articles:",
+      "[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException",
+      "[ERROR] ",
+      "[ERROR] After correcting the problems, you can resume the build with the command",
+      "[ERROR]   mvn <args> -rf :pangrova-indexing-core"
+    ]
+  },
+  {
+    "stage": "owner",
+    "errors": [
+      "[ERROR] Failed to execute goal org.apache.maven.plugins:maven-checkstyle-plugin:3.3.1:check (checkstyle-check) on project pangrova-persistence-indexing-postgresql: Failed during checkstyle execution: There are 2 errors reported by Checkstyle 10.12.7 with config/checkstyle/checkstyle.xml ruleset. -> [Help 1]",
+      "[ERROR] ",
+      "[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.",
+      "[ERROR] Re-run Maven using the -X switch to enable full debug logging.",
+      "[ERROR] ",
+      "[ERROR] For more information about the errors and possible solutions, please read the following articles:",
+      "[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException",
+      "[ERROR] ",
+      "[ERROR] After correcting the problems, you can resume the build with the command",
+      "[ERROR]   mvn <args> -rf :pangrova-persistence-indexing-postgresql"
+    ]
+  },
+  {
+    "stage": "consumers",
+    "errors": [
+      "[ERROR] COMPILATION ERROR : ",
+      "[ERROR] pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/SqlE2ETestBase.java:[2318,35] 错误: 无法将类 IndexingBootstrap中的方法 start应用到给定类型;",
+      "[ERROR] pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/SqlE2ETestBase.java:[2318,95] 错误: 不兼容的类型: CatalogRegistry无法转换为IndexBuildClaimRepository",
+      "[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:testCompile (default-testCompile) on project pangrova-testing-integration-tests: Compilation failure: Compilation failure: ",
+      "[ERROR] pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/SqlE2ETestBase.java:[2318,35] 错误: 无法将类 IndexingBootstrap中的方法 start应用到给定类型;",
+      "[ERROR]   需要: IndexMetadataStore,IndexBuildClaimRepository,CatalogRegistry,MetricsProvider,AccessControl",
+      "[ERROR]   找到:    JdbcIndexMetadataStore,CatalogRegistry,MetricsProvider,AccessControl",
+      "[ERROR]   原因: 实际参数列表和形式参数列表长度不同",
+      "[ERROR] pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/SqlE2ETestBase.java:[2318,95] 错误: 不兼容的类型: CatalogRegistry无法转换为IndexBuildClaimRepository",
+      "[ERROR] -> [Help 1]",
+      "[ERROR] ",
+      "[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.",
+      "[ERROR] Re-run Maven using the -X switch to enable full debug logging.",
+      "[ERROR] ",
+      "[ERROR] For more information about the errors and possible solutions, please read the following articles:",
+      "[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException",
+      "[ERROR] ",
+      "[ERROR] After correcting the problems, you can resume the build with the command",
+      "[ERROR]   mvn <args> -rf :pangrova-testing-integration-tests"
+    ]
+  },
+  {
+    "stage": "metrics-red",
+    "errors": [
+      "[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.059 s <<< FAILURE! -- in org.pangrova.indexing.build.IndexBuildClaimLifecycleTest",
+      "[ERROR] org.pangrova.indexing.build.IndexBuildClaimLifecycleTest.failedReleaseRecordsOneFailureDurationWithoutPrematureCompletion -- Time elapsed: 0.051 s <<< FAILURE!",
+      "[ERROR] Failures: ",
+      "[ERROR]   IndexBuildClaimLifecycleTest.failedReleaseRecordsOneFailureDurationWithoutPrematureCompletion:154 ",
+      "[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0",
+      "[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.2:test (default-test) on project pangrova-indexing-core: There are test failures.",
+      "[ERROR] ",
+      "[ERROR] Please refer to pangrova-indexing/pangrova-indexing-core/target/surefire-reports for the individual test results.",
+      "[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.",
+      "[ERROR] -> [Help 1]",
+      "[ERROR] ",
+      "[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.",
+      "[ERROR] Re-run Maven using the -X switch to enable full debug logging.",
+      "[ERROR] ",
+      "[ERROR] For more information about the errors and possible solutions, please read the following articles:",
+      "[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException"
+    ]
+  }
+]

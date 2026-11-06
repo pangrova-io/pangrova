@@ -7,7 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.coordinator.metadata.read.PlanningReadBindings;
 import org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors;
 import org.pangrova.coordinator.metadata.ReadBindingSdkFixture;
-import org.pangrova.planner.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.testing.testkit.ContainerTestBase;
 

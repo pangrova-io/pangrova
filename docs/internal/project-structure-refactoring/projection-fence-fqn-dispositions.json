@@ -1,0 +1,402 @@
+[
+  {
+    "old_fqn": "org.pangrova.connector.api.data.PageOutputFormat",
+    "target_fqn": "org.pangrova.connector.api.data.PageOutputFormat",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/data/PageOutputFormat.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.connector.api.materialization.MaterializationSourceException",
+    "target_fqn": "org.pangrova.connector.api.materialization.MaterializationSourceException",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/materialization/MaterializationSourceException.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.connector.api.metadata.AcceptedSourceSnapshot",
+    "target_fqn": "org.pangrova.connector.api.metadata.AcceptedSourceSnapshot",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/AcceptedSourceSnapshot.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.connector.api.metadata.AggregationApplication",
+    "target_fqn": "org.pangrova.connector.api.metadata.AggregationApplication",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/AggregationApplication.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.connector.api.metadata.SourcePublicationReservation",
+    "target_fqn": "org.pangrova.connector.api.metadata.SourcePublicationReservation",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/SourcePublicationReservation.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.connector.spi.index.SnapshotPinProvider",
+    "target_fqn": "org.pangrova.connector.spi.index.SnapshotPinProvider",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/index/SnapshotPinProvider.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.connector.spi.metadata.ConnectorMetadataScope",
+    "target_fqn": "org.pangrova.connector.spi.metadata.ConnectorMetadataScope",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ConnectorMetadataScope.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.connector.spi.metadata.ManagedSourceCatalog",
+    "target_fqn": "org.pangrova.connector.spi.metadata.ManagedSourceCatalog",
+    "artifact": "pangrova-connector-api",
+    "path": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ManagedSourceCatalog.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.coordinator.metadata.MetadataBootstrap",
+    "target_fqn": "org.pangrova.coordinator.metadata.MetadataBootstrap",
+    "artifact": "pangrova-coordination-core",
+    "path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/metadata/MetadataBootstrap.java",
+    "disposition": "Wire",
+    "responsibility_ownership": "Receive atomic port and pass it to sync Core; no backend selection or extra resource owner.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.metadata.api.cache.TableInvalidationListener",
+    "target_fqn": "org.pangrova.metadata.api.cache.TableInvalidationListener",
+    "artifact": "pangrova-metadata-api",
+    "path": "pangrova-metadata/pangrova-metadata-api/src/main/java/org/pangrova/metadata/api/cache/TableInvalidationListener.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.api.synchronization.MetadataSyncScope",
+    "target_fqn": "org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity",
+    "artifact": "pangrova-metadata-api",
+    "path": "pangrova-metadata/pangrova-metadata-api/src/main/java/org/pangrova/metadata/api/catalog/CatalogDeploymentIdentity.java",
+    "disposition": "Move",
+    "responsibility_ownership": "Metadata-owned name/incarnation/revision identity shared by progress and projection; not the separate two-field Table observation.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.metadata.api.catalog.CatalogDescriptor",
+    "target_fqn": "org.pangrova.metadata.api.catalog.CatalogDescriptor",
+    "artifact": "pangrova-metadata-api",
+    "path": "pangrova-metadata/pangrova-metadata-api/src/main/java/org/pangrova/metadata/api/catalog/CatalogDescriptor.java",
+    "disposition": "Extend",
+    "responsibility_ownership": "Extract original immutable identity; never query a newer deployment to authorize an old handle.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.metadata.api.error.MetadataResolutionException",
+    "target_fqn": "org.pangrova.metadata.api.error.MetadataResolutionException",
+    "artifact": "pangrova-metadata-api",
+    "path": "pangrova-metadata/pangrova-metadata-api/src/main/java/org/pangrova/metadata/api/error/MetadataResolutionException.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.metadata.api.error.MetadataSyncException",
+    "target_fqn": "org.pangrova.metadata.api.error.MetadataSyncException",
+    "artifact": "pangrova-metadata-api",
+    "path": "pangrova-metadata/pangrova-metadata-api/src/main/java/org/pangrova/metadata/api/error/MetadataSyncException.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.metadata.spi.cache.InvalidationProgressRegistry",
+    "target_fqn": "org.pangrova.metadata.spi.cache.InvalidationProgressRegistry",
+    "artifact": "pangrova-metadata-api",
+    "path": "pangrova-metadata/pangrova-metadata-api/src/main/java/org/pangrova/metadata/spi/cache/InvalidationProgressRegistry.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.metadata.outbox.MetadataSyncService",
+    "target_fqn": "org.pangrova.metadata.outbox.MetadataSyncService",
+    "artifact": "pangrova-metadata-core",
+    "path": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/outbox/MetadataSyncService.java",
+    "disposition": "Refactor",
+    "responsibility_ownership": "Borrow typed transactions; original handle identity on all writes; prevalidate source targets; confirm unknown commit before local effects; use receipt old value/tenant. No SQL/SDK or backend selection.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionConflictException",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionConflictException.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Terminal stale deployment or same-ID different-content conflict.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionMutation.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Typed sealed upsert/delete/schema observation, target validation and stable idempotent content; caller retains UUID.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionOutcomeUnknownException",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionOutcomeUnknownException.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Unknown COMMIT carries original operation ID and cause; no blind retry.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionReceipt.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Immutable operation result, previous projection and current tenant impact captured under deployment row lock.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionScopeException",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionScopeException.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Terminal foreign/mismatched source target; no partial batch or full fallback.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionTransactions.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Only projection mutation port; atomic deployment comparison, mutation, outbox and receipt plus confirmation.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.api.projection.SchemaProjectionRepository",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.SchemaProjectionRepository",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/SchemaProjectionRepository.java",
+    "disposition": "Narrow",
+    "responsibility_ownership": "Read-only sorted observed schemas; no current production caller, not a new advertised endpoint.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.api.projection.TableProjectionRepository",
+    "target_fqn": "org.pangrova.persistence.catalog.api.projection.TableProjectionRepository",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/TableProjectionRepository.java",
+    "disposition": "Narrow",
+    "responsibility_ownership": "Read-only table projection and existing search; remove independent writes.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion",
+    "target_fqn": "org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/synchronization/MetadataSyncCompletion.java",
+    "disposition": "Update identity",
+    "responsibility_ownership": "Use Metadata identity; completion validation and checkpoint semantics unchanged.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository",
+    "target_fqn": "org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository",
+    "artifact": "pangrova-persistence-catalog-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/synchronization/MetadataSyncRepository.java",
+    "disposition": "Update identity",
+    "responsibility_ownership": "Use Metadata identity; progress ownership and explicit completion contract unchanged.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.api.synchronization.MetadataSyncScope",
+    "target_fqn": "org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity",
+    "artifact": "pangrova-metadata-api",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/synchronization/MetadataSyncScope.java",
+    "disposition": "Move/delete old FQN",
+    "responsibility_ownership": "Identity moves to Metadata API; no compatibility forwarding class.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions",
+    "artifact": "pangrova-persistence-catalog-postgresql",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresMetadataProjectionTransactions.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Sole transaction coordinator; borrows DataSource, owns acquired Connection. Locks deployment, confirms collision/replay, commits all facts, preserves rollback/close failures.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProjectionRepository",
+    "target_fqn": "org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProjectionRepository",
+    "artifact": "pangrova-persistence-catalog-postgresql",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresSchemaProjectionRepository.java",
+    "disposition": "Narrow",
+    "responsibility_ownership": "Read-only SQL sorted observations; no write or DDL authority.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository",
+    "target_fqn": "org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository",
+    "artifact": "pangrova-persistence-catalog-postgresql",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresTableProjectionRepository.java",
+    "disposition": "Narrow",
+    "responsibility_ownership": "Read-only; borrow DataSource, acquire/close own query connection; writes delegated exclusively to typed workflow.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.postgresql.projection.ProjectionReceiptCodec",
+    "artifact": "pangrova-persistence-catalog-postgresql",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionReceiptCodec.java",
+    "disposition": "Add",
+    "responsibility_ownership": "Private versioned JSON; exact request roundtrip and strict result/version validation; no SDK type in API.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.persistence.catalog.postgresql.projection.ProjectionRows",
+    "artifact": "pangrova-persistence-catalog-postgresql",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionRows.java",
+    "disposition": "Extract",
+    "responsibility_ownership": "Package-private SQL participant borrows workflow connection; owns statement/result sets only, never commits/rolls back/closes connection. Existing timestamp precision preserved.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository",
+    "target_fqn": "org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository",
+    "artifact": "pangrova-persistence-catalog-postgresql",
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/PostgresMetadataSyncRepository.java",
+    "disposition": "Update identity",
+    "responsibility_ownership": "Use Metadata identity; existing scope/checkpoint/receipt SQL semantics unchanged.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.query.api.lineage.QueryLineageFact",
+    "target_fqn": "org.pangrova.query.api.lineage.QueryLineageFact",
+    "artifact": "pangrova-query-api",
+    "path": "pangrova-query/pangrova-query-api/src/main/java/org/pangrova/query/api/lineage/QueryLineageFact.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.security.api.grant.PrivilegeMutation",
+    "target_fqn": "org.pangrova.security.api.grant.PrivilegeMutation",
+    "artifact": "pangrova-security-api",
+    "path": "pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/api/grant/PrivilegeMutation.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.security.api.grant.PrivilegeScope",
+    "target_fqn": "org.pangrova.security.api.grant.PrivilegeScope",
+    "artifact": "pangrova-security-api",
+    "path": "pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/api/grant/PrivilegeScope.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.security.api.tenant.TenantMembershipMutation",
+    "target_fqn": "org.pangrova.security.api.tenant.TenantMembershipMutation",
+    "artifact": "pangrova-security-api",
+    "path": "pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/api/tenant/TenantMembershipMutation.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
+    "target_fqn": "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
+    "artifact": "pangrova-server-coordinator",
+    "path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrap.java",
+    "disposition": "Wire",
+    "responsibility_ownership": "Server selects PG projection coordinator on same metadata DataSource; existing resource lifetime retained.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "org.pangrova.table.api.policybinding.TablePolicyAuthority",
+    "target_fqn": "org.pangrova.table.api.policybinding.TablePolicyAuthority",
+    "artifact": "pangrova-table-api",
+    "path": "pangrova-table/pangrova-table-api/src/main/java/org/pangrova/table/api/policybinding/TablePolicyAuthority.java",
+    "disposition": "Formatting/documentation only",
+    "responsibility_ownership": "Resolve recorded Checkstyle prerequisite without behavior changes. See projection-fence-style-findings.json.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  },
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.testing.testkit.metadata.CurrentCatalogProjectionFixture",
+    "artifact": "pangrova-testing-kit",
+    "path": "pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/metadata/CurrentCatalogProjectionFixture.java",
+    "disposition": "Add test infrastructure",
+    "responsibility_ownership": "Compose current fixture deployment with real typed workflow for seeding only; no DataSource/SQL/state, never used to authorize stale production work.",
+    "semantic_review": "projection-fence-ownership.md",
+    "verification": "projection-fence-validation-summary.json and per-case TSV; production wiring is explicit in Server/MetadataBootstrap, component-only capabilities are labeled."
+  }
+]

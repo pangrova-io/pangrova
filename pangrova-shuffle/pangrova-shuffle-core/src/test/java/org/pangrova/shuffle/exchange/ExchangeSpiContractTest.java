@@ -1,12 +1,18 @@
 package org.pangrova.shuffle.exchange;
 
+import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
+
+import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
+
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.batch.api.page.BatchFormat;
+import org.pangrova.batch.api.page.NativePage;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

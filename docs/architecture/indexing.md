@@ -20,12 +20,17 @@ ANN graph in the JVM.
 
 Index state and index orchestration have separate owners:
 
-- `pangrova-indexing` owns index persistence and evaluation:
-  `org.pangrova.indexing.store` and `org.pangrova.indexing.store.jdbc` hold the
-  descriptor, commit queue, generation, publication-fencing and GC persistence;
-  `org.pangrova.indexing.*`, `org.pangrova.indexing.engine.*` and
-  `org.pangrova.indexing.eval.*` hold build/evaluation logic and the per-engine
-  providers. `pangrova-metadata` does not own index storage.
+- `pangrova-indexing` separates API/SPI, common Codec, builtin strategies and Core
+  orchestration (see `pangrova-indexing/README.md`). Persistence ports and their
+  immutable values live in `pangrova-persistence-indexing-api`; existing SQL lives
+  in `pangrova-persistence-indexing-postgresql`. Core depends on the ports, not the
+  PostgreSQL implementation. Metadata Core does not own index storage.
+- Server supplies the JDBC `CurrentTableAuthorization` participant explicitly.
+  Publication invokes it on the same transaction connection at the existing lock
+  boundary. The participant may neither commit nor close that connection. The
+  PostgreSQL production artifact does not depend on Metadata or Indexing Core.
+  Narrower persistence ports and removal of permissive optional defaults remain
+  separate work; moving the existing broad port does not complete that redesign.
 - `pangrova-coordinator` owns only the control-plane adapter under
   `org.pangrova.coordinator.indexing` (DDL, filter, lifecycle/GC and the
   AI retrieval-index lifecycle). It depends on indexing contracts and store
@@ -107,13 +112,43 @@ The built-in catalog currently defines these independent contracts:
 Capability signatures and format schema hashes are compatibility boundaries;
 matching a human-readable algorithm name is insufficient.
 
+## JVM encoded-data ownership
+
+Indexing API owns encoded index data and pruning hints. Bloom and N-gram arrays,
+bitmap payload snapshots, bounding-box coordinate snapshots and row-group BitSet
+snapshots cannot mutate their owning object. Bloom evaluation uses independent
+read-only ByteBuffer views; Common decodes those views into owned words without
+retaining an input alias. Bitmap membership and R-tree coordinate access use
+focused methods, avoiding bulk copies in predicate evaluation and tree building.
+Serialization may request owned snapshots. The binary layouts are unchanged.
+
+This boundary does not yet establish immutability of arbitrary Comparable keys
+or runtime wiring of every statistics DTO. See the detailed
+[ownership review](../internal/project-structure-refactoring/index-buffer-ownership.md)
+for verified scope and remaining work.
+
+Complete JVM BTree tuple keys now use `CompositeIndexKey` in Indexing API rather
+than a Provider-private class. The generic comparable codec owns tag 11: a bounded
+arity followed by typed scalar components. Keys require 2–1024 non-null components
+of the exact supported immutable scalar classes (String, boxed numeric primitives,
+BigDecimal, BigInteger and UUID). Nested tuples, mutable custom Comparable values
+and incompatible comparison shapes are rejected. Existing scalar tags and the
+common index envelope are unchanged; no historical data migration is introduced.
+
+The builder skips rows with a null key component. Its payload does not prove
+null-row coverage or the arity of an empty index. Consequently an empty key set
+cannot justify `SKIP`, and a scalar predicate is not a complete tuple predicate.
+Java tuple membership is verified separately from SQL execution: the current
+Native hint consumer only prunes supported Bloom artifacts, so successful BTree
+publication and correct SQL results do not prove BTree split pruning.
+
 ## JVM indexing SPI
 
 `IndexStrategyProvider` is intentionally limited to build/evaluate operations
 for JVM file-pruning metadata. It has no vector-search method. The default
-registry assembled by `assembly.serde.DefaultTypeSerializers.createRegistry()`
+registry assembled by `BuiltinIndexSerializers.createRegistry()`
 likewise has no `VECTOR` serializer because Native retrieval artifacts are not
-embedded in the JVM index-file envelope. `core.serde.TypeSerializerRegistry`
+embedded in the JVM index-file envelope. `TypeSerializerRegistry` in Indexing Codec
 only owns registration and lookup; it does not import concrete engine serializers.
 Duplicate registration fails without replacing the existing serializer.
 
@@ -179,3 +214,13 @@ Changes to this path require:
   local retrieval and global Top-K merge;
 - static checks that no Java ANN engine, vector ServiceLoader provider,
   vector-result HTTP endpoint or algorithm-specific transport contract exists.
+
+Index state-update contracts must preserve the requested fence and stale reason. The
+legacy unconditional overload is not an implementation of optimistic concurrency.
+The default timestamp-CAS, state/generation-CAS and reason-preserving overloads reject
+unsupported calls before mutation; they never delegate to a weaker update or return a
+synthetic success. PostgreSQL compares and updates in one SQL statement. A successful
+fenced STALE update persists its reason atomically; non-STALE transitions clear it in
+the reason-aware operation. Lifecycle transition validation remains the domain owner's
+responsibility. Other persistence ports and remaining optional defaults still require
+the planned domain/backend split; this state-update correction does not complete that work.

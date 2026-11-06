@@ -1,0 +1,20 @@
+package org.pangrova.security.spi.authorization;
+
+import org.pangrova.security.api.identity.UserIdentity;
+
+import org.pangrova.common.api.annotation.Experimental;
+
+import java.util.Optional;
+
+/**
+ * Access control for column-level policy retrieval, including row filters
+ * and column masks applied during query execution.
+ */
+@Experimental
+public interface ColumnAccessControl {
+
+    Optional<String> getRowFilter(UserIdentity user, String catalog, String schema, String table);
+
+    Optional<String> getColumnMask(UserIdentity user, String catalog, String schema,
+                                   String table, String column);
+}

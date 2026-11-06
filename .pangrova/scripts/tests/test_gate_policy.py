@@ -27,7 +27,7 @@ class PerformanceScopeTest(unittest.TestCase):
         self.assertFalse(scope.needs_performance(paths))
 
     def test_runtime_dependency_and_benchmark_inputs_trigger_performance(self):
-        paths = ['pangrova-parser/src/main/java/example/Parser.java',
+        paths = ['pangrova-parser/pangrova-parser-core/src/main/java/example/Parser.java',
                  'pangrova-worker/pangrova-worker-core/src/main/resources/worker.yml',
                  'pangrova-worker/pangrova-worker-core/src/main/resources/docs/template.md',
                  'pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/docs/DocRenderer.java',
@@ -223,7 +223,7 @@ class RuntimeScopeTest(unittest.TestCase):
                 self.assertTrue(scope.needs_native_checks([path]))
         for path in ['docs/architecture/overview.md',
                      'pangrova-planner/src/main/java/example/Planner.java',
-                     'pangrova-parser/src/test/java/example/ParserTest.java',
+                     'pangrova-parser/pangrova-parser-core/src/test/java/example/ParserTest.java',
                      'pangrova-indexing/pangrova-indexing-api/src/main/java/example/Contract.java',
                      'pangrova-client/client-cli/src/main/java/example/Cli.java']:
             with self.subTest(path=path):
@@ -283,9 +283,9 @@ class WorkflowPolicyTest(unittest.TestCase):
         ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
         surefire = pom.find(".//m:plugin[m:artifactId='maven-surefire-plugin']", ns)
         self.assertIn('**/*Test.java', [e.text for e in surefire.findall('.//m:include', ns)])
-        self.assertNotIn('plan-stability', (ROOT / 'pangrova-planner/pom.xml').read_text())
+        self.assertNotIn('plan-stability', (ROOT / 'pangrova-planner/pangrova-planner-core/pom.xml').read_text())
         for name in ['TpcdsPlanStabilityTest', 'TpchPlanStabilityTest']:
-            source = (ROOT / 'pangrova-planner/src/test/java/org/pangrova/planner' / f'{name}.java').read_text()
+            source = (ROOT / 'pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/analysis' / f'{name}.java').read_text()
             self.assertIn('.isRegularFile()', source)
             self.assertIn('.isEqualTo(expectedPlan)', source)
         for name in ['SpiWiringVerificationTest', 'BootstrapReachabilityTest']:

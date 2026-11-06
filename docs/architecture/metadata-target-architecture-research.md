@@ -9,7 +9,7 @@ Pangrova 已经具备一个现代湖仓查询引擎所需的大部分“零件�
 
 结论可以概括为五点：
 
-1. `pangrova-metadata` 已成为控制面状态的聚合模块。当前工作区中该模块有 170 个 Java 源文件，覆盖 catalog、缓存和 schema，也覆盖索引、构建任务、查询/写入协调、流式 offset、动态表、租户、质量规则等。它同时是“元数据 API”“数据库 schema 所有者”“同步器”和多个业务域的持久化层，已经超出单一模块可维护的边界。
+1. `pangrova-metadata-core` 已成为控制面状态的聚合模块。当前工作区中该模块有 170 个 Java 源文件，覆盖 catalog、缓存和 schema，也覆盖索引、构建任务、查询/写入协调、流式 offset、动态表、租户、质量规则等。它同时是“元数据 API”“数据库 schema 所有者”“同步器”和多个业务域的持久化层，已经超出单一模块可维护的边界。
 2. 查询时元数据一致性目前没有闭环。主查询路径绕开 `MetadataService`，拆分规划所用 `ConnectorSession` 不携带 `queryId`；Iceberg/Paimon 连接器的快照固定恰好依赖 `queryId`。即使生命周期先注册成功，也无法保证实际 split 与统计读取使用同一表版本。
 3. 通用元数据模型是有损投影。`TableMetadata` 缺少稳定 table ID、版本 token、schema/spec/sort ID、字段 ID 历史、ref、主键和 bucket/merge 语义；建表路径还会丢掉列类型。它不适合作为 Iceberg/Paimon 表元数据的权威副本。
 4. 写入 WAL 解决了“先记意图再提交”的顺序问题，但没有建立格式原生的幂等证明。恢复逻辑依赖“重复执行必须幂等”的契约，连接器却没有把 WAL 的 idempotency key 可靠写入 Iceberg snapshot summary 或 Paimon 的提交身份；提交超时后存在“实际已成功、协调器未知”的窗口。
@@ -30,7 +30,7 @@ Pangrova 已经具备一个现代湖仓查询引擎所需的大部分“零件�
 
 分析范围包括：
 
-- `pangrova-metadata` 的 API、模型、catalog registry、JDBC store、缓存、同步、迁移和协调状态；
+- `pangrova-metadata-core` 的 API、模型、catalog registry、JDBC store、缓存、同步、迁移和协调状态；
 - Coordinator 的解析、规划、split 获取、查询生命周期和分布式提交路径；
 - Iceberg 1.11.0 与 Paimon 1.4.1 连接器实现；
 - Apache Iceberg/Paimon 官方规范、REST Catalog、快照保留与并发提交模型；
@@ -46,7 +46,7 @@ Pangrova 已经具备一个现代湖仓查询引擎所需的大部分“零件�
 
 ### 模块职责已经失焦
 
-`pangrova-metadata` 的一级包分布中，`index` 22 个类、`artifact` 16 个、`dynamictable` 12 个、`coordination` 9 个、`streaming` 8 个，而真正的 `catalog`、`cache`、`service`、`store`、`sync` 只占其中一部分。V1 数据库迁移同时创建 catalog/table mirror、query/task journal、worker/coordinator registry、lease、index、dynamic table、stream state、cache invalidation、quality 和 tenant 表。
+`pangrova-metadata-core` 的一级包分布中，`index` 22 个类、`artifact` 16 个、`dynamictable` 12 个、`coordination` 9 个、`streaming` 8 个，而真正的 `catalog`、`cache`、`service`、`store`、`sync` 只占其中一部分。V1 数据库迁移同时创建 catalog/table mirror、query/task journal、worker/coordinator registry、lease、index、dynamic table、stream state、cache invalidation、quality 和 tenant 表。
 
 这会带来三类耦合：
 
@@ -308,7 +308,7 @@ TableBinding(
 
 #### 4. 派生库存与运维面
 
-以下状态应从 `pangrova-metadata` 逐步迁出：
+以下状态应从 `pangrova-metadata-core` 逐步迁出：
 
 - query/task journal、execution anchor、worker/coordinator registry、lease → coordination/HA 所有；
 - index descriptor、generation、artifact build job/page/output → indexing/artifact 所有；

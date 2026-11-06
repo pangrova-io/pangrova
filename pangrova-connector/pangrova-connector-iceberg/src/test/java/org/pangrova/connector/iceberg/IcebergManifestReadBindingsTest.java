@@ -28,12 +28,12 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.types.ArrayType;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,7 +46,7 @@ class IcebergManifestReadBindingsTest {
             Types.NestedField.required(1, "id", Types.LongType.get()));
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
-        @Override public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
+        @Override public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority>
                 getQueryAuthority() { return java.util.Optional.empty(); }
         @Override public String getUser() { return "manifest-test"; }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of("bound"); }

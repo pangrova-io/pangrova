@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.tracing.otel;
 
-import org.pangrova.spi.observability.Context;
+import org.pangrova.observability.api.tracing.Context;
 
 /**
  * Wraps {@link io.opentelemetry.context.Context} behind Pangrova's SPI {@link Context}.

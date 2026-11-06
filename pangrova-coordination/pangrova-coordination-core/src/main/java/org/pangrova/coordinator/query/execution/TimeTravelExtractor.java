@@ -3,15 +3,15 @@ package org.pangrova.coordinator.query.execution;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.phase.CompilationPhase;
-import org.pangrova.parser.TimeTravelSqlClauses;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.LiteralValue;
-import org.pangrova.parser.ast.TableRef;
-import org.pangrova.parser.ast.TimeTravelSpec;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.parser.core.parse.TimeTravelSqlClauses;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.TableRef;
+import org.pangrova.parser.api.ast.TimeTravelSpec;
+import org.pangrova.connector.api.session.ConnectorSession;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,7 +29,7 @@ final class TimeTravelExtractor {
 
     private TimeTravelExtractor() {}
 
-    static CompilationPhase.TimeTravelResult extract(String sql, CoordinatorSessionContext context,
+    static CompilationPhase.TimeTravelResult extract(String sql, QuerySession context,
                                                       RefSnapshotResolver resolver) {
         var parsed = TimeTravelSqlClauses.extract(sql);
         if (parsed.references().stream().noneMatch(ref -> ref.table().timeTravelSpec().isPresent())) {

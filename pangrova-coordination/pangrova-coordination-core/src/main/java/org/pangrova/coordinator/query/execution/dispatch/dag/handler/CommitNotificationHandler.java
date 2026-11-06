@@ -1,8 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
+import org.pangrova.query.core.task.StageDispatchRecord;
+
 import java.util.List;
 
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -22,10 +23,10 @@ public final class CommitNotificationHandler implements StageLifecycleHandler {
     private static final Logger LOG = LoggerFactory.getLogger(CommitNotificationHandler.class);
 
     private final TaskDispatcher dispatcher;
-    private final List<DAGDispatchEngine.StageDispatchRecord> dispatched;
+    private final List<StageDispatchRecord> dispatched;
 
     public CommitNotificationHandler(TaskDispatcher dispatcher,
-                                     List<DAGDispatchEngine.StageDispatchRecord> dispatched) {
+                                     List<StageDispatchRecord> dispatched) {
         this.dispatcher = checkNotNull(dispatcher, "dispatcher must not be null");
         this.dispatched = checkNotNull(dispatched, "dispatched must not be null");
     }
@@ -56,7 +57,7 @@ public final class CommitNotificationHandler implements StageLifecycleHandler {
 
     private void notifyDownstreamTasks(String queryId, Stage finished, Stage downstream) {
         for (String taskId : downstream.taskIds()) {
-            DAGDispatchEngine.StageDispatchRecord rec = findRecord(taskId);
+            StageDispatchRecord rec = findRecord(taskId);
             if (rec == null) {
                 continue;
             }
@@ -73,8 +74,8 @@ public final class CommitNotificationHandler implements StageLifecycleHandler {
         }
     }
 
-    private DAGDispatchEngine.StageDispatchRecord findRecord(String taskId) {
-        for (DAGDispatchEngine.StageDispatchRecord rec : dispatched) {
+    private StageDispatchRecord findRecord(String taskId) {
+        for (StageDispatchRecord rec : dispatched) {
             if (rec.result().taskId().equals(taskId)) {
                 return rec;
             }

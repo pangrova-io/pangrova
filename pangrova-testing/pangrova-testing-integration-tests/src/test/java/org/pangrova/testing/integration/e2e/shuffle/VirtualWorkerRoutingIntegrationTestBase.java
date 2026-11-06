@@ -1,7 +1,11 @@
 package org.pangrova.testing.integration.e2e.shuffle;
 
-import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
-import org.pangrova.coordinator.http.CoordinatorHttpServer;
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
+import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 // StageFragmenter removed from prod — QueryDispatcher now takes only (deps, statementDispatcher)
@@ -10,17 +14,17 @@ import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
@@ -161,7 +165,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                         routingQueryManager, routingTaskTracker, routingWorkerManager,
                         null, null, null,
                         routingQueryManager.getStateJournal(),
-                        null, null, dispatcher.dagEngine(), null, null));
+                        null, null, dispatcher.dagEngine(), null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
         coordinatorServer = new CoordinatorHttpServer(
                 0, receiver, routingQueryManager, null);
         startHttpServer(coordinatorServer);
@@ -195,7 +199,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     // -----------------------------------------------------------------------
 
     private static QueryDispatcher buildRoutingDispatcher() {
-        routingWorkerManager = new WorkerManager();
+        routingWorkerManager = new WorkerManager(new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         RemoteTaskDispatcher dispatcher = createE2ETaskDispatcher();
         routingDispatcher = dispatcher;
         SqlCompiler compiler = buildSqlCompiler();
@@ -211,10 +215,10 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         var deps = QueryDispatcherContext.withDefaults(
                 compiler,
                 new org.pangrova.coordinator.query.security.AccessControlEnforcer(authority),
-                new org.pangrova.planner.security.ColumnMaskApplier(authority),
-                new org.pangrova.planner.security.RowFilterApplier(authority),
+                new org.pangrova.planner.core.security.ColumnMaskApplier(authority),
+                new org.pangrova.planner.core.security.RowFilterApplier(authority),
                 dispatcher,
-                new TaskScheduler(new WorkerPerformanceScorer()),
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 routingWorkerManager,
                 routingTaskTracker,
                 metadataBootstrap != null ? metadataBootstrap.catalogRegistry() : null,
@@ -256,7 +260,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                         routingQueryManager, routingTaskTracker, routingWorkerManager,
                         null, null, null,
                         routingQueryManager.getStateJournal(),
-                        null, null, freshDispatcher.dagEngine(), null, null));
+                        null, null, freshDispatcher.dagEngine(), null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
         int prevPort = coordinatorServer.getPort();
         try { coordinatorServer.stop(); } catch (Exception ignored) {}
         coordinatorServer = new CoordinatorHttpServer(prevPort, receiver, routingQueryManager, null);
@@ -328,8 +332,8 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         // but the initial dispatcher was built in @BeforeAll with empty catalogs.
         ensureRoutingPipelineRefreshed();
         String queryId = "e2e-multi-" + UUID.randomUUID();
-        var session = new org.pangrova.coordinator.query.session.CoordinatorSessionContext(
-                queryId, Map.of(), e2eUserIdentity(), e2eTenantId());
+        var session = new org.pangrova.query.api.session.QuerySession(
+                queryId, Map.of(), e2eUserIdentity(), e2eTenantId(), java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var response = routingQueryManager.submitQuery(queryId, sql, session);
         ResultEndpoint endpoint = response.resultEndpoint();
         if (endpoint == null) {
@@ -346,15 +350,12 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                     .atMost(Duration.ofMillis(Long.getLong(
                             "pangrova.e2e.poll.timeout.ms", 600_000L)))
                     .until(() -> routingQueryManager.getQueryState(queryId)
-                            .map(state -> state == org.pangrova.coordinator.query
-                                    .QueryStateMachine.State.FINISHED
-                                    || state == org.pangrova.coordinator.query
-                                            .QueryStateMachine.State.FAILED
-                                    || state == org.pangrova.coordinator.query
-                                            .QueryStateMachine.State.CANCELLED)
+                            .map(state -> state == org.pangrova.query.api.lifecycle.QueryState.FINISHED
+                                    || state == org.pangrova.query.api.lifecycle.QueryState.FAILED
+                                    || state == org.pangrova.query.api.lifecycle.QueryState.CANCELLED)
                             .orElse(false));
             var terminal = routingQueryManager.getQueryState(queryId).orElseThrow();
-            if (terminal != org.pangrova.coordinator.query.QueryStateMachine.State.FINISHED) {
+            if (terminal != QueryState.FINISHED) {
                 throw new IllegalStateException(
                         "Routing query did not finish successfully: " + queryId
                                 + " state=" + terminal);
@@ -372,9 +373,9 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             routingAsyncExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
                     .newBoundedThreadPool("e2e-routing-async-submit", 4, 128);
         }
-        return QueryManagerContext.minimalAsync(
+        return QueryManagerTestContexts.minimalAsync(
                 dispatcher, TestObservability.TRACING,
-                org.pangrova.coordinator.query.execution.AsyncSubmitConfig.defaultEnabled(),
+                org.pangrova.query.api.submission.AsyncSubmitConfig.defaultEnabled(),
                 routingAsyncExecutor);
     }
 

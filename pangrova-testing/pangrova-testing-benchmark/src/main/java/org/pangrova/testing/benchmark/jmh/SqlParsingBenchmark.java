@@ -2,7 +2,7 @@ package org.pangrova.testing.benchmark.jmh;
 
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.parser.SqlParser;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -30,7 +30,7 @@ import org.openjdk.jmh.infra.Blackhole;
 @State(Scope.Thread)
 public class SqlParsingBenchmark {
 
-    private SqlParser parser;
+    private AntlrSqlParser parser;
 
     private static final String SIMPLE_EXPR = "SELECT a + b FROM t";
     private static final String ARITHMETIC_EXPR =
@@ -52,7 +52,7 @@ public class SqlParsingBenchmark {
 
     @Setup
     public void setup() {
-        parser = new SqlParser();
+        parser = new AntlrSqlParser();
     }
 
     @Benchmark

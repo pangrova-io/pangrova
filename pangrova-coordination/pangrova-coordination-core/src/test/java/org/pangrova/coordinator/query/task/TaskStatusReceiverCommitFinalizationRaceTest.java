@@ -1,38 +1,41 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -117,7 +120,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
         long deadline = System.currentTimeMillis() + 1_000;
         while (System.currentTimeMillis() < deadline
                 && h.queryManager.getQueryState(QUERY_ID).orElse(null)
-                        != QueryStateMachine.State.FINISHED) {
+                        != QueryState.FINISHED) {
             Thread.sleep(5);
         }
 
@@ -129,7 +132,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
 
         assertThat(h.queryManager.getQueryState(QUERY_ID))
                 .as("commit failed -> query must be FAILED, not masked as FINISHED")
-                .contains(QueryStateMachine.State.FAILED);
+                .contains(QueryState.FAILED);
         assertThat(metadata.finishCalls.get())
                 .as("commit executed exactly once (single finalizer)")
                 .isEqualTo(1);
@@ -175,7 +178,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
         b.join(5_000);
 
         assertThat(h.queryManager.getQueryState(QUERY_ID))
-                .contains(QueryStateMachine.State.FINISHED);
+                .contains(QueryState.FINISHED);
         assertThat(metadata.finishCalls)
                 .as("exactly one distributed commit despite concurrent finalizers")
                 .hasSize(1);
@@ -197,7 +200,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
     private static Harness newHarness(CoordinatorTaskTracker tracker,
                                       ConnectorMetadata metadata) {
         WorkerManager workerManager = new WorkerManager(20_000, 60_000,
-                new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+                new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         workerManager.registerWorker(workerInfo(WORKER_ID));
         NativeWriteCommitTracker writeCommitTracker = new NativeWriteCommitTracker();
         CatalogRegistry catalogRegistry = buildCatalogRegistry(CATALOG_NAME, metadata);
@@ -207,16 +210,16 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
         TaskStatusReceiverContext deps = new TaskStatusReceiverContext(
                 qm, tracker, workerManager,
                 null, null, null, null,
-                catalogRegistry, writeCommitTracker, null, null, null);
+                catalogRegistry, writeCommitTracker, null, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal());
         return new Harness(qm, writeCommitTracker, catalogRegistry,
                 new TaskStatusReceiver(deps));
     }
 
     private static QueryStateMachine runningStateMachine() {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         return sm;
     }
 
@@ -265,7 +268,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
 
     private static QueryManager buildQueryManager(WorkerManager wm,
                                                   CoordinatorTaskTracker tracker) {
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         RemoteTaskDispatcher td = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
         QueryDispatcherContext qdDeps = QueryDispatcherContext.withDefaults(
@@ -275,7 +278,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
         QueryDispatcher dispatcher = new QueryDispatcher(
                 qdDeps, null, null);
         return new QueryManager(
-                QueryManagerContext.minimal(dispatcher, new NoOpTracingProvider()));
+                QueryManagerTestContexts.minimal(dispatcher, new NoOpTracingProvider()));
     }
 
     private static CatalogRegistry buildCatalogRegistry(String catalogName,
@@ -287,7 +290,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
                 descriptor, new TaskStatusReceiverWriteCommitTest.TestConnector(metadata));
         ConnectorHandleFactory factory = desc -> handle;
         return new CatalogRegistry(
-                new TaskStatusReceiverWriteCommitTest.ReadOnlyMetadataStore(
+                new TaskStatusReceiverWriteCommitTest.ReadOnlyCatalogDeployments(
                         List.of(descriptor)),
                 factory, null, null);
     }
@@ -372,7 +375,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
         public void finishDistributedWrite(ConnectorSession session,
                                            ConnectorOutputTableHandle outputHandle,
                                            List<byte[]> fragments,
-                                           org.pangrova.spi.connector.coordination.DistributedWriteCommitContext context) {
+                                           org.pangrova.connector.api.commit.DistributedWriteCommitContext context) {
             finishDistributedWrite(session, outputHandle, fragments);
         }
 

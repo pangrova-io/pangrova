@@ -16,7 +16,7 @@ package org.pangrova.ai.worker.invocation;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.ai.api.error.AiInvocationException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

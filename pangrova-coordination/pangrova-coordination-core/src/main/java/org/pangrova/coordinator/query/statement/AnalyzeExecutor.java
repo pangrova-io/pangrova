@@ -1,18 +1,21 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.table.control.TableControlService;
+import org.pangrova.table.core.ownership.TableControlService;
 import org.pangrova.table.api.statistics.TableControlStatistics;
-import org.pangrova.table.statistics.TableControlStatisticsService;
-import org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.table.core.statistics.TableControlStatisticsService;
+import org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,27 +44,27 @@ public final class AnalyzeExecutor {
 
     /** Collects, persists, and returns one summary row. */
     public List<TypedRow> execute(AnalyzeStatement stmt,
-            CoordinatorSessionContext context) {
+            QuerySession context) {
         QualifiedTableName ref =
-                TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+                SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
 
         TableControlService control = catalogs.tableControl();
         if (!control.enabled()) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "ANALYZE requires the table control plane: without ownership records "
                             + "no table can be proven safe to analyze");
         }
         var record = control.find(ref.catalog(), ref.schema(), ref.table())
-                .orElseThrow(() -> new org.pangrova.spi.security.AccessDeniedException(
+                .orElseThrow(() -> new org.pangrova.security.api.error.AccessDeniedException(
                     "ANALYZE rejected: " + ref
                             + " is OBSERVED; run ALTER TABLE ... ADOPT before ANALYZE"));
 
         ConnectorSession session =
-                TableResolver.buildSession(context, ref.catalog(), ref.schema());
+                SessionContextConverter.toConnectorSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata =
-                TableResolver.getMetadata(catalogs, ref.catalog(), session);
+                ConnectorTableLookup.getMetadata(catalogs, ref.catalog(), session);
         ConnectorTableHandle handle =
-                TableResolver.requireTableHandle(metadata, session, ref);
+                ConnectorTableLookup.requireTableHandle(metadata, session, ref);
         control.requireActiveIdentity(record, metadata.getTableIdentity(session, handle), "ANALYZE");
 
         String before = observe(metadata, session, handle);
@@ -85,7 +88,7 @@ public final class AnalyzeExecutor {
                             + before + " -> " + after + "); retry when writers are idle");
         }
         String observedToken = after;
-        ConnectorTableHandle fresh = TableResolver.requireTableHandle(metadata, session, ref);
+        ConnectorTableHandle fresh = ConnectorTableLookup.requireTableHandle(metadata, session, ref);
         control.requireActiveIdentity(record, metadata.getTableIdentity(session, fresh), "ANALYZE");
 
         TableControlStatisticsService statisticsService = catalogs.tableStatistics();
@@ -116,7 +119,7 @@ public final class AnalyzeExecutor {
     private static String observeFresh(ConnectorMetadata metadata,
             ConnectorSession session, QualifiedTableName ref) {
         ConnectorTableHandle fresh = metadata.getTableHandle(
-                session, new org.pangrova.spi.connector.metadata.table.SchemaTableName(
+                session, new org.pangrova.connector.api.metadata.table.SchemaTableName(
                         ref.schema(), ref.table()));
         if (fresh == null) {
             return "";

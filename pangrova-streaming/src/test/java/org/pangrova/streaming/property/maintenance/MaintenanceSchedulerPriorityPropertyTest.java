@@ -2,7 +2,7 @@ package org.pangrova.streaming.property.maintenance;
 
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.spi.connector.data.write.model.WriteResult;
+import org.pangrova.connector.api.write.WriteResult;
 import org.pangrova.streaming.maintenance.*;
 import org.pangrova.streaming.maintenance.TriggerPriority;
 

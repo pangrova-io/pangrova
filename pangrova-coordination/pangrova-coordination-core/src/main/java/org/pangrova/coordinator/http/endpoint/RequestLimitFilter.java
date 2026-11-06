@@ -47,6 +47,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
     private static final String HEALTH_PATH = "v1/health";
     private static final String REGISTRATION_PATH = "v1/workers/register";
+    private static final String REGISTRATION_REFRESH_PATH = "v1/workers/refresh";
     private static final String STATUS_REPORT_PATH = "v1/task/status-report";
     private static final int HTTP_STATUS_PAYLOAD_TOO_LARGE = 413;
     private static final int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
@@ -102,7 +103,8 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         String path = requestContext.getUriInfo().getPath();
         if (AuthenticationFilter.hasInternalServiceIdentity(requestContext)
                 && "POST".equals(requestContext.getMethod())
-                && (REGISTRATION_PATH.equals(path) || ("/" + REGISTRATION_PATH).equals(path))) {
+                && (REGISTRATION_PATH.equals(path) || ("/" + REGISTRATION_PATH).equals(path)
+                    || REGISTRATION_REFRESH_PATH.equals(path) || ("/" + REGISTRATION_REFRESH_PATH).equals(path))) {
             return WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES;
         }
         if (AuthenticationFilter.hasInternalServiceIdentity(requestContext)

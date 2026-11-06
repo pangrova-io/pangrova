@@ -1,10 +1,10 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
-import org.pangrova.spi.connector.metadata.NativeDatasetScanPage;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.metadata.NativeDatasetScanPage;
 import java.security.MessageDigest;
 import java.util.List;
 import java.util.Optional;
@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class LancePartitionSplitSource implements ConnectorSplitSource {
     private final LanceTableHandle table;
     private final ConnectorSession session;
-    private final org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot;
+    private final org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot;
     private final Optional<NativeDatasetControlPlane> control;
     private final AtomicBoolean fetching = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -26,7 +26,7 @@ final class LancePartitionSplitSource implements ConnectorSplitSource {
 
     LancePartitionSplitSource(LanceTableHandle table, ConnectorSession session,
             Optional<NativeDatasetControlPlane> control,
-            org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot) {
+            org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot) {
         this.table = table;
         this.snapshot = snapshot;
         if ((table.version() == 0) != (snapshot == null)) {

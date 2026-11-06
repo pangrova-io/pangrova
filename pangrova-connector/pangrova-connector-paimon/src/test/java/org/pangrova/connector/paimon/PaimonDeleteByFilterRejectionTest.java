@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.metadata.DeleteFilter;
+import org.pangrova.connector.api.metadata.DeleteFilter;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.types.DataTypes;

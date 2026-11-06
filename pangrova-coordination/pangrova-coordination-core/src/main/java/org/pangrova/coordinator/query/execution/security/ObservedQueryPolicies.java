@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.execution.security;
 
-import org.pangrova.planner.security.PolicyObservationSink;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope.PolicySnapshot;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.planner.core.security.PolicyObservationSink;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.error.AccessDeniedException;
 
 import java.util.HashMap;
 import java.util.Map;

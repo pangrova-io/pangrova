@@ -1,0 +1,221 @@
+{
+  "stages": [
+    {
+      "stage": "regression-before",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Dtest=PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 45.95,
+      "cases": 42,
+      "passed": 39,
+      "failure": 3,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "regression-after",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Dtest=PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 45.24,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "core",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-query-core -am '-Dtest=Statement*Test,TableProcedureCallTest,SessionTableNamesTest,QualifiedTable*Test,QueryApiClasspathTest,QueryStatementIsolationTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 15.11,
+      "cases": 43,
+      "passed": 43,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "selected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression '-Dtest=Statement*Test*,TableProcedure*Test,SessionTableNamesTest,QualifiedTable*Test,PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest,CacheWarmupServiceTest,QueryApiClasspathTest,QueryStatementIsolationTest,QueryPackageSplitEquivalencePropertyTest,PrivilegeSqlExecutionTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 71.55,
+      "cases": 208,
+      "passed": 208,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "regression-view-before",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Dtest=PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 46.58,
+      "cases": 44,
+      "passed": 42,
+      "failure": 2,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "regression-view-after",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Dtest=PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 51.23,
+      "cases": 44,
+      "passed": 44,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "selected-view",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression '-Dtest=IcebergViewStoreTest,Statement*Test*,TableProcedure*Test,SessionTableNamesTest,QualifiedTable*Test,PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest,CacheWarmupServiceTest,QueryApiClasspathTest,QueryStatementIsolationTest,QueryPackageSplitEquivalencePropertyTest,PrivilegeSqlExecutionTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 71.47,
+      "cases": 212,
+      "passed": 212,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "package",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=IcebergViewStoreTest,Statement*Test*,TableProcedure*Test,SessionTableNamesTest,QualifiedTable*Test,PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest,CacheWarmupServiceTest,QueryApiClasspathTest,QueryStatementIsolationTest,QueryPackageSplitEquivalencePropertyTest,PrivilegeSqlExecutionTest,ViewDdlE2ETest*,SqlPrivilegeAuthorityE2ETest*,BranchTagE2ETest*,QueryLifecycleE2ETest*,PhysicalTwoWorkerShuffleE2ETest*,ModuleDependencyPropertyTest,PackageStructurePropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 196.54,
+      "cases": 245,
+      "passed": 243,
+      "failure": 1,
+      "error": 1,
+      "skipped": 0
+    },
+    {
+      "stage": "selected-tenant",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression '-Dtest=*Tenant*Test*,IcebergViewStoreTest,Statement*Test*,TableProcedure*Test,SessionTableNamesTest,QualifiedTable*Test,PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest,CacheWarmupServiceTest,QueryApiClasspathTest,QueryStatementIsolationTest,QueryPackageSplitEquivalencePropertyTest,PrivilegeSqlExecutionTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 21.76,
+      "cases": 29,
+      "passed": 28,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "selected-tenant-after",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression '-Dtest=*Tenant*Test*,IcebergViewStoreTest,Statement*Test*,TableProcedure*Test,SessionTableNamesTest,QualifiedTable*Test,PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest,CacheWarmupServiceTest,QueryApiClasspathTest,QueryStatementIsolationTest,QueryPackageSplitEquivalencePropertyTest,PrivilegeSqlExecutionTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 21.27,
+      "cases": 29,
+      "passed": 29,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "selected-tenant-verified",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression '-Dtest=*Tenant*Test*,IcebergViewStoreTest,Statement*Test*,TableProcedure*Test,SessionTableNamesTest,QualifiedTable*Test,PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest,CacheWarmupServiceTest,QueryApiClasspathTest,QueryStatementIsolationTest,QueryPackageSplitEquivalencePropertyTest,PrivilegeSqlExecutionTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 129.83,
+      "cases": 353,
+      "passed": 350,
+      "failure": 0,
+      "error": 3,
+      "skipped": 0
+    },
+    {
+      "stage": "tenant-sql",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Dtest=StatementDispatcherPropertyTest,PrivilegeSqlExecutionTest,JdbcTenantMembershipTest,MemoryTenantMembershipTest,TenantMembershipParserTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 74.85,
+      "cases": 51,
+      "passed": 51,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "package-complete",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=*Tenant*Test*,IcebergViewStoreTest,Statement*Test*,TableProcedure*Test,SessionTableNamesTest,QualifiedTable*Test,PermissionCheckerAuthorizationTest,DdlLeadershipGuardTest,CallProcedureWarmupDispatchTest,TableWarmupExecutorTest,CacheWarmupServiceTest,QueryApiClasspathTest,QueryStatementIsolationTest,QueryPackageSplitEquivalencePropertyTest,PrivilegeSqlExecutionTest,ViewDdlE2ETest*,SqlPrivilegeAuthorityE2ETest*,BranchTagE2ETest*,QueryLifecycleE2ETest*,PhysicalTwoWorkerShuffleE2ETest*,ModuleDependencyPropertyTest,PackageStructurePropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 193.82,
+      "cases": 388,
+      "passed": 388,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "e2e-repair",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=*Tenant*E2ETest*,ViewDdlE2ETest*,SqlPrivilegeAuthorityE2ETest*,BranchTagE2ETest*,QueryLifecycleE2ETest*,PhysicalTwoWorkerShuffleE2ETest*,BootstrapReachabilityTest,SpiWiringVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 1,
+      "seconds": 168.84,
+      "cases": 53,
+      "passed": 52,
+      "failure": 0,
+      "error": 1,
+      "skipped": 0
+    },
+    {
+      "stage": "e2e-tenant",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=TenantMembershipSqlE2ETest*' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 1,
+      "seconds": 70.99,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "e2e-tenant-onboard",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=TenantMembershipSqlE2ETest*' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 0,
+      "seconds": 91.01,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "full-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression verify",
+      "exit": 1,
+      "seconds": 78.43,
+      "cases": 2110,
+      "passed": 2108,
+      "failure": 2,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "state-owner",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-kit -am -Dtest=StateEnumUniquenessPropertyTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 13.65,
+      "cases": 3,
+      "passed": 3,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "full-regression-owner",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression verify",
+      "exit": 1,
+      "seconds": 77.74,
+      "cases": 2110,
+      "passed": 2109,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 444,
+    "passed": 444,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

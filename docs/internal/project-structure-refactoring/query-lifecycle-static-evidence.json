@@ -1,0 +1,15 @@
+{
+  "checks": {
+    "manifest": "module baseline is current\nOK: module manifest and baseline are current.\n",
+    "spi_annotations": "OK: SPI annotation gate passed.\n  Annotated public types: 194\n  Baseline (pre-existing gap): 0\n",
+    "spi_stability": "OK: SPI stability gate passed.\n  @Stable types checked: 24\n  All checked types have at least one production implementor.\n",
+    "dead_stubs": "==========================================\n CI Dead-Stub Detection\n==========================================\n\nScanning production code for stub methods...\n\n\n==========================================\n Results\n==========================================\n\n\u001b[0;32m\u2713 No dead stubs found in production code.\u001b[0m\n\nNo unapproved stub patterns detected; reachability and runtime behavior require their own tests.\n"
+  },
+  "package_graph": {
+    "packages": 797,
+    "cyclic_components": 1,
+    "remaining_coordinator_component_size": 15,
+    "previous_component_size": 16
+  },
+  "whitespace": "git diff --check passed; final documentation checked separately"
+}

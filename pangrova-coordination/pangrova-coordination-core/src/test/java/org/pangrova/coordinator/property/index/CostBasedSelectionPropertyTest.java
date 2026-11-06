@@ -67,7 +67,7 @@ class CostBasedSelectionPropertyTest {
     @Property(tries = 10)
     void selectivityEstimateInValidRange(
             @ForAll("ndvValues") long ndv) {
-        var stats = new org.pangrova.spi.connector.index.statistics.FileColumnStatistics(
+        var stats = new org.pangrova.connector.api.index.statistics.FileColumnStatistics(
                 "col", 0L, 100L, 0, 100, ndv, 1024);
         double sel = costModel.estimateSelectivity(
                 java.util.List.of(stats), null);

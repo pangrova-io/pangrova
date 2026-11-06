@@ -1,0 +1,100 @@
+{
+  "stages": [
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-worker-core -am -Pnative-runtime,full-regression -Dtest=ShuffleContractIsolationTest,NativeShuffleAdapterIsolationTest,WorkerTaskBootstrapTest,WorkerBootstrapPrestartOwnershipTest,WorkerBootstrapFailureLifecycleTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 52.39,
+      "cases": 22,
+      "passed": 22,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "integration",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=ShuffleContractIsolationTest,NativeShuffleAdapterIsolationTest,RemoteShuffleByteEgressIntegrationTest*,NativeShuffleEgressContractIntegrationTest,NativeExchangeTransportExternalIntegrationTest,WorkerShuffleChannelAdmissionIntegrationTest,RemoteShuffleClientLifecycleIntegrationTest,RemoteShuffleReadRenewalTest,RemoteShuffleChannelAdmissionIntegrationTest,WorkerTaskBootstrapTest,WorkerBootstrapPrestartOwnershipTest,WorkerBootstrapFailureLifecycleTest,PhysicalTwoWorkerShuffleE2ETest,ActivationSmokeE2ETest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 278.81,
+      "cases": 85,
+      "passed": 83,
+      "failure": 2,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-egress",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=NativeShuffleEgressContractIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 71.78,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "corrected-contract",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression '-Dtest=RemoteShuffleByteEgressIntegrationTest*,RegressionSelectionTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 121.2,
+      "cases": 30,
+      "passed": 30,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-ingress",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=NativeExchangeTransportExternalIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 78.47,
+      "cases": 3,
+      "passed": 3,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-admission",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=WorkerShuffleChannelAdmissionIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 71.9,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-ai-registration",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=NativeAiFailureProjectionRegistrationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 61.37,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -Dtest=RegressionSelectionTest,ShuffleContractIsolationTest,NativeShuffleAdapterIsolationTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 0,
+      "seconds": 83.17,
+      "cases": 30,
+      "passed": 30,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 99,
+    "passed": 98,
+    "failure": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

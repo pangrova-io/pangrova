@@ -12,8 +12,27 @@
     <name>Pangrova Persistence</name>
     <description>Domain persistence contracts and independently selected backend implementations</description>
     <modules>
-        <module>pangrova-persistence-api</module>
-        <module>pangrova-persistence-jdbc</module>
-        <module>pangrova-persistence-memory</module>
+        <module>pangrova-persistence-indexing-api</module>
+        <module>pangrova-persistence-indexing-postgresql</module>
+        <module>pangrova-persistence-catalog-api</module>
+        <module>pangrova-persistence-catalog-postgresql</module>
+        <module>pangrova-persistence-file-api</module>
+        <module>pangrova-persistence-file-postgresql</module>
+        <module>pangrova-persistence-table-api</module>
+        <module>pangrova-persistence-table-postgresql</module>
+        <module>pangrova-persistence-table-memory</module>
+        <module>pangrova-persistence-query-postgresql</module>
+        <module>pangrova-persistence-query-memory</module>
+        <module>pangrova-persistence-coordination-api</module>
+        <module>pangrova-persistence-coordination-postgresql</module>
+        <module>pangrova-persistence-coordination-memory</module>
+        <module>pangrova-persistence-security-postgresql</module>
+        <module>pangrova-persistence-security-memory</module>
+        <module>pangrova-persistence-security-api</module>
+        <module>pangrova-persistence-jdbc-api</module>
+        <module>pangrova-persistence-query-api</module>
+        <module>pangrova-persistence-jdbc-support</module>
+        <module>pangrova-persistence-generation-api</module>
+        <module>pangrova-persistence-generation-postgresql</module>
     </modules>
 </project>

@@ -1,7 +1,7 @@
 package org.pangrova.ai.control.embedding;
 
-import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.util.List;
 import java.util.Optional;

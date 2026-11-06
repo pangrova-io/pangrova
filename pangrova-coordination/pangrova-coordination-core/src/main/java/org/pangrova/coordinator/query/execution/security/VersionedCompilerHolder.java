@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.security;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

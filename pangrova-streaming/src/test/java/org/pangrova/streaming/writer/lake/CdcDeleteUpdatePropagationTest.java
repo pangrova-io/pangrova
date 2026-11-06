@@ -1,9 +1,9 @@
 package org.pangrova.streaming.writer.lake;
 
-import org.pangrova.spi.connector.data.write.DataFileSink;
-import org.pangrova.spi.connector.data.write.model.WriteContext;
-import org.pangrova.spi.connector.data.write.model.WriteMode;
-import org.pangrova.spi.connector.data.write.model.WriteRecord;
+import org.pangrova.connector.spi.write.DataFileSink;
+import org.pangrova.connector.api.write.WriteContext;
+import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.api.write.WriteRecord;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcOperation;
 import org.pangrova.streaming.api.cdc.CdcRow;

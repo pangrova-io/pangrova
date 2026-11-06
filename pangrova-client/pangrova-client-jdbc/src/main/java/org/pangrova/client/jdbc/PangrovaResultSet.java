@@ -14,8 +14,8 @@
 package org.pangrova.client.jdbc;
 
 import org.pangrova.client.jdbc.value.VectorSqlArray;
-import org.pangrova.transport.ColumnDescriptor;
-import org.pangrova.transport.ResultBatch;
+import org.pangrova.transport.client.ColumnDescriptor;
+import org.pangrova.transport.client.ResultBatch;
 
 import java.io.InputStream;
 import java.io.Reader;

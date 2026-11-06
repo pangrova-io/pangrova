@@ -1,0 +1,491 @@
+source	line	reference
+pangrova-common/src/main/java/org/pangrova/common/resilience/api/QueryCheckpoint.java	21	*       {@link org.pangrova.shuffle.api.ShuffleDurability})</li>
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	17	import org.pangrova.execution.core.binding.TaskRequestFactory;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	25	* Property-based tests for TaskRequestFactory taskId generation.
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	44	SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	72	SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	97	SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	124	private static TaskRequestFactory.LeafTask leafTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	130	return new TaskRequestFactory.LeafTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	131	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	132	planBytes, new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	133	org.pangrova.execution.api.stage.TaskPurpose.valueOf(stage.taskType())), partition, resourceGrant,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/TaskRequestFactoryPropertyTest.java	135	org.pangrova.execution.api.deadline.StageTaskDeadline.after(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/execution/dispatch/StageHandlerPropertyTest.java	225	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/RuntimeFilterRpcIntegrationTest.java	103	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/RuntimeFilterRpcIntegrationTest.java	158	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/ft/FaultTolerantStageSchedulerTest.java	13	import org.pangrova.shuffle.api.ShuffleCapabilities;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/ft/FaultTolerantStageSchedulerTest.java	14	import org.pangrova.shuffle.api.ShuffleDurability;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/scheduler/ft/FaultTolerantStageSchedulerTest.java	15	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/CoordinatorWriteReceiptFixtures.java	4	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/testinfra/CoordinatorWriteReceiptFixtures.java	24	return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(List.of(permission),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/BranchRoutingContextTest.java	274	// 3. TaskRequestFactory passes sessionProperties to SubmitTaskRequest
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	11	import org.pangrova.execution.core.binding.TaskRequestFactory;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	118	SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	139	SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	154	SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	202	private static TaskRequestFactory.LeafTask leafTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	208	return new TaskRequestFactory.LeafTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	209	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	210	planBytes, new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	211	org.pangrova.execution.api.stage.TaskPurpose.valueOf(stage.taskType())), 0, resourceGrant,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterBinderTest.java	213	org.pangrova.execution.api.deadline.StageTaskDeadline.after(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterWiringTest.java	102	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterWiringTest.java	153	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/DynamicFilterWiringTest.java	197	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/SchedulingWriteFixture.java	40	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/SchedulingWriteFixture.java	209	return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(permissions,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	13	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	14	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	15	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	16	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	17	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	18	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	19	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	91	Map<Integer, org.pangrova.shuffle.api.ShufflePartitionStats> stats = Map.of(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	92	0, new org.pangrova.shuffle.api.ShufflePartitionStats(0, 1024, 100),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/ShuffleLifecycleIntegrationTest.java	93	1, new org.pangrova.shuffle.api.ShufflePartitionStats(1, 2048, 200));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/AdaptiveQueryEvaluatorPartitionStatsTest.java	13	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/RuntimeFilterStageHandlerTest.java	71	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/RuntimeFilterStageHandlerTest.java	107	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/RuntimeFilterStageHandlerTest.java	136	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/RuntimeFilterStageHandlerTest.java	176	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineShuffleCleanupTest.java	27	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineShuffleCleanupTest.java	28	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineShuffleCleanupTest.java	29	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineShuffleCleanupTest.java	30	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineCancelFuturesTest.java	20	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineCancelFuturesTest.java	21	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineCancelFuturesTest.java	22	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineCancelFuturesTest.java	23	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/DAGDispatchEngineStageRetryTest.java	106	new org.pangrova.execution.core.authority.StageExecutionContext.Live(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStoreIntegrationTest.java	20	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStoreIntegrationTest.java	21	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStoreIntegrationTest.java	22	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStoreIntegrationTest.java	23	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStoreIntegrationTest.java	24	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManagerTest.java	6	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManagerTest.java	7	import org.pangrova.shuffle.api.ShuffleCapabilities;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManagerTest.java	8	import org.pangrova.shuffle.api.ShuffleDurability;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManagerTest.java	9	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManagerTest.java	10	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleRetryPolicyValidatorTest.java	6	import org.pangrova.shuffle.api.ShuffleCapabilities;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleRetryPolicyValidatorTest.java	7	import org.pangrova.shuffle.api.ShuffleDurability;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/InMemoryShuffleDataInventoryTest.java	3	import org.pangrova.shuffle.api.DecommissionAssessment;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/InMemoryShuffleDataInventoryTest.java	4	import org.pangrova.shuffle.api.ShuffleDataRef;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/InMemoryShuffleDataInventoryTest.java	5	import org.pangrova.shuffle.api.ShuffleRetentionPolicy;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManagerTest.java	46	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManagerTest.java	48	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManagerTest.java	378	new org.pangrova.shuffle.api.ShuffleServiceAddress(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManagerTest.java	380	new org.pangrova.shuffle.api.ShuffleServiceAddress(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManagerTest.java	421	List.of(new org.pangrova.shuffle.api.ShuffleServiceAddress(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestResultColumnTypeTest.java	3	import org.pangrova.execution.core.binding.TaskRequestFactory;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestResultColumnTypeTest.java	5	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestResultColumnTypeTest.java	62	var request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestResultColumnTypeTest.java	63	new TaskRequestFactory.LeafTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestResultColumnTypeTest.java	64	new StageExecutionContext.Live(session), new byte[] {1}, new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestResultColumnTypeTest.java	65	org.pangrova.execution.api.stage.TaskPurpose.valueOf(stage.taskType())), 0,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestResultColumnTypeTest.java	72	org.pangrova.execution.api.deadline.StageTaskDeadline.after(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	3	import org.pangrova.execution.core.binding.TaskRequestFactory;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	23	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	28	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	29	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	30	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	31	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	39	var request = TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	40	new TaskRequestFactory.LeafTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	41	new StageExecutionContext.Live(session()), new byte[] {1}, new org.pangrova.execution.api.stage.TaskStage(stage().stageId(),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	42	org.pangrova.execution.api.stage.TaskPurpose.valueOf(stage().taskType())), 0, resourceGrant(),
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/RemoteShuffleTaskBindingTest.java	47	List.of(), org.pangrova.execution.api.deadline.StageTaskDeadline.after(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestEpochStampingTest.java	3	import org.pangrova.execution.core.binding.TaskRequestFactory;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestEpochStampingTest.java	27	* Tests for {@link TaskRequestFactory#buildDmlWriteRequest}, verifying
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestEpochStampingTest.java	146	SubmitTaskRequest request = TaskRequestFactory.buildDmlWriteRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestEpochStampingTest.java	147	new TaskRequestFactory.DmlWriteTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestEpochStampingTest.java	172	return TaskRequestFactory.buildDmlWriteRequest(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/TaskRequestEpochStampingTest.java	173	new TaskRequestFactory.DmlWriteTask(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/StageRetryOwnershipTest.java	11	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/StageRetryOwnershipTest.java	110	new StageExecutionContext.Live(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/StageRetryOwnershipTest.java	149	"new StageExecutionContext.Live(new QuerySession(queryId, Map.of(), null, ""tenant"", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())));"
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	21	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	22	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	23	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	24	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	25	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	26	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	27	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandlerTest.java	134	new org.pangrova.execution.core.authority.StageExecutionContext.Live(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGStageExchangeBindingTest.java	13	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGStageExchangeBindingTest.java	126	var state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGLifecycleCancellationTest.java	8	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGLifecycleCancellationTest.java	195	return DAGExecutionState.create(new StageExecutionContext.Live(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/StageSplitFetcherTest.java	10	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/StageSplitFetcherTest.java	98	return new DAGQueryContext(new StageExecutionContext.Live(session), snapshots,
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/CopyFileCommitRecoveryIntegrationTest.java	34	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/task/CopyFileCommitRecoveryIntegrationTest.java	167	return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/session/CoordinatorSessionTraceContextTest.java	6	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/session/CoordinatorSessionTraceContextTest.java	28	var stage = new StageExecutionContext.Live(admitted);
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/generation/GeneratedAuthorityTestFixtures.java	8	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/generation/GeneratedAuthorityTestFixtures.java	71	var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/ft/FaultTolerantStageScheduler.java	14	import org.pangrova.shuffle.api.ShuffleCapabilities;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/ft/FaultTolerantStageScheduler.java	15	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/GeneratedWriteAuthorityResolver.java	10	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/GeneratedWriteAuthorityResolver.java	107	var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/DurableGeneratedValueBuildService.java	26	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/DurableGeneratedValueBuildService.java	144	var authorizationScope = DeferredAuthorizationScopeCodec.decode(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/DurableGeneratedValueBuildService.java	410	digest.update(DeferredAuthorizationScopeCodec.sha256(authorizationScope).getBytes(StandardCharsets.UTF_8));
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/feature/DurableFeatureExportService.java	54	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/feature/DurableFeatureExportService.java	150	"+ ""\n"" + DeferredAuthorizationScopeCodec.sha256(authorizationScope))"
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcherContext.java	23	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java	392	new org.pangrova.execution.core.authority.StageExecutionContext.Live(session),
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	31	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryOwnershipTracker.java	17	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	27	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	28	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	29	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	30	import org.pangrova.shuffle.api.ShuffleExecutionOwnerResolver;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	31	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	32	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	33	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleLifecycleManager.java	34	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleChannelSecurity.java	13	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleChannelSecurity.java	14	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/CoordinatorShuffleTaskGrantBinder.java	14	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleRetryPolicyValidator.java	5	import org.pangrova.shuffle.api.ShuffleCapabilities;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	16	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	17	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	18	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	19	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	20	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	21	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	22	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleProtocolAdapter.java	23	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/InMemoryShuffleDataInventory.java	8	import org.pangrova.shuffle.api.ShuffleDataInventory;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/InMemoryShuffleDataInventory.java	9	import org.pangrova.shuffle.api.ShuffleDataRef;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStore.java	12	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStore.java	13	import org.pangrova.shuffle.api.ShuffleExecutionOwnerResolver;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java	9	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java	10	import org.pangrova.shuffle.api.ShuffleCapabilities;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java	11	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java	12	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java	13	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/ShuffleLifecycleEvidence.java	5	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/ShuffleLifecycleEvidence.java	6	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/ShuffleLifecycleEvidence.java	7	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/ShuffleLifecycleEvidence.java	8	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchContext.java	15	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchEngine.java	26	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchEngine.java	156	DAGExecutionState state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGQueryContext.java	6	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGQueryContext.java	25	StageExecutionContext execution,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGQueryContext.java	45	if (!(execution instanceof StageExecutionContext.Live)
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGQueryContext.java	55	new StageExecutionContext.Live(session), Map.of(), null, List.of(), null, List.of(),
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	3	import org.pangrova.execution.core.binding.TaskRequestFactory;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	4	import org.pangrova.execution.api.stage.TaskStage;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	5	import org.pangrova.execution.api.stage.TaskPurpose;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	19	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	80	StageExecutionContext execution,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	138	TaskRequestFactory.validateSplitSources(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	270	return TaskRequestFactory.buildDmlWriteRequest(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	271	new TaskRequestFactory.DmlWriteTask(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	277	return TaskRequestFactory.buildLeafTaskRequest(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	278	new TaskRequestFactory.LeafTask(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	280	new TaskStage(input.plan().stageId(), TaskPurpose.valueOf(input.plan().taskType())),
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	283	org.pangrova.execution.api.deadline.StageTaskDeadline.after(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	340	StageExecutionContext execution) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/LeafStageDispatcher.java	422	private static org.pangrova.shuffle.api.ShuffleHandle shuffleHandle(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java	6	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java	11	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java	12	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java	14	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java	43	instanceof StageExecutionContext.Durable durable
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/ShuffleStageHandler.java	61	if (event.execution() instanceof StageExecutionContext.Durable durable) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/StageLifecycleEvent.java	3	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/StageLifecycleEvent.java	17	StageExecutionContext execution
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DurableDAGControl.java	6	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGExecutionState.java	10	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGExecutionState.java	29	public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGExecutionState.java	35	public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGLifecycleController.java	22	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGLifecycleController.java	34	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGLifecycleController.java	139	org.pangrova.execution.core.authority.StageExecutionContext execution,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGLifecycleController.java	144	if (!(execution instanceof StageExecutionContext.Live)
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/runtime/DAGLifecycleController.java	315	instanceof StageExecutionContext.Live)) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	3	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	4	import org.pangrova.execution.api.stage.TaskStage;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	5	import org.pangrova.execution.api.stage.TaskPurpose;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	6	import org.pangrova.execution.core.deadline.TaskLeaseDeadlines;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	9	import org.pangrova.execution.core.binding.TaskRequestFactory;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	17	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	45	TaskPurpose taskType = switch (stage.pageKind()) {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	46	case RELATIONAL_COMPUTE -> TaskPurpose.COMPUTE;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	47	case RELATIONAL_PARTITION -> TaskPurpose.OUTPUT;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	48	case SOURCE_MAP, DEPENDENCY_REDUCE, GENERATION_FINALIZE -> TaskPurpose.BACKGROUND_BUILD;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	50	var plan = new TaskStage(stage.stageId(), taskType);
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	51	return TaskRequestFactory.buildLeafTaskRequest(new TaskRequestFactory.LeafTask(
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	52	new StageExecutionContext.Deferred(partition.authority(), lease, traceContext), bound.planBytes(), plan,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurablePartitionRequest.java	55	TaskLeaseDeadlines.forPartition(lease, spec, now),
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurableStageRuntime.java	3	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurableStageRuntime.java	52	private final StageExecutionContext.Durable control;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurableStageRuntime.java	89	control = new StageExecutionContext.Durable(execution.authority(), epochs, dependencies.traceContexts().capture());
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/DurableStageRuntime.java	93	public StageExecutionContext.Durable control() {
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/control/StageExchangeAccessValidator.java	120	private static void requireProducerTransport(org.pangrova.shuffle.api.ShuffleHandle handle,
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/adaptive/AdaptiveQueryEvaluator.java	20	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/stage/Stage.java	19	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableStageShuffleEvidence.java	18	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableStageShuffleEvidence.java	19	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableStageShuffleEvidence.java	21	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/DurableStageShuffleEvidence.java	22	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	25	assertThat(DeferredAuthorizationScopeCodec.encode(scope)).isEqualTo(persisted);
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	26	assertThat(DeferredAuthorizationScopeCodec.decode(persisted)).isEqualTo(scope);
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	27	"assertThat(DeferredAuthorizationScopeCodec.sha256(scope)).isEqualTo(""187a40a6ce1cf430e8d3387bb3490f396bfe4632b85568e5f491e0e761dafd60"");"
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	33	var receipt = DeferredAuthorizationScopeCodec.decodeWriteReceipt(persisted);
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	35	var scope = DeferredAuthorizationScopeCodec.decode(persisted);
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	36	assertThat(DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope)).isEqualTo(receipt);
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	40	"assertThat(DeferredAuthorizationScopeCodec.sha256(scope)).isEqualTo(""00d4ef38da346154aa9c2e919389e276b681e9648bfd1ad8c250d105ba4eaa63"");"
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	48	assertThatThrownBy(() -> DeferredAuthorizationScopeCodec.decode(corrupt))
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	57	assertThat(DeferredAuthorizationScopeCodec.decode(spaced))
+pangrova-security/pangrova-security-codec/src/test/java/org/pangrova/security/codec/authorization/DeferredAuthorizationEncodingTest.java	58	.isEqualTo(DeferredAuthorizationScopeCodec.decode(persisted));
+pangrova-security/pangrova-security-codec/src/main/java/org/pangrova/security/codec/authorization/DeferredAuthorizationScopeCodec.java	22	public final class DeferredAuthorizationScopeCodec {
+pangrova-security/pangrova-security-codec/src/main/java/org/pangrova/security/codec/authorization/DeferredAuthorizationScopeCodec.java	34	private DeferredAuthorizationScopeCodec() {}
+pangrova-security/pangrova-security-api/src/test/java/org/pangrova/security/api/authorization/DeferredAuthorityContractIsolationTest.java	37	"""org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec"","
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/GeneratedWriteScopeTest.java	5	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/GeneratedWriteScopeTest.java	43	var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/GeneratedWriteScopeTest.java	44	assertThat(DeferredAuthorizationScopeCodec.decodeWriteReceipt(receipt.authorizationScope())).isEqualTo(receipt);
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/GeneratedWriteScopeTest.java	49	assertThatThrownBy(() -> DeferredAuthorizationScopeCodec.decodeWriteReceipt(corrupt.getBytes(StandardCharsets.UTF_8)))
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	5	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	36	assertThat(DeferredAuthorizationScopeCodec.decode(DeferredAuthorizationScopeCodec.encode(scope))).isEqualTo(scope);
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	37	assertThat(DeferredAuthorizationScopeCodec.sha256(scope)).hasSize(64);
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	38	assertThat(new String(DeferredAuthorizationScopeCodec.encode(scope), java.nio.charset.StandardCharsets.UTF_8))
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	57	assertThat(DeferredAuthorizationScopeCodec.sha256(first)).isEqualTo(DeferredAuthorizationScopeCodec.sha256(second));
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	64	assertThat(DeferredAuthorizationScopeCodec.sha256(transformed)).isNotEqualTo(DeferredAuthorizationScopeCodec.sha256(first));
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	69	assertThatThrownBy(() -> DeferredAuthorizationScopeCodec.decode(null)).isInstanceOf(IllegalArgumentException.class);
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	70	assertThatThrownBy(() -> DeferredAuthorizationScopeCodec.decode(new byte[] {1, 2}))
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	72	"assertThatThrownBy(() -> DeferredAuthorizationScopeCodec.decode(""[]"".getBytes(java.nio.charset.StandardCharsets.UTF_8)))"
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	74	assertThatThrownBy(() -> DeferredAuthorizationScopeCodec.decode(new byte[1024 * 1024 + 1]))
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	101	byte[] bytes = DeferredAuthorizationScopeCodec.encode(scope);
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	102	assertThat(DeferredAuthorizationScopeCodec.decode(bytes)).isEqualTo(scope);
+pangrova-security/pangrova-security-core/src/test/java/org/pangrova/security/core/authorization/DeferredAuthorizationScopeTest.java	103	assertThat(DeferredAuthorizationScopeCodec.encode(DeferredAuthorizationScopeCodec.decode(bytes))).isEqualTo(bytes);
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/exchange/NativeExchangeTransportTest.java	105	private static ExchangeEndpoint endpoint(TaskRequest request, org.pangrova.shuffle.api.ShuffleServerHandle server) {
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/exchange/remote/RemoteShuffleChannelPoolAdmissionTest.java	10	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/exchange/remote/RemoteShuffleProtocolContractTest.java	15	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/exchange/remote/RemoteShuffleClientPoolTest.java	14	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/NativeShuffleTransportTest.java	43	assertThat(second.partitionTickets()).extracting(org.pangrova.shuffle.api.ShufflePartitionTicket::partitionId)
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/shuffle/DefaultShuffleByteEgressTest.java	10	import org.pangrova.shuffle.api.ShuffleDurability;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/bootstrap/ownership/WorkerTaskOwnershipTest.java	4	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/property/exchange/RemoteExchangeManagerPropertyTest.java	20	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceConverter.java	7	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceConverter.java	8	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceConverter.java	9	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceConverter.java	10	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleByteEgress.java	21	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleByteEgress.java	22	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleByteEgress.java	23	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleTaskEgress.java	16	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleTaskEgress.java	17	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleClientPool.java	21	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleClientPool.java	22	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/DefaultShuffleByteEgress.java	8	import org.pangrova.shuffle.api.ShuffleByteEgress;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/NativeShuffleTransport.java	6	import org.pangrova.shuffle.api.ShufflePartitionTicket;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/NativeShuffleTransport.java	7	import org.pangrova.shuffle.api.ShuffleServerHandle;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/NativeShuffleTransport.java	8	import org.pangrova.shuffle.api.ShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskInfo.java	329	public org.pangrova.shuffle.api.ShuffleServerHandle shuffleServerHandle() {
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskInfo.java	333	public void setShuffleServerHandle(org.pangrova.shuffle.api.ShuffleServerHandle handle) {
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskResourceReleaser.java	3	import org.pangrova.shuffle.api.ShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskExecutionState.java	12	import org.pangrova.shuffle.api.ShuffleServerHandle;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TransportRefs.java	5	import org.pangrova.shuffle.api.ShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskManager.java	443	public Optional<org.pangrova.shuffle.api.ShuffleServerHandle> getShuffleServerHandle(
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	10	import org.pangrova.shuffle.api.ShuffleServerHandle;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskLifecycleManager.java	13	import org.pangrova.shuffle.api.ShuffleTransport;
+pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskManagerContext.java	7	import org.pangrova.shuffle.api.ShuffleTransport;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	260	var exchangeOwner = new org.pangrova.shuffle.api.ShuffleExecutionOwner(
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	275	new org.pangrova.shuffle.api.ShuffleServerEndpoint(endpoint.getHost(), endpoint.getPort(),
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	279	endpoints, new org.pangrova.shuffle.api.ShuffleServiceAddress(commit.getHost(), commit.getPort(),
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/ActualShuffleService.java	282	new org.pangrova.shuffle.api.ShuffleAccess(capability.getToken().toByteArray(),
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/shuffle/RemoteShuffleReadRenewalTest.java	9	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/control/ai/QueryOnlyWriteAuthorityIntegrationTest.java	46	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/control/ai/QueryOnlyWriteAuthorityIntegrationTest.java	136	assertThat(DeferredAuthorizationScopeCodec.decodeWriteReceipt(receipt.authorizationScope()))
+pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/control/ai/QueryOnlyWriteAuthorityIntegrationTest.java	140	var scope = DeferredAuthorizationScopeCodec.decode(receipt.authorizationScope());
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/ExecutionContractIsolationTest.java	20	URL api = org.pangrova.execution.api.stage.TaskStage.class.getProtectionDomain().getCodeSource().getLocation();
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/ExecutionContractIsolationTest.java	23	"for (String unavailable : List.of(""org.pangrova.execution.core.binding.TaskRequestFactory"","
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/ExecutionContractIsolationTest.java	29	assertThat(classes).contains(org.pangrova.execution.api.stage.TaskStage.class.getName(), org.pangrova.execution.api.deadline.StageTaskDeadline.class.getName());
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/deadline/StageTaskDeadlineTest.java	14	var deadline = StageTaskDeadline.after(Duration.ofMillis(1), preparedAt);
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/deadline/StageTaskDeadlineTest.java	22	assertThatThrownBy(() -> new StageTaskDeadline(now.toEpochMilli(), now))
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/deadline/StageTaskDeadlineTest.java	24	assertThatThrownBy(() -> StageTaskDeadline.after(Duration.ZERO, now))
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/deadline/StageTaskDeadlineTest.java	26	assertThatThrownBy(() -> StageTaskDeadline.after(Duration.ofMillis(-1), now))
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/deadline/StageTaskDeadlineTest.java	28	assertThatThrownBy(() -> StageTaskDeadline.after(Duration.ofNanos(1), now))
+pangrova-execution/pangrova-execution-api/src/test/java/org/pangrova/execution/api/deadline/StageTaskDeadlineTest.java	34	assertThatThrownBy(() -> StageTaskDeadline.after(Duration.ofMillis(1),
+pangrova-execution/pangrova-execution-api/src/main/java/org/pangrova/execution/api/deadline/StageTaskDeadline.java	11	public record StageTaskDeadline(long epochMillis, Instant preparedAt) {
+pangrova-execution/pangrova-execution-api/src/main/java/org/pangrova/execution/api/deadline/StageTaskDeadline.java	13	public StageTaskDeadline {
+pangrova-execution/pangrova-execution-api/src/main/java/org/pangrova/execution/api/deadline/StageTaskDeadline.java	21	public static StageTaskDeadline after(Duration duration, Instant now) {
+pangrova-execution/pangrova-execution-api/src/main/java/org/pangrova/execution/api/deadline/StageTaskDeadline.java	25	return new StageTaskDeadline(Math.addExact(now.toEpochMilli(), duration.toMillis()), now);
+pangrova-execution/pangrova-execution-api/src/main/java/org/pangrova/execution/api/stage/TaskStage.java	6	public record TaskStage(int stageId, TaskPurpose purpose) {
+pangrova-execution/pangrova-execution-api/src/main/java/org/pangrova/execution/api/stage/TaskStage.java	7	public TaskStage {
+pangrova-execution/pangrova-execution-api/src/main/java/org/pangrova/execution/api/stage/TaskPurpose.java	4	public enum TaskPurpose {
+pangrova-execution/pangrova-execution-core/src/test/java/org/pangrova/execution/core/split/CanonicalSplitParserTest.java	21	"assertThat(CanonicalSplitParser.parseAll(List.of(encoded), ""query-1"", 2))"
+pangrova-execution/pangrova-execution-core/src/test/java/org/pangrova/execution/core/split/CanonicalSplitParserTest.java	29	assertThatThrownBy(() -> CanonicalSplitParser.parseAll(
+pangrova-execution/pangrova-execution-core/src/test/java/org/pangrova/execution/core/binding/TaskRequestFactoryResourceGrantTest.java	26	StageResourceGrant grant = TaskRequestFactory.bindResourceGrant(
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/split/CanonicalSplitParser.java	14	public final class CanonicalSplitParser {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/split/CanonicalSplitParser.java	16	private CanonicalSplitParser() {}
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/identity/StageTaskIdentity.java	11	public final class StageTaskIdentity {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/identity/StageTaskIdentity.java	12	private StageTaskIdentity() {}
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/deadline/TaskLeaseDeadlines.java	3	import org.pangrova.execution.api.deadline.StageTaskDeadline;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/deadline/TaskLeaseDeadlines.java	9	public final class TaskLeaseDeadlines {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/deadline/TaskLeaseDeadlines.java	10	private TaskLeaseDeadlines() {}
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/deadline/TaskLeaseDeadlines.java	13	public static StageTaskDeadline forPartition(
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/deadline/TaskLeaseDeadlines.java	15	return new StageTaskDeadline(Math.min(lease.expiresAt().toEpochMilli(),
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskExecutionOptionsFactory.java	18	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskExecutionOptionsFactory.java	21	final class TaskExecutionOptionsFactory {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskExecutionOptionsFactory.java	26	private TaskExecutionOptionsFactory() {}
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	15	import org.pangrova.execution.core.authority.StageExecutionContext;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	16	import org.pangrova.execution.core.identity.StageTaskIdentity;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	17	import org.pangrova.execution.api.deadline.StageTaskDeadline;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	18	import org.pangrova.execution.core.split.CanonicalSplitParser;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	19	import org.pangrova.execution.api.stage.TaskStage;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	20	import org.pangrova.execution.api.stage.TaskPurpose;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	36	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	42	public final class TaskRequestFactory {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	48	private TaskRequestFactory() {}
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	58	taskId, new StageExecutionContext.Live(session), 0, 0, TaskKind.TASK_KIND_WRITE,
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	62	task.dynamicFilters(), List.of(), TaskExecutionOptionsFactory.build(
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	103	StageExecutionContext execution = task.execution();
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	104	if (execution instanceof StageExecutionContext.Durable) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	107	TaskStage stage = task.stage();
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	108	String taskId = execution instanceof StageExecutionContext.Deferred deferred
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	111	if (execution instanceof StageExecutionContext.Deferred deferred
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	124	TaskExecutionOptionsFactory.build(
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	126	execution instanceof StageExecutionContext.Live
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	127	&& stage.purpose() == TaskPurpose.OUTPUT, task.shuffleHandle(),
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	134	StageExecutionContext execution,
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	136	TaskStage stage,
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	143	StageTaskDeadline deadline,
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	180	CanonicalSplitParser.parseAll(serializedSplits, queryId, stageId);
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	184	StageExecutionContext execution, List<OperatorBinding> bindings) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	194	.anyMatch(TaskRequestFactory::governedReuse);
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	260	.addAllSplits(CanonicalSplitParser.parseAll(
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	276	private static org.pangrova.protocol.v2.TraceContext traceContext(StageExecutionContext execution) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	310	return filters.stream().map(TaskRequestFactory::runtimeFilter).toList();
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	335	private static TaskKind taskKind(TaskPurpose taskType) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	347	StageExecutionContext execution,
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	373	if (task.execution() instanceof StageExecutionContext.Deferred) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	374	var deferred = (StageExecutionContext.Deferred) task.execution();
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	384	private static String deferredTaskId(StageExecutionContext.Deferred deferred, LeafTask task) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	391	return StageTaskIdentity.fromLease(lease);
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	394	private static void bindDeferredIdentity(TaskRequest.Builder request, StageExecutionContext execution) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/binding/TaskRequestFactory.java	395	if (execution instanceof StageExecutionContext.Deferred deferred) {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	8	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	16	public sealed interface StageExecutionContext permits StageExecutionContext.Live,
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	17	StageExecutionContext.Durable, StageExecutionContext.Deferred {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	33	record Live(QuerySession session) implements StageExecutionContext {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	50	implements StageExecutionContext {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	70	DeferredAuthorizationScopeCodec.sha256(authority.dispatchSpec().authorizationScope()));
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	77	implements StageExecutionContext {
+pangrova-execution/pangrova-execution-core/src/main/java/org/pangrova/execution/core/authority/StageExecutionContext.java	97	DeferredAuthorizationScopeCodec.sha256(authority.dispatchSpec().authorizationScope()));
+pangrova-connector/pangrova-connector-lance/src/test/java/org/pangrova/connector/lance/LanceManagedSourceFixture.java	39	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-connector/pangrova-connector-lance/src/test/java/org/pangrova/connector/lance/LanceManagedSourceFixture.java	516	return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(List.of(
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/property/adaptive/PartitionCoalescerPropertyTest.java	13	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/property/adaptive/ShuffleStageStatsPropertyTest.java	7	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/property/adaptive/SkewJoinHandlerPropertyTest.java	10	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/StageReplanCallbackIntegrationTest.java	15	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/SkewJoinHandlerTest.java	7	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/PartitionCoalescerEvaluateTest.java	7	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/PartitionCoalescerTest.java	10	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/MedianSkewDetectorTest.java	5	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/MedianSkewDetectorTest.java	6	import org.pangrova.shuffle.api.SkewDetector.SkewDetectionConfig;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/MedianSkewDetectorTest.java	7	import org.pangrova.shuffle.api.SkewDetector.SkewDetectionResult;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/SkewJoinHandlerDetectSkewTest.java	7	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/test/java/org/pangrova/planner/core/adaptive/StageReplanCoordinatorTest.java	11	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/SkewJoinHandler.java	8	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/PartitionCoalescer.java	11	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/ShuffleStageStats.java	6	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/MedianSkewDetector.java	7	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-planner/pangrova-planner-core/src/main/java/org/pangrova/planner/core/adaptive/MedianSkewDetector.java	8	import org.pangrova.shuffle.api.SkewDetector;
+pangrova-operations/src/main/java/org/pangrova/operations/scaling/ShuffleDrainPolicy.java	114	* {@link org.pangrova.shuffle.api.ShuffleDrainHandler} to flush pending
+pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/placement/FaultTolerancePolicy.java	10	* effective when the active {@link org.pangrova.shuffle.api.ShuffleCapabilities}
+pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/placement/FaultTolerancePolicy.java	37	* ({@link org.pangrova.shuffle.api.ShuffleCapabilities#supportsTaskRetry()}).
+pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/exchange/ExchangeSpiPropertyTest.java	19	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/exchange/ExchangeSpiContractTest.java	14	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/scheduling/AdaptiveRepartitionTriggerTest.java	7	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/spool/localfs/LocalFsSpoolStoreTest.java	11	import org.pangrova.shuffle.api.ShuffleDurability;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeChannelContext.java	59	public org.pangrova.shuffle.api.ShuffleExecutionOwner executionOwner() {
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExchangeTaskAttempt.java	5	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExternalShuffleTransport.java	7	import org.pangrova.shuffle.api.ShuffleAccess;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExternalShuffleTransport.java	8	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExternalShuffleTransport.java	9	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/ExternalShuffleTransport.java	10	import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/core/PartitionMergeStrategy.java	4	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/core/PartitionMergeStrategy.java	5	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/scheduling/AdaptiveRepartitionTrigger.java	7	import org.pangrova.shuffle.api.ShufflePartitionStats;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStore.java	4	import org.pangrova.shuffle.api.ShuffleDurability;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalShuffleLifecycleManager.java	16	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalShuffleLifecycleManager.java	17	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalShuffleLifecycleManager.java	18	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalShuffleLifecycleManager.java	19	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalSpillLifecycleManager.java	5	import org.pangrova.shuffle.api.ShuffleCommitResult;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalSpillLifecycleManager.java	6	import org.pangrova.shuffle.api.ShuffleHandle;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalSpillLifecycleManager.java	7	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalSpillLifecycleManager.java	8	import org.pangrova.shuffle.api.ShuffleRegistration;
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStoreFactory.java	9	* plane</em> ({@link org.pangrova.shuffle.api.ShuffleDurability#LOCAL_SPILL LOCAL_SPILL} /
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStoreFactory.java	10	* {@link org.pangrova.shuffle.api.ShuffleDurability#DURABLE DURABLE}) from <em>operator
+pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/localfs/LocalFsSpoolStore.java	16	import org.pangrova.shuffle.api.ShuffleDurability;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleContractIsolationTest.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleContractIsolationTest.java	55	"String prefix = ""org/pangrova/shuffle/api/"";"
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/SkewDetectorTest.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/SkewDetectorTest.java	5	import org.pangrova.shuffle.api.SkewDetector.SkewDetectionConfig;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/SkewDetectorTest.java	6	import org.pangrova.shuffle.api.SkewDetector.SkewDetectionResult;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/SkewDetectorTest.java	7	import org.pangrova.shuffle.api.SkewDetector.SkewedPartition;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleDrainHandlerTest.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleDrainHandlerTest.java	3	import org.pangrova.shuffle.api.ShuffleDrainHandler.DrainResult;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleRetentionPolicyTest.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleTransportModeTest.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShuffleLifecycleManagerSpiTest.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/test/java/org/pangrova/shuffle/api/ShufflePartitionStatsTest.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleAccess.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShufflePartitionStats.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/SkewDetector.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/SkewDetector.java	13	* {@link org.pangrova.shuffle.api.ShuffleCommitResult}. The detector analyzes the
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/SkewDetector.java	43	* @see org.pangrova.shuffle.api.ShuffleCommitResult
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDataInventory.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleCapabilities.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleTransport.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleServerEndpoint.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDurability.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleRetentionPolicy.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleServiceAddress.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleExecutionOwnerResolver.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleServerHandle.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleEndpoint.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleEndpoint.java	9	* <p>Distinct from {@link org.pangrova.shuffle.api.ShuffleServerEndpoint} which describes
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleChannelBinding.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleRegistration.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleTransportMode.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleByteEgress.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleHandle.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleCommitResult.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleExecutionOwner.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDrainHandler.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShufflePartitionTicket.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDataRef.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/DecommissionAssessment.java	1	package org.pangrova.shuffle.api;
+pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleLifecycleManager.java	1	package org.pangrova.shuffle.api;
+pangrova-metadata/src/test/java/org/pangrova/metadata/testinfra/MetadataWriteReceiptFixtures.java	4	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-metadata/src/test/java/org/pangrova/metadata/testinfra/MetadataWriteReceiptFixtures.java	24	return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(List.of(permission),
+pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java	15	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java	425	var scope = DeferredAuthorizationScopeCodec.decode(intent.authorizationReceipt().authorizationScope());
+pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java	426	if (!DeferredAuthorizationScopeCodec.decodeWriteReceipt(intent.authorizationReceipt().authorizationScope())
+pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java	12	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java	93	var scope = DeferredAuthorizationScopeCodec.decode(write.authorizationReceipt().authorizationScope());
+pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java	109	|| !write.authorizationReceipt().equals(DeferredAuthorizationScopeCodec.decodeWriteReceipt(
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryDurableRecoveryWiring.java	27	import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java	42	import org.pangrova.shuffle.api.ShuffleServiceAddress;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java	43	import org.pangrova.shuffle.api.ShuffleLifecycleManager;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java	65	private final org.pangrova.shuffle.api.ShuffleExecutionOwnerResolver shuffleOwnerResolver;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java	101	org.pangrova.shuffle.api.ShuffleExecutionOwnerResolver shuffleOwnerResolver,
+pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorStore.java	9	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorStore.java	68	scope == null ? null : DeferredAuthorizationScopeCodec.encode(scope));
+pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorStore.java	199	return DeferredAuthorizationScopeCodec.decode(bytes);
+pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/transaction/JdbcWriteCommitJournal.java	10	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/transaction/JdbcWriteCommitJournal.java	181	if (!DeferredAuthorizationScopeCodec.decodeWriteReceipt(
+pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/transaction/JdbcWriteCommitJournal.java	636	"DeferredAuthorizationScopeCodec.decodeWriteReceipt(rs.getBytes(""deferred_authorization_scope"")),"
+pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationJobStoreSupport.java	8	import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationJobStoreSupport.java	60	statement.setBytes(parameter, DeferredAuthorizationScopeCodec.encode(
+pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/query/PostgresGenerationQueries.java	42	org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec.decode(

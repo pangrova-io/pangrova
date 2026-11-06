@@ -1,12 +1,15 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.coordinator.scheduler.SpeculationAdapters;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
-import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.scheduler.SchedulerCancelResult;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
@@ -37,17 +40,17 @@ public final class SpeculationReceiverWiringFixture {
             control.workers().registerWorker(TestWorkerInfoBuilder.active("original-worker", "first", 8001, 9001));
             control.workers().registerWorker(TestWorkerInfoBuilder.active("copy-worker", "second", 8002, 9002));
             launcher.setDispatchDependencies(
-                    SpeculationAdapters.dispatcher(dispatcher),
-                    SpeculationAdapters.workerInventory(control.workers()),
-                    SpeculationAdapters.taskRegistry(control.tracker()));
-            launcher.setCancelRetrier(SpeculationAdapters.canceller(cancellations));
+                    new CoordinatorSpeculativeAttemptDispatcher(dispatcher),
+                    new CoordinatorSpeculativeWorkerInventory(control.workers()),
+                    new CoordinatorSpeculativeTaskRegistry(control.tracker()));
+            launcher.setCancelRetrier(new CoordinatorSpeculativeAttemptCanceller(cancellations));
             var logicalSlot = new java.util.concurrent.atomic.AtomicReference<String>();
             var receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(
                     control.queries(), control.tracker(), control.workers(), launcher, resolver,
                     dispatcher, null, null, null, new org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback() {
                         @Override
                         public void onTaskTerminal(String query, String task, String state,
-                                org.pangrova.client.error.ErrorDetail error) {
+                                org.pangrova.query.api.error.QueryFailure error) {
                             logicalSlot.set(task);
                         }
 
@@ -55,7 +58,7 @@ public final class SpeculationReceiverWiringFixture {
                         public void onQueryTerminal(String query, java.util.function.Consumer<Boolean> listener) {
                             throw new UnsupportedOperationException("This task-receiver fixture does not own a query DAG");
                         }
-                    }, null, null));
+                    }, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
             var original = CanonicalTaskRequestTestFixture.request("original", "query", 1, 0,
                     TaskKind.TASK_KIND_READ, new byte[]{1});
             control.tracker().registerTask("query", "original");

@@ -1,13 +1,15 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.AuthorizedRelation;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;
@@ -20,7 +22,7 @@ final class GeneratedSourceReads {
     private GeneratedSourceReads() {}
 
     static ObservedRead compile(GeneratedSourceCompiler compiler, QualifiedTableName table,
-                               List<String> columns, ConnectorSession session) {
+                               List<String> columns, ConnectorSession session, ExecutionTraceContextFactory traceContexts) {
         if (compiler == null || columns.isEmpty()) {
             throw new AuthorizationDeniedException("Generated input requires the trusted protected relation compiler");
         }
@@ -29,9 +31,9 @@ final class GeneratedSourceReads {
         String sql = "SELECT " + columns.stream().map(GeneratedSourceReads::quote)
                 .collect(java.util.stream.Collectors.joining(",")) + " FROM "
                 + quote(table.catalog()) + "." + quote(table.schema()) + "." + quote(table.table());
-        var actor = new CoordinatorSessionContext("generated-input-" + UUID.randomUUID(),
+        var actor = new QuerySession("generated-input-" + UUID.randomUUID(),
                 Map.of("catalog", table.catalog(), "schema", table.schema()),
-                new UserIdentity(session.getUser(), Set.of(), Map.of("tenant_id", tenant), Instant.EPOCH), tenant);
+                new UserIdentity(session.getUser(), Set.of(), Map.of("tenant_id", tenant), Instant.EPOCH), tenant, java.util.Optional.empty(), traceContexts.capture());
         AuthorizedRelation compiled = compiler.compile(sql, actor);
         return observe(compiled, table, columns);
     }

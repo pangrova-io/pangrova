@@ -6,8 +6,8 @@ import java.util.function.BiConsumer;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -50,7 +50,7 @@ final class SpeculativeTaskReportCompletion {
 
     private void notifyStageTerminal(String queryId, String logicalTaskId, TaskStatusReport report) {
         if (stageCompletionCallback != null) {
-            stageCompletionCallback.onTaskTerminal(queryId, logicalTaskId, report.state(), report.error());
+            stageCompletionCallback.onTaskTerminal(queryId, logicalTaskId, report.state(), TaskReportQueryAdapter.failure(report));
         }
     }
 

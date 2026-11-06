@@ -13,9 +13,10 @@
  */
 package org.pangrova.coordinator.indexing.ai.lifecycle;
 
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.core.descriptor.IndexDescriptorTransitions;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -156,7 +157,7 @@ public final class VectorIndexHealthAssessor {
             String reason = String.format("Auto-staled: %.1f%% data unindexed (threshold %.0f%%)",
                     assessment.stalenessRatio() * 100, criticalThreshold * 100);
             LOG.warn("event=vector_index_auto_staled indexId={} reason={}", descriptor.indexId(), reason);
-            return descriptor.withState(IndexState.STALE, reason, Instant.now());
+            return IndexDescriptorTransitions.transition(descriptor, IndexState.STALE, reason, Instant.now());
         }
         return descriptor;
     }

@@ -1,0 +1,11 @@
+{
+  "path": "pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/lifecycle/CopyNativeInputAssertions.java",
+  "baseline_sha256": "1fb10ed88cdacdf7d66f653f7d37141ecf9126f80771624f9c44dc518b6a7b2f",
+  "after_sha256": "8e18623950ff7ad5bfb21a92f2a20fa266e45c7c7f9e69fe4bc5a3ac434d7a9b",
+  "baseline_missing_version": true,
+  "fix": "Stamp real canonical Substrait version, require budget-specific Native failure, fail fast on TaskManager terminal rejection. No production validation bypass.",
+  "evidence": [
+    "native-copy",
+    "native-copy-corrected"
+  ]
+}

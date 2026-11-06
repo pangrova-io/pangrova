@@ -6,7 +6,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +54,7 @@ final class TaskQueryCompletion {
         } else if (hasFailed) {
             writes.cleanupWriteStateOnFailure(queryId);
             clearQuerySequences(queryId);
-            queryManager.onTaskFailed(queryId, report.error());
+            queryManager.onTaskFailed(queryId, TaskReportQueryAdapter.failure(report));
         }
     }
 
@@ -63,7 +63,7 @@ final class TaskQueryCompletion {
         if (!deferredQueries.add(queryId)) {
             return;
         }
-        org.pangrova.coordinator.task.QueryIssuanceOperation operation;
+        org.pangrova.query.api.lifecycle.QueryOperation operation;
         try {
             operation = taskTracker.enterQueryMetadataOperation(queryId);
         } catch (RuntimeException | Error failure) {
@@ -119,10 +119,10 @@ final class TaskQueryCompletion {
                         queryId, e.getMessage(), e);
                 writes.cleanupWriteStateAfterCommitFailure(queryId);
                 clearQuerySequences(queryId);
-                ErrorDetail error = e instanceof org.pangrova.common.exception.PangrovaException pangrova
-                        ? new ErrorDetail(pangrova.getErrorCode().getCode(),
+                QueryFailure error = e instanceof org.pangrova.common.exception.PangrovaException pangrova
+                        ? new QueryFailure(pangrova.getErrorCode().getCode(),
                                 e.getClass().getSimpleName(), e.getMessage())
-                        : new ErrorDetail("WRITE_COMMIT_FAILED", e.getClass().getSimpleName(),
+                        : new QueryFailure("WRITE_COMMIT_FAILED", e.getClass().getSimpleName(),
                                 "Distributed write commit failed: " + e.getMessage());
                 queryManager.onTaskFailed(queryId, error);
                 return;

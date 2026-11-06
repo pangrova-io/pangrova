@@ -1,0 +1,322 @@
+{
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/membership/CoordinatorRegistry.java": {
+    "action": "move+change",
+    "old_path": "pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/coordination/CoordinatorRegistry.java",
+    "review": "Narrow coordinator topology port. Invalidation progress update is now mandatory, with all existing PostgreSQL/Memory/ZooKeeper implementations. Logical-ID coordinator identity semantics remain unchanged and require later fencing work.",
+    "normalized_executable_change": true,
+    "before_sha256": "bfc9e064d76bbb52118d5b9db1e1058e78df33dd6ef6d671a818ecad579c58c5",
+    "after_sha256": "597c8de6486585352e1756a765d3f518be3a128718cf67002a316cd12ff9a471"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/membership/WorkerRegistry.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/coordination/WorkerRegistry.java",
+    "review": "Narrow membership persistence port. Exact incarnation heartbeat, conditional refresh and withdrawal contracts preserved; Coordination API owns shared snapshots/identity.",
+    "normalized_executable_change": false,
+    "before_sha256": "f7dab47393fdc046515316403d9959e5862a01ae12694d8e8d269d1fe20ae000",
+    "after_sha256": "4e79bc41266fbcbdc70c13a1dc72b65c692dbc074a44ce86e098478e18812a63"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/lease/DistributedLease.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/coordination/DistributedLease.java",
+    "review": "Backend-issued lease/epoch persistence contract; retain high-water mark and exact holder/epoch checks. Shared LeaseEntry belongs to Coordination API.",
+    "normalized_executable_change": false,
+    "before_sha256": "1f6e34293df98b96cf94582596d2e61882ceae0ae6f08280feac314299ca68b7",
+    "after_sha256": "41ae43a75448b4e504fb02c0cbf4f9f572d058273244adb8b2ae907bb6cd8230"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/api/admission/ClusterConcurrencySlots.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/coordination/admission/ClusterConcurrencySlots.java",
+    "review": "Exact query/tenant live admission authority. No backend construction, JDBC, or provider dependencies; query physical completion owns release.",
+    "normalized_executable_change": false,
+    "before_sha256": "699e13b6471c7ff5c7adba86b8244d11e1f7cad4d06c35a1950acbd63a7dbf8f",
+    "after_sha256": "42164c0c14d752ab154ae92740d1cdf574aeab75131aef152d36115286a2e397"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-api/src/main/java/org/pangrova/persistence/coordination/spi/provider/CoordinationProvider.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/coordination/CoordinationProvider.java",
+    "review": "Real quorum provider extension in the SAME API artifact; borrows one shared connection for registry/lease and owns one close hook. Server chooses provider.",
+    "normalized_executable_change": false,
+    "before_sha256": "b90ebee031c08e8206cf5dc301810e1834910be4a43f822001c997afeb5578a5",
+    "after_sha256": "dbf42cf0343038c98c591faa04d6a4ac5301cf1e568047e53f25085fc63cb44b"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorLeaseBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorLeaseBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "7f7df8da0a2143eed73be22bc0f005808cdf075eba84f325a2a7766156eddbac",
+    "after_sha256": "b45e02866f8a00e835e84abd9c044abeb8be275feb5280c430f5a71ea55fe12e"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "f5e43260b15b54c8175f014e3c62fc3effa6f6d0ff873c3678e0739f5f92ada2",
+    "after_sha256": "f23e6d6eaefaaa874b5dbbdbcacdc7a9c350a44447725abe646f66adcec751db"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "125ef98b91c4fd650788af8eaadcc45c84537f0ca983af31bd8d7d5aca860f1d",
+    "after_sha256": "2f5c3151920ffd230f3dc9108d6bf20606929c63ed5d23d543cdd6875ed60ab2"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/SelfIntelligenceBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/SelfIntelligenceBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "53b8205be3189f0909e13681c6e685dd4650f3bca19460ec2ae31049802a5efc",
+    "after_sha256": "13a873d20089c46cb7489ac29856dba81a8f620a3ef9ec6dbaa40c6fb9dfbada"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/HighAvailabilityBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/HighAvailabilityBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "528608314ba34628827fc45a227b07d46e08826457dad7c225c0232c06b187ab",
+    "after_sha256": "ce35b66c6469e8b13c48621fe1e6bfd85b02d0a6b0e439366e282b76d42e9251"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorShutdownSequence.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorShutdownSequence.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "5c0f74a954468b4f2568d238c75805c14d3f13e0baf282a751e0faf3a7d315d1",
+    "after_sha256": "76afaeb379231d2bc301af80faf6866f3a09fa94d84f1ebc3729fa0d1acb2f60"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryRuntimeWiring.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryRuntimeWiring.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "017f11ef008a30dc37f9b251aeb13fd204959d5ae79306ecc3d446bfee6a3eac",
+    "after_sha256": "97b7a0c1ecd97e4f9ae70ad779bd8877a8363280128fed749440a732a6d518a3"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/ModuleIntegrationBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/ModuleIntegrationBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "1b2ac479473f06682e0f1b2025a88a1f5d0dc6cafc8b79007a6b144b96a4e230",
+    "after_sha256": "fd09a14c4f11f0b50d169a4ee16bac4715967d1e1a0a9dae1e5d080122709dac"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/IndexingBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/IndexingBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "ea14b9e1f787275bb8b5a589d8fbaffaf90b598c93f8341aad62b36ddfb45b85",
+    "after_sha256": "75c62561386593b7da1b5fea956a9f30a7cbda628f85ccaf79c89c8dc0880347"
+  },
+  "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/SecurityBootstrap.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/SecurityBootstrap.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "9842057149936dc4d62ee7c8ccfed71aecbc2d10af834fceea468cf385e5fba9",
+    "after_sha256": "a0de1c22e19154fdb7675e7184d85211f808144d99a21b4cdd669bbca357e427"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/membership/JdbcCoordinatorRegistry.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/coordination/JdbcCoordinatorRegistry.java",
+    "review": "PostgreSQL coordinator topology/role/progress persistence; SQL and error behavior unchanged. Logical-ID semantics and missing-column SQLException fallback remain existing audit debt.",
+    "normalized_executable_change": false,
+    "before_sha256": "e7c6f0fae027a857a0171ee55aa80fde2db541b565ba4865b73b4967b3630974",
+    "after_sha256": "3cedbaa896bba651748f16c328e36a2de3d849ecb8e5541c04b31f8cffc3b481"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/membership/JdbcWorkerRegistry.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/coordination/JdbcWorkerRegistry.java",
+    "review": "PostgreSQL membership SQL/locking/identity predicates unchanged. Borrow injected DataSource; each operation owns connection/statements/results. Does not close shared pool.",
+    "normalized_executable_change": false,
+    "before_sha256": "040b4d003fe7986cc9b8834c028c3ae8543713520eaa922b21b09222dab49205",
+    "after_sha256": "7e1cecffb421da5aaf41ee6877e77fb8baf47181e92f714c5e1bccd371edbf8d"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/error/CoordinationStorageException.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/coordination/CoordinationStorageException.java",
+    "review": "PostgreSQL lease failure carrier moved with implementation; public contract does not leak this backend-specific exception type.",
+    "normalized_executable_change": false,
+    "before_sha256": "d5b0b382fd1c7e88a3bf814735750267a34191f836467b91cf27f377f96ac9ba",
+    "after_sha256": "c72d8bf314206ae0714049a9ea8c57c816446ca28d7e5482626e9ddb1511a58a"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/lease/JdbcDistributedLease.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/coordination/JdbcDistributedLease.java",
+    "review": "PostgreSQL locking, post-lock authority time, monotonic epoch and transaction behavior unchanged. No Memory fallback or pool ownership transfer.",
+    "normalized_executable_change": false,
+    "before_sha256": "74e67945b0b860ea964cee9d9b5a0654bb4af02fa7913d2ce31b176048457c95",
+    "after_sha256": "be6afe23fd5e5abbac64b92e1375d9f4757c13a3b5bed310aa93212a2b463ae9"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-postgresql/src/main/java/org/pangrova/persistence/coordination/postgresql/admission/JdbcClusterConcurrencySlots.java": {
+    "action": "move+change",
+    "old_path": "pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/coordination/admission/JdbcClusterConcurrencySlots.java",
+    "review": "PostgreSQL exact-query reservations, per-tenant row locks and count mutations unchanged. Constructor no longer executes DDL; canonical schema V106 owns tables. Constructor still refuses inconsistent live ownership.",
+    "normalized_executable_change": true,
+    "before_sha256": "6bcc955cef08c3fefbf7997710d8e73bb00e87c32a32af4efd70f73d09cecac8",
+    "after_sha256": "531f768841c59fba996a3d668e1972066e9aba6c7239b0fa5b856c82dd0bbfc7"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-memory/src/main/java/org/pangrova/persistence/coordination/memory/membership/InMemoryWorkerRegistry.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/coordination/InMemoryWorkerRegistry.java",
+    "review": "Process-local concurrent membership with exact identity predicates unchanged; no durable or cross-process guarantee.",
+    "normalized_executable_change": false,
+    "before_sha256": "39302d757c181d909ef2f003acc9b0e4b84a1729844e06cd4ccfd7e5d5fc6e0c",
+    "after_sha256": "94c4eee4f95c254af581229d4b760a9719e2f94652a292229a796fdc16266f7f"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-memory/src/main/java/org/pangrova/persistence/coordination/memory/membership/InMemoryCoordinatorRegistry.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/coordination/InMemoryCoordinatorRegistry.java",
+    "review": "Process-local coordinator role/progress owner; existing implementation preserved without claiming distributed durability.",
+    "normalized_executable_change": false,
+    "before_sha256": "9ad5cf9d8b66b24ff768758362d5c9d606aec70ec41da8b37d60ef46a38849d3",
+    "after_sha256": "956cfe5d14ad3b97171a0af61ef622e8e770cf826319ceaa526b4ea646625383"
+  },
+  "pangrova-persistence/pangrova-persistence-coordination-memory/src/main/java/org/pangrova/persistence/coordination/memory/lease/InMemoryDistributedLease.java": {
+    "action": "move",
+    "old_path": "pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/coordination/InMemoryDistributedLease.java",
+    "review": "Process-local monotonic lease/epoch owner; existing contention semantics preserved, not a durable quorum backend.",
+    "normalized_executable_change": false,
+    "before_sha256": "51cac60cc30812ccef95f6060073939028a18df192e0c659436b4b5b50034303",
+    "after_sha256": "1de93d60aa0e19991a8c64e104308d389a4b557b65496be2b96f7eb146a924c6"
+  },
+  "pangrova-scheduler/pangrova-scheduler-core/src/main/java/org/pangrova/scheduler/core/admission/TenantQuotaAdmissionController.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-scheduler/pangrova-scheduler-core/src/main/java/org/pangrova/scheduler/core/admission/TenantQuotaAdmissionController.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "226a225988a6ace45f1ac443a2250dbe066eb66e186406311d6f35a41a0bab29",
+    "after_sha256": "299cb70a672346b2514196737b33547b6aa05d93f8991af4153ea7230f32fd69"
+  },
+  "pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/coordination/admission/InMemoryClusterConcurrencySlots.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/coordination/admission/InMemoryClusterConcurrencySlots.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "de43c90e9c920a67ae391f7ec566bfb57b85ff7e62757f6ae1d2f2dde9558d31",
+    "after_sha256": "8f306bf72fde16bfd98f1c078424eb290e69b8bcebb8a21ca08d782a6f328495"
+  },
+  "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperDistributedLease.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperDistributedLease.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "780999603b78d5e1ece9bf194500384e6fa5c7f2b8d424a06fcd858e36ffe5b9",
+    "after_sha256": "35e2d38ba217c8359e6a8b326778928d35027b491d2c187c55e60cdb073ee9fd"
+  },
+  "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperCoordinatorRegistry.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperCoordinatorRegistry.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "1d8a74f163703f425a57e0761561754f6157ddaace0ac34b009c0e18777f0dc5",
+    "after_sha256": "037f40f86ac11b9f4be6ce05e525545034a444a4759abcf66ad5a8447b559536"
+  },
+  "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperLeaseProvider.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperLeaseProvider.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "6dcabc0fad42c3ad0c8327e5d6892f7f2f2eea9124e5e3091f2fb920cd0e1aeb",
+    "after_sha256": "a93b510489bac8462a83e5ef83b1bef9aa0301616cf0ce41c9ea75451eb32383"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/DdlLeadershipGuard.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/DdlLeadershipGuard.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "b4d43df7c0c963506a7f9d2e1aefb85217514f57116ce17e271c36c7ebe73ec8",
+    "after_sha256": "2766d31edefcff2d6db063e95f5192ab72514249bdeb04c57d53bc3251f982bb"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/ControlledTableMaintenance.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/ControlledTableMaintenance.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "d1ef4cfcffee0ecf7d9e0e1c99f1934bc5db0216e7b5e1895e4e6e7c9b5f746d",
+    "after_sha256": "0404ca39c6c6abb9b4395c92319176cc37908abe2fc318930672783b0f7e8026"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceLeaseGuard.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceLeaseGuard.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "e24bbb5e7b0b630feb8cf0510672bacb2038b3a4d3ddf9715146c12b5551c7ef",
+    "after_sha256": "6decdb379b39bd2f40a455ae13faf855f95b68d3598d0c17b7668becc136a100"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/worker/WorkerManager.java": {
+    "action": "change",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/worker/WorkerManager.java",
+    "review": "Core requires explicit WorkerRegistry even for default thresholds; removed implicit Memory selection. Existing topology/heartbeat/tenant usage state owner and mutation ordering unchanged.",
+    "normalized_executable_change": true,
+    "before_sha256": "a17bbeea45a71571f383e68e6176b36cc20c58aea2fe8631c0c8cef0a625ad18",
+    "after_sha256": "fa3ac57faf3bf781a118df795dc03dceb5deb9151cca0875074f43c877ea8bd4"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/ai/lifecycle/IndexRebuildScheduler.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/ai/lifecycle/IndexRebuildScheduler.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "d795d3ad2c16f3092edb1607b9f7f899c7ec8a3818f223fc09327e6f41055511",
+    "after_sha256": "e9a56cf6983fc17e252267f1eb1cc54660067eb2716647397ad011f58e5afd94"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/lifecycle/MaintenanceLeaderElection.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/lifecycle/MaintenanceLeaderElection.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "118ad813b9914f5d8cec7892a7c0095b32c3cc1a49eea73bc41af447619ede1c",
+    "after_sha256": "c26c942b026c8c83f7e90906800a7dddab43f42fb46cdd87530db2cc17c50aa3"
+  },
+  "pangrova-streaming/src/main/java/org/pangrova/streaming/cdc/CdcFencingToken.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-streaming/src/main/java/org/pangrova/streaming/cdc/CdcFencingToken.java",
+    "review": "Corrected unsupported production-wiring claim in Javadoc; no production lease adapter demonstrated. No executable code change; removed documentation-only Persistence dependency.",
+    "normalized_executable_change": false,
+    "before_sha256": "8dfd59cb4690ee6742a9384d63da6b2891c08275830ed3f636f3518e3fe56793",
+    "after_sha256": "20dea55974df46d22c64b62b15629baf69ab0f1bd5a8f3a0e04443264d4934a7"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/InvalidationProgressRegistryAdapter.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/InvalidationProgressRegistryAdapter.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "52450b0b1b5325f56160273ba55ebaa843ce85142b3d2a11f27ef48bde4cd09d",
+    "after_sha256": "9cdf36be3f73cbaa8c8cb7f59d6447acfc28b4d7a4f33bdae974b6aca1278abd"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/CoordinatorRegistryClient.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/CoordinatorRegistryClient.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "489440e03577329f896c98b72c852ad3fa830282897bd8a65f07e5ef627da494",
+    "after_sha256": "049bcadba6468fc886157991a8853eaf4d3fa8ec09005d6101775122a6853a6d"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/HighAvailabilityCoordinationService.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/HighAvailabilityCoordinationService.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "b86ab98e87b20e90a087b47fa6f618da705b6e19959e27e2c62e74c247a129e6",
+    "after_sha256": "74e8076663571ef7db186c01bdb79dd92ba9a601d2aceb427364715563b30e7c"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/LeaseBackedLeaderElection.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/LeaseBackedLeaderElection.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "8a277b14c70ab383a61b52fc0fdc2d122a955ad6dc93ea2c7295faa029321f52",
+    "after_sha256": "e376b05a119a04af5bacd8f0e97bf413e9c84611f654732161fb4efa8faa4d3d"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/clustering/ClusteringScheduler.java": {
+    "action": "consumer-reference",
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/clustering/ClusteringScheduler.java",
+    "review": "Consumer of moved persistence contracts/providers: import or explicit FQN adjustment only; existing assembly, transactions, resources and executable statements unchanged.",
+    "normalized_executable_change": false,
+    "before_sha256": "083254b21d6d287724d18512a98bdf0c8bd9f54da72c384cb73e802838dadbd9",
+    "after_sha256": "f633a13389cb14a67468088de38c08d0232ab9ea2175777689e4bcfd5e9dedc2"
+  }
+}

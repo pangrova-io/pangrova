@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.retrieval;
 
+import org.pangrova.query.core.stage.binding.RerankIntent;
+import org.pangrova.query.core.stage.binding.RetrievalMergeIntent;
+
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -10,9 +14,9 @@ import io.substrait.proto.NamedStruct;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
-import org.pangrova.planner.RetrievalTopKPlanHint;
-import org.pangrova.planner.SerializedPlanFragment;
+import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.ResolvedRetrievalGeneration;
+import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.retrieval.RerankBinding;

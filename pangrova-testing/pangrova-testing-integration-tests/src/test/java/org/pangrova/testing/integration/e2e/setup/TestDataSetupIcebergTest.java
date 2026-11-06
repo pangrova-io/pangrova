@@ -1,10 +1,10 @@
 package org.pangrova.testing.integration.e2e.setup;
 
 import org.pangrova.connector.iceberg.IcebergConnector;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.testkit.TestDataGenerator;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
@@ -138,7 +138,7 @@ class TestDataSetupIcebergTest {
     private static ConnectorSession testSession() {
         return new ConnectorSession() {
             @Override
-            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
                 return java.util.Optional.empty();
             }
 

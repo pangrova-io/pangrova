@@ -7,9 +7,9 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.Fixture;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.arithmeticPredicate;

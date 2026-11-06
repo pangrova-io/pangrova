@@ -1,7 +1,7 @@
 package org.pangrova.client.cli;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.transport.security.ClientAuthentication;
+import org.pangrova.transport.client.authentication.ClientAuthentication;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

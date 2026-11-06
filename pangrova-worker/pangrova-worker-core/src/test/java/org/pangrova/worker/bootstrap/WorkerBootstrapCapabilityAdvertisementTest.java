@@ -9,12 +9,50 @@ import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 import org.pangrova.testing.testkit.function.ActualNativeCatalogue;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkerBootstrapCapabilityAdvertisementTest {
+
+    @Test
+    void rejectsConfiguredModelsWithoutCatalogProvider() {
+        assertThatThrownBy(() -> NativeCapabilityAdvertisement.addConfiguredModels(
+                CapabilityInventory.getDefaultInstance(), functionConfig(), List.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("require an AiModelCatalog provider");
+    }
+
+    @Test
+    void permitsMissingCatalogOnlyWithoutConfiguredModels() {
+        assertThat(NativeCapabilityAdvertisement.addConfiguredModels(
+                CapabilityInventory.getDefaultInstance(),
+                new NativeFunctionConfig(true, Map.of()), List.of()).getModelsList())
+                .isEmpty();
+    }
+
+    @Test
+    void rejectsAmbiguousCatalogsBeforeInvokingEither() {
+        org.pangrova.ai.spi.model.AiModelCatalog unexpected = config -> {
+            throw new AssertionError("Ambiguous catalog must not be invoked");
+        };
+        assertThatThrownBy(() -> NativeCapabilityAdvertisement.addConfiguredModels(
+                CapabilityInventory.getDefaultInstance(), functionConfig(),
+                List.of(unexpected, unexpected)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Multiple AiModelCatalog providers");
+    }
+
+    @Test
+    void disabledRegistrationDoesNotDiscoverCatalogs() {
+        assertThat(NativeCapabilityAdvertisement.addConfiguredModels(
+                CapabilityInventory.getDefaultInstance(),
+                new NativeFunctionConfig(false, functionConfig().pluginConfigs()),
+                () -> { throw new AssertionError("Disabled registration must not load providers"); })
+                .getModelsList()).isEmpty();
+    }
 
     @Test
     void exposesOnlyTheCanonicalInventoryAndEngineIdentity() {

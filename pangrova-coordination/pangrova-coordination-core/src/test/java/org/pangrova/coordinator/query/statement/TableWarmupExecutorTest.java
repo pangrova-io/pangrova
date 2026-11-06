@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.query.statement;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,34 +14,30 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.SplitProperties;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.BatchFormat;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.SplitProperties;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -69,8 +64,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class TableWarmupExecutorTest {
 
-    private static org.pangrova.coordinator.query.session.CoordinatorSessionContext statementSession() {
+    private static org.pangrova.query.api.session.QuerySession statementSession() {
         return context();
+    }
+
+    private static List<TypedRow> execute(TableWarmupExecutor executor, String catalog,
+            Map<String, String> arguments, org.pangrova.query.api.session.QuerySession session) {
+        var literals = new java.util.ArrayList<org.pangrova.parser.api.ast.Expression>();
+        for (int i = 0; i < arguments.size(); i++) {
+            literals.add(org.pangrova.parser.api.ast.Literal.ofString(arguments.get("arg" + i)));
+        }
+        var call = org.pangrova.query.core.statement.TableProcedureCall.bind(
+                new org.pangrova.parser.api.ast.statement.maintenance.CallStatement(
+                        org.pangrova.parser.api.ast.Identifier.of(catalog, "warmup_table"), literals));
+        return executor.execute(call.target(), session);
     }
 
     private static final String CATALOG = "warm";
@@ -91,7 +98,7 @@ class TableWarmupExecutorTest {
     void warmup_twoArgForm_drainsRowsAndReturnsSummary() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
 
-        List<TypedRow> rows = exec.execute(CATALOG,
+        List<TypedRow> rows = execute(exec, CATALOG,
                 Map.of("arg0", SCHEMA, "arg1", TABLE), statementSession());
 
         assertThat(rows).hasSize(1);
@@ -111,7 +118,7 @@ class TableWarmupExecutorTest {
     void warmup_singleArgForm_acceptsSchemaDotTable() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
 
-        List<TypedRow> rows = exec.execute(CATALOG,
+        List<TypedRow> rows = execute(exec, CATALOG,
                 Map.of("arg0", SCHEMA + "." + TABLE), statementSession());
 
         assertThat(rows).hasSize(1);
@@ -121,7 +128,7 @@ class TableWarmupExecutorTest {
     @Test
     void warmup_resultColumnsContractMatchesTypedRow() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        TypedRow row = exec.execute(CATALOG, Map.of("arg0", SCHEMA, "arg1", TABLE), statementSession()).get(0);
+        TypedRow row = execute(exec, CATALOG, Map.of("arg0", SCHEMA, "arg1", TABLE), statementSession()).get(0);
         assertThat(TableWarmupExecutor.resultColumns())
                 .containsExactlyElementsOf(row.columnNames());
     }
@@ -132,7 +139,7 @@ class TableWarmupExecutorTest {
         store.setSplitsPerTable("default", "multi", 4); // 4 splits, each contributes rows
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        List<TypedRow> rows = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "multi"), statementSession());
+        List<TypedRow> rows = execute(exec, CATALOG, Map.of("arg0", "default", "arg1", "multi"), statementSession());
 
         assertThat(rows.get(0).getLong("splits_processed")).isEqualTo(4L);
         assertThat(rows.get(0).getLong("rows_touched")).isEqualTo(4L * 7L);
@@ -149,7 +156,7 @@ class TableWarmupExecutorTest {
         store.setNativeBytesPerSplit("default", "native_t", 4096);
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        TypedRow row = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "native_t"), statementSession()).get(0);
+        TypedRow row = execute(exec, CATALOG, Map.of("arg0", "default", "arg1", "native_t"), statementSession()).get(0);
 
         assertThat(row.getLong("rows_touched")).isEqualTo(9L);
         // No size hint, but native page reported bytes — those are credited.
@@ -163,7 +170,7 @@ class TableWarmupExecutorTest {
         store.failPageSourceForSplitIndex("default", "flaky", 1); // 2nd split fails
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        TypedRow row = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "flaky"), statementSession()).get(0);
+        TypedRow row = execute(exec, CATALOG, Map.of("arg0", "default", "arg1", "flaky"), statementSession()).get(0);
 
         assertThat(row.getLong("splits_processed")).isEqualTo(2L);
         assertThat(row.getLong("splits_failed")).isEqualTo(1L);
@@ -178,7 +185,7 @@ class TableWarmupExecutorTest {
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
         assertThatThrownBy(() ->
-                exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "doomed"), statementSession()))
+                execute(exec, CATALOG, Map.of("arg0", "default", "arg1", "doomed"), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("warmup_table");
     }
@@ -186,7 +193,7 @@ class TableWarmupExecutorTest {
     @Test
     void warmup_unknownTable_throwsTableNotFound() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        assertThatThrownBy(() -> exec.execute(CATALOG,
+        assertThatThrownBy(() -> execute(exec, CATALOG,
                 Map.of("arg0", SCHEMA, "arg1", "ghost"), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("table not found");
@@ -195,7 +202,7 @@ class TableWarmupExecutorTest {
     @Test
     void warmup_missingArg0_throws() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        assertThatThrownBy(() -> exec.execute(CATALOG, Map.of(), statementSession()))
+        assertThatThrownBy(() -> execute(exec, CATALOG, Map.of(), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("warmup_table requires arguments");
     }
@@ -203,7 +210,7 @@ class TableWarmupExecutorTest {
     @Test
     void warmup_singleArgWithoutDot_throws() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        assertThatThrownBy(() -> exec.execute(CATALOG, Map.of("arg0", "no_dot"), statementSession()))
+        assertThatThrownBy(() -> execute(exec, CATALOG, Map.of("arg0", "no_dot"), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("'schema.table'");
     }
@@ -214,7 +221,7 @@ class TableWarmupExecutorTest {
         store.setSplitsPerTable("default", "huge", 50);
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry, /* maxSplits = */ 5);
-        TypedRow row = exec.execute(CATALOG,
+        TypedRow row = execute(exec, CATALOG,
                 Map.of("arg0", "default", "arg1", "huge"), statementSession()).get(0);
 
         assertThat(row.getLong("splits_processed")).isEqualTo(5L);
@@ -226,7 +233,7 @@ class TableWarmupExecutorTest {
         store.setSplitsPerTable("default", "empty", 0);
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        TypedRow row = exec.execute(CATALOG,
+        TypedRow row = execute(exec, CATALOG,
                 Map.of("arg0", "default", "arg1", "empty"), statementSession()).get(0);
 
         assertThat(row.getLong("splits_processed")).isEqualTo(0L);
@@ -240,7 +247,7 @@ class TableWarmupExecutorTest {
     private static CatalogRegistry buildRegistry(MemTableStore store) {
         ConnectorHandleFactory chf = desc ->
                 new ConnectorCatalogHandle(desc, new MemConnector(store));
-        CatalogRegistry reg = new CatalogRegistry(new EmptyMetadataStore(), chf, null, null);
+        CatalogRegistry reg = new CatalogRegistry(new EmptyCatalogDeployments(), chf, null, null);
         reg.register(new CatalogDescriptor(
                 CATALOG, CatalogType.CONNECTOR, "memory",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -302,7 +309,7 @@ class TableWarmupExecutorTest {
         private final MemTableStore store;
         MemConnector(MemTableStore s) { this.store = s; }
 
-        @Override public org.pangrova.spi.connector.metadata.ConnectorMetadata getMetadata(ConnectorSession s) {
+        @Override public org.pangrova.connector.spi.metadata.ConnectorMetadata getMetadata(ConnectorSession s) {
             return new MemMetadata(store);
         }
         @Override public ConnectorSplitManager getSplitManager() {
@@ -316,7 +323,7 @@ class TableWarmupExecutorTest {
         }
     }
 
-    private static final class MemMetadata implements org.pangrova.spi.connector.metadata.ConnectorMetadata {
+    private static final class MemMetadata implements org.pangrova.connector.spi.metadata.ConnectorMetadata {
         private final MemTableStore store;
         MemMetadata(MemTableStore s) { this.store = s; }
 
@@ -432,18 +439,17 @@ class TableWarmupExecutorTest {
         }
     }
 
-    private static final class EmptyMetadataStore implements MetadataStore {
-        @Override public void saveTable(TableMetadata m) { }
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) { }
-        @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String n) { }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) { }
-        @Override public void recordSyncHistory(SyncResult r) { }
-        @Override public void saveSchemas(String c, List<String> s) { }
+
     }
 }

@@ -1,19 +1,20 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.RuntimeInitConfig;
 import org.pangrova.common.value.MemoryPressure;
@@ -35,7 +36,7 @@ import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.pangrova.worker.memory.NativeMemoryCoordinator;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.result.ResultReadTickets;
-import org.pangrova.worker.shuffle.NativeShuffleTransport;
+import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TaskManagerContext;
 import org.pangrova.worker.task.TransportRefs;
@@ -139,14 +140,15 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         }
         var exchange = new NativeExchangeTransport(executor);
         var context = new TaskManagerContext(this::report, executor, memory,
-                new TransportRefs(new NativeShuffleTransport(executor, LOOPBACK_HOST, ""), results, exchange), monitors);
+                new TransportRefs(new NativeShuffleTransport(executor::executeCommand, LOOPBACK_HOST, ""), results, exchange), monitors);
         var admissionIncarnation = org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
                 admissionDirectory.resolve(java.net.URLEncoder.encode(id, java.nio.charset.StandardCharsets.UTF_8)));
         admissionIncarnations.add(admissionIncarnation);
         var tasks = new TaskManager(context, id, 0.0, admissionIncarnation);
         tasks.requireControlEpochHandshake();
         tasks.observeControlEpoch(1L);
-        var http = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, LOOPBACK_HOST, results.boundPort()),
+        var http = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, LOOPBACK_HOST, results.boundPort())
+                        .withBindHost(LOOPBACK_HOST),
                 tasks, exchange, null, null, resultTickets);
         var worker = new WorkerNode(id, tasks, http);
         workers.add(worker);
@@ -188,7 +190,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
     }
 
     public QueryManager connectAsync(QueryDispatcher dispatcher, CoordinatorTaskTracker tracker, WorkerManager workers) {
-        var queries = new QueryManager(QueryManagerContext.minimalAsync(dispatcher, TestObservability.TRACING,
+        var queries = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher, TestObservability.TRACING,
                 AsyncSubmitConfig.defaultEnabled(), dispatchExecutor));
         ownedQueries.add(queries);
         connect(dispatcher, tracker, workers, queries);
@@ -201,7 +203,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
     }
 
     public QueryManager connect(QueryDispatcher dispatcher, CoordinatorTaskTracker tracker, WorkerManager workers) {
-        var queries = new QueryManager(QueryManagerContext.minimal(dispatcher, TestObservability.TRACING));
+        var queries = new QueryManager(QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
         ownedQueries.add(queries);
         connect(dispatcher, tracker, workers, queries);
         return queries;
@@ -210,7 +212,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
     public void connect(QueryDispatcher dispatcher, CoordinatorTaskTracker tracker,
                         WorkerManager workers, QueryManager queries) {
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queries, tracker, workers,
-                null, null, null, null, null, null, dispatcher.dagEngine(), null, null));
+                null, null, null, null, null, null, dispatcher.dagEngine(), null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
         sink.set(report -> {
             if (!receiver.onTaskStatus(report)) {
                 throw new IllegalStateException("Real Worker report was rejected: " + report.taskId());
@@ -220,7 +222,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
 
     /** Runs dispatch concurrently with the real client whose EOF permits Native OUTPUT completion. */
     public DispatchResult execute(QueryDispatcher dispatcher, QueryStateMachine state,
-                                  String sql, CoordinatorSessionContext session) {
+                                  String sql, QuerySession session) {
         var future = dispatchExecutor.submit(() -> dispatcher.execute(state, sql, session));
         try {
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30))

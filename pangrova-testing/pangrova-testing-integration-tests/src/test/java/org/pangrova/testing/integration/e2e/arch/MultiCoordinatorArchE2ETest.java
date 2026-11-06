@@ -1,14 +1,13 @@
 package org.pangrova.testing.integration.e2e.arch;
 
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
-import org.pangrova.coordinator.bootstrap.CoordinatorRole;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorRole;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.query.state.QueryStateEvent;
-import org.pangrova.spi.query.state.StateJournalConfig;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
@@ -116,7 +115,7 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("Same query returns identical results from either QUERY coordinator")
         void sameQueryIdenticalResultsFromEitherQueryCoordinator() {
-            // Both QUERY coordinators share the same MetadataStore and data files.
+            // Both QUERY coordinators share the same CatalogDeploymentRepository and data files.
             // The test cluster acts as the shared query path; we verify deterministic
             // results by running the same query twice (simulating two QUERY coordinators).
             String tableName = "t_arch_2q1m_" + System.nanoTime();
@@ -320,7 +319,7 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
                     .isGreaterThanOrEqualTo(1);
 
             // Both QUERY coordinators can still query the table (cache invalidation
-            // triggers re-fetch from MetadataStore, not failure)
+            // triggers re-fetch from CatalogDeploymentRepository, not failure)
             List<TypedRow> afterInvalidation1 = sqlRunner.execute(
                     "SELECT COUNT(*) AS cnt FROM " + fqn);
             assertThat(afterInvalidation1).hasSize(1);
@@ -457,7 +456,7 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
 
             // Simulate QUERY coordinator-1 crash: in a real deployment, the LB
             // health check detects the crash and routes to QUERY coordinator-2.
-            // The surviving coordinator has the same MetadataStore access and
+            // The surviving coordinator has the same CatalogDeploymentRepository access and
             // can serve queries immediately.
 
             // "QUERY coordinator-2" (survivor) serves the same query — no data loss
@@ -494,7 +493,7 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
             try {
                 // Simulate coordinator-1 journaling a query before crash
                 String queryId = "arch-crash-query-" + System.nanoTime();
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), queryId, "SELECT 1", null, "QUEUED"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), queryId, "SELECT 1", null, "QUEUED"));
 
                 // Verify journal has the active query
                 List<QueryStateEvent> activeQueries = journal.replayActiveQueries();
@@ -505,7 +504,7 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
                 // Simulate crash: coordinator-1 is gone. Coordinator-2 starts recovery.
                 // Mark the query as FAILED (simulating what JournalRecoveryService does
                 // when the assigned worker is unreachable).
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), queryId, null, null, "FAILED"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), queryId, null, null, "FAILED"));
                 journal.purgeQuery(queryId);
 
                 // Verify journal is clean after recovery
@@ -543,10 +542,10 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
             try {
                 // Simulate orphaned query from crashed coordinator
                 String orphanQueryId = "arch-orphan-" + System.nanoTime();
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), orphanQueryId, "SELECT * FROM " + fqn, null, "QUEUED"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), orphanQueryId, "SELECT * FROM " + fqn, null, "QUEUED"));
 
                 // Recovery: mark orphaned query FAILED and purge
-                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), orphanQueryId, null, null, "FAILED"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), orphanQueryId, null, null, "FAILED"));
                 journal.purgeQuery(orphanQueryId);
 
                 // After recovery, new queries on the survivor succeed

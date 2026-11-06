@@ -1,5 +1,7 @@
 package org.pangrova.worker.shuffle;
 
+import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 

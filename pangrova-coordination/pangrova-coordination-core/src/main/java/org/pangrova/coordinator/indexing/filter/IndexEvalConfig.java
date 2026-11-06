@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.filter;
 
-import org.pangrova.coordinator.indexing.IndexEvalMetrics;
+import org.pangrova.indexing.core.evaluation.IndexEvalMetrics;
 
 /**
  * Immutable configuration for index evaluation within {@link IndexSplitFilter}.

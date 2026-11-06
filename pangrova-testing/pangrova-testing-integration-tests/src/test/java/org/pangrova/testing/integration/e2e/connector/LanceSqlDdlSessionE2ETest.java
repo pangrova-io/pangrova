@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.connector;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

@@ -1,5 +1,7 @@
 # Architecture
 
+> 2026-11-01：目标架构由 [领域模块化 ADR](../../docs/architecture/domain-modularization-adr.md) 替代。统一领域 API/SPI 制品，保留 Core，Provider/Persistence/Server 分离。下文旧模块名记录实施现状或历史约束；与 ADR 冲突的合并 owner、中央 SPI 目标不再适用。
+
 Pangrova is a **hybrid C++ / Java distributed OLAP engine** using the JNI bridge pattern.
 Java handles coordination and planning; C++ handles high-performance vectorized execution.
 
@@ -8,42 +10,100 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | Module | Responsibility |
 |--------|---------------|
 | `pangrova-common` | Shared utilities and base types |
+| `pangrova-types` | Connector-independent engine logical types, signatures, declarations and Java scalar/row values; Common/JDK only |
+| `pangrova-batch/pangrova-batch-api` | SDK-independent block/page values and synchronous readable-batch ownership contract; Types/Common only |
+| `pangrova-batch/pangrova-batch-arrow` | Arrow decoding, stream validation, detached values and borrowed projections; owns readers, borrows allocators |
 | `pangrova-config` | Configuration management |
-| `pangrova-spi` | Shared domain/capability contracts for connectors, functions, indexing, observability, security, AI, queries, coordination and File control; no protocol or implementation dependency |
+| `pangrova-indexing-api` | Index descriptors, data, evaluation and pruning contracts; API and provider SPI share one artifact |
+| `pangrova-indexing/pangrova-indexing-planner-adapter` | Calcite vector recognition and Native retrieval planning bindings; depends on Planner and Indexing API, never Indexing Core or its storage providers |
+| `pangrova-ai/pangrova-ai-api` | AI model/capability/invocation values, provider extensions and physical request resource ports; configuration parsing remains in AI Control, invocation state and ownership in AI Worker |
+| `pangrova-function/pangrova-function-api` | Function metadata and table argument/result values in `.api`; scalar, aggregate, table, factory and callback extension contracts in `.spi`; Common/Types only |
+| `pangrova-coordination/pangrova-coordination-api` | Membership, heartbeat and lease snapshots plus maintenance leadership callbacks; Common/JDK only |
 | `pangrova-filesystem/pangrova-filesystem-api` | Common/JDK-only blob/object transfer, locations, immutable profiles and provider lifecycle contracts |
 | `pangrova-filesystem/pangrova-filesystem-local` | Confined local blob/object transfer, durable staging and cooperating-process mutation exclusion |
 | `pangrova-filesystem/pangrova-filesystem-s3` | S3 blob/object transfer, cancellation, SDK clients and presigners |
 | `pangrova-filesystem/pangrova-filesystem-oss` | OSS blob publication, owned SDK/transport and encryption; OSS object/COPY support remains pending |
-| `pangrova-persistence/pangrova-persistence-api` | Store ports and storage facts, organized by domain/capability; initially File, Query, Coordination and Security |
-| `pangrova-persistence/pangrova-persistence-jdbc` | JDBC backend implementations; File, Coordination, Security and Query backend implementations |
+| `pangrova-persistence/pangrova-persistence-generation-api` | Generation storage ports, facts and errors without JDBC participants; File, Table, Query, Security and Coordination have their own persistence API artifacts |
+| `pangrova-persistence/pangrova-persistence-generation-postgresql` | Existing Generation PostgreSQL job/page/exchange storage and current-authority evidence; no domain Core, Protocol or schema initialization owner |
+| `pangrova-persistence/pangrova-persistence-coordination-api` | Membership, lease and exact-query reservation ports plus quorum provider SPI in one artifact; Common and Coordination API only |
+| `pangrova-persistence/pangrova-persistence-coordination-postgresql` | PostgreSQL membership, lease and admission implementations over a borrowed DataSource; canonical schema initialization only, no provider DDL |
+| `pangrova-persistence/pangrova-persistence-coordination-memory` | Process-local membership and lease implementations; no production Memory admission implementation; Core must receive explicit contracts |
 | `pangrova-materialization/pangrova-materialization-core` | Unified Dynamic Table / Materialized View domain kernel: definitions, generations, attempts, publication protocol, scheduling, and extension ports |
 | `pangrova-materialization/pangrova-materialization-store-jdbc` | Relational materialization repositories for deployments that externalize state; never imported by the kernel |
-| `pangrova-shuffle/pangrova-shuffle-core` | Shuffle contract and engine-side exchange orchestration |
-| `pangrova-shuffle/pangrova-shuffle-service` | Deployable remote shuffle transport and durable spool service |
-| `pangrova-parser` | SQL parsing (Calcite dialect extensions) |
-| `pangrova-planner` | Calcite logical plan → physical plan conversion |
+| `pangrova-shuffle/pangrova-shuffle-api` | Common/JDK-only registration, partition, handle, capability, fenced attempt/channel identity and lifecycle contracts; generic provider/session remain pending; no Native executor handles in this API |
+| `pangrova-shuffle/pangrova-shuffle-native-adapter` | Native serving commands over a borrowed guarded task command channel; no Worker Core dependency, executor ownership, or generic Provider semantics |
+| `pangrova-shuffle/pangrova-shuffle-pangrova` | Actual Pangrova remote client, egress, reads, credentials and connection lifecycle; no Shuffle Core/Worker/JNI/Coordinator dependency; provider read parameters are separate from access; generic session replacement remains pending |
+| `pangrova-shuffle/pangrova-shuffle-local` | Exact-attempt, framed local spool storage over unified SPI; no Core/Protocol/Native dependency; exchange publication and Native Local integration remain pending |
+| `pangrova-shuffle/pangrova-shuffle-core` | Engine-side exchange orchestration; no ownership of `.api`/`.spi` packages, filesystem storage or no-op publication prototypes |
+| `pangrova-execution/pangrova-execution-api` | Common/JDK-only task stage, purpose and preparation deadline values |
+| `pangrova-execution/pangrova-execution-core` | Canonical task/options/split binding, exact current authority and lease identity/deadline binding; no Coordinator, Planner, Worker or backend dependency |
+| `pangrova-security/pangrova-security-codec` | Shared canonical deferred authority encoding and digest; no database, transaction, current permission lookup or runtime resource ownership |
+| `pangrova-shuffle/pangrova-shuffle-service` | Deployable remote shuffle transport and durable spool service; depends on Shuffle API and canonical Protocol codecs, not Shuffle Core |
+| `pangrova-parser/pangrova-parser-api` | SQL AST, dialect/diagnostic/recovery values, parsing API and statement extension SPI; Common/Types only, no ANTLR/cache/runtime |
+| `pangrova-parser/pangrova-parser-core` | ANTLR generation, AST construction, strict/recovery parsing, formatting, source-location registry, type syntax parsing and extension registration |
+| `pangrova-planner/pangrova-planner-api` | SDK-free planning intent, result origins, lineage/statistics values, metadata observation and adaptive callback contracts; Common/JDK only |
+| `pangrova-planner/pangrova-planner-core` | Calcite logical/physical planning, authorization-aware rewrites, fragmentation, cost/statistics algorithms and Substrait conversion; implementation state stays outside API |
 | `pangrova-protocol` | Network protocol layer (gRPC / Arrow Flight) |
+| `pangrova-observability/pangrova-observability-api` | SDK-free observability API/SPI, execution correlation capture/activation and profiling contracts; Common only; query events belong to Query API |
+| `pangrova-observability/pangrova-observability-core` | MDC propagation and profiling delegation; query event dispatcher belongs to Query Core; no Query or OpenTelemetry SDK dependency |
+| `pangrova-observability/pangrova-observability-noop` | Explicit disabled telemetry implementations; unsupported profiling rejects, never fabricates success |
 | `pangrova-observability/pangrova-observability-sdk` | OpenTelemetry providers, SDK configuration, and transport adapters |
-| `pangrova-generation/pangrova-generation-core` | Canonical graph/evidence codecs, pure construction factories and publication routing; shared values belong to SPI and storage ports to Persistence API; no provider or Security dependency |
-| `pangrova-query` | Query runtime services, profiling/audit orchestration and explicit backend assembly; all Query stores belong to Persistence |
+| `pangrova-generation/pangrova-generation-api` | Immutable job/page/graph/exchange/output/publication values and validation; no runtime, codecs, storage ports or default implementation |
+| `pangrova-generation/pangrova-generation-codec` | Bounded canonical graph/exchange and generated-column catalog property encoding, strict source split decoding; no Core, persistence ports, providers or query runtime |
+| `pangrova-generation/pangrova-generation-core` | Construction, frozen execution templates, exact partition binding/resource budgets, generic published-generation read binding and publication routing; shared values belong to Generation API and storage ports to Persistence API; no Coordinator, Planner, provider or Security runtime dependency |
+| `pangrova-scheduler/pangrova-scheduler-api` | Common/JDK-only placement/admission/spill-budget values and errors, with strategy/admission/control/health extension contracts; no Proto or runtime implementation |
+| `pangrova-scheduler/pangrova-scheduler-core` | Admission, placement eligibility/locality, exact model inventory resolution, speculation and retry orchestration; ranking is injected through Scheduler SPI; no production dependency on builtin strategies; concurrency persistence belongs to Persistence |
+| `pangrova-scheduler/pangrova-scheduler-strategies-builtin` | Resource-free load-balanced ranking and performance scoring; depends only on Scheduler API; Server constructs the typed factory |
+| `pangrova-query/pangrova-query-api` | QuerySession, pure StatementCategory, write authority request/resolver contracts, query state/failure/submission observations, Query-owned events, immutable dispatch values, cleanup and reader-pin contracts; Common and Transport/Connector/Security/Observability API values; no Client/Planner/Coordinator/provider dependency |
+| `pangrova-query/pangrova-query-core` | Pre-allocation write receipt/declaration validation, pure AST classification and exact table/CALL binding (Parser API only), query state and issued Connector scope, terminal cleanup and retention, event dispatch, audit/profiling, stage state, immutable execution scope and retrieval intents, timeout scheduling, dispatch values and reader-pin renewal; stores belong to Persistence and process/provider assembly to Server |
 | `pangrova-operations` | DDL/DML operation execution |
-| `pangrova-persistence/pangrova-persistence-memory` | Instance-owned Coordination and Query stores, bounded audit cache and explicit structured logging; no state survives restart |
 | `pangrova-coordination/pangrova-coordination-core` | Control plane only: parse, bind, authorize, admit, schedule, fence, validate terminal metadata and audit |
-| `pangrova-coordination/pangrova-coordination-zookeeper` | Optional quorum provider over Persistence API and Coordination SPI; never depends on the Coordinator process artifact |
+| `pangrova-server/pangrova-server-coordinator` | Coordinator process entry, role composition, HTTP/JDBC server, readiness and shutdown; consumes domain implementations without a production dependency on Worker Core or Native Bridge |
+| `pangrova-coordination/pangrova-coordination-zookeeper` | Optional quorum provider over Persistence Coordination API/SPI and Coordination values; never depends on the Coordinator process artifact |
 | `pangrova-worker/pangrova-worker-core` | Worker node process, JNI loading entry, task scheduling |
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migration sequence; preserves historical names, versions and bytes; no Java code or runtime providers |
-| `pangrova-metadata` | Metadata storage and Catalog management; adapters over the Table owner |
-| `pangrova-table` | Table control, maintenance, statistics and governance-binding owner; acyclic foundation for metadata/coordinator adapters |
-| `pangrova-file` | File access/URL/directory orchestration and Worker HTTP client adapter; consumes shared SPI, Filesystem API and Persistence API, never a JDBC implementation |
+| `pangrova-metadata/pangrova-metadata-api` | Unified Metadata API/SPI, deployment/projection/schema/session/resolution/event values; Common, Connector API and Table API only |
+| `pangrova-metadata/pangrova-metadata-codec` | Shared table metadata and canonical JSON encoding for caches and persistence; no Core or database implementation |
+| `pangrova-metadata/pangrova-metadata-core` | Catalog resolution, synchronization, caching and remaining cross-domain adapters; residual workflow/assembly/backend extraction is pending |
+| `pangrova-persistence/pangrova-persistence-catalog-api` | Catalog deployment/history, projection/sync, dependency-graph and invalidation-maintenance ports; no JDBC or Core dependency |
+| `pangrova-persistence/pangrova-persistence-catalog-postgresql` | Existing deployment/projection transactions and durable invalidation polling over borrowed DataSource/cache; no Metadata Core dependency |
+| `pangrova-table/pangrova-table-api` | Immutable identity/ownership/observation/rename/maintenance/statistics values and policy authority calling port; Common/Connector API only |
+| `pangrova-table/pangrova-table-core` | Table control, policy binding, maintenance and statistics over Persistence contracts; maintenance defaults belong to Core; backends are selected by Metadata/Server assembly |
+| `pangrova-file/pangrova-file-api` | File namespace and access values plus audit, current-authority and delegated-operation ports; Common, Filesystem API and Security API only |
+| `pangrova-file/pangrova-file-core` | File authorization/URL issuance and directory refresh; consumes persistence ports and injected File clients, never the Worker adapter or a JDBC implementation |
+| `pangrova-file/pangrova-file-worker-adapter` | HTTP/Jackson implementation of delegated listing, version-conditional deletion and signed-URL exchange; no Worker Core or File Core dependency |
 | `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Generation contracts without exposing this dependency through AI API |
 | `pangrova-ai/pangrova-ai-worker` | Optional Worker-side AI execution plane: governed provider invocation, AI SQL functions and ServiceLoader runtime adapters |
+| `pangrova-connector/pangrova-connector-api` | Unified Connector API/SPI and values; only Common, Types and Batch API; no SDK, runtime or persistence |
+| `pangrova-connector/pangrova-connector-runtime` | Plugin discovery/lifecycle, bounded fixed splits, shared Connector error/cache helpers and CUSTOM_BINARY codec; no central SPI dependency |
+| `pangrova-persistence/pangrova-persistence-file-api` | File space/profile revision, directory attempt, COPY claim and atomic source-read admission contracts; no JDBC or backend runtime; control-plane only, not a Worker Core dependency |
+| `pangrova-persistence/pangrova-persistence-file-postgresql` | Existing PostgreSQL File authority, directory refresh and COPY admission; current authorization and execution fences remain transactional |
+| `pangrova-persistence/pangrova-persistence-table-api` | Table control/observation, maintenance, statistics and governance-binding ports plus storage error; Common and Table API only |
+| `pangrova-persistence/pangrova-persistence-table-postgresql` | Existing Table SQL/codec and operation transactions; authorization mutation gate stays explicit, canonical schema remains external |
+| `pangrova-persistence/pangrova-persistence-table-memory` | Existing process-local Table stores only; generic Persistence Memory artifact is retired |
+| `pangrova-persistence/pangrova-persistence-query-api` | Query audit, journal, anchor, quarantine, lineage and distributed write intent/outbox contracts; no JDBC connection or backend |
+| `pangrova-persistence/pangrova-persistence-query-postgresql` | Query journal, execution anchor/fence, quarantine, lineage outbox and event SQL; consumes JDBC cooperation contracts, never generic backend implementations; canonical schema is required |
+| `pangrova-persistence/pangrova-persistence-query-memory` | Existing process-local audit, journal, execution anchor and quarantine implementations; no durable or inter-process guarantees |
+| `pangrova-indexing/pangrova-indexing-codec` | Index predicate codec, common index-file envelope/CRC and payload serializer registry; depends only on contracts and Common |
 | `pangrova-connector-*` | Data source connector providers (Iceberg / Paimon / Lance) |
 | `pangrova-standalone` | Single-node standalone deployment |
-| `pangrova-security` | Authentication and authorization |
+| `pangrova-security` | Aggregator only; no code artifact |
+| `pangrova-security/pangrova-security-api` | Security call/extension contracts, immutable identity/policy/tenant/audit/secret/crypto values; Common and Connector API only; no SDK, event bus or JDBC |
+| `pangrova-security/pangrova-security-core` | Authentication orchestration, policy rendering, tenant services, audit emitters, secret routing/templates and local policy events; deferred evaluation uses injected JDBC cooperation ports; no production persistence backend or test-fixture dependency |
+| `pangrova-security/pangrova-security-auth-{builtin,ldap,oauth2}` | Independently packaged existing authentication implementations; OAuth2 owns JJWT, Jackson and JWKS cache |
+| `pangrova-security/pangrova-security-policy-builtin` | Current-authority RBAC against mandatory role/grant ports; no Security Core dependency |
+| `pangrova-security/pangrova-security-secret-{env,file}` | Existing environment and confined-file secret resolution |
+| `pangrova-security/pangrova-security-kms-aws` | AWS client/configuration and KMS implementation; no SDK types in KeyManager |
+| `pangrova-persistence/pangrova-persistence-security-api` | Role/grant, audit, mask, row-policy and tenant store ports |
+| `pangrova-persistence/pangrova-persistence-security-postgresql` | Existing security SQL readers/stores/codecs/authorization gate; canonical Tenant implementation; all security schema initialization belongs to Schema Migrations |
+| `pangrova-persistence/pangrova-persistence-security-memory` | Existing process-local Tenant store only; Role/Grant/Mask fixtures belong to Testing Kit |
+| `pangrova-persistence/pangrova-persistence-jdbc-api` | Caller-owned Query/Generation fences, current permission/model authority, Generation inputs/submission/publication collaboration; implementations never commit, roll back or close the caller connection |
 | `pangrova-streaming` | Streaming query support, CDC formats/writers, JDBC checkpoint/offset/watermark stores and the `coordinator` stream scheduler/DDL/Kafka adapter |
 | `pangrova-governance` | Catalog/tag/classification, lineage providers, quality store/executors and the commit-blocking quality gate |
-| `pangrova-indexing/pangrova-indexing-core` | Index metadata/store, generation/publication/GC persistence, engine providers, planner extension and build orchestration; the Coordinator only adapts it under `coordinator.indexing` |
-| `pangrova-transport` | Transport layer abstraction; also hosts the client REST/HTTP and Arrow/Flight result transport (`org.pangrova.client.transport`) |
+| `pangrova-indexing/pangrova-indexing-core` | Index metadata/store, generation/publication/GC persistence, planner extension and build/evaluation orchestration; concrete strategies and payload serializers live in builtin; JDBC/planner separation remains pending |
+| `pangrova-indexing/pangrova-indexing-strategies-builtin` | Nine Java strategies, their payload serializers, normalization and Bloom preparation; no Core dependency |
+| `pangrova-transport/pangrova-transport-client` | Existing REST/HTTP and Arrow/Flight result client, codec and ownership implementation (`org.pangrova.transport.client`); further API/codec separation remains planned |
+| `pangrova-transport/pangrova-transport-flight` | Role-independent Flight server, batch stream adaptation and signed ticket validation (`org.pangrova.transport.flight`); no Worker or Coordinator implementation dependency |
 | `pangrova-client/pangrova-client-core` | Framework-free public client contract: query/catalog DTOs, errors, session configuration, result consumer |
 | `pangrova-client/pangrova-client-cli` | Command-line client |
 | `pangrova-client/pangrova-client-jdbc` | JDBC driver (`java.sql.Driver` provider) |
@@ -124,25 +184,39 @@ pangrova-worker (Java)
 
 ## Module Dependency Policy
 
-The target foundations are `pangrova-filesystem` (api/local/s3/oss),
-`pangrova-persistence` (api/jdbc/memory) and `pangrova-spi`. Generic filesystem operations
-belong to Filesystem; authorization, SQL, transfer budgets and domain orchestration
-remain with callers. Shared contracts belong to `org.pangrova.spi.<domain>.<capability>`;
-store ports belong to `org.pangrova.persistence.api.<domain>.<capability>`, and backend
-implementations to `org.pangrova.persistence.jdbc.<domain>.<capability>`.
-New store implementations must use this ownership. Existing domain stores and
-remaining domain-owned general APIs are a migration backlog, not an alternate
-architecture or evidence that the migration is complete. A backend migration must
-preserve transaction ownership, authority checks, codecs and canonical SQL bytes.
-In-memory and quorum providers require explicit backend placement; they must not
-be mixed into the API or called JDBC implementations.
+The authoritative target is `docs/architecture/domain-modularization-adr.md`.
+Each domain has one `pangrova-<domain>-api` artifact containing its `.api` and actual
+`.spi` contracts. Core consumes contracts; replaceable Providers consume contracts;
+Server owns process composition. Do not create new central SPI contracts or new
+cross-domain aggregate persistence implementations. The central `pangrova-spi` artifact
+and namespace are retired. Generic `persistence-api/jdbc/memory` artifacts are also
+retired; remaining domain stores and cross-domain assembly are incremental debt.
+Do not restore generic persistence containers when extracting remaining backends.
 
-Dependency direction is Common → Filesystem API → SPI → Persistence API → JDBC
-(the arrow means the right-hand artifact may consume the left-hand one).
-Filesystem providers consume Filesystem API without SPI or domain stores. SPI must
-not depend on Protocol: wire-specific `AiTaskLifecycle` stays in Protocol, while
-`QueryId` is a shared SPI value. JDBC must not depend on process, File Core or
-Security runtime implementations. Assembly selects real implementations explicitly.
+Store ports belong to `org.pangrova.persistence.<domain>.api`; implementations belong
+to `org.pangrova.persistence.<domain>.<backend>`. JDBC-only cooperation belongs to
+`persistence-jdbc-api`, with caller-owned connections. New provider artifacts must not
+import Core, Metadata or process assembly. A backend move must preserve authority,
+lock order, transaction ownership, codec bytes and SQL; semantic changes require their
+own explicit tests. No historical data migration or dual-write tooling is required.
+
+Security Core's production closure must exclude both persistence implementations and
+Testing Kit. Deferred policy evaluation receives current-authority readers and the
+publication lock through constructors. Do not restore static backend selection in Core.
+The existing Metadata transaction adapter still selects PostgreSQL collaborators until
+its complete atomic workflow moves to the workflow Provider and Server composition.
+Role/Grant/Mask memory fixtures belong to Testing Kit; only the already wired transient
+Tenant implementation belongs to the Security Memory provider. It provides no restart,
+distributed exclusion or durability guarantee. Tenant uses only `tenants/tenant_user_memberships`, initialized by the canonical migration
+bundle. Do not restore normalized parallel Tenant tables or Store-owned Tenant DDL.
+Policy/audit tables and all authority triggers are also initialized by the canonical migration bundle.
+Security providers may verify readiness but must not issue schema DDL.
+
+Generic filesystem operations belong to Filesystem; authorization, SQL, transfer budgets
+and domain orchestration remain with callers. Filesystem providers consume Filesystem
+API without domain stores. Domain contracts must not depend on Protocol: wire-specific
+`AiTaskLifecycle` stays in Protocol, while `QueryId` belongs to Query API's identity
+package. Assembly selects real implementations explicitly.
 
 Filesystem API must not depend on any provider or cloud SDKs, including on its test classpath.
 Governed FILE consumes BlobStorage; COPY preparation consumes ManagedBlobStorage. Process assembly
@@ -165,15 +239,28 @@ The authoritative per-artifact allow-list (`packageRoots`, `exports`,
 in `.pangrova/modules.yaml`; `.pangrova/module-baseline.yaml` records generated
 facts. Do not restate the matrix here — a duplicated table drifts from policy.
 
-Generation-job composition roots use `org.pangrova.generation.assembly` factories and
-pass `org.pangrova.spi.generation` values to consumers. The routing implementation
-in `org.pangrova.generation.publication` is not exported. Storage ports belong
-to `org.pangrova.persistence.api.generation`, with caller-owned JDBC cooperation
+Generation-job composition roots use `org.pangrova.generation.core.submission` factories and
+pass `org.pangrova.generation.api` values to consumers. The routing implementation
+in `org.pangrova.generation.core.publication` is not exported. Built-in wire output format selection
+belongs to Generation Codec under `.format`; its immutable role/layout values belong to
+Generation API. PostgreSQL validation consumes Codec without a Core dependency. Unknown formats
+still fail closed. Storage ports belong
+to `org.pangrova.persistence.generation.api`, with caller-owned JDBC cooperation
 explicitly under `transaction.jdbc`. Actual PostgreSQL providers belong to
-`org.pangrova.persistence.jdbc.generation`, selected by application assembly.
-Generation Core retains backend-independent canonical codecs and construction/routing;
-Persistence JDBC may use those codecs, but Core must never depend on Persistence
-implementations or Security, including through its test classpath. SPI values do
+`org.pangrova.persistence.generation.postgresql`, selected by application assembly.
+Capability identity ID/version/signature and optional required implementation build comparison
+belongs to Protocol `CapabilityIdentities`. It does not discover models, authorize actors or
+select Workers. Scheduler Core owns exact model inventory resolution; callers supply active
+inventories. AI Control owns embedding catalog deployment fences. Retrieval binding consumes
+only its vector/reranker plans or artifact/merge intents, never the enclosing dispatch context.
+
+Generation Codec owns canonical graph/exchange bytes and source split decoding. Persistence JDBC
+uses Codec directly; it must not acquire a Core dependency merely for serialization. Generation
+Core owns construction/routing and generic immutable publication binding under
+`org.pangrova.generation.core.publication.read`. Retrieval intent, ANN eligibility and exact-plan
+selection belong to the query/planner consumer, never the generic publication reader. Core must
+never depend on Coordinator, Planner, Persistence implementations or Security runtime, including
+through its test classpath. Generation API values do
 not depend on Persistence API or Generation Core. API classpath and minimal-loader
 tests verify values/ports without serialization or backend implementations.
 Generation does not own Dynamic Table or Materialized View lifecycles, which remain
@@ -188,6 +275,15 @@ Domain adapters read persisted generation inputs through `GenerationTransactionI
 on the supplied connection. Ordinary auto-commit reads remain supported; a stored
 compiler observation never grants current authority. PostgreSQL SQL and canonical
 input validation stay in the real provider, selected by the composition root.
+
+Query persistence backend selection belongs to Server or explicit test assembly.
+HA requires its execution-anchor backend at construction; process authority must
+bind the identical instance before startup and cannot replace it. Task status
+completion requires an explicitly selected write journal; Core must not silently
+create an in-memory journal. PostgreSQL write journal construction validates the
+canonical schema without issuing DDL. Metadata still owns existing PostgreSQL
+workflow adapters pending their extraction; this is not an exemption for Query or
+Coordination Core to import the concrete Query providers.
 
 Coordination backends depend on Persistence API and Coordination SPI, never on the Coordinator process
 or Metadata. The process composition root selects and closes providers; in-memory
@@ -366,3 +462,46 @@ If ANY link in this chain is broken, the system is broken. E2E tests validate th
 - **Zero tolerance for orphan imports**: unused `import` (Java) or `#include` (C++) must be removed
 - Run `.pangrova/scripts/detect-dead-stubs.sh` when changing SPI, wiring,
   registrations, or implementation connectivity
+
+### Query execution ownership
+
+Query Core owns `stage.QueryExecutionScope` and `stage.binding` intent values. The scope
+borrows Execution Core's live/durable authority; it must not depend on Coordinator or select a Provider.
+Split lookup consumes an actual QuerySession, pinned snapshots and write mode; query identity comes
+from that same session. Plan serialization consumes output names rather than the entire scope.
+Coordinator placement/read/shuffle evidence adapters remain explicit integration boundaries until their
+full domain ports are separated; do not restore a dependency from a lower-level runtime to the DAG entry package.
+Placement consumes the shared cache-affinity router directly. Split lease management borrows that
+same topology-owned router; placement must not import Query split lease managers.
+
+
+Metadata API/SPI belongs exclusively to `pangrova-metadata-api`. Persistence Catalog
+ports depend on those contracts, never the reverse. Shared metadata encoding belongs
+to `metadata-codec`; do not expose Jackson types in domain contracts. CatalogRegistry
+uses deployment authority only. Historical revisions require an explicit implementation;
+absence is not a default for unsupported history. Metadata cleanup borrows an invalidation
+maintenance port, while Server owns the selected PostgreSQL poller lifecycle. Metadata Core
+must not depend on Catalog PostgreSQL in production; its cross-domain integration tests may
+use the real Provider. Remaining cross-domain workflows and other backend dependencies are
+tracked debt, not permission to restore Catalog backend coupling.
+
+### Metadata synchronization persistence
+
+`MetadataSyncRepository` in Catalog Persistence API owns deployment-scoped source checkpoints and completion receipts. `PostgresMetadataSyncRepository` is selected explicitly by Server on the same metadata DataSource; Core must not create it. Diagnostic completion wall time must never become an incremental cursor. Only source-certified coverage can advance progress, atomically with a run receipt and deployment/checkpoint comparison. An unknown COMMIT must be confirmed by its original run ID before retry. These guarantees concern completion persistence; projection writes additionally use the typed atomic port below. They do not imply scan-wide source-version consistency.
+
+### Catalog deployment and projection ports
+
+The composite `MetadataStore`/`PostgresMetadataStore` have been removed. Deployment consumers use `CatalogDeploymentRepository`; synchronization additionally borrows read-only `TableProjectionRepository`, `MetadataProjectionTransactions`, and `MetadataSyncRepository`. Server selects the independent PostgreSQL providers against its owned DataSource. The `.postgresql.transaction` package is internal to the Catalog PostgreSQL artifact and is not a consumer export. Table/schema repositories are read-only. The atomic projection port requires the original
+`metadata.api.catalog.CatalogDeploymentIdentity`; PostgreSQL validates it under the Catalog
+row lock and commits projection, outbox and operation receipt together. Do not look up a
+new current identity to authorize work from an old handle. Unknown commits are confirmed
+using the original operation ID, never a fresh retry ID. SQL participants borrow the
+coordinator's connection. Per-mutation deployment fencing does not imply a whole-scan
+transaction, source-version ordering or a distributed scan lease.
+
+Metadata projection and completion providers must durably accept immutable requests before executing
+effects. New IDs cannot bypass a pending Catalog operation. Sync Core must recover pending completion
+and projection work before loading a source cursor or observing a new batch, including after restart.
+Pending and unknown outcomes are terminal for the current invocation. Obsolete intents may be rejected
+only under the current deployment fence; receipt absence is never proof of failure. These per-operation
+guarantees do not imply a scan lease, source-version ordering or scan-wide exactly-once execution.

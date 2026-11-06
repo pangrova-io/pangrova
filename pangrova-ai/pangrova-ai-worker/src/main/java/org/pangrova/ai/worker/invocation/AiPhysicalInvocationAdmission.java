@@ -1,7 +1,10 @@
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.spi.ai.capability.AiRequestConstraints;
-import org.pangrova.ai.worker.context.AiProviderCallContext;
+import org.pangrova.ai.spi.invocation.PhysicalAttempt;
+import org.pangrova.ai.spi.invocation.ClientExchange;
+import org.pangrova.ai.spi.invocation.ExchangeRegistration;
+
+import org.pangrova.ai.api.capability.AiRequestConstraints;
 
 import java.time.Instant;
 
@@ -38,7 +41,7 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
         this.onFinalized = onFinalized;
     }
 
-    AiProviderCallContext.PhysicalAttempt openAttempt(long requestBytes) {
+    PhysicalAttempt openAttempt(long requestBytes) {
         constraints.requireRequestBytes(requestBytes);
         synchronized (this) {
             requireOpen();
@@ -100,7 +103,7 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
         }
     }
 
-    private final class Attempt implements AiProviderCallContext.PhysicalAttempt {
+    private final class Attempt implements PhysicalAttempt {
         private final AiInvocationPermits permits;
         private long responseBytes;
         private boolean finished;
@@ -123,8 +126,8 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
         }
 
         @Override
-        public synchronized AiProviderCallContext.ExchangeRegistration registerExchange(
-                AiProviderCallContext.LocalExchange exchange) {
+        public synchronized ExchangeRegistration registerExchange(
+                ClientExchange exchange) {
             if (finished) {
                 throw new IllegalStateException("AI transport attempt is closed");
             }

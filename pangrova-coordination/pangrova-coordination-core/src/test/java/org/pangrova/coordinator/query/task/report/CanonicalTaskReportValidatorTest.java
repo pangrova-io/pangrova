@@ -754,7 +754,7 @@ class CanonicalTaskReportValidatorTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 java.util.HexFormat.of().parseHex(
-                                        org.pangrova.spi.generation.GenerationDependencySet
+                                        org.pangrova.generation.api.dependency.GenerationDependencySet
                                                 .sourceSnapshot("catalog.schema.table",
                                                         "snapshot-8").sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2

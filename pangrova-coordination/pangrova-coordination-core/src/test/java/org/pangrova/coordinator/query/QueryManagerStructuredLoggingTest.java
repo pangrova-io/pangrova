@@ -1,22 +1,28 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
@@ -53,12 +59,12 @@ class QueryManagerStructuredLoggingTest {
     @Test
     void submitQueryFailsClosedWhenNoWorkerIsAvailable() {
         QueryManager qm = buildQueryManager();
-        CoordinatorSessionContext session = session("q-log-1");
+        QuerySession session = session("q-log-1");
 
         assertThatThrownBy(() -> qm.submitQuery("q-log-1", "SELECT 1 + 2", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
         assertThat(qm.getQueryState("q-log-1"))
-                .contains(QueryStateMachine.State.FAILED);
+                .contains(QueryState.FAILED);
     }
 
     @Test
@@ -73,14 +79,14 @@ class QueryManagerStructuredLoggingTest {
                     "test-coordinator", "test-incarnation", 1L));
             var dispatcher = new QueryDispatcher(withPolicies(QueryDispatcherContext.withDefaults(
                     new SqlCompiler(), null, null, null, remote,
-                    new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker,
+                    new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker,
                     null, null, null, 30L)), null, null);
             QueryManager qm = worker.connect(dispatcher, tracker, workers);
             QueryStateMachine sm = new QueryStateMachine();
             qm.registerStateMachine("q-log-2", sm);
             worker.execute(dispatcher, sm, "SELECT 42", session("q-log-2"));
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
-                    assertThat(qm.getQueryState("q-log-2")).hasValue(QueryStateMachine.State.FINISHED));
+                    assertThat(qm.getQueryState("q-log-2")).hasValue(QueryState.FINISHED));
         }
     }
 
@@ -91,32 +97,32 @@ class QueryManagerStructuredLoggingTest {
         // Exercise the lifecycle callback directly; no Worker execution is claimed.
         QueryStateMachine sm = new QueryStateMachine();
         qm.registerStateMachine("q-log-3", sm);
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
 
-        qm.onTaskFailed("q-log-3", new ErrorDetail("INTERNAL", "INTERNAL", "disk full"));
+        qm.onTaskFailed("q-log-3", new QueryFailure("INTERNAL", "INTERNAL", "disk full"));
 
         assertThat(qm.getQueryState("q-log-3"))
                 .isPresent()
-                .hasValue(QueryStateMachine.State.FAILED);
+                .hasValue(QueryState.FAILED);
     }
 
     @Test
     void nullLoggingProviderDoesNotHideNoWorkerFailure() {
         QueryManager qm = buildQueryManager();
-        CoordinatorSessionContext session = session("q-log-4");
+        QuerySession session = session("q-log-4");
 
         assertThatThrownBy(() -> qm.submitQuery("q-log-4", "SELECT 1", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
         assertThat(qm.getQueryState("q-log-4"))
-                .contains(QueryStateMachine.State.FAILED);
+                .contains(QueryState.FAILED);
     }
 
     // --- Helpers ---
 
     private QueryManager buildQueryManager() {
-        return new QueryManager(QueryManagerContext.minimal(
+        return new QueryManager(QueryManagerTestContexts.minimal(
                 buildOrchestrator(), TestObservability.TRACING));
     }
 
@@ -124,7 +130,7 @@ class QueryManagerStructuredLoggingTest {
         SqlCompiler compiler = new SqlCompiler(
                 new PangrovaPlanner(), new SubstraitConverter(),
                 new SubstraitPlanSerializer());
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         return new QueryDispatcher(
                 withPolicies(QueryDispatcherContext.withDefaults(

@@ -1,31 +1,36 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.table.api.maintenance.MaintenanceOperation;
 import org.pangrova.table.api.maintenance.MaintenanceRunState;
-import org.pangrova.table.api.control.OwnershipMode;
-import org.pangrova.table.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.table.api.control.TableControlState;
+import org.pangrova.table.api.ownership.OwnershipMode;
+import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.api.ownership.TableControlRecord;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.table.api.ownership.TableControlState;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.LeaseEntry;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.lease.LeaseEntry;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,6 +56,7 @@ import java.util.UUID;
  * {@code table_control_maintenance_run} with the version observed beforehand.</p>
  */
 public final class ControlledTableMaintenance {
+    private final ExecutionTraceContextFactory traceContexts;
 
     private static final Logger LOG = LoggerFactory.getLogger(ControlledTableMaintenance.class);
     private static final Duration DEFAULT_LEASE_TTL = Duration.ofMinutes(30);
@@ -69,14 +75,15 @@ public final class ControlledTableMaintenance {
 
     public ControlledTableMaintenance(CatalogRegistry catalogs,
             TableControlMaintenanceService policyService, DistributedLease lease,
-            String holderId) {
-        this(catalogs, policyService, lease, holderId, DEFAULT_LEASE_TTL, Clock.systemUTC());
+            String holderId, ExecutionTraceContextFactory traceContexts) {
+        this(catalogs, policyService, lease, holderId, DEFAULT_LEASE_TTL, Clock.systemUTC(), traceContexts);
     }
 
     /** Creates the executor with explicit lease TTL and clock for deterministic tests. */
     public ControlledTableMaintenance(CatalogRegistry catalogs,
             TableControlMaintenanceService policyService, DistributedLease lease,
-            String holderId, Duration leaseTtl, Clock clock) {
+            String holderId, Duration leaseTtl, Clock clock, ExecutionTraceContextFactory traceContexts) {
+        this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.catalogs = java.util.Objects.requireNonNull(catalogs, "catalogs");
         this.policyService = java.util.Objects.requireNonNull(policyService, "policyService");
         this.lease = lease;
@@ -93,14 +100,14 @@ public final class ControlledTableMaintenance {
 
     /** Runs the operation, returning the connector's result rows. */
     public List<TypedRow> execute(MaintenanceOperation operation, Identifier tableName,
-            CoordinatorSessionContext context) {
-        return execute(operation, TableResolver.resolveTableRef(tableName.parts(), context),
+            QuerySession context) {
+        return execute(operation, SessionTableNames.resolveTableRef(tableName.parts(), context),
                 context, MODE_MANUAL, Map.of());
     }
 
     /** CALL uses the same ownership, policy, lease and identity boundary as maintenance SQL. */
     public List<TypedRow> executeProcedure(String procedure, QualifiedTableName ref,
-            Map<String, String> arguments, CoordinatorSessionContext context) {
+            Map<String, String> arguments, QuerySession context) {
         MaintenanceOperation operation = MaintenanceOperation.parse(procedure)
                 .orElseThrow(() -> new AccessDeniedException("Procedure " + procedure
                         + " has no table-control maintenance policy; execution is not authorized"));
@@ -120,7 +127,7 @@ public final class ControlledTableMaintenance {
     }
 
     private List<TypedRow> execute(MaintenanceOperation operation, QualifiedTableName ref,
-            CoordinatorSessionContext context, String mode, Map<String, String> arguments) {
+            QuerySession context, String mode, Map<String, String> arguments) {
         TableControlService control = catalogs.tableControl();
         TableControlRecord record = requireControlled(control, ref, operation);
         TableMaintenancePolicy policy = policyService.policyFor(record);
@@ -131,11 +138,11 @@ public final class ControlledTableMaintenance {
         }
         Map<String, String> connectorArguments = connectorArguments(ref, record, operation, policy, arguments);
 
-        ConnectorSession session = TableResolver.buildSession(
+        ConnectorSession session = SessionContextConverter.toConnectorSession(
                 context, ref.catalog(), ref.schema());
-        ConnectorMetadata metadata = TableResolver.getMetadata(
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(
                 catalogs, ref.catalog(), session);
-        ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
+        ConnectorTableHandle handle = ConnectorTableLookup.requireTableHandle(metadata, session, ref);
         String actor = context.userIdentity() == null ? "" : context.userIdentity().principal();
 
         String leaseKey = "table-maintenance:" + record.tableId();
@@ -347,15 +354,15 @@ public final class ControlledTableMaintenance {
                         + " on " + record.qualifiedName());
     }
 
-    private CoordinatorSessionContext systemContext(QualifiedTableName ref) {
-        return new CoordinatorSessionContext(
+    private QuerySession systemContext(QualifiedTableName ref) {
+        return new QuerySession(
                 "maintenance-" + UUID.randomUUID(),
                 Map.of("catalog", ref.catalog(), "schema", ref.schema()),
                 new UserIdentity(SYSTEM_ACTOR, Set.of(), Map.of(), clock.instant()),
-                "system");
+                "system", java.util.Optional.empty(), traceContexts.capture());
     }
 
-    private void audit(CoordinatorSessionContext context, QualifiedTableName ref,
+    private void audit(QuerySession context, QualifiedTableName ref,
             TableControlRecord record, TableMaintenanceRun run, String error) {
         var sink = audit;
         if (sink != null) {

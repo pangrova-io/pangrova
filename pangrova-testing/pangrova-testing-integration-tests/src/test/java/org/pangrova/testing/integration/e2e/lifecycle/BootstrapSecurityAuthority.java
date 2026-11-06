@@ -5,7 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.AbstractHandler;
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;
 
 import java.io.IOException;

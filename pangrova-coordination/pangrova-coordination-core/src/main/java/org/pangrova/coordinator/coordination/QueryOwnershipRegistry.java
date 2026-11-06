@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.coordination;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
-import org.pangrova.persistence.api.query.coordination.ExecutionAnchorStore;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,19 +28,22 @@ final class QueryOwnershipRegistry {
     private final ConcurrentHashMap<String, Ownership> ownership = new ConcurrentHashMap<>();
     private final int maxEntries;
     private volatile Duration leaseDuration;
-    private volatile ExecutionAnchorStore store;
+    private final ExecutionAnchorStore store;
 
     QueryOwnershipRegistry(int maxEntries, Duration leaseDuration, ExecutionAnchorStore store) {
         this.maxEntries = maxEntries;
         this.leaseDuration = leaseDuration;
-        this.store = store;
+        this.store = java.util.Objects.requireNonNull(store, "store");
     }
 
-    void setStore(ExecutionAnchorStore replacement, Duration duration) {
-        if (!ownership.isEmpty()) {
-            throw new IllegalStateException("execution-anchor store cannot change while queries are owned");
+    void bindLeaseDuration(ExecutionAnchorStore backend, Duration duration) {
+        if (store != backend) {
+            throw new IllegalArgumentException(
+                    "execution authority must use the same backend selected at construction");
         }
-        this.store = replacement;
+        if (!ownership.isEmpty()) {
+            throw new IllegalStateException("execution lease duration cannot change while queries are owned");
+        }
         this.leaseDuration = duration;
     }
 

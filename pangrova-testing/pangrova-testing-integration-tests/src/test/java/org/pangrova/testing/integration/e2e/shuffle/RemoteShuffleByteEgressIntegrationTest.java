@@ -13,9 +13,10 @@ import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
-import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientException;
+import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+import org.pangrova.shuffle.spi.worker.ShuffleByteEgress;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +36,7 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
     @TempDir Path directory;
     private ActualShuffleService service;
     private RemoteShuffleByteEgress egress;
+    private ShuffleByteEgress callbacks;
     private ActualShuffleService.AdmittedProducer producer;
     private TaskRequest request;
 
@@ -45,6 +47,7 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
         producer = service.registerProducer();
         request = producer.request();
         egress = new RemoteShuffleByteEgress(service.clientPool());
+        callbacks = egress;
     }
 
     @AfterEach void close() throws Exception {
@@ -204,7 +207,7 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
         assertThatThrownBy(() -> write(0, 1, buffer("after-exact-release")))
                 .isInstanceOf(RemoteShuffleClientException.class).hasMessageContaining("No installed external shuffle task");
         assertThat(calls(0, CommitProducerAttemptRequest.class)).isEmpty();
-        assertDurableRows(1, 0);
+        assertDurableProducerCommits(0);
     }
 
     @Test void creationRollbackForConflictingBindingDoesNotAbortTheExistingRealProducer() {
@@ -318,7 +321,7 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
         assertThatThrownBy(() -> completion.get(5, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(RemoteShuffleClientException.class);
         assertThat(calls(0, CommitProducerAttemptRequest.class)).isEmpty();
-        assertDurableRows(1, 0);
+        assertDurableProducerCommits(0);
     }
 
     @Test void blockedEndpointDoesNotHeadOfLineBlockAnotherEndpoint() throws Exception {
@@ -341,13 +344,79 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
                 .hasCauseInstanceOf(RemoteShuffleClientException.class);
     }
 
+    @Test void deliveryDoesNotCommitProducerAndReturnedBufferCanBeReused() {
+        install();
+        byte[] expected = "borrowed-payload".getBytes(StandardCharsets.UTF_8);
+        ByteBuffer borrowed = ByteBuffer.allocateDirect(expected.length);
+        borrowed.put(expected).flip();
+        write(0, 11, borrowed);
+        // A completed callback owns no view of the caller's memory. Reuse it before finish.
+        for (int index = 0; index < borrowed.limit(); index++) borrowed.put(index, (byte) 0);
+        assertThat(calls(0, CommitProducerAttemptRequest.class)).isEmpty();
+        assertDurableProducerCommits(0);
+        complete();
+        assertThat(calls(0, WriteBatchRequest.class)).singleElement().satisfies(frame -> {
+            assertThat(frame.getChunk().getData().toByteArray()).containsExactly(expected);
+            assertThat(frame.getRowCount()).isEqualTo(11);
+            assertThat(frame.getChunk().getBatchSequence()).isZero();
+        });
+        assertDurableRows(1, 1);
+    }
+
+    @Test void absentOrForeignBindingCannotWriteOrComplete() {
+        assertThatThrownBy(() -> write(0, 1, buffer("unbound")))
+                .isInstanceOf(RemoteShuffleClientException.class).hasMessageContaining("No installed");
+        assertThatThrownBy(this::complete)
+                .isInstanceOf(RemoteShuffleClientException.class).hasMessageContaining("No installed");
+        install();
+        String taskId = request.getAttempt().getTaskId();
+        assertThatThrownBy(() -> callbacks.onPartitionBatch("foreign-query", taskId, 0, 1, buffer("foreign")))
+                .isInstanceOf(RemoteShuffleClientException.class);
+        assertThatThrownBy(() -> callbacks.onTaskCompleted("foreign-query", taskId))
+                .isInstanceOf(RemoteShuffleClientException.class);
+        assertThatThrownBy(() -> callbacks.onTaskAborted("foreign-query", taskId, "foreign abort"))
+                .isInstanceOf(RemoteShuffleClientException.class).hasMessageContaining("identity mismatch");
+        assertThat(service.wire(0).opened).isEmpty();
+        write(0, 1, buffer("authorized"));
+        complete();
+        assertDurableRows(1, 1);
+    }
+
+    @Test void completionRetiresBindingAndLateAbortDoesNotRemovePublishedData() {
+        install();
+        write(0, 2, buffer("committed"));
+        complete();
+        assertThatThrownBy(this::complete)
+                .isInstanceOf(RemoteShuffleClientException.class).hasMessageContaining("No installed");
+        assertThatThrownBy(() -> write(0, 2, buffer("late")))
+                .isInstanceOf(RemoteShuffleClientException.class).hasMessageContaining("No installed");
+        abort();
+        abort();
+        assertThat(calls(0, CommitProducerAttemptRequest.class)).hasSize(1);
+        assertThat(service.wire(0).opened).doesNotContain("Cleanup");
+        assertDurableRows(1, 1);
+    }
+
+    @Test void invalidPartitionAndEmptyBatchFailBeforeDataPlaneWrite() {
+        install();
+        assertThatThrownBy(() -> write(-1, 1, buffer("invalid")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> write(3, 1, buffer("invalid")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> write(0, 1, ByteBuffer.allocate(0)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("must not be empty");
+        assertThat(service.wire(0).opened).isEmpty();
+        complete();
+        assertDurableRows(0, 1);
+    }
+
     private void install() { assertThat(egress.installTask(request)).isTrue(); }
     private void write(int partition, long rows, ByteBuffer bytes) {
-        egress.onPartitionBatch(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId(),
+        callbacks.onPartitionBatch(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId(),
                 partition, rows, bytes);
     }
-    private void complete() { egress.onTaskCompleted(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId()); }
-    private void abort() { egress.onTaskAborted(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId(), "wire cancellation"); }
+    private void complete() { callbacks.onTaskCompleted(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId()); }
+    private void abort() { callbacks.onTaskAborted(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId(), "wire cancellation"); }
     private ShuffleExecutionBinding binding() { return request.getExecutionOptions().getShuffle().getExecutionBinding(); }
     private TaskRequest withBinding(ShuffleExecutionBinding binding) {
         return request.toBuilder().setExecutionOptions(request.getExecutionOptions().toBuilder()
@@ -362,6 +431,17 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
         return service.wire(endpoint).requests.stream().map(ShuffleWireRelay.Frame::message)
                 .filter(type::isInstance).map(type::cast).toList();
     }
+    private void assertDurableProducerCommits(int commits) {
+        try (var connection = service.backend().jdbc().getConnection();
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT count(*) FROM shuffle.shuffle_producer_commit")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getInt(1)).isEqualTo(commits);
+        } catch (java.sql.SQLException failure) {
+            throw new IllegalStateException("Actual producer commit state read failed", failure);
+        }
+    }
+
     private void assertDurableRows(int batches, int commits) {
         try (var connection = service.backend().jdbc().getConnection(); var statement = connection.createStatement()) {
             try (var rows = statement.executeQuery("SELECT count(*) FROM shuffle.shuffle_batch")) {

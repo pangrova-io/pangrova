@@ -209,7 +209,7 @@ public record WorkerBootstrapConfig(
             long shuffleSpillBytes,
             int shuffleSpillFiles,
             String shuffleSpillDirectory,
-            org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission.Limits
+            org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits
                     shuffleChannelLimits) {
 
         public static final long DEFAULT_MEMORY_BUDGET = 512L * 1024 * 1024;
@@ -260,7 +260,7 @@ public record WorkerBootstrapConfig(
                     DEFAULT_SHUFFLE_SPILL,
                     DEFAULT_SHUFFLE_SPILL_FILES,
                     null,
-                    new org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission.Limits(
+                    new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(
                             org.pangrova.config.WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS
                                     .defaultValue(),
                             org.pangrova.config.WorkerOptions

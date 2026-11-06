@@ -14,7 +14,7 @@ TEST_F(VeloxPlanConverterTest, EmptyBytesReturnsNull) {
   EXPECT_EQ(result, nullptr);
 }
 
-TEST_F(VeloxPlanConverterTest, InvalidProtobufReturnsNull) {
+TEST_F(VeloxPlanConverterTest, InvalidProtobufIsRejected) {
   const auto converter_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
@@ -22,7 +22,7 @@ TEST_F(VeloxPlanConverterTest, InvalidProtobufReturnsNull) {
   EXPECT_THROW(converter.convert(garbage, {}), std::runtime_error);
 }
 
-TEST_F(VeloxPlanConverterTest, EmptyPlanReturnsNull) {
+TEST_F(VeloxPlanConverterTest, VersionedEmptyPlanIsRejected) {
   substrait::Plan plan;
   std::string bytes;
   pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
@@ -31,8 +31,7 @@ TEST_F(VeloxPlanConverterTest, EmptyPlanReturnsNull) {
   const auto converter_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
-  auto result = converter.convert(plan_bytes, {});
-  EXPECT_EQ(result, nullptr);
+  EXPECT_THROW(converter.convert(plan_bytes, {}), std::runtime_error);
 }
 
 TEST_F(VeloxPlanConverterTest, LiveValuesPlansHaveDistinctMemoryPools) {
@@ -63,6 +62,46 @@ TEST_F(VeloxPlanConverterTest, LiveValuesPlansHaveDistinctMemoryPools) {
             second_values->values().front()->pool()->name());
   EXPECT_TRUE(first_values->values().front()->ownsMemoryPool());
   EXPECT_TRUE(second_values->values().front()->ownsMemoryPool());
+}
+
+TEST_F(VeloxPlanConverterTest, RejectsUnversionedUnidentifiedAndIncompatiblePlans) {
+  substrait::Rel rel;
+  addI64Column(rel.mutable_read()->mutable_base_schema(), "value");
+  rel.mutable_read()->mutable_virtual_table()->add_expressions()
+      ->add_fields()->mutable_literal()->set_i64(42);
+  const auto valid = serializePlan(rel);
+  for (int invalid = 0; invalid < 3; ++invalid) {
+    substrait::Plan plan;
+    ASSERT_TRUE(plan.ParseFromArray(valid.data(), static_cast<int>(valid.size())));
+    if (invalid == 0) plan.clear_version();
+    if (invalid == 1) plan.mutable_version()->clear_producer();
+    if (invalid == 2) plan.mutable_version()->set_major_number(1);
+    const auto wire = plan.SerializeAsString();
+    VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+    try {
+      converter.convert(std::vector<uint8_t>(wire.begin(), wire.end()), {});
+      FAIL() << "Incompatible version reached plan conversion";
+    } catch (const std::runtime_error& failure) {
+      const char* expected[] = {"missing required Version", "producer is empty", "major-version mismatch"};
+      EXPECT_NE(std::string(failure.what()).find(expected[invalid]), std::string::npos);
+    }
+  }
+}
+
+TEST_F(VeloxPlanConverterTest, AcceptsDifferentMinorPatchAndIdentifiedProducer) {
+  substrait::Rel rel;
+  addI64Column(rel.mutable_read()->mutable_base_schema(), "value");
+  rel.mutable_read()->mutable_virtual_table()->add_expressions()
+      ->add_fields()->mutable_literal()->set_i64(42);
+  const auto valid = serializePlan(rel);
+  substrait::Plan plan;
+  ASSERT_TRUE(plan.ParseFromArray(valid.data(), static_cast<int>(valid.size())));
+  plan.mutable_version()->set_minor_number(999);
+  plan.mutable_version()->set_patch_number(7);
+  plan.mutable_version()->set_producer("compatible-producer/test");
+  const auto wire = plan.SerializeAsString();
+  VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+  EXPECT_NE(converter.convert(std::vector<uint8_t>(wire.begin(), wire.end()), {}), nullptr);
 }
 
 // ---------------------------------------------------------------------------

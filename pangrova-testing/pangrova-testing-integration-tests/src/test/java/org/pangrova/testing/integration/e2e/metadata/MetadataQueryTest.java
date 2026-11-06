@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.metadata;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.CatalogDdlGrantFixture;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.coordination;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 
 import java.time.Duration;
 
@@ -88,7 +88,7 @@ class CoordinatorExecutionAuthorityIntegrationTest {
         var dataSource = SharedPostgresContainer.migratedDataSource("shared_execution_binding");
         var backend = new JdbcExecutionAnchorStore(dataSource);
         try (var binding = new CoordinatorExecutionAuthority(backend, "node", "actual-process", Duration.ofSeconds(30));
-                var ha = new HighAvailabilityCoordinationService(new InMemoryDistributedLease())) {
+                var ha = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), binding.backend())) {
             ha.bindExecutionAuthority(binding);
             ha.start("node");
             assertThat(ha.acquireQueryOwnership("shared-execution", "node")).isTrue();

@@ -1,6 +1,6 @@
 package org.pangrova.indexing.storage;
 
-import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.connector.spi.index.FileSystemAccessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,7 +14,7 @@ import java.util.Optional;
  * Manages reading and writing serialized index files via {@link FileSystemAccessor}.
  *
  * <p>Data integrity is guaranteed by the CRC32 trailer embedded in the
- * {@link org.pangrova.indexing.serde.IndexSerializer} wire format. This class
+ * {@link org.pangrova.indexing.codec.data.IndexSerializer} wire format. This class
  * is a thin I/O layer — no redundant checksum computation.</p>
  */
 public final class IndexStorageManager {

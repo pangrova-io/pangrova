@@ -2,7 +2,7 @@ package org.pangrova.client.jdbc;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.transport.security.ClientAuthentication;
+import org.pangrova.transport.client.authentication.ClientAuthentication;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;

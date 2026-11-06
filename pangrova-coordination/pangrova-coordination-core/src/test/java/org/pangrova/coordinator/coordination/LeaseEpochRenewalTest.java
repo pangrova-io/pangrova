@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,7 +15,7 @@ class LeaseEpochRenewalTest {
         var service = new HighAvailabilityCoordinationService(
                 lease,
                 new HighAvailabilityCoordinationService.CoordinationConfig(
-                        30_000, 10_000));
+                        30_000, 10_000), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         try {
             assertThat(service.tryBecomeLeader(HOLDER_A)).isTrue();
             assertThat(service.getCurrentEpoch()).isEqualTo(1);

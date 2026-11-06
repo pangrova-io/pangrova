@@ -1,13 +1,14 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.query.core.task.StageDispatchRecord;
+
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
 
 import java.util.List;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
@@ -48,9 +49,9 @@ public final class DispatchCanceller {
      * so failures are logged at WARN and enqueued for retry.
      */
     public void cancelAllTasks(String queryId,
-                        List<DAGDispatchEngine.StageDispatchRecord> dispatched) {
+                        List<StageDispatchRecord> dispatched) {
         LOG.warn("event=cancel_all_tasks queryId={} taskCount={}", queryId, dispatched.size());
-        for (DAGDispatchEngine.StageDispatchRecord rec : dispatched) {
+        for (StageDispatchRecord rec : dispatched) {
             cancelRetrier.cancelWithRetry(queryId, rec.result().taskId(),
                     rec.result().workerHost(), rec.workerHttpPort());
         }

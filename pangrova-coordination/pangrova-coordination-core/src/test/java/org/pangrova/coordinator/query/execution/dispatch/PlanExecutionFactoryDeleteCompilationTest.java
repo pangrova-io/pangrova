@@ -9,16 +9,16 @@ import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDel
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.service.ResolvedTable;
-import org.pangrova.planner.DmlWriteTarget;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
+import org.pangrova.metadata.api.schema.SchemaChange;
+import org.pangrova.metadata.api.resolution.MetadataService;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.metadata.api.resolution.ResolvedTable;
+import org.pangrova.planner.core.analysis.DmlWriteTarget;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.CATALOG;
@@ -42,11 +42,11 @@ class PlanExecutionFactoryDeleteCompilationTest {
                     fixture.session, CATALOG, SCHEMA);
             var actual = fixture.metadata.getTableMetadata(connectorSession,
                     fixture.metadata.getTableHandle(connectorSession, PlanExecutionFactoryDeleteTestSupport.TABLE));
-            var definitions = org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec.decode(actual.properties());
+            var definitions = org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec.decode(actual.properties());
             assertThat(write.dmlWriteTarget()).contains(
                     new DmlWriteTarget(TABLE_NAME.parts(), DmlWriteTarget.DmlOperation.DELETE,
-                            java.util.Optional.of(org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot.capture(
-                                    new org.pangrova.spi.connector.metadata.table.QualifiedTableName(CATALOG, SCHEMA,
+                            java.util.Optional.of(org.pangrova.connector.api.commit.WriteDeclarationSnapshot.capture(
+                                    new org.pangrova.connector.api.metadata.table.QualifiedTableName(CATALOG, SCHEMA,
                                             PlanExecutionFactoryDeleteTestSupport.TABLE.table()),
                                     actual, definitions.toByteArray(), false))));
             try {
@@ -117,13 +117,13 @@ class PlanExecutionFactoryDeleteCompilationTest {
         }
 
         @Override
-        public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) {
+        public void beginQuery(org.pangrova.metadata.api.session.MetadataSessionContext context) {
             String queryId = context.queryId();
             throw new AssertionError("Compilation must not begin a metadata transaction");
         }
 
         @Override
-        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        public void cleanupQuery(org.pangrova.connector.api.query.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId();
             throw new AssertionError("Compilation must not end a metadata transaction");
         }

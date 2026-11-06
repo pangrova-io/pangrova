@@ -1,0 +1,67 @@
+{
+  "stages": [
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-coordination-api,:pangrova-persistence-coordination-postgresql,:pangrova-persistence-coordination-memory,:pangrova-coordination-zookeeper,:pangrova-coordination-core -am -Pnative-runtime,full-regression '-Dtest=CoordinationFailureLifecycleTest,ZooKeeperFailureSemanticsTest,*DistributedLease*Test*,*CoordinatorRegistry*Test*,HighAvailability*Test*,CoordinatorHaE2ETest*,CoordinationApiIsolationTest,CoordinatorLeaseBootstrapTest,HaLeaseBackendFallbackTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 97.33,
+      "cases": 58,
+      "passed": 58,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused-corrected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-coordination-api,:pangrova-persistence-coordination-postgresql,:pangrova-persistence-coordination-memory,:pangrova-coordination-zookeeper,:pangrova-coordination-core -am -Pnative-runtime,full-regression '-Dtest=CoordinationFailureLifecycleTest,ZooKeeperFailureSemanticsTest,*DistributedLease*Test*,*CoordinatorRegistry*Test*,HighAvailability*Test*,CoordinatorHaE2ETest*,CoordinationApiIsolationTest,CoordinatorLeaseBootstrapTest,HaLeaseBackendFallbackTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 105.26,
+      "cases": 118,
+      "passed": 118,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "integration",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=MaintenanceLeadershipBootstrapTest,LeaderLifecycleMaintenanceSingletonTest,StepDownTimingDependencyTest,HighAvailabilityBootstrapShutdownCloseTest,HighAvailabilityBootstrapFailoverCallbackTest,CoordinationFailureLifecycleTest,ZooKeeperFailureSemanticsTest,*DistributedLease*Test*,*CoordinatorRegistry*Test*,HighAvailability*Test*,CoordinatorHaE2ETest*,CoordinationApiIsolationTest,CoordinatorLeaseBootstrapTest,HaLeaseBackendFallbackTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest,PhysicalTwoWorkerShuffleE2ETest,ActivationSmokeE2ETest,WorkerWithdrawalIdentityIntegrationTest,WorkerRegistryE2ETest*,ClusterRegistryE2ETest*,CoordinatorHaE2ETest*' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 234.21,
+      "cases": 212,
+      "passed": 211,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=MaintenanceLeadershipBootstrapTest,LeaderLifecycleMaintenanceSingletonTest,StepDownTimingDependencyTest,HighAvailabilityBootstrapShutdownCloseTest,HighAvailabilityBootstrapFailoverCallbackTest,CoordinationFailureLifecycleTest,ZooKeeperFailureSemanticsTest,*DistributedLease*Test*,*CoordinatorRegistry*Test*,HighAvailability*Test*,CoordinatorHaE2ETest*,CoordinationApiIsolationTest,CoordinatorLeaseBootstrapTest,HaLeaseBackendFallbackTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 0,
+      "seconds": 179.42,
+      "cases": 191,
+      "passed": 191,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-bootstrap",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=WorkerBootstrapE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 89.28,
+      "cases": 5,
+      "passed": 5,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 218,
+    "passed": 217,
+    "failure": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

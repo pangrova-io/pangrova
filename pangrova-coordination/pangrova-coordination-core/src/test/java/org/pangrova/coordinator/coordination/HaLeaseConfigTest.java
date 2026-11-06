@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +45,7 @@ class HaLeaseConfigTest {
         CoordinationConfig config = new CoordinationConfig(customLeaseMs, customHeartbeatMs);
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
 
-        try (var service = new HighAvailabilityCoordinationService(lease, config)) {
+        try (var service = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore())) {
             // Verify the service uses the custom config by starting and verifying
             // it can elect a leader (which exercises the configured intervals)
             service.start("custom-config-node");
@@ -97,7 +97,7 @@ class HaLeaseConfigTest {
     @DisplayName("Default constructor uses CoordinationConfig.defaults()")
     void defaultConstructorUsesDefaults() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        try (var service = new HighAvailabilityCoordinationService(lease)) {
+        try (var service = new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore())) {
             // Service should be constructable and functional with defaults
             service.start("default-node");
             assertThat(service.isLeader("default-node")).isTrue();
@@ -114,8 +114,8 @@ class HaLeaseConfigTest {
         InMemoryDistributedLease sharedLease = new InMemoryDistributedLease();
         CoordinationConfig fastConfig = new CoordinationConfig(leaseMs, heartbeatMs);
 
-        var node1 = new HighAvailabilityCoordinationService(sharedLease, fastConfig);
-        var node2 = new HighAvailabilityCoordinationService(sharedLease, fastConfig);
+        var node1 = new HighAvailabilityCoordinationService(sharedLease, fastConfig, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
+        var node2 = new HighAvailabilityCoordinationService(sharedLease, fastConfig, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         try {
             node1.start("fast-node-1");

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.execution.core.binding.TaskRequestFactory;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
@@ -12,13 +14,13 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rel.logical.LogicalValues;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.execution.core.authority.StageExecutionContext;
 import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
@@ -27,7 +29,7 @@ import org.pangrova.shuffle.api.ShuffleAccess;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 class RemoteShuffleTaskBindingTest {
@@ -36,12 +38,13 @@ class RemoteShuffleTaskBindingTest {
     void coordinatorAllocationIsCarriedAndStampedWithTaskOwner() {
         var request = TaskRequestFactory.buildLeafTaskRequest(
                 new TaskRequestFactory.LeafTask(
-                        new StageExecutionContext.Live(session()), new byte[] {1}, stage(), 0, resourceGrant(),
+                        new StageExecutionContext.Live(session()), new byte[] {1}, new org.pangrova.execution.api.stage.TaskStage(stage().stageId(),
+                        org.pangrova.execution.api.stage.TaskPurpose.valueOf(stage().taskType())), 0, resourceGrant(),
                         List.of(), List.of(),
                         new ShuffleConfig(
                                 "ARROW_BATCH", "zstd", 1024,
                                 "MEMORY_AND_REMOTE", 8, List.of(0)),
-                        List.of(), org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskDeadline.after(
+                        List.of(), org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                                 java.time.Duration.ofSeconds(30), java.time.Instant.now()),
                         TaskAttemptDescriptor.of(7L, 1), List.of(), shuffleHandle(), List.of()));
 
@@ -72,11 +75,11 @@ class RemoteShuffleTaskBindingTest {
                         bound.getAttempt().getExecutionOwner());
     }
 
-    private static CoordinatorSessionContext session() {
-        return new CoordinatorSessionContext(
+    private static QuerySession session() {
+        return new QuerySession(
                 "query-1", Map.of(),
                 new UserIdentity("user-1", Set.of(), Map.of(), java.time.Instant.EPOCH),
-                "tenant-1");
+                "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static StageNode stage() {

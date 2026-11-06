@@ -40,14 +40,14 @@ import org.pangrova.materialization.port.SourcePinning;
 import org.pangrova.materialization.strategy.AppendOnlyRefreshStrategy;
 import org.pangrova.materialization.strategy.FullRefreshStrategy;
 import org.pangrova.materialization.strategy.PartitionReplaceRefreshStrategy;
-import org.pangrova.spi.connector.materialization.ChangeProof;
-import org.pangrova.spi.connector.materialization.ChangeSetMode;
-import org.pangrova.spi.connector.materialization.ChangeSetPlan;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
-import org.pangrova.spi.connector.materialization.MaterializationSourceException;
-import org.pangrova.spi.connector.materialization.PinnedSource;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.connector.api.materialization.ChangeProof;
+import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.materialization.ChangeSetPlan;
+import org.pangrova.connector.api.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.api.materialization.PinnedSource;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 /** Shared, deterministic fixtures for materialization domain and extension tests. */
 public final class MaterializationTestFixtures {
@@ -253,7 +253,7 @@ public final class MaterializationTestFixtures {
         private RuntimeException pinFailure;
         private RuntimeException unpinFailure;
         private RuntimeException changeSetFailure;
-        private java.util.List<org.pangrova.spi.connector.materialization.PartitionChange> partitionChanges =
+        private java.util.List<org.pangrova.connector.api.materialization.PartitionChange> partitionChanges =
                 java.util.List.of();
         private int failingPinCall = -1;
         private int pinCalls;
@@ -299,7 +299,7 @@ public final class MaterializationTestFixtures {
 
         /** Makes subsequent partition-replace change sets report these partitions. */
         public void respondWithPartitions(
-                java.util.List<org.pangrova.spi.connector.materialization.PartitionChange> changes) {
+                java.util.List<org.pangrova.connector.api.materialization.PartitionChange> changes) {
             this.partitionChanges = java.util.List.copyOf(changes);
         }
 

@@ -6,9 +6,9 @@ import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.ownership.WorkerTaskOwnership;
 import org.pangrova.worker.execution.NativeTaskExecutor;
-import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
-import org.pangrova.worker.shuffle.NativeShuffleTransport;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
+import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
 import org.pangrova.worker.task.memory.MemoryRefs;
@@ -34,9 +34,6 @@ public final class WorkerTaskBootstrap {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerTaskBootstrap.class);
     private static final java.security.SecureRandom SHUFFLE_KEY_RANDOM = new java.security.SecureRandom();
-
-    /** Interval between periodic task-manager cleanup sweeps. */
-    private static final long TASK_CLEANUP_INTERVAL_MINUTES = 15;
 
     /** Idle keep-alive for surplus orchestration-monitor threads. */
     private static final long MONITOR_KEEP_ALIVE_SECONDS = 60L;
@@ -118,20 +115,23 @@ public final class WorkerTaskBootstrap {
         tm.setCancellationPropagator(cancellationPropagator);
         LOG.info(
                 "event=task_manager_components_wired retryExecutor=true cancellationPropagator=true");
+        startTaskCleanup(config, tm, ownership);
+    }
+
+    /** The task registry owns retention; the bootstrap owner closes its single timer. */
+    static void startTaskCleanup(WorkerBootstrapConfig config, TaskManager tm, WorkerTaskOwnership ownership) {
         java.util.concurrent.ScheduledExecutorService cleanupExecutor =
                 org.pangrova.common.concurrent.ManagedExecutorFactory
                         .newSingleThreadScheduledExecutor("worker-task-cleanup");
         retainExecutor(cleanupExecutor, ownership);
         ((java.util.concurrent.ScheduledThreadPoolExecutor) cleanupExecutor)
                 .setRemoveOnCancelPolicy(true);
-        // Retention is measured from terminal-time (see TaskCleanupScheduler)
-        // rather than start-time. 15 minutes gives long-running JDBC result
-        // fetchers ample time to drain buffered batches before the
-        // task entry is evicted, while still bounding worker memory growth.
+        // Terminal age bounds registry retention, not running-task execution. Earlier
+        // authority expiry or actual drain evidence still takes precedence in the owner.
         tm.startPeriodicCleanup(
                 cleanupExecutor,
-                java.time.Duration.ofMinutes(TASK_CLEANUP_INTERVAL_MINUTES),
-                java.time.Duration.ofMinutes(1));
+                java.time.Duration.ofSeconds(config.resultRetentionSeconds()),
+                java.time.Duration.ofSeconds(Math.min(60, config.resultRetentionSeconds())));
     }
 
     /**
@@ -180,8 +180,7 @@ public final class WorkerTaskBootstrap {
                         ? config.transportSecurityConfig().tlsIdentity()
                         : "";
         String shuffleHost = resolveShuffleAdvertisedHost(config, workerHost);
-        var shuffleTransport = new NativeShuffleTransport(executor, shuffleHost, tlsIdentity);
-        ownership.retain(shuffleTransport);
+        var shuffleTransport = new NativeShuffleTransport(executor::executeCommand, shuffleHost, tlsIdentity);
         String resultBindHost = config.httpHost() == null || config.httpHost().isBlank()
                 ? "0.0.0.0" : config.httpHost().trim();
         var resultTransport = new NativeResultTransport(executor, workerHost, resultBindHost);

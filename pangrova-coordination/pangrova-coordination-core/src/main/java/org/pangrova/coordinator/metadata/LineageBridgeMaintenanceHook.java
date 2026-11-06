@@ -3,7 +3,7 @@ package org.pangrova.coordinator.metadata;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.metadata.api.relation.MetadataMaintenanceHook;
+import org.pangrova.metadata.spi.dependency.MetadataMaintenanceHook;
 import org.pangrova.metadata.api.relation.ObjectRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

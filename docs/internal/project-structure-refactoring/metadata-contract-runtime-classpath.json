@@ -1,0 +1,149 @@
+{
+  "roles": [
+    {
+      "role": "coordinator",
+      "launcher_exit": 0,
+      "classpath_entries": 262,
+      "api_entries": [
+        "pangrova-coordination/pangrova-coordination-api/target/pangrova-coordination-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_registration_identity": true,
+      "contains_heartbeat_outcome": true,
+      "local_provider_entries": [],
+      "current_artifacts": {
+        "pangrova-protocol": "61f45eaf434119895c4ee1bddc97b165d9d2a97a67043c43e2ded9721867b8d8",
+        "pangrova-common": "2dc7670857187d8af02d73968939843d87b115eb8ffd7d4f3e84a57d9355464b",
+        "pangrova-coordination-core": "8a70413ae8045784b7212f6dbe7fdb66289eae27b1492d5f7262c3e74ccb791c",
+        "pangrova-server-coordinator": "818c57125b17cc303db2bf9f259c3cf7d30c0c219663404f0781d5494827f718",
+        "pangrova-persistence-coordination-api": "1bbcdc20156d2eda98222ba0d693923dd2d7bec70f27989d09e907b0549179b8",
+        "pangrova-persistence-coordination-postgresql": "78517842fc7319a4006fc1ab35254881b656c183e57a6405f995dd0ec3d93ff6",
+        "pangrova-persistence-coordination-memory": "59ee4fa109cd4edd2f1e9fb24185f383dae1e6db625e0b3b0e3d6fab0a5d4e16",
+        "pangrova-persistence-query-api": "707ea5b9d6970cd3137b6bdcc094296520e559c6e7710f20c9773265a4cfb5d6",
+        "pangrova-persistence-query-postgresql": "3f4adede2aebc7ec960808710d31d311e06d7cd7ea8a1e8f18c0008a70df36e4",
+        "pangrova-persistence-query-memory": "d4cf074ebaf570ce0d627fd135df2e8dd03e11356071ae7674a4a76386bce3ea",
+        "pangrova-persistence-table-api": "3d16f002a5d7c2a73800b15fa0e6118f345b21c80752cf32500ed60648d5f949",
+        "pangrova-persistence-table-postgresql": "4eeef877b815b3236d000b7403d7955d5e7f8bf50f3971efc549a0a07fe491cb",
+        "pangrova-persistence-table-memory": "49e7c869fb3e4d1e60c050426178eeb839e09d0a19993987b036c9a16a337335",
+        "pangrova-persistence-file-api": "18c06de3128ed06665c28e6b955f1625650f02c5cc67c7e7fde067d355bbafb4",
+        "pangrova-persistence-file-postgresql": "89548f1fd05744deaabcce9050bca334d30a7e2981b9619fe9aba4b50e6af7bb",
+        "pangrova-persistence-generation-api": "8fd2313f08f9f3dafcde7df2af14593f4b99689b0b427667c5c2083f464de6c0",
+        "pangrova-persistence-generation-postgresql": "fbf538b0043601ef86661f8c0403c004dfa39d7b5eee084615e3993a3a380c02",
+        "pangrova-metadata-api": "12fa2a1d272716000d2662c4d34e90ca4d127a46e4f0d8df61ad0971574942ca",
+        "pangrova-metadata-codec": "d3a3b6dda105d9387a3e815c6d9f26ff7e3cec36ddeaeb811fbd39f8e7194d63",
+        "pangrova-metadata-core": "3c58ed9ea952426ba3b225ec35abdbab013dbf5cc288765e0e3680d5c3cb988c",
+        "pangrova-persistence-catalog-api": "4e164a8ed9748fd93c71ffb170b3ce82c4947483c7b635b00047cfcab172bd05",
+        "pangrova-persistence-catalog-postgresql": "32dedb5c44db6653d382a64285ed9e804e8599e543f3101bfee8d6b21aa514ac"
+      },
+      "coordination_persistence_artifacts": [
+        "pangrova-persistence-coordination-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-coordination-postgresql-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-coordination-memory-0.1.0-SNAPSHOT.jar"
+      ],
+      "query_persistence_artifacts": [
+        "pangrova-persistence-query-postgresql-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-query-memory-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-query-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "table_persistence_artifacts": [
+        "pangrova-persistence-table-memory-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-table-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-table-postgresql-0.1.0-SNAPSHOT.jar"
+      ],
+      "file_persistence_artifacts": [
+        "pangrova-persistence-file-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-file-postgresql-0.1.0-SNAPSHOT.jar"
+      ],
+      "generation_persistence_artifacts": [
+        "pangrova-persistence-generation-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-generation-postgresql-0.1.0-SNAPSHOT.jar"
+      ]
+    },
+    {
+      "role": "worker",
+      "launcher_exit": 0,
+      "classpath_entries": 183,
+      "api_entries": [],
+      "local_provider_entries": [],
+      "provider_entries": [
+        "pangrova-shuffle/pangrova-shuffle-pangrova/target/pangrova-shuffle-pangrova-0.1.0-SNAPSHOT.jar"
+      ],
+      "provider_sha256": "ebc1e8d90ec3cefbefc30b876e86514c46a3be46edb62a94113e627826f7d9c6",
+      "current_artifacts": {
+        "pangrova-protocol": "61f45eaf434119895c4ee1bddc97b165d9d2a97a67043c43e2ded9721867b8d8",
+        "pangrova-common": "2dc7670857187d8af02d73968939843d87b115eb8ffd7d4f3e84a57d9355464b",
+        "pangrova-worker-core": "f2a3043427b14c1d88fa117244a05cd8b56eb7a299541f3828b6a9964113f9ad"
+      },
+      "coordination_persistence_artifacts": [],
+      "query_persistence_artifacts": [],
+      "table_persistence_artifacts": [],
+      "file_persistence_artifacts": [],
+      "generation_persistence_artifacts": []
+    },
+    {
+      "role": "standalone",
+      "launcher_exit": 0,
+      "classpath_entries": 325,
+      "api_entries": [
+        "pangrova-coordination/pangrova-coordination-api/target/pangrova-coordination-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_registration_identity": true,
+      "contains_heartbeat_outcome": true,
+      "local_provider_entries": [],
+      "provider_entries": [
+        "pangrova-shuffle/pangrova-shuffle-pangrova/target/pangrova-shuffle-pangrova-0.1.0-SNAPSHOT.jar"
+      ],
+      "provider_sha256": "ebc1e8d90ec3cefbefc30b876e86514c46a3be46edb62a94113e627826f7d9c6",
+      "current_artifacts": {
+        "pangrova-protocol": "61f45eaf434119895c4ee1bddc97b165d9d2a97a67043c43e2ded9721867b8d8",
+        "pangrova-common": "2dc7670857187d8af02d73968939843d87b115eb8ffd7d4f3e84a57d9355464b",
+        "pangrova-worker-core": "f2a3043427b14c1d88fa117244a05cd8b56eb7a299541f3828b6a9964113f9ad",
+        "pangrova-coordination-core": "8a70413ae8045784b7212f6dbe7fdb66289eae27b1492d5f7262c3e74ccb791c",
+        "pangrova-server-coordinator": "818c57125b17cc303db2bf9f259c3cf7d30c0c219663404f0781d5494827f718",
+        "pangrova-persistence-coordination-api": "1bbcdc20156d2eda98222ba0d693923dd2d7bec70f27989d09e907b0549179b8",
+        "pangrova-persistence-coordination-postgresql": "78517842fc7319a4006fc1ab35254881b656c183e57a6405f995dd0ec3d93ff6",
+        "pangrova-persistence-coordination-memory": "59ee4fa109cd4edd2f1e9fb24185f383dae1e6db625e0b3b0e3d6fab0a5d4e16",
+        "pangrova-persistence-query-api": "707ea5b9d6970cd3137b6bdcc094296520e559c6e7710f20c9773265a4cfb5d6",
+        "pangrova-persistence-query-postgresql": "3f4adede2aebc7ec960808710d31d311e06d7cd7ea8a1e8f18c0008a70df36e4",
+        "pangrova-persistence-query-memory": "d4cf074ebaf570ce0d627fd135df2e8dd03e11356071ae7674a4a76386bce3ea",
+        "pangrova-persistence-table-api": "3d16f002a5d7c2a73800b15fa0e6118f345b21c80752cf32500ed60648d5f949",
+        "pangrova-persistence-table-postgresql": "4eeef877b815b3236d000b7403d7955d5e7f8bf50f3971efc549a0a07fe491cb",
+        "pangrova-persistence-table-memory": "49e7c869fb3e4d1e60c050426178eeb839e09d0a19993987b036c9a16a337335",
+        "pangrova-persistence-file-api": "18c06de3128ed06665c28e6b955f1625650f02c5cc67c7e7fde067d355bbafb4",
+        "pangrova-persistence-file-postgresql": "89548f1fd05744deaabcce9050bca334d30a7e2981b9619fe9aba4b50e6af7bb",
+        "pangrova-persistence-generation-api": "8fd2313f08f9f3dafcde7df2af14593f4b99689b0b427667c5c2083f464de6c0",
+        "pangrova-persistence-generation-postgresql": "fbf538b0043601ef86661f8c0403c004dfa39d7b5eee084615e3993a3a380c02",
+        "pangrova-metadata-api": "12fa2a1d272716000d2662c4d34e90ca4d127a46e4f0d8df61ad0971574942ca",
+        "pangrova-metadata-codec": "d3a3b6dda105d9387a3e815c6d9f26ff7e3cec36ddeaeb811fbd39f8e7194d63",
+        "pangrova-metadata-core": "3c58ed9ea952426ba3b225ec35abdbab013dbf5cc288765e0e3680d5c3cb988c",
+        "pangrova-persistence-catalog-api": "4e164a8ed9748fd93c71ffb170b3ce82c4947483c7b635b00047cfcab172bd05",
+        "pangrova-persistence-catalog-postgresql": "32dedb5c44db6653d382a64285ed9e804e8599e543f3101bfee8d6b21aa514ac"
+      },
+      "coordination_persistence_artifacts": [
+        "pangrova-persistence-coordination-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-coordination-postgresql-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-coordination-memory-0.1.0-SNAPSHOT.jar"
+      ],
+      "query_persistence_artifacts": [
+        "pangrova-persistence-query-postgresql-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-query-memory-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-query-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "table_persistence_artifacts": [
+        "pangrova-persistence-table-memory-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-table-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-table-postgresql-0.1.0-SNAPSHOT.jar"
+      ],
+      "file_persistence_artifacts": [
+        "pangrova-persistence-file-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-file-postgresql-0.1.0-SNAPSHOT.jar"
+      ],
+      "generation_persistence_artifacts": [
+        "pangrova-persistence-generation-api-0.1.0-SNAPSHOT.jar",
+        "pangrova-persistence-generation-postgresql-0.1.0-SNAPSHOT.jar"
+      ]
+    }
+  ],
+  "api_sha256": "3b9a8783be7a19aca7dfdd437751c41d54fc8af5015e09b36046eaee444cb6ac",
+  "failures": [],
+  "scope": "Actual packaged local launcher closures; Local provider intentionally not yet assembled into runtime roles. No image build, role isolation completion or deployment claimed."
+}

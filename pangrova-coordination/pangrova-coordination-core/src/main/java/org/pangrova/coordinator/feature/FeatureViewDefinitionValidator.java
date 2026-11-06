@@ -24,10 +24,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.metadata.store.jdbc.catalog.MetadataJsonMapper;
-import org.pangrova.coordinator.query.execution.AuthorizedRelation;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.metadata.codec.json.MetadataJsonMapper;
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;

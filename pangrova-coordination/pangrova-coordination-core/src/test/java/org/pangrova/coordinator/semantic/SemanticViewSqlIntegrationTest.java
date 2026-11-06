@@ -21,7 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
@@ -30,27 +30,27 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.dispatch.task.semantic.CreateSemanticViewTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.semantic.PublishSemanticViewTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.semantic.ShowSemanticViewsTask;
-import org.pangrova.coordinator.query.statement.StatementClassifier;
+import org.pangrova.query.core.statement.StatementClassifier;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.semantic.api.view.SemanticViewId;
 import org.pangrova.semantic.api.view.SemanticViewStore;
 import org.pangrova.semantic.store.jdbc.JdbcSemanticViewStore;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;
-import org.pangrova.parser.ast.statement.PublishSemanticViewStatement;
-import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.security.authz.StaticGrantStore;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.CreateSemanticViewStatement;
+import org.pangrova.parser.api.ast.statement.PublishSemanticViewStatement;
+import org.pangrova.parser.api.ast.statement.ShowSemanticViewsStatement;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
+import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -73,15 +73,15 @@ class SemanticViewSqlIntegrationTest {
             "semantic-owner", Set.of("semantic-admin"), Map.of(), Instant.EPOCH);
 
     private SemanticViewStore store;
-    private CoordinatorSessionContext session;
+    private QuerySession session;
 
     @BeforeEach
     void setUp() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("semantic_sql");
         store = new JdbcSemanticViewStore(dataSource);
-        session = new CoordinatorSessionContext(
+        session = new QuerySession(
                 "semantic-query", Map.of("catalog", "lake", "schema", "sales"),
-                USER, TENANT);
+                USER, TENANT, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     @Test
@@ -160,7 +160,7 @@ class SemanticViewSqlIntegrationTest {
 
         assertThatThrownBy(() -> deniedDispatcher.tryDispatch(
                 null, createSql(1, false, "gross_revenue"), "q-denied", session))
-                .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class);
+                .isInstanceOf(org.pangrova.security.api.error.AuthorizationDeniedException.class);
         assertThat(store.listVersions(VIEW)).isEmpty();
 
         var noAccessControl = new SemanticViewStatementService(store, null);
@@ -170,8 +170,8 @@ class SemanticViewSqlIntegrationTest {
                 .isInstanceOf(PangrovaException.class)
                 .satisfies(failure -> assertThat(((PangrovaException) failure).getErrorCode())
                         .isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
-        var missingTenant = new CoordinatorSessionContext(
-                "q-missing-tenant", session.sessionProperties(), USER, null);
+        var missingTenant = new QuerySession(
+                "q-missing-tenant", session.sessionProperties(), USER, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         assertThatThrownBy(() -> new SemanticViewStatementService(store, fullAccess())
                 .create(statement, missingTenant))
                 .isInstanceOf(PangrovaException.class)
@@ -185,8 +185,8 @@ class SemanticViewSqlIntegrationTest {
         dispatcher.tryDispatch(null, createSql(1, false, "gross_revenue"),
                 "q-create", session);
 
-        var otherTenant = new CoordinatorSessionContext(
-                "q-other", session.sessionProperties(), USER, "tenant-b");
+        var otherTenant = new QuerySession(
+                "q-other", session.sessionProperties(), USER, "tenant-b", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         SemanticViewStatementService service = new SemanticViewStatementService(
                 store, fullAccess());
 

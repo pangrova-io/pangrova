@@ -2,7 +2,7 @@ package org.pangrova.shuffle.exchange;
 
 import java.io.Closeable;
 
-import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.batch.api.page.NativePage;
 
 /**
  * Read-side endpoint of an exchange channel between query stages.

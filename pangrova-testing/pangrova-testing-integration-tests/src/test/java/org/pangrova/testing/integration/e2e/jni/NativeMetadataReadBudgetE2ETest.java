@@ -85,6 +85,7 @@ class NativeMetadataReadBudgetE2ETest extends SqlE2ETestBase {
 
     private TaskRequest request(Path file, long grant) throws Exception {
         Plan.Builder plan = Plan.newBuilder();
+        org.pangrova.protocol.substrait.SubstraitProtocolVersion.stamp(plan);
         var root = plan.addRelationsBuilder().getRootBuilder().addNames("snapshot_id");
         var read = root.getInputBuilder().getReadBuilder();
         read.getBaseSchemaBuilder().addNames("snapshot_id").getStructBuilder().addTypesBuilder()

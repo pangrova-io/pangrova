@@ -3,8 +3,8 @@ package org.pangrova.connector.paimon.handle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.protocol.v2.PaimonFilesReadContext;
 import org.pangrova.protocol.v2.PinnedMetadataObject;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 import java.util.List;
 import java.util.Objects;

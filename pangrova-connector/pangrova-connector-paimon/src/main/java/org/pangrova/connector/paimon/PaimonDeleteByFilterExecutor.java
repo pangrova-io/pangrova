@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
+import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.metadata.DeleteFilter;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;

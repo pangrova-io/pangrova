@@ -11,7 +11,7 @@ import org.pangrova.materialization.port.Clock;
 import org.pangrova.materialization.port.MaterializationRepository;
 import org.pangrova.materialization.port.ReclaimableSourcePin;
 import org.pangrova.materialization.port.SourcePinning;
-import org.pangrova.spi.connector.materialization.PinnedSource;
+import org.pangrova.connector.api.materialization.PinnedSource;
 
 /**
  * Reclaims source snapshot holds left behind by settled or expired attempts.

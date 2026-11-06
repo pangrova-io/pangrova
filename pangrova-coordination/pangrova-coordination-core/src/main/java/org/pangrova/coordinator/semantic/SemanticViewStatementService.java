@@ -19,7 +19,7 @@ package org.pangrova.coordinator.semantic;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.semantic.api.view.SemanticStoreException;
 import org.pangrova.semantic.api.view.SemanticViewId;
 import org.pangrova.semantic.api.view.SemanticViewPublication;
@@ -28,13 +28,13 @@ import org.pangrova.semantic.api.view.SemanticViewValidationState;
 import org.pangrova.semantic.api.view.SemanticViewVersion;
 import org.pangrova.semantic.api.view.SemanticViewVersionStatus;
 import org.pangrova.semantic.view.SemanticViewDefinitionValidator;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;
-import org.pangrova.parser.ast.statement.PublishSemanticViewStatement;
-import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.CreateSemanticViewStatement;
+import org.pangrova.parser.api.ast.statement.PublishSemanticViewStatement;
+import org.pangrova.parser.api.ast.statement.ShowSemanticViewsStatement;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Clock;
 import java.util.List;
@@ -72,7 +72,7 @@ public final class SemanticViewStatementService {
     /** Creates one immutable version after schema validation and source-table authorization. */
     public SemanticViewVersion create(
             CreateSemanticViewStatement statement,
-            CoordinatorSessionContext session) {
+            QuerySession session) {
         Actor actor = requireActor(session);
         SemanticViewId id = resolveViewId(statement.viewName(), actor);
         accessControl.checkCanCreateTable(
@@ -89,7 +89,7 @@ public final class SemanticViewStatementService {
     /** Publishes a validated version under a publication-epoch compare-and-set fence. */
     public SemanticViewPublication publish(
             PublishSemanticViewStatement statement,
-            CoordinatorSessionContext session) {
+            QuerySession session) {
         Actor actor = requireActor(session);
         SemanticViewId id = resolveViewId(statement.viewName(), actor);
         accessControl.checkCanAlterTable(
@@ -112,7 +112,7 @@ public final class SemanticViewStatementService {
     /** Lists version status within the authenticated tenant and authorized schema. */
     public List<SemanticViewVersionStatus> show(
             ShowSemanticViewsStatement statement,
-            CoordinatorSessionContext session) {
+            QuerySession session) {
         Actor actor = requireActor(session);
         Scope scope = resolveScope(statement.scope(), actor);
         accessControl.checkCanAccessSchema(actor.user(), scope.catalog(), scope.schema());
@@ -164,7 +164,7 @@ public final class SemanticViewStatementService {
         }
     }
 
-    private Actor requireActor(CoordinatorSessionContext session) {
+    private Actor requireActor(QuerySession session) {
         if (accessControl == null || session == null || session.userIdentity() == null
                 || session.userIdentity().principal() == null
                 || session.userIdentity().principal().isBlank()

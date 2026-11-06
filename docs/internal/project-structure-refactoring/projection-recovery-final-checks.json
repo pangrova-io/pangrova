@@ -1,0 +1,61 @@
+[
+  {
+    "command": [
+      ".pangrova/scripts/check-module-manifest.sh"
+    ],
+    "exit": 0,
+    "output": "module baseline is current\nOK: module manifest and baseline are current.\n"
+  },
+  {
+    "command": [
+      ".pangrova/scripts/check-spi-annotations.sh"
+    ],
+    "exit": 0,
+    "output": "OK: SPI annotation gate passed.\n  Annotated public types: 224\n  Baseline (pre-existing gap): 0\n"
+  },
+  {
+    "command": [
+      ".pangrova/scripts/check-spi-stability.sh"
+    ],
+    "exit": 0,
+    "output": "OK: SPI stability gate passed.\n  @Stable types checked: 24\n  All checked types have at least one production implementor.\n"
+  },
+  {
+    "command": [
+      ".pangrova/scripts/detect-dead-stubs.sh"
+    ],
+    "exit": 0,
+    "output": "==========================================\n CI Dead-Stub Detection\n==========================================\n\nScanning production code for stub methods...\n\n\n==========================================\n Results\n==========================================\n\n\u001b[0;32m\u2713 No dead stubs found in production code.\u001b[0m\n\nNo unapproved stub patterns detected; reachability and runtime behavior require their own tests.\n"
+  },
+  {
+    "command": [
+      ".pangrova/scripts/check-e2e-truthfulness.sh"
+    ],
+    "exit": 0,
+    "output": "E2E truthfulness gate passed\n"
+  },
+  {
+    "command": [
+      ".pangrova/scripts/check-doc-class-refs.sh"
+    ],
+    "exit": 0,
+    "output": "=== Documentation-Code Class Reference Check ===\n\nChecked 315 class references.\n\n\u2705 All 315 class references in docs/architecture/ exist in codebase.\n"
+  },
+  {
+    "command": [
+      "python3",
+      ".pangrova/scripts/tests/spotbugs-immutable-filter-test.py"
+    ],
+    "exit": 0,
+    "output": "PASS: exact immutable hash classified; this Match rejects 8 changed-type/method/field/class/bug cases.\nPASS: exact keytool runner classified; this Match rejects 7 class/method/signature/bug changes.\nPASS: exact non-security retry jitter classified; this Match rejects 7 owner/method/signature/bug changes.\nPASS: 19 exact borrowed Paimon services classified; each Match rejects 9 signature/field/type/bug changes.\nPASS: five migrated catalog ownership classifications match current constructors and reject 9 changed boundaries.\nPASS: 21 exact JDBC forwarding/Artifact methods classified; each rejects 7 changed boundaries, Artifact also in full filter.\nPASS: complete filter does not exclude PreparedStatement SQL construction or Boolean-null finding.\nPASS: four JDBC identity getters classified; isolated/full filters each reject 12 changed boundaries.\nPASS: complete filter does not exclude obsolete PreparedStatement identity getter findings.\nPASS: 11 immutable metadata collection getters classified; isolated/full filters each reject 12 changed boundaries.\nPASS: canonical immutable VECTOR getter classified; isolated/full filters reject 12 changed boundaries.\nPASS: six exact indexing ownership classifications each reject changed owner/method/field/type/bug.\nPASS: managed-source DataSource classification matches only the new constructor; old and altered boundaries remain checked.\n"
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit": 0,
+    "output": ""
+  }
+]

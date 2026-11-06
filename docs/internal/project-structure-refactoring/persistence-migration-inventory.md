@@ -83,7 +83,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [JdbcSupport.java](../../../pangrova-common/src/main/java/org/pangrova/common/jdbc/JdbcSupport.java) | `org.pangrova.common.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [JdbcSupport.java](../../../pangrova-persistence/pangrova-persistence-jdbc-support/src/main/java/org/pangrova/persistence/jdbc/support/JdbcSupport.java) | `org.pangrova.persistence.jdbc.support` | 已迁入 JDBC support；保留现有 SQL/连接语义 |
 | [ProcessIncarnationStore.java](../../../pangrova-common/src/main/java/org/pangrova/common/lifecycle/ProcessIncarnationStore.java) | `org.pangrova.common.lifecycle` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [CheckpointStore.java](../../../pangrova-common/src/main/java/org/pangrova/common/resilience/api/CheckpointStore.java) | `org.pangrova.common.resilience.api` | 候选；待逐文件确认职责并迁移/留调用方 |
 
@@ -318,7 +318,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcSourceObjectRegistration.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceObjectRegistration.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcSourcePreparationInvocations.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourcePreparationInvocations.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [JdbcInvalidationPoller.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/cache/JdbcInvalidationPoller.java) | `org.pangrova.metadata.store.jdbc.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmbeddedDataSource.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/EmbeddedDataSource.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [DriverManagerDataSource.java](../../../pangrova-persistence/pangrova-persistence-jdbc-support/src/main/java/org/pangrova/persistence/jdbc/support/DriverManagerDataSource.java) | `org.pangrova.persistence.jdbc.support` | 已迁入 JDBC support；保留现有 SQL/连接语义 |
 | [JdbcMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/JdbcMetadataStore.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [MetadataJsonMapper.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/MetadataJsonMapper.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [PooledDataSourceFactory.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/PooledDataSourceFactory.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
@@ -345,7 +345,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 ## pangrova-persistence-api
 
-24 个主源候选。
+28 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
@@ -373,10 +373,14 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [IdentityRowPolicyStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/rowfilter/IdentityRowPolicyStore.java) | `org.pangrova.persistence.api.security.rowfilter` | 已在目标owner；继续语义/装配验收 |
 | [RowPolicyStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/rowfilter/RowPolicyStore.java) | `org.pangrova.persistence.api.security.rowfilter` | 已在目标owner；继续语义/装配验收 |
 | [TenantStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/tenant/TenantStore.java) | `org.pangrova.persistence.api.security.tenant` | 已在目标owner；继续语义/装配验收 |
+| [TableControlStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/table/control/TableControlStore.java) | `org.pangrova.persistence.api.table.control` | 已在目标owner；继续语义/装配验收 |
+| [TableControlGovernanceBindingStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/table/governancebinding/TableControlGovernanceBindingStore.java) | `org.pangrova.persistence.api.table.governancebinding` | 已在目标owner；继续语义/装配验收 |
+| [TableControlMaintenanceStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/table/maintenance/TableControlMaintenanceStore.java) | `org.pangrova.persistence.api.table.maintenance` | 已在目标owner；继续语义/装配验收 |
+| [TableControlStatisticsStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/table/statistics/TableControlStatisticsStore.java) | `org.pangrova.persistence.api.table.statistics` | 已在目标owner；继续语义/装配验收 |
 
 ## pangrova-persistence-jdbc
 
-53 个主源候选。
+57 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
@@ -433,10 +437,14 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcPolicyStoreSupport.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/support/JdbcPolicyStoreSupport.java) | `org.pangrova.persistence.jdbc.security.support` | 已在目标owner；继续语义/装配验收 |
 | [JdbcTenantStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/tenant/JdbcTenantStore.java) | `org.pangrova.persistence.jdbc.security.tenant` | 已在目标owner；继续语义/装配验收 |
 | [AuthorizationTransactionGate.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/transaction/AuthorizationTransactionGate.java) | `org.pangrova.persistence.jdbc.security.transaction` | 已在目标owner；继续语义/装配验收 |
+| [JdbcTableControlStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/table/control/JdbcTableControlStore.java) | `org.pangrova.persistence.jdbc.table.control` | 已在目标owner；继续语义/装配验收 |
+| [JdbcTableControlGovernanceBindingStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/table/governancebinding/JdbcTableControlGovernanceBindingStore.java) | `org.pangrova.persistence.jdbc.table.governancebinding` | 已在目标owner；继续语义/装配验收 |
+| [JdbcTableControlMaintenanceStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/table/maintenance/JdbcTableControlMaintenanceStore.java) | `org.pangrova.persistence.jdbc.table.maintenance` | 已在目标owner；继续语义/装配验收 |
+| [JdbcTableControlStatisticsStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/table/statistics/JdbcTableControlStatisticsStore.java) | `org.pangrova.persistence.jdbc.table.statistics` | 已在目标owner；继续语义/装配验收 |
 
 ## pangrova-persistence-memory
 
-5 个主源候选。
+9 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
@@ -445,6 +453,10 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [InMemoryQueryAuditStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/query/audit/InMemoryQueryAuditStore.java) | `org.pangrova.persistence.memory.query.audit` | 已在目标owner；继续语义/装配验收 |
 | [InMemoryExecutionAnchorStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/query/coordination/InMemoryExecutionAnchorStore.java) | `org.pangrova.persistence.memory.query.coordination` | 已在目标owner；继续语义/装配验收 |
 | [InMemoryWriteCommitQuarantineStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/query/transaction/InMemoryWriteCommitQuarantineStore.java) | `org.pangrova.persistence.memory.query.transaction` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryTableControlStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/table/control/InMemoryTableControlStore.java) | `org.pangrova.persistence.memory.table.control` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryTableControlGovernanceBindingStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/table/governancebinding/InMemoryTableControlGovernanceBindingStore.java) | `org.pangrova.persistence.memory.table.governancebinding` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryTableControlMaintenanceStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/table/maintenance/InMemoryTableControlMaintenanceStore.java) | `org.pangrova.persistence.memory.table.maintenance` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryTableControlStatisticsStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/table/statistics/InMemoryTableControlStatisticsStore.java) | `org.pangrova.persistence.memory.table.statistics` | 已在目标owner；继续语义/装配验收 |
 
 ## pangrova-planner
 
@@ -544,25 +556,6 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcWatermarkStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/watermark/JdbcWatermarkStore.java) | `org.pangrova.streaming.store.jdbc.watermark` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryCdcRegistrationStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/memory/InMemoryCdcRegistrationStore.java) | `org.pangrova.streaming.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryWatermarkStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/memory/InMemoryWatermarkStore.java) | `org.pangrova.streaming.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
-
-## pangrova-table
-
-12 个主源候选。
-
-| 文件 | 当前能力包 | 状态 |
-|---|---|---|
-| [TableControlStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/api/control/TableControlStore.java) | `org.pangrova.table.api.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TableControlGovernanceBindingStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/api/governancebinding/TableControlGovernanceBindingStore.java) | `org.pangrova.table.api.governancebinding` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TableControlMaintenanceStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/api/maintenance/TableControlMaintenanceStore.java) | `org.pangrova.table.api.maintenance` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TableControlStatisticsStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/api/statistics/TableControlStatisticsStore.java) | `org.pangrova.table.api.statistics` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcTableControlGovernanceBindingStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/jdbc/control/JdbcTableControlGovernanceBindingStore.java) | `org.pangrova.table.store.jdbc.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcTableControlMaintenanceStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/jdbc/control/JdbcTableControlMaintenanceStore.java) | `org.pangrova.table.store.jdbc.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcTableControlStatisticsStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/jdbc/control/JdbcTableControlStatisticsStore.java) | `org.pangrova.table.store.jdbc.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcTableControlStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/jdbc/control/JdbcTableControlStore.java) | `org.pangrova.table.store.jdbc.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryTableControlGovernanceBindingStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/memory/control/InMemoryTableControlGovernanceBindingStore.java) | `org.pangrova.table.store.memory.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryTableControlMaintenanceStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/memory/control/InMemoryTableControlMaintenanceStore.java) | `org.pangrova.table.store.memory.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryTableControlStatisticsStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/memory/control/InMemoryTableControlStatisticsStore.java) | `org.pangrova.table.store.memory.control` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryTableControlStore.java](../../../pangrova-table/src/main/java/org/pangrova/table/store/memory/control/InMemoryTableControlStore.java) | `org.pangrova.table.store.memory.control` | 候选；待逐文件确认职责并迁移/留调用方 |
 
 ## pangrova-testing-kit
 

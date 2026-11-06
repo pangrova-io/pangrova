@@ -3,9 +3,9 @@ package org.pangrova.connector.paimon.handle;
 import java.util.List;
 import java.util.Objects;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /** A read-only Paimon metadata relation, bound to exact source objects before scheduling. */
 public record PaimonSystemTableHandle(

@@ -1,6 +1,6 @@
 package org.pangrova.streaming.pipeline;
 
-import org.pangrova.spi.connector.data.write.TableWriter;
+import org.pangrova.connector.spi.write.TableWriter;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 

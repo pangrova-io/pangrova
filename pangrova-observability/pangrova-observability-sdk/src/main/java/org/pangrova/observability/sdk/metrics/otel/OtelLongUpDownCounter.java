@@ -1,7 +1,7 @@
 package org.pangrova.observability.sdk.metrics.otel;
 
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricAttributes;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
 
 /**
  * Wraps {@link io.opentelemetry.api.metrics.LongUpDownCounter} behind Pangrova's SPI.

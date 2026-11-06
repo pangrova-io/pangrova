@@ -15,12 +15,12 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -38,7 +38,7 @@ class IcebergReadBindingIntegrationTest {
     private static final Schema SCHEMA = new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -64,7 +64,7 @@ class IcebergReadBindingIntegrationTest {
             assertThat(replacement.fields().get(0).fieldId().orElseThrow()).isNotEqualTo(originalId);
             assertThat(replacement.tableIdentity().formatTableUuid()).isEqualTo(original.tableIdentity().formatTableUuid());
             assertThat(replacement.stability()).isEqualTo(
-                    org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                    org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
                             .NON_REUSABLE_NAMESPACE);
         }
     }
@@ -140,7 +140,7 @@ class IcebergReadBindingIntegrationTest {
             assertThat(binding.statistics().dataSize()).isEqualTo(-1);
             assertThat(binding.statistics().sourceWorkUnits()).isEqualTo(-1);
             assertThat(metadata.getTableStatistics(SESSION, interval)).isSameAs(
-                    org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN);
+                    org.pangrova.connector.api.metadata.table.TableStatistics.UNKNOWN);
             assertThat(splits(catalog, binding)).hasSize(1);
             assertThat(bind(metadata, "incremental").statistics().sourceWorkUnits()).isEqualTo(2);
         }
@@ -215,15 +215,15 @@ class IcebergReadBindingIntegrationTest {
         try (var catalog = catalog()) {
             var metadata = new IcebergMetadata(catalog, "bound");
             var tags = metadata.getMetadataListing(SESSION,
-                    org.pangrova.spi.connector.metadata.MetadataTableKind.TAGS).orElseThrow();
+                    org.pangrova.connector.api.metadata.MetadataTableKind.TAGS).orElseThrow();
             var branches = metadata.getMetadataListing(SESSION,
-                    org.pangrova.spi.connector.metadata.MetadataTableKind.BRANCHES).orElseThrow();
-            assertThat(tags.source()).isEqualTo(org.pangrova.spi.connector.metadata.MetadataTableKind.REFS);
+                    org.pangrova.connector.api.metadata.MetadataTableKind.BRANCHES).orElseThrow();
+            assertThat(tags.source()).isEqualTo(org.pangrova.connector.api.metadata.MetadataTableKind.REFS);
             assertThat(tags.equalityFilters()).containsExactlyEntriesOf(Map.of("type", "TAG"));
-            assertThat(branches.source()).isEqualTo(org.pangrova.spi.connector.metadata.MetadataTableKind.REFS);
+            assertThat(branches.source()).isEqualTo(org.pangrova.connector.api.metadata.MetadataTableKind.REFS);
             assertThat(branches.equalityFilters()).containsExactlyEntriesOf(Map.of("type", "BRANCH"));
             assertThat(metadata.getMetadataListing(SESSION,
-                    org.pangrova.spi.connector.metadata.MetadataTableKind.OPTIONS)).isEmpty();
+                    org.pangrova.connector.api.metadata.MetadataTableKind.OPTIONS)).isEmpty();
         }
     }
 
@@ -238,7 +238,7 @@ class IcebergReadBindingIntegrationTest {
             var metadata = new IcebergMetadata(catalog, "iceberg");
             var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "branch_options"));
             metadata.createBranch(SESSION, handle, "retained",
-                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                    new org.pangrova.connector.api.metadata.BranchCreationOptions(
                             java.util.OptionalLong.of(historical), Optional.empty(),
                             java.util.OptionalLong.of(604_800_000)));
             table.refresh();
@@ -259,10 +259,10 @@ class IcebergReadBindingIntegrationTest {
             var metadata = new IcebergMetadata(catalog, "iceberg");
             var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "branch_tag_source"));
             metadata.createBranch(SESSION, handle, "from_release",
-                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                    new org.pangrova.connector.api.metadata.BranchCreationOptions(
                             java.util.OptionalLong.empty(), Optional.of("release"), java.util.OptionalLong.empty()));
             assertThatThrownBy(() -> metadata.createBranch(SESSION, handle, "must_not_exist",
-                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                    new org.pangrova.connector.api.metadata.BranchCreationOptions(
                             java.util.OptionalLong.empty(), Optional.of("missing"), java.util.OptionalLong.empty())))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("source tag not found");
             table.refresh();

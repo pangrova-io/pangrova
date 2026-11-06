@@ -1,34 +1,34 @@
 package org.pangrova.coordinator.property.query;
 
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import com.google.protobuf.ByteString;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.query.task.UnregisteredWorkerException;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.protocol.rest.config.OutputConfig;
-import org.pangrova.protocol.resource.StageResourceGrantCodec;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.*;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 
 import java.util.List;
 import java.util.Map;
@@ -130,7 +130,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         wm.registerWorker(TestWorkerInfoBuilder.active(WORKER_ID, "localhost", 8080, 9090));
         QueryManager qm = buildMinimalQueryManager(tracker, wm);
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         tracker.registerTask(queryId, taskId);
         tracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.of(1, 0));
@@ -139,8 +139,8 @@ class CoordinatorWorkerProtocolPropertyTest {
 
         QueryStateMachine sm = new QueryStateMachine();
         qm.registerStateMachine(queryId, sm);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
 
         long seq1 = SEQ.incrementAndGet();
         long seq2 = SEQ.incrementAndGet();
@@ -170,7 +170,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         tracker.markScheduled("q-unknown", "t-unknown");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(
-                        buildMinimalQueryManager(tracker, wm), tracker, wm));
+                        buildMinimalQueryManager(tracker, wm), tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         assertThat(receiver.onTaskStatus(report(
                 "t-unknown", "q-unknown", "RUNNING", 1L))).isFalse();
@@ -188,7 +188,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         tracker.markScheduled("q-unbound", "t-unbound");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(
-                        buildMinimalQueryManager(tracker, wm), tracker, wm));
+                        buildMinimalQueryManager(tracker, wm), tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         assertThat(receiver.onTaskStatus(report(
                 "t-unbound", "q-unbound", "RUNNING", 7L))).isFalse();
@@ -208,7 +208,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         tracker.markScheduled("q-fence", "t-fence");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(
-                        buildMinimalQueryManager(tracker, wm), tracker, wm));
+                        buildMinimalQueryManager(tracker, wm), tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         assertThat(receiver.onTaskStatus(report(
                 "t-fence", "q-fence", "RUNNING", 7L))).isFalse();
@@ -237,7 +237,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         tracker.markScheduled("q-worker-fence", "t-worker-fence");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(
-                        buildMinimalQueryManager(tracker, wm), tracker, wm));
+                        buildMinimalQueryManager(tracker, wm), tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
         TaskStatusReport wrongWorker = new TaskStatusReport(
                 "t-worker-fence", "q-worker-fence", 0, 0, "COMPUTE",
                 "w-other", "RUNNING", null, null, null, 7L,
@@ -282,7 +282,7 @@ class CoordinatorWorkerProtocolPropertyTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 java.util.HexFormat.of().parseHex(
-                                        org.pangrova.spi.generation.GenerationDependencySet
+                                        org.pangrova.generation.api.dependency.GenerationDependencySet
                                                 .sourceSnapshot("catalog.schema.table",
                                                         "snapshot-1").sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2
@@ -329,7 +329,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 new TaskStatusReceiverContext(
                         buildMinimalQueryManager(tracker, wm), tracker, wm,
-                        null, null, null, null, null, null, null, null, null,
+                        null, null, null, null, null, null, null, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal(),
                         new org.pangrova.coordinator.query.task.report.GenerationWorkReportSink() {
                             @Override
                             public boolean commit(String tenantId, org.pangrova.protocol.v2.TaskReport status,
@@ -416,7 +416,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         QueryManager qm = buildMinimalQueryManager(tracker, wm);
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         TaskStatusReport rpt = new TaskStatusReport(
                 taskId, queryId, 0, 0, "COMPUTE", unknownWorker,
@@ -676,13 +676,13 @@ class CoordinatorWorkerProtocolPropertyTest {
             CoordinatorTaskTracker tracker, WorkerManager workerManager) {
         var dispatcher = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
-        var scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        var scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, dispatcher, scheduler,
                 workerManager, tracker, null, null, null, 0L);
         var queryDispatcher = new QueryDispatcher(
                 deps, null, null);
         return new QueryManager(
-                QueryManagerContext.minimal(queryDispatcher, new NoOpTracingProvider()));
+                QueryManagerTestContexts.minimal(queryDispatcher, new NoOpTracingProvider()));
     }
 }

@@ -1,10 +1,16 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.error.QueryFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Logical transition contracts; physical retry/resource oracles live in the real owner suites. */
@@ -12,7 +18,7 @@ class QueryManagerOnAllTasksFinishedTest {
     private QueryTerminalControlFixture fixture;
 
     @BeforeEach
-    void createActualControlOwners() { fixture = new QueryTerminalControlFixture(null); }
+    void createActualControlOwners() { fixture = new QueryTerminalControlFixture(new InMemoryQueryStateJournal()); }
 
     @AfterEach
     void closeActualControlOwners() { fixture.close(); }
@@ -21,7 +27,7 @@ class QueryManagerOnAllTasksFinishedTest {
     void onAllTasksFinished_normalPath_transitionsToFinished() {
         String id = fixture.registerRunningQuery();
         fixture.manager.onAllTasksFinished(id);
-        assertThat(fixture.manager.getQueryState(id)).contains(QueryStateMachine.State.FINISHED);
+        assertThat(fixture.manager.getQueryState(id)).contains(QueryState.FINISHED);
     }
 
     @Test
@@ -33,11 +39,11 @@ class QueryManagerOnAllTasksFinishedTest {
         fixture.manager.onAllTasksFinished(id);
 
         assertThat(state.nativeWriteCompletionReady().getNow(null))
-                .isEqualTo(QueryStateMachine.State.FINISHED);
+                .isEqualTo(QueryState.FINISHED);
         assertThat(state.terminalStateReady()).isNotDone();
-        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        assertThat(state.getState()).isEqualTo(QueryState.RUNNING);
         state.toFinisher().run();
-        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(state.getState()).isEqualTo(QueryState.FINISHED);
         fixture.manager.onAllTasksFinished(id);
     }
 
@@ -47,29 +53,29 @@ class QueryManagerOnAllTasksFinishedTest {
         var state = fixture.manager.getStateMachine(id);
         state.deferTerminalUntilControlPlaneResult();
 
-        fixture.manager.onTaskFailed(id, new ErrorDetail("RUNTIME_INTERNAL", "execution", "write failed"));
+        fixture.manager.onTaskFailed(id, new QueryFailure("RUNTIME_INTERNAL", "execution", "write failed"));
 
         assertThat(state.nativeWriteCompletionReady().getNow(null))
-                .isEqualTo(QueryStateMachine.State.FAILED);
-        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FAILED);
+                .isEqualTo(QueryState.FAILED);
+        assertThat(state.getState()).isEqualTo(QueryState.FAILED);
     }
 
     @Test
     void onAllTasksFinished_alreadyFailed_bailsOut() {
         String id = fixture.registerRunningQuery();
-        fixture.manager.onTaskFailed(id, new ErrorDetail("RUNTIME_INTERNAL", "execution", "task crashed"));
-        assertThat(fixture.manager.getQueryState(id)).contains(QueryStateMachine.State.FAILED);
+        fixture.manager.onTaskFailed(id, new QueryFailure("RUNTIME_INTERNAL", "execution", "task crashed"));
+        assertThat(fixture.manager.getQueryState(id)).contains(QueryState.FAILED);
         fixture.manager.onAllTasksFinished(id);
-        assertThat(fixture.manager.getQueryState(id)).contains(QueryStateMachine.State.FAILED);
+        assertThat(fixture.manager.getQueryState(id)).contains(QueryState.FAILED);
     }
 
     @Test
     void onAllTasksFinished_alreadyCancelled_bailsOut() {
         String id = fixture.registerRunningQuery();
         assertThat(fixture.manager.cancelQuery(id)).isTrue();
-        assertThat(fixture.manager.getQueryState(id)).contains(QueryStateMachine.State.CANCELLED);
+        assertThat(fixture.manager.getQueryState(id)).contains(QueryState.CANCELLED);
         fixture.manager.onAllTasksFinished(id);
-        assertThat(fixture.manager.getQueryState(id)).contains(QueryStateMachine.State.CANCELLED);
+        assertThat(fixture.manager.getQueryState(id)).contains(QueryState.CANCELLED);
     }
 
     @Test
@@ -85,7 +91,7 @@ class QueryManagerOnAllTasksFinishedTest {
         var state = new QueryStateMachine();
         fixture.manager.registerStateMachine(id, state);
         fixture.manager.onAllTasksFinished(id);
-        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.QUEUED);
+        assertThat(state.getState()).isEqualTo(QueryState.QUEUED);
         assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);
     }
 }

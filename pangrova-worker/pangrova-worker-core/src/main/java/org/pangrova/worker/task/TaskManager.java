@@ -371,8 +371,16 @@ public class TaskManager implements AutoCloseable {
     }
 
     /**
-     * Drains running tasks and waits for completion. Called during Worker shutdown.
+     * Permanently rejects new admission/publication after this process loses membership.
+     * Does not block the heartbeat callback or claim existing executions have drained.
+     * Existing task cleanup, status and output release remain available.
      */
+    public void fenceAdmission() {
+        taskAdmissions.closeAdmissions();
+        drainExecutor.beginDraining();
+    }
+
+    /** Drains running tasks and waits for completion during Worker shutdown. */
     public void drainAndWait() {
         drainExecutor.drainAndWait();
     }

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.speculation;
 
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.speculation.StragglerDetector;
-import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.core.speculation.StragglerDetector;
+import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
 
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;

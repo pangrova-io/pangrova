@@ -7,13 +7,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.spi.observability.Context;
-import org.pangrova.spi.observability.Span;
-import org.pangrova.spi.observability.SpanKind;
-import org.pangrova.spi.observability.StatusCode;
-import org.pangrova.spi.observability.TextMapGetter;
-import org.pangrova.spi.observability.TextMapSetter;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.api.tracing.Context;
+import org.pangrova.observability.api.tracing.Span;
+import org.pangrova.observability.api.tracing.SpanKind;
+import org.pangrova.observability.api.tracing.StatusCode;
+import org.pangrova.observability.api.tracing.TextMapGetter;
+import org.pangrova.observability.api.tracing.TextMapSetter;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -144,6 +144,9 @@ class QueryTracerTest {
         }
         @Override public Span setStatus(StatusCode statusCode, String description) { return this; }
         @Override public Span recordException(Throwable exception) { return this; }
+        @Override public org.pangrova.observability.api.tracing.Scope makeCurrent() {
+            throw new UnsupportedOperationException("This fixture records span construction only");
+        }
         @Override public void end() { }
     }
 }

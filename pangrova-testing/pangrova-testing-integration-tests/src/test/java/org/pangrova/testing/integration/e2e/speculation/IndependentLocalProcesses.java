@@ -2,8 +2,8 @@ package org.pangrova.testing.integration.e2e.speculation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.awaitility.Awaitility;
-import org.pangrova.client.transport.http.PangrovaRestClient;
-import org.pangrova.client.transport.security.ClientAuthentication;
+import org.pangrova.transport.client.http.PangrovaRestClient;
+import org.pangrova.transport.client.authentication.ClientAuthentication;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.client.protocol.QueryStatusResponse;
@@ -13,7 +13,7 @@ import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;
 import org.pangrova.testing.testkit.TestProjectPaths;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
-import org.pangrova.scheduler.store.jdbc.admission.JdbcClusterConcurrencySlots;
+import org.pangrova.persistence.coordination.postgresql.admission.JdbcClusterConcurrencySlots;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,7 +148,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     void startCoordinatorAndFirstWorker() throws Exception {
         security.start();
         coordinator = launch("coordinator",
-                "org.pangrova.coordinator.bootstrap.PangrovaCoordinatorMain",
+                "org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain",
                 coordinatorYaml(), "-Xms128m", "-Xmx512m",
                 "-XX:MaxDirectMemorySize=128m",
                 // CLI status polling and multi-file seeding exceed the public default of 100/min.

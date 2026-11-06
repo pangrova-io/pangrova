@@ -9,8 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

@@ -11,25 +11,25 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.InsertStatement;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
-import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.query.core.statement.StatementTableTargets;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.types.value.TypedRow;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -82,10 +82,10 @@ class ExecutionFactoryPropertyTest {
                 new CreateTableStatement(TABLE_ID, List.of(), false,
                         List.of(), List.of(), Optional.empty(), Map.of()),
                 new DropTableStatement(TABLE_ID, false),
-                new AlterTableStatement.AddColumn(TABLE_ID, "col", DataTypeSpec.fromRawTypeString("STRING")),
+                new AlterTableStatement.AddColumn(TABLE_ID, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("STRING")),
                 new AlterTableStatement.DropColumn(TABLE_ID, "col"),
                 new AlterTableStatement.RenameColumn(TABLE_ID, "old", "new_col"),
-                new AlterTableStatement.ChangeColumnType(TABLE_ID, "col", DataTypeSpec.fromRawTypeString("BIGINT")),
+                new AlterTableStatement.ChangeColumnType(TABLE_ID, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT")),
                 new AlterTableStatement.SetPartitionSpec(TABLE_ID, List.of()));
     }
 
@@ -100,8 +100,8 @@ class ExecutionFactoryPropertyTest {
 
     private static StatementExecutionContext createContext() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "q-test", Map.of(), null, "tenant-1");
+        QuerySession session = new QuerySession(
+                "q-test", Map.of(), null, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         return new StatementExecutionContext(sm, "q-test", session, null, null);
     }
 
@@ -123,7 +123,8 @@ class ExecutionFactoryPropertyTest {
         @Override
         public StatementResult execute(Statement stmt, StatementExecutionContext ctx) {
             List<TypedRow> rows = executor.execute(stmt);
-            String mutatedTable = TableNameExtractor.extract(stmt);
+            String mutatedTable = java.util.Optional.ofNullable(StatementTableTargets.identifier(stmt))
+                .map(id -> String.join(".", id.parts())).orElse(null);
             List<String> colNames = rows.isEmpty()
                     ? List.of() : List.copyOf(rows.get(0).columnNames());
             return new StatementResult(rows, colNames, mutatedTable, StatementCategory.DDL);
@@ -150,7 +151,8 @@ class ExecutionFactoryPropertyTest {
         @Override
         public StatementResult execute(Statement stmt, StatementExecutionContext ctx) {
             List<TypedRow> rows = executor.execute(stmt);
-            String mutatedTable = TableNameExtractor.extract(stmt);
+            String mutatedTable = java.util.Optional.ofNullable(StatementTableTargets.identifier(stmt))
+                .map(id -> String.join(".", id.parts())).orElse(null);
             List<String> colNames = rows.isEmpty()
                     ? List.of() : List.copyOf(rows.get(0).columnNames());
             return new StatementResult(rows, colNames, mutatedTable, StatementCategory.DML);

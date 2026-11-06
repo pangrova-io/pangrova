@@ -8,17 +8,17 @@ import java.util.regex.PatternSyntaxException;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.file.access.FileListingClient;
-import org.pangrova.file.space.FileSpaceAccessService;
-import org.pangrova.spi.file.access.FileAccessGrant;
+import org.pangrova.file.spi.access.FileListingClient;
+import org.pangrova.file.core.access.FileSpaceAccessService;
+import org.pangrova.file.api.access.FileAccessGrant;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.statement.ListStageStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.statement.ListStageStatement;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.filesystem.api.object.FileStat;
 

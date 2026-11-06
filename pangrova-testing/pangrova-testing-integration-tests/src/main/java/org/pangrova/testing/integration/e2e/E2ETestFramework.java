@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e;
 
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.TestCluster;
 
 import java.util.List;

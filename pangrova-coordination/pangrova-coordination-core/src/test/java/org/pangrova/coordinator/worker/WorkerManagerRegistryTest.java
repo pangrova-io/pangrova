@@ -7,8 +7,8 @@ import java.time.Instant;
 import java.util.List;
 
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
-import org.pangrova.spi.coordination.WorkerSnapshot;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
+import org.pangrova.coordination.api.membership.WorkerSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -89,7 +89,7 @@ class WorkerManagerRegistryTest {
         WorkerInfo info = workerInfo("w-2");
         manager.registerWorker(info);
 
-        manager.onHeartbeat("w-2", new WorkerManager.HeartbeatData(
+        manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("w-2", manager.getWorker("w-2").workerExecutionIdentity().admissionDomainId(), manager.getWorker("w-2").workerExecutionIdentity().incarnationId()), new WorkerManager.HeartbeatData(
                 MemoryPressure.LOW, 0.75, 5, 512L * 1024 * 1024));
 
         WorkerSnapshot snapshot = registry.getWorker("w-2").orElseThrow();

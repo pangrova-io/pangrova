@@ -1,0 +1,26 @@
+{
+  "checks": [
+    {
+      "command": ".pangrova/scripts/check-module-manifest.sh",
+      "exit": 0,
+      "output": "module baseline is current\nOK: module manifest and baseline are current.\n"
+    },
+    {
+      "command": ".pangrova/scripts/check-doc-class-refs.sh",
+      "exit": 0,
+      "output": "=== Documentation-Code Class Reference Check ===\n\nChecked 311 class references.\n\n\u2705 All 311 class references in docs/architecture/ exist in codebase.\n"
+    },
+    {
+      "command": ".pangrova/scripts/check-spi-annotations.sh",
+      "exit": 0,
+      "output": "OK: SPI annotation gate passed.\n  Annotated public types: 223\n  Baseline (pre-existing gap): 0\n"
+    },
+    {
+      "command": ".pangrova/scripts/check-spi-stability.sh",
+      "exit": 0,
+      "output": "OK: SPI stability gate passed.\n  @Stable types checked: 24\n  All checked types have at least one production implementor.\n"
+    }
+  ],
+  "diff_check_exit": 0,
+  "scope": "Actual terminal lightweight checks; formal Java static results and test results recorded separately."
+}

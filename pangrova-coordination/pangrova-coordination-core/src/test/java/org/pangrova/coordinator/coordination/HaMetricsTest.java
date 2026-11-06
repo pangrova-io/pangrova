@@ -8,13 +8,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ class HaMetricsTest {
         metricsProvider = new RecordingMetricsProvider();
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
-        haService = new HighAvailabilityCoordinationService(lease, config);
+        haService = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         haMetrics = new HaMetrics(
                 metricsProvider,
                 () -> haService.getRole() == HighAvailabilityCoordinationService.Role.LEADER ? 1.0 : 0.0,
@@ -140,7 +140,7 @@ class HaMetricsTest {
     void nullMetrics_noNpe() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
-        var svc = new HighAvailabilityCoordinationService(lease, config);
+        var svc = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         // No HaMetrics set — verifying service still works without metrics
         try {
             svc.tryBecomeLeader("node-1");
@@ -211,7 +211,7 @@ class HaMetricsTest {
         public ObservableDoubleGauge createGauge(String name, String description,
                                                  String unit, Supplier<Double> supplier) {
             gauges.put(name, supplier);
-            return new ObservableDoubleGauge() {};
+            return () -> gauges.remove(name, supplier);
         }
     }
 }

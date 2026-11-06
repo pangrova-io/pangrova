@@ -9,37 +9,39 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-codec</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-jdbc</artifactId>
-            <scope>test</scope>
+            <artifactId>pangrova-types</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-api</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-core</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-metadata</artifactId>
+            <artifactId>pangrova-metadata-core</artifactId>
             <version>${project.version}</version>
             <type>test-jar</type>
             <classifier>tests</classifier>
             <scope>test</scope>
         </dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-core</artifactId><scope>test</scope></dependency>
+
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.assertj</groupId><artifactId>assertj-core</artifactId><scope>test</scope></dependency>

@@ -4,7 +4,7 @@ import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.DatasetScanPartitionsResult;
 import org.pangrova.protocol.v2.RuntimeCommandResponse;
-import org.pangrova.spi.connector.metadata.NativeDatasetScanPage;
+import org.pangrova.connector.api.metadata.NativeDatasetScanPage;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.OptionalLong;
@@ -14,7 +14,7 @@ final class NativeDatasetScanPages {
     private NativeDatasetScanPages() {}
 
     static NativeDatasetScanPage decode(RuntimeCommandResponse response, CatalogExecutionBinding catalog,
-            org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot, OptionalLong after, int pageSize) {
+            org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot, OptionalLong after, int pageSize) {
         long version = snapshot.version();
         byte[] schema = snapshot.schemaSha256();
         var expected = org.pangrova.protocol.source.SourceSnapshotBindings.encode(snapshot, catalog);

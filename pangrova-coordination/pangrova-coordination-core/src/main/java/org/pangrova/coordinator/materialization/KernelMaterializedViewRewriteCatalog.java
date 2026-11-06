@@ -13,10 +13,10 @@ import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.mv.MaterializedViewRewriteCatalog;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,23 +67,6 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
         this.maxStaleness = maxStaleness;
         this.queryStart = queryStart;
         this.pinner = pinner;
-    }
-
-    /**
-     * Returns a rewrite catalog for one authenticated compilation, or empty when
-     * rewrite is disabled or the session lacks a catalog/schema binding.
-     *
-     * @param catalog published materialization read model
-     * @param tenantId authenticated tenant
-     * @param session authenticated connector session
-     * @param accessControl authorization policy, or null to disable rewrite
-     * @param queryStart planning instant
-     * @return rewrite catalog when enabled
-     */
-    public static Optional<MaterializedViewRewriteCatalog> create(MaterializationCatalog catalog,
-            String tenantId, ConnectorSession session, AccessControl accessControl,
-            Instant queryStart) {
-        return create(catalog, tenantId, session, accessControl, queryStart, published -> { });
     }
 
     /**
@@ -192,7 +175,7 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
 
     private static boolean readsReferencedTable(PublishedMaterialization published,
             Set<String> referencedTables) {
-        for (org.pangrova.spi.connector.materialization.SourceRef source : published.sources()) {
+        for (org.pangrova.connector.api.materialization.SourceRef source : published.sources()) {
             String name = (source.catalog() + "." + source.schema() + "." + source.table())
                     .toLowerCase(Locale.ROOT);
             if (referencedTables.contains(name)) {

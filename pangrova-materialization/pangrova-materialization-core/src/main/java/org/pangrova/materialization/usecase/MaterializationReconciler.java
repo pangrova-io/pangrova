@@ -23,7 +23,7 @@ import org.pangrova.materialization.port.MaterializationRepository;
 import org.pangrova.materialization.port.PublicationVerification;
 import org.pangrova.materialization.port.PublicationVerifier;
 import org.pangrova.materialization.port.PublishCommand;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.CommitEvidence;
 
 /**
  * Reconciles attempts left unsettled by a crash, lost acknowledgement, or

@@ -202,4 +202,4 @@ execution or network-drain evidence; even a 404 from an unrelated proxy is rejec
 | `SQLException: query field is required` | Empty query string | Ensure query is not null or blank |
 | `SSL handshake failed` | Wrong trust roots, missing client certificate, or hostname mismatch | REST HTTPS uses `sslTrustStore`/`sslTrustStorePassword`; result transport uses independent PEM `ResultTransportSecurity` trust roots and a paired client certificate/key for mutual TLS |
 | Slow first query | JIT warmup on Coordinator | Expected; subsequent queries will be faster |
-| `Query not found` after submit | Query completed and result expired | Increase `worker.task.result-retention-seconds` |
+| `Query not found` after submit | Query was removed or results are no longer available | Inspect query status and result authorization deadline; Worker terminal retention does not extend either |

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.IndexBuildServices;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.config.ConsistencyConfig;
@@ -11,15 +11,13 @@ import org.pangrova.indexing.config.LifecycleConfig;
 import org.pangrova.indexing.storage.IndexStorageManager;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.core.descriptor.IndexDescriptorTransitions;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -99,7 +97,7 @@ class IndexConsistencyCheckerStaleRebuildTest {
     }
 
     private static ConnectorAccessorResolver buildResolver() {
-        var registry = new CatalogRegistry(new StubMetadataStore(), desc -> null, null, null);
+        var registry = new CatalogRegistry(new StubCatalogDeployments(), desc -> null, null, null);
         registry.initialize();
         return new ConnectorAccessorResolver(registry);
     }
@@ -145,7 +143,7 @@ class IndexConsistencyCheckerStaleRebuildTest {
                 return false;
             }
             IndexState target = IndexState.valueOf(newState);
-            descriptors.put(indexId, d.withState(target, timestamp));
+            descriptors.put(indexId, IndexDescriptorTransitions.transition(d, target, timestamp));
             transitions.computeIfAbsent(indexId, k -> new ArrayList<>()).add(target);
             return true;
         }
@@ -182,8 +180,7 @@ class IndexConsistencyCheckerStaleRebuildTest {
                     || newGeneration != expectedGeneration + 1) {
                 return false;
             }
-            IndexDescriptor rebuilding = descriptor.withGeneration(newGeneration, timestamp)
-                    .withState(IndexState.BUILDING, timestamp);
+            IndexDescriptor rebuilding = IndexDescriptorTransitions.transition(descriptor.withGeneration(newGeneration, timestamp), IndexState.BUILDING, timestamp);
             descriptors.put(indexId, rebuilding);
             transitions.computeIfAbsent(indexId, ignored -> new ArrayList<>())
                     .add(IndexState.BUILDING);
@@ -191,13 +188,13 @@ class IndexConsistencyCheckerStaleRebuildTest {
         }
 
         @Override
-        public org.pangrova.indexing.store.IndexGenerationManifest publishIndexGeneration(
-                org.pangrova.indexing.store.IndexPublicationRequest request) {
+        public org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest request) {
             throw new AssertionError("unexpected publication");
         }
 
         @Override
-        public Optional<org.pangrova.indexing.store.IndexGenerationManifest>
+        public Optional<org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest>
                 findActiveIndexGeneration(String id) {
             return Optional.empty();
         }
@@ -250,19 +247,18 @@ class IndexConsistencyCheckerStaleRebuildTest {
         @Override public void updateLastIndexedSnapshotId(String id, String snap) {}
     }
 
-    /** Minimal MetadataStore for CatalogRegistry initialization. */
-    static final class StubMetadataStore implements MetadataStore {
-        @Override public void saveTable(TableMetadata m) {}
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) {}
-        @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
+    /** Minimal CatalogDeploymentRepository for CatalogRegistry initialization. */
+    static final class StubCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) {}
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String n) {}
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) {}
-        @Override public void recordSyncHistory(SyncResult r) {}
-        @Override public void saveSchemas(String c, List<String> s) {}
+
     }
 }

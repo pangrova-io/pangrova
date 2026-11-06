@@ -1,0 +1,367 @@
+[
+  {
+    "artifact": "pangrova-indexing-api",
+    "class_count": 48,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/indexing/spi/publication/IndexAvailabilityPublisher.class",
+        "sha256": "42eb465f8676eea76e23edabd82fa1b7cf174602257a3f445296aa1747326c70"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/publication/IndexAvailabilityPublisher$IndexReadyEvent.class",
+        "sha256": "a5cd2278d544f9b259ff26b4d0ef36e53a4d8baff36ffd2812512c9fc0488652"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/codec/TypeSerializer.class",
+        "sha256": "77fefd1f8acc1a5037271a8a6c391199dd9e2c53e2548aa6f5d9b7aca0fa372e"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/pruning/TopKBoundaryListener.class",
+        "sha256": "38bfd4e69883885e2167eea1c57715af27f0846f7cb14cbf21bd08f0240460b9"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/pruning/RowGroupStatisticsProvider.class",
+        "sha256": "02f837f32cfb87058126d60ad2da025fa11ffeb1c104639e769c7f03b0710927"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/vector/RecallEstimationHint.class",
+        "sha256": "a0919fb165301023501c49473bd73e09cb487d335749db2b335645951317dd6f"
+      },
+      {
+        "class": "org/pangrova/indexing/spi/strategy/IndexStrategyProvider.class",
+        "sha256": "db4aa67dca87c7d17f04ff7d4242f3fb12ee21f8fa8350a1ced83ba790559d64"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/DynamicFilterSummary$ColumnRangeSummary.class",
+        "sha256": "b2c1b32b86c20d16e2981787746982f24ea25c8dfbd80d668b652f970493f82b"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupSkipInfo.class",
+        "sha256": "c11f9223aa4a58a10c8497dc278ad83925a360e5f2e1b78bf66308347300cd41"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupStatistics$1.class",
+        "sha256": "e294ebc38325a1238efbda98003e6d8c92db35a48f90176981dde13a6d794047"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupStatistics.class",
+        "sha256": "ba6d0288eefbf34e556a150451b7628f6dce5ff11c2602d6c786061d813f07f4"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/DynamicFilterSummary.class",
+        "sha256": "df0b9e14d3a153d042a0dcd06f483fcd45095cb2e26c05dc42be39e37917fab5"
+      },
+      {
+        "class": "org/pangrova/indexing/api/statistics/RowGroupStatistics$ColumnStats.class",
+        "sha256": "c4aedf97b1a391ce68a87c906bdf0c7e797e7ba0565fe77e5be8ec64c79dd52d"
+      },
+      {
+        "class": "org/pangrova/indexing/api/lifecycle/IndexState.class",
+        "sha256": "d62ab3a454f23d166475ee52b156c85776693e3e527fc9d840d72311814c1bc2"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/JoinPruningSummary.class",
+        "sha256": "5380b51bfd7ec57c4d83dd471cae59ae693ae4bb8cf56190cd18a9236d901bea"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/RowGroupPruningSummary.class",
+        "sha256": "314def3094ed40084645ed7f7dd554749c388358f06718e0058f2125c18fa699"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/IndexHint.class",
+        "sha256": "3bdd4ee5bf5f016e7b9fda3ab6b6f8b634d4c06632f934909d80788027cab9ba"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/LimitPruningResult.class",
+        "sha256": "2616f084259b6299aac01313664b36646c7a8ac405df5671cd19c7cdef07e6f2"
+      },
+      {
+        "class": "org/pangrova/indexing/api/pruning/TopKBoundary.class",
+        "sha256": "0bc052cd0d623f959d1749fe2bf402ff094efb151e7b916249fad1294850105f"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexCoverageWindow.class",
+        "sha256": "954719610f58dff49d98424c37f17137165eb04004529abe6012cb240f16ac4e"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexCostEstimate.class",
+        "sha256": "d6e51433adef8ea832fcda67bea428385255573ffe7b4f5705913ae52731cc2c"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexDescriptor.class",
+        "sha256": "e6d9e82954171f28bb6acc48a3051b140f4b2bf0fdcbf8def9aead4d7561551c"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexCoverageStats.class",
+        "sha256": "88fe8113e6ee34a52235ebed8a40e58e4d3f870ee02b69befea08cdf0b4f86f0"
+      },
+      {
+        "class": "org/pangrova/indexing/api/descriptor/IndexType.class",
+        "sha256": "53a6607103eaf4e4f15a3c5ad8e13cc35dee05e4feb244d04526f91a72d4bc34"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/IndexEvaluatedSplit.class",
+        "sha256": "a4e41e03fa6ea8bb73100cf695275670e261622f3d305303f0774cb96f717173"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/SplitIndexEvalResult.class",
+        "sha256": "683d7942b659f11d3a4678c79fbfecb1bc7d7286b9d3ca028fd5076e0b30f436"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/IndexEvalHint.class",
+        "sha256": "3d7ffdf68d9d267f8d56ce0dd15188599f3e4bcd9e5bc149b3679ad67ec69414"
+      },
+      {
+        "class": "org/pangrova/indexing/api/evaluation/IndexEvalDescriptor.class",
+        "sha256": "bba9ea7eba94f94368a7797dcd0c690bc558ac05d7e8719eb22295e50bf42e74"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/BTreeIndexData.class",
+        "sha256": "73e31d9c664e95c526dec6d77860bdd9d3ec8d7720c1ea0e419415730a37ba0a"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/HashIndexData.class",
+        "sha256": "136f4d6dfd836fbb5a6fe5dbbf4034a91ff1d71ac5690236f820233427f0d605"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/CompositeIndexKey.class",
+        "sha256": "91970883a234f4a4a80eb09eb579334a75ddb0bb29451aab67aa82088b540c92"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/BloomFilterIndexData.class",
+        "sha256": "4f0a810c05f62b8d42903f0969563f6fa4a19f13e2e264dbf5658d49f35a5336"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/IndexData.class",
+        "sha256": "53a9e43bc243d4349569d2b6ca0bdbd80d0b45df5ccc4816bcab5086e762d22e"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/BTreePage.class",
+        "sha256": "8ea5253597b627f7cb990dfbcaa62f0e7576dd204aea2b46a53436349eefcdb4"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/bitmap/BitmapIndexData.class",
+        "sha256": "346592c8b6e456e2ed52c40caabf290b6123a1e8b9da544e0667da4e965c1944"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/PrefixEntry.class",
+        "sha256": "931fa8a35b4fdc1e3f831e0c6a561073560358123d1b6da63b3648a4efc536f9"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/PrefixIndexData.class",
+        "sha256": "99d7df09ae81c96f026ffa62138e6cf3805c6dee69b7631de1a689c499315ca1"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/NGramBloomIndexData.class",
+        "sha256": "195b100b1b06980d838e87ac98589b08dccfe0f25e3a1cb8c7ef6adb10dc9cfe"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/text/GinIndexData.class",
+        "sha256": "8778382b8e77711531a59550809ffcc3622d9de901acc341a25ec09f1375aa2b"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/RTreeNode.class",
+        "sha256": "bec654536950f764b317010ac15b94d26b16a35accb14bf3c3eb4452fb8eaf1d"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/BoundingBox.class",
+        "sha256": "c1d24ae675855c0aa1504bcf1b2e032e95c461a0c7b27725ad88c8361738c837"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/SparseEntry.class",
+        "sha256": "2f62b7f8ea7196f37b512e4110b68b814415314bbf5c24a683838c4a0f4e041b"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/RTreeIndexData.class",
+        "sha256": "6a9162ea3520744345a7c76887166eefef7c83664a6ffe52100f7c202f96d411"
+      },
+      {
+        "class": "org/pangrova/indexing/api/data/spatial/SparseIndexData.class",
+        "sha256": "ed0f3f666b07df2a277afb9c6f5164c11b626ebf07322152f1b153eeaae0a087"
+      },
+      {
+        "class": "org/pangrova/indexing/api/error/IndexAlreadyExistsException.class",
+        "sha256": "3f67e62b68878acf20a2dcc25f46c13da3e4dc5979078b44e4d6c8467ca16cfb"
+      },
+      {
+        "class": "org/pangrova/indexing/api/vector/DistanceMetric.class",
+        "sha256": "648d770d3fad444aafec61a8f8812b27c6053cf833bc58a2a04e0fefae541139"
+      },
+      {
+        "class": "org/pangrova/indexing/api/vector/VectorHybridSearchStrategy$Mode.class",
+        "sha256": "3a71a7a745174cea99e07eadf155053efc323d483639de741d5be227ec4991b0"
+      },
+      {
+        "class": "org/pangrova/indexing/api/vector/VectorHybridSearchStrategy.class",
+        "sha256": "38d12e5519f8ddbc65c4930df63a4e29a36d345b5f801659d5f9245f4576287c"
+      }
+    ]
+  },
+  {
+    "artifact": "pangrova-indexing-codec",
+    "class_count": 7,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/indexing/codec/predicate/IndexPredicateCodec.class",
+        "sha256": "5ad592f2e83d0efddc147c2bd271fbfd686045ad449d185fb35c77fc0145470e"
+      },
+      {
+        "class": "org/pangrova/indexing/codec/data/IndexSerializer.class",
+        "sha256": "479232d4378997a847baaeeb3d64868d62e9be901c662a15a86ccc71b6276147"
+      },
+      {
+        "class": "org/pangrova/indexing/codec/data/TypeSerializerRegistry$Builder.class",
+        "sha256": "9adb71a663d0399187a2ac46e06499a05291ba8992bf917032374a7657247a64"
+      },
+      {
+        "class": "org/pangrova/indexing/codec/data/TypeSerializerRegistry.class",
+        "sha256": "ef75a57dc8fc0eaf8998d12c1f552ba5ee2e6cb51969600953b41f0dbfb43abf"
+      },
+      {
+        "class": "org/pangrova/indexing/codec/data/SerdeCodec$IOReader.class",
+        "sha256": "8924316facfdfd2ed502623ff357c194d2de244a84494010faac4f8aef34ee0b"
+      },
+      {
+        "class": "org/pangrova/indexing/codec/data/SerdeCodec$IOWriter.class",
+        "sha256": "bdd9fa07978468b3e3e6c163e33dc7a29c958ddb67bf9c776ffe1b88d8325252"
+      },
+      {
+        "class": "org/pangrova/indexing/codec/data/SerdeCodec.class",
+        "sha256": "4eff73a0fe3be31f921e64d837392584d46f24963418b96f75667df58c93af8e"
+      }
+    ]
+  },
+  {
+    "artifact": "pangrova-indexing-strategies-builtin",
+    "class_count": 31,
+    "target_classes_equal_packaged_classes": true,
+    "classes": [
+      {
+        "class": "org/pangrova/indexing/builtin/hash/serializer/HashSerializer.class",
+        "sha256": "59804ae9a0770b446d12753e75d3ea5f52eccb92ceebfef63e1b6bd7086b8163"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/hash/provider/HashStrategyProvider$HashTableState.class",
+        "sha256": "8ef946753564a2918f77d08b468ebb19be29bf3b859f2c13b43b0846b20ed64d"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/hash/provider/HashStrategyProvider.class",
+        "sha256": "f9ed7ff2ddc8ed7fb6d337cc2eb98a5d4d329172c1fad6c96176f7dce4cd7e7d"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bitmap/serializer/ContainerAccumulator.class",
+        "sha256": "b390b94ed93a01c7476e90185ddd02de40ae3374730a4776e19b6b0ce5d57c62"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bitmap/serializer/BitmapSerializer.class",
+        "sha256": "810ecaf6625cc05f9a6c871f26db6b3830d4423f5a050ec212c5bde5733f4ea8"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bitmap/serializer/RoaringBitmapCodec.class",
+        "sha256": "24812fa2241f86b09561c4383ff01bce6eeccbe96b540de839ef77b966a37a89"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bitmap/provider/BitmapStrategyProvider.class",
+        "sha256": "13642ca2f15d6828c5bbfb3cae3da3ce86c145ea300da960e7dd9c60ea936949"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bitmap/provider/BitmapStrategyProvider$AccumulationResult.class",
+        "sha256": "2c3f258031496777b06acac638046bc5d2ae581edddc97ac2a7a1025fc5c46ae"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/prefix/serializer/PrefixSerializer.class",
+        "sha256": "0b9675ca5cb2eaa5fa751930300664bdd5807fde62e0378da1d779bfa2ca3c33"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/prefix/provider/PrefixStrategyProvider.class",
+        "sha256": "f99e869391faf1d8f564af510696cbfa5142979ba734365d1154c9d7214d931d"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/codec/BuiltinIndexSerializers.class",
+        "sha256": "fcbbdf4b67ba84070a05b61457f0c1b700fc683394666a8c8bcfc95e2f403131"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bloom/serializer/BloomFilterSerializer.class",
+        "sha256": "0d9dd366682716b0bfa33fa7b1bd5f1300939db634982c53d4755bda1a65ad5d"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bloom/provider/BloomFilterStrategyProvider.class",
+        "sha256": "deb8115e42ae2c467664df9f5894f1fdba17d06b691cd31d5d4ac4f6b6ab0f55"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/bloom/data/CachedBloomFilterIndexData.class",
+        "sha256": "d3ee53d54c631aea519071181deb6f9e64c2bdf63738814c79b879cc3e6cf8db"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/ngram/serializer/NGramTokenizer.class",
+        "sha256": "41e6d9cb4517480839eac0df92a8b5a3c701d22e49867d0144193ec283aa33ea"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/ngram/serializer/NGramBloomSerializer.class",
+        "sha256": "20d68cdc64c62133d50b0956fa456eddf0f0127f580628567e0d7fb49288bf88"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/ngram/provider/NGramBloomStrategyProvider.class",
+        "sha256": "8f94be569200709185a6571f503bc0b52641bf1fd1fc36da6a48d7ce2bd407f1"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/normalize/IndexValueNormalizer.class",
+        "sha256": "608c93e77ac662e80664efa9affd63be9d4f204449e5a4a57495b359a18b7281"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/btree/evaluator/BTreeSearcher.class",
+        "sha256": "57e5009f8d669894bdeefd16d17de38c3b961d2e867f20bddb398a2b9c4bafb9"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/btree/serializer/BTreeSerializer.class",
+        "sha256": "dc36b0d021145a30891d5abec0a7b17f6029ef09daf78b31155c6c2bcf196384"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/btree/provider/BTreeStrategyProvider.class",
+        "sha256": "c1b57d3381236ef6008f8c12d760463db64ac7c7c2e159c8bf2e5e3ff11f085d"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/rtree/serializer/RTreeBuilder$RTreeResult.class",
+        "sha256": "35c4cc03e0d2bc66969cc72a7008184f79d59f47d2167e983b6662db448f4e8e"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/rtree/serializer/RTreeSerializer.class",
+        "sha256": "516835a7ba4e4b3100fb9c55ca9814c47be41f9ba512bda2f1aa83ca20e70e44"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/rtree/serializer/RTreeBuilder.class",
+        "sha256": "dc3909ef12756c63191ba877157b154d5617b5bfbadd117604c309cbecbae343"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/rtree/provider/RTreeStrategyProvider.class",
+        "sha256": "10e29dfa16915f41b11134daf8386ddb72a5cb35e49e94cfb22ee5780d6f57a3"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/rtree/provider/RTreeStrategyProvider$1.class",
+        "sha256": "582f6339bf5d93238938edbe43ad47df3bdb5473a536df78db4161c18412f367"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/sparse/serializer/SparseSerializer.class",
+        "sha256": "0cc9cedbecd5c170a292e4178458b4d70e58a50544354368a12e3b4a778a619c"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/sparse/provider/SparseStrategyProvider.class",
+        "sha256": "8f63b9694b9f73642445a767402de537ad9ae590e2a2cb355f3a42218271f28a"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/gin/serializer/GinSerializer.class",
+        "sha256": "5e073204ab313487d1eac91ebf54472d90e166ed3d7b65786deccb96ce3a184f"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/gin/serializer/ElementExtractor.class",
+        "sha256": "13ffa916f9a1a35d184eca71b66eb839ce08c06df122266006d5cb9cf7bf2dea"
+      },
+      {
+        "class": "org/pangrova/indexing/builtin/gin/provider/GinStrategyProvider.class",
+        "sha256": "bdb4e4c758e157712015af4db0d08ac17454ce90a212d9ec8942535d0884cca8"
+      }
+    ]
+  }
+]

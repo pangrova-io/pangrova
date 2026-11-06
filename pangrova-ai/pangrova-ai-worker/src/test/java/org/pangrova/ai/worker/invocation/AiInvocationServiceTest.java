@@ -19,11 +19,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
-import org.pangrova.spi.ai.invocation.AiInvocationResult;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.invocation.AiInvocationResult;
+import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 

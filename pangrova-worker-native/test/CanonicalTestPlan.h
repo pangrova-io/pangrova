@@ -75,8 +75,18 @@ inline const SubstraitFunctionDefinition& definition(FunctionKind kind, const st
 // Explicit fixture construction adapter, never used by a production decoder.
 // Uses actual IR invocation kinds and the sole generated SQL declarations;
 // registered availability is still checked by the converter's actual owner.
-// Already-qualified plans are untouched so malformed-URN oracles stay malformed.
+// Already-qualified function declarations are untouched so malformed-URN oracles
+// stay malformed. The fixture builder adds version metadata independently.
 inline substrait::Plan canonicalTestPlan(substrait::Plan plan) {
+  // This builder creates legitimate fixture plans. Version rejection tests
+  // must mutate the completed plan and serialize it directly.
+  if (!plan.has_version()) {
+    auto* version = plan.mutable_version();
+    version->set_major_number(0);
+    version->set_minor_number(51);
+    version->set_patch_number(0);
+    version->set_producer("Pangrova/native-test");
+  }
   if (plan.extension_urns_size() != 0) return plan;
   canonical_plan_detail::CallKinds kinds;
   canonical_plan_detail::collectCallKinds(plan, kinds);

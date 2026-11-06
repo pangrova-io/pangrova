@@ -1,0 +1,1685 @@
+--- pangrova-persistence/pangrova-persistence-security-memory/src/main/java/org/pangrova/persistence/security/memory/tenant/InMemoryTenantStore.java normalized
++++ pangrova-persistence/pangrova-persistence-security-memory/src/main/java/org/pangrova/persistence/security/memory/tenant/InMemoryTenantStore.java
+@@ -72,6 +72,37 @@
+         }
+     }
+ 
++    @Override
++    public synchronized boolean mutateMembership(org.pangrova.security.api.identity.UserIdentity actor,
++            org.pangrova.security.api.tenant.TenantMembershipMutation mutation) {
++        Objects.requireNonNull(mutation, "mutation");
++        if (actor == null || actor.principal() == null || actor.principal().isBlank()) {
++            throw new org.pangrova.security.api.error.AuthorizationDeniedException("Authenticated tenant administrator is required");
++        }
++        var current = getTenantForUser(actor.principal());
++        if (current.isEmpty() || !current.orElseThrow().isActive()
++                || !current.orElseThrow().tenantId().equals(mutation.tenantId())
++                || current.orElseThrow().role() == TenantRole.MEMBER) {
++            throw new org.pangrova.security.api.error.AuthorizationDeniedException(
++                    "Current OWNER or ADMIN membership in the exact active tenant is required");
++        }
++        var target = userMemberships.get(mutation.principal());
++        if (target != null && !target.tenantId().equals(mutation.tenantId())) {
++            throw new org.pangrova.security.api.error.AuthorizationDeniedException("Cross-tenant membership transfer is not allowed");
++        }
++        if (mutation.operation() == org.pangrova.security.api.tenant.TenantMembershipMutation.Operation.GRANT) {
++            if (target != null) return false;
++            userMemberships.put(mutation.principal(), new UserMembership(mutation.tenantId(), TenantRole.MEMBER));
++            return true;
++        }
++        if (target == null) return false;
++        if (target.role() != TenantRole.MEMBER) {
++            throw new org.pangrova.security.api.error.AuthorizationDeniedException("Cannot revoke privileged tenant membership");
++        }
++        userMemberships.remove(mutation.principal());
++        return true;
++    }
++
+     private void saveTenant(Tenant tenant) {
+         Objects.requireNonNull(tenant, "tenant");
+         Objects.requireNonNull(tenant.tenantId(), "tenantId");
+--- pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java normalized
++++ pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java
+@@ -289,7 +289,7 @@
+                 ddlExecutor, showDescribeExecutor, maintenanceExecutor, controlledMaintenance, catalog, dmlDispatch);
+         registerOptionalMetadataTasks(indexing, dmlDispatch, ddlExecutor, queryDispatcherRef);
+         registerBranchTasks(metadataFactory, catalog);
+-        PrivilegeAdministrationBootstrap.register(metadataFactory, config, metadataDataSource);
++        SecurityAdministrationBootstrap.register(metadataFactory, config, metadataDataSource);
+         registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
+         registerFileSpaceTasks(metadataFactory, accessControl, metadataDataSource, auditEmitter);
+ 
+--- pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PrivilegeAdministrationBootstrap.java normalized
++++ pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/SecurityAdministrationBootstrap.java
+@@ -9,8 +9,8 @@
+ import java.util.Optional;
+ 
+ /** Role-specific composition: privilege mutation never becomes available through authentication bypass. */
+-final class PrivilegeAdministrationBootstrap {
+-    private PrivilegeAdministrationBootstrap() {}
++final class SecurityAdministrationBootstrap {
++    private SecurityAdministrationBootstrap() {}
+ 
+     static void register(MetadataExecutionFactory factory, CoordinatorBootstrapConfig config, DataSource source) {
+         boolean enabled = config.securityEnabled() && config.securityConfig() != null
+@@ -19,5 +19,9 @@
+         Optional<PrivilegeMutationRepository> repository = enabled
+                 ? Optional.of(new JdbcPrivilegeMutationRepository(source)) : Optional.empty();
+         new PrivilegeStatementTasks(repository).register(factory);
++        Optional<org.pangrova.persistence.security.api.tenant.TenantStore> tenants = enabled
++                ? Optional.of(new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source))
++                : Optional.empty();
++        new org.pangrova.server.coordinator.sql.tenant.TenantStatementTasks(tenants).register(factory);
+     }
+ }
+--- pangrova-metadata/src/main/java/org/pangrova/metadata/core/resolution/QualifiedTableNames.java normalized
++++ pangrova-metadata/src/main/java/org/pangrova/metadata/core/resolution/QualifiedTableNames.java
+@@ -6,23 +6,13 @@
+ 
+ import java.util.List;
+ 
+-/** Qualifies table names using explicit defaults, without lookup or authorization. */
++/** Enforces the same-catalog metadata rule for table rename targets. */
+ public final class QualifiedTableNames {
+     private QualifiedTableNames() {}
+ 
+-    public static QualifiedTableName resolveTableRef(
+-            List<String> parts, String defaultCatalog, String defaultSchema) {
+-        return switch (parts.size()) {
+-            case 3 -> new QualifiedTableName(parts.get(0), parts.get(1), parts.get(2));
+-            case 2 -> new QualifiedTableName(defaultCatalog, parts.get(0), parts.get(1));
+-            case 1 -> new QualifiedTableName(defaultCatalog, defaultSchema, parts.get(0));
+-            default -> throw new IllegalArgumentException("Invalid table name: " + parts);
+-        };
+-    }
+-
+     /** Resolves a rename target within the source catalog. */
+     public static QualifiedTableName resolveRenameTarget(List<String> parts, QualifiedTableName source) {
+-        QualifiedTableName target = resolveTableRef(parts, source.catalog(), source.schema());
++        QualifiedTableName target = QualifiedTableName.resolve(parts, source.catalog(), source.schema());
+         if (!target.catalog().equals(source.catalog())) {
+             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                     "ALTER TABLE RENAME cannot move a table between catalogs");
+--- pangrova-persistence/pangrova-persistence-security-api/src/main/java/org/pangrova/persistence/security/api/tenant/TenantStore.java normalized
++++ pangrova-persistence/pangrova-persistence-security-api/src/main/java/org/pangrova/persistence/security/api/tenant/TenantStore.java
+@@ -20,6 +20,18 @@
+ @Experimental
+ public interface TenantStore {
+ 
++    /**
++     * Atomically authorizes the actor's current OWNER/ADMIN membership in the exact ACTIVE
++     * tenant and grants/revokes MEMBER access. Never changes namespace restrictions or
++     * transfers a principal from another tenant. GRANT preserves existing privileged
++     * roles; REVOKE refuses OWNER/ADMIN removal. Returns true only if membership changed.
++     * Replays recheck current authority; authorized identical operations are idempotent.
++     * PostgreSQL serializes with tenant/authority mutations; memory is instance-local.
++     * A lost commit acknowledgement throws TenantMembershipOutcomeUnknownException.
++     */
++    boolean mutateMembership(org.pangrova.security.api.identity.UserIdentity actor,
++            org.pangrova.security.api.tenant.TenantMembershipMutation mutation);
++
+     Optional<Tenant> getTenant(String tenantId);
+ 
+     /** Returns only ACTIVE tenants; ordering is unspecified. */
+@@ -37,9 +49,9 @@
+ 
+     Optional<ResolvedTenantContext> getTenantForUser(String userPrincipal);
+ 
+-    /** Sets the principal's single membership, replacing its previous tenant/role. */
++    /** Trusted provisioning only, without caller authorization; sets the single membership/role. SQL uses mutateMembership. */
+     void addUserToTenant(String tenantId, String userPrincipal, TenantRole role);
+ 
+-    /** Removes only a membership in the named tenant; cannot remove a reassigned membership. */
++    /** Trusted provisioning only; removes only the named tenant membership. SQL uses mutateMembership. */
+     void removeUserFromTenant(String tenantId, String userPrincipal);
+ }
+--- pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java normalized
++++ pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java
+@@ -226,6 +226,89 @@
+     }
+ 
+     @Override
++    public boolean mutateMembership(org.pangrova.security.api.identity.UserIdentity actor,
++            org.pangrova.security.api.tenant.TenantMembershipMutation mutation) {
++        Objects.requireNonNull(mutation, "mutation");
++        if (actor == null || actor.principal() == null || actor.principal().isBlank()) {
++            throw new org.pangrova.security.api.error.AuthorizationDeniedException("Authenticated tenant administrator is required");
++        }
++        boolean committing = false;
++        try (Connection connection = dataSource.getConnection()) {
++            connection.setAutoCommit(false);
++            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
++            try {
++                try (var settings = connection.createStatement()) {
++                    settings.execute("SET LOCAL lock_timeout = '5s'");
++                    settings.execute("SET LOCAL statement_timeout = '30s'");
++                }
++                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate.lockMutation(connection);
++                requireMembershipAdministrator(connection, actor.principal(), mutation.tenantId());
++                boolean changed = changeMember(connection, mutation);
++                committing = true;
++                connection.commit();
++                return changed;
++            } catch (SQLException | RuntimeException | Error failure) {
++                try { connection.rollback(); } catch (SQLException close) { failure.addSuppressed(close); }
++                throw failure;
++            }
++        } catch (SQLException failure) {
++            if (committing) throw new org.pangrova.security.api.tenant.TenantMembershipOutcomeUnknownException(failure);
++            throw new TenantPersistenceException("Failed changing tenant membership", failure);
++        }
++    }
++
++    private static void requireMembershipAdministrator(Connection connection, String actor, String tenant)
++            throws SQLException {
++        try (var statement = connection.prepareStatement(
++                "SELECT 1 FROM tenant_user_memberships m JOIN tenants t ON t.tenant_id=m.tenant_id "
++                        + "WHERE m.user_principal=? AND m.tenant_id=? AND t.status='ACTIVE' "
++                        + "AND m.role IN ('OWNER', 'ADMIN')")) {
++            statement.setString(1, actor);
++            statement.setString(2, tenant);
++            try (var result = statement.executeQuery()) {
++                if (!result.next()) throw new org.pangrova.security.api.error.AuthorizationDeniedException(
++                        "Current OWNER or ADMIN membership in the exact active tenant is required");
++            }
++        }
++    }
++
++    private static boolean changeMember(Connection connection,
++            org.pangrova.security.api.tenant.TenantMembershipMutation mutation) throws SQLException {
++        String role = null;
++        try (var statement = connection.prepareStatement(
++                "SELECT tenant_id, role FROM tenant_user_memberships WHERE user_principal=?")) {
++            statement.setString(1, mutation.principal());
++            try (var result = statement.executeQuery()) {
++                if (result.next()) {
++                    if (!result.getString("tenant_id").equals(mutation.tenantId())) {
++                        throw new org.pangrova.security.api.error.AuthorizationDeniedException(
++                                "Cross-tenant membership transfer is not allowed");
++                    }
++                    role = result.getString("role");
++                }
++            }
++        }
++        if (mutation.operation() == org.pangrova.security.api.tenant.TenantMembershipMutation.Operation.GRANT) {
++            if (role != null) return false;
++            try (var statement = connection.prepareStatement(SQL_MERGE_MEMBERSHIP)) {
++                statement.setString(1, mutation.principal());
++                statement.setString(2, mutation.tenantId());
++                statement.setString(3, "MEMBER");
++                statement.executeUpdate();
++                return true;
++            }
++        }
++        if (role == null) return false;
++        if (!role.equals("MEMBER")) throw new org.pangrova.security.api.error.AuthorizationDeniedException(
++                "Cannot revoke privileged tenant membership");
++        try (var statement = connection.prepareStatement(SQL_DELETE_MEMBERSHIP)) {
++            statement.setString(1, mutation.tenantId());
++            statement.setString(2, mutation.principal());
++            return statement.executeUpdate() == 1;
++        }
++    }
++
++    @Override
+     public Optional<ResolvedTenantContext> getTenantForUser(String userPrincipal) {
+         Objects.requireNonNull(userPrincipal, "userPrincipal must not be null");
+         try (Connection conn = dataSource.getConnection();
+--- pangrova-security/pangrova-security-policy-builtin/src/main/java/org/pangrova/security/policy/builtin/authorization/DynamicRbacAccessControl.java normalized
++++ pangrova-security/pangrova-security-policy-builtin/src/main/java/org/pangrova/security/policy/builtin/authorization/DynamicRbacAccessControl.java
+@@ -229,6 +229,20 @@
+     @Override
+     public void checkCanCreateTable(UserIdentity user, String catalog, String schema, String table) {
+         requireTableGrant(user, catalog, schema, table, Privilege.CREATE_TABLE);
++    }
++
++    @Override
++    public void checkCanCreateView(UserIdentity user, String catalog, String schema, String view, boolean replace) {
++        List<PrivilegeGrant> current = resolveGrants(user);
++        requireTableGrant(user, current, catalog, schema, view, Privilege.CREATE_VIEW);
++        if (replace) {
++            requireTableGrant(user, current, catalog, schema, view, Privilege.ALTER);
++        }
++    }
++
++    @Override
++    public void checkCanDropView(UserIdentity user, String catalog, String schema, String view) {
++        requireTableGrant(user, catalog, schema, view, Privilege.DROP);
+     }
+ 
+     @Override
+--- pangrova-security/pangrova-security-core/src/main/java/org/pangrova/security/core/tenant/TenantLifecycleManager.java normalized
++++ pangrova-security/pangrova-security-core/src/main/java/org/pangrova/security/core/tenant/TenantLifecycleManager.java
+@@ -101,36 +101,6 @@
+                 .orElse(false);
+     }
+ 
+-    /**
+-     * Grants a principal access to a tenant.
+-     */
+-    public void grantTenant(String tenantId, String principal) {
+-        Tenant tenant = loadTenant(tenantId);
+-        List<String> updatedSchemas = new java.util.ArrayList<>(tenant.allowedSchemas());
+-        if (!updatedSchemas.contains(principal)) {
+-            updatedSchemas.add(principal);
+-        }
+-        Tenant updated = new Tenant(tenant.tenantId(), tenant.name(), tenant.status(),
+-                tenant.quota(), tenant.allowedCatalogs(), List.copyOf(updatedSchemas),
+-                tenant.resourcePool(), tenant.properties(),
+-                tenant.createdAt(), tenant.createdBy());
+-        store.updateTenant(updated);
+-    }
+-
+-    /**
+-     * Revokes a principal's access to a tenant.
+-     */
+-    public void revokeTenant(String tenantId, String principal) {
+-        Tenant tenant = loadTenant(tenantId);
+-        List<String> updatedSchemas = new java.util.ArrayList<>(tenant.allowedSchemas());
+-        updatedSchemas.remove(principal);
+-        Tenant updated = new Tenant(tenant.tenantId(), tenant.name(), tenant.status(),
+-                tenant.quota(), tenant.allowedCatalogs(), List.copyOf(updatedSchemas),
+-                tenant.resourcePool(), tenant.properties(),
+-                tenant.createdAt(), tenant.createdBy());
+-        store.updateTenant(updated);
+-    }
+-
+     private Tenant loadTenant(String tenantId) {
+         return store.getTenant(tenantId)
+                 .orElseThrow(() -> new PangrovaException(
+--- pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/spi/authorization/AccessControl.java normalized
++++ pangrova-security/pangrova-security-api/src/main/java/org/pangrova/security/spi/authorization/AccessControl.java
+@@ -13,5 +13,5 @@
+ @Stable(since = "1.0")
+ public interface AccessControl
+         extends CatalogAccessControl, SchemaAccessControl, TableAccessControl, ColumnAccessControl,
+-        StorageProfileAccessControl, FileSpaceAccessControl {
++        StorageProfileAccessControl, FileSpaceAccessControl, ViewAccessControl {
+ }
+--- pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/build/AstBuilder.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/build/AstBuilder.java
+@@ -300,6 +300,20 @@
+     }
+ 
+     @Override
++    public Statement visitGrantTenantStatement(PangrovaSqlParser.GrantTenantStatementContext ctx) {
++        var values = ctx.grantTenant().identifier();
++        return withLocation(new org.pangrova.parser.api.ast.statement.GrantTenantStatement(
++                Identifier.of(extractIdentifierText(values.get(0))), Identifier.of(extractIdentifierText(values.get(1)))), ctx);
++    }
++
++    @Override
++    public Statement visitRevokeTenantStatement(PangrovaSqlParser.RevokeTenantStatementContext ctx) {
++        var values = ctx.revokeTenant().identifier();
++        return withLocation(new org.pangrova.parser.api.ast.statement.RevokeTenantStatement(
++                Identifier.of(extractIdentifierText(values.get(0))), Identifier.of(extractIdentifierText(values.get(1)))), ctx);
++    }
++
++    @Override
+     public Statement visitGrantPrivilegeStatement(PangrovaSqlParser.GrantPrivilegeStatementContext ctx) {
+         return new PrivilegeStatementBuilder(this).grant(ctx.grantPrivilege());
+     }
+--- pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/format/StatementPrinter.java normalized
++++ pangrova-parser/pangrova-parser-core/src/main/java/org/pangrova/parser/core/format/StatementPrinter.java
+@@ -63,6 +63,12 @@
+         return Map.ofEntries(
+                 Map.entry(ShowPrivilegeMutationStatement.class, s -> "SHOW PRIVILEGE MUTATION '"
+                         + ((ShowPrivilegeMutationStatement) s).requestId() + "'"),
++                Map.entry(GrantTenantStatement.class, s -> "GRANT TENANT "
++                        + printer.printId(((GrantTenantStatement) s).tenantName()) + " TO "
++                        + printer.printId(((GrantTenantStatement) s).principal())),
++                Map.entry(RevokeTenantStatement.class, s -> "REVOKE TENANT "
++                        + printer.printId(((RevokeTenantStatement) s).tenantName()) + " FROM "
++                        + printer.printId(((RevokeTenantStatement) s).principal())),
+                 Map.entry(GrantPrivilegeStatement.class, s -> printGrant((GrantPrivilegeStatement) s)),
+                 Map.entry(RevokePrivilegeStatement.class, s -> printRevoke((RevokePrivilegeStatement) s)),
+                 // Catalog
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/session/SessionTableNames.java normalized
++++ pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/session/SessionTableNames.java
+@@ -1,8 +1,7 @@
+-package org.pangrova.coordinator.query.session;
++package org.pangrova.query.core.session;
+ 
+ import org.pangrova.query.api.session.QuerySession;
+ 
+-import org.pangrova.metadata.core.resolution.QualifiedTableNames;
+ import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+ 
+ import java.util.List;
+@@ -13,7 +12,7 @@
+ 
+     public static QualifiedTableName resolveTableRef(
+             List<String> parts, QuerySession context) {
+-        return QualifiedTableNames.resolveTableRef(parts, defaultCatalog(context), defaultSchema(context));
++        return QualifiedTableName.resolve(parts, defaultCatalog(context), defaultSchema(context));
+     }
+ 
+     public static String defaultCatalog(QuerySession context) {
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/TableNameExtractor.java normalized
++++ pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/statement/StatementTableTargets.java
+@@ -1,6 +1,7 @@
+-package org.pangrova.coordinator.query.execution.dispatch;
++package org.pangrova.query.core.statement;
+ 
+-import org.pangrova.coordinator.query.statement.ProcedureTableArguments;
++import org.pangrova.query.core.session.SessionTableNames;
++
+ import java.util.LinkedHashMap;
+ import java.util.Map;
+ import java.util.function.Function;
+@@ -39,39 +40,22 @@
+ 
+     private StatementTableTargets() {}
+ 
+-    /** Returns the mutated table FQN (lowercase), or null if not applicable. */
+-    public static String extract(Statement stmt) {
+-        if (stmt == null) {
+-            return null;
+-        }
+-        var extractor = EXTRACTORS.get(stmt.getClass());
+-        if (extractor == null) {
+-            return null;
+-        }
+-        Identifier id = extractor.apply(stmt);
+-        return id != null ? String.join(".", id.parts()).toLowerCase() : null;
++    /** Returns the exact AST target, or null for statements with no table target. */
++    public static Identifier identifier(Statement statement) {
++        if (statement == null) return null;
++        if (statement instanceof AlterTableStatement alter) return alter.tableName();
++        var extractor = EXTRACTORS.get(statement.getClass());
++        return extractor == null ? null : extractor.apply(statement);
+     }
+ 
+-    /**
+-     * Resolves the mutated table as a QualifiedTableName (catalog.schema.table),
+-     * or null if the statement does not target a named table.
+-     * Used by permission checks where catalog/schema/table must be separate.
+-     */
+-    public static QualifiedTableName extractQualified(
+-            Statement stmt, org.pangrova.query.api.session.QuerySession context) {
+-        if (stmt instanceof org.pangrova.parser.api.ast.statement.maintenance.CallStatement call) {
+-            return ProcedureTableArguments.resolveProcedureTableRef(call);
++    /** Qualifies the same exact target used by permission checks and statement completion. */
++    public static QualifiedTableName resolve(
++            Statement statement, org.pangrova.query.api.session.QuerySession session) {
++        if (statement instanceof org.pangrova.parser.api.ast.statement.maintenance.CallStatement call) {
++            return TableProcedureCall.bind(call).target();
+         }
+-        if (stmt == null) {
+-            return null;
+-        }
+-        var extractor = EXTRACTORS.get(stmt.getClass());
+-        if (extractor == null) {
+-            return null;
+-        }
+-        Identifier id = extractor.apply(stmt);
+-        return id != null ? org.pangrova.query.core.session.SessionTableNames
+-                .resolveTableRef(id.parts(), context) : null;
++        Identifier target = identifier(statement);
++        return target == null ? null : SessionTableNames.resolveTableRef(target.parts(), session);
+     }
+ 
+     private static Map<Class<? extends Statement>, Function<Statement, Identifier>>
+@@ -79,22 +63,11 @@
+         var map = new LinkedHashMap<Class<? extends Statement>, Function<Statement, Identifier>>();
+         put(map, CreateTableAsSelectStatement.class, CreateTableAsSelectStatement::tableName);
+         put(map, CreateTableStatement.class, CreateTableStatement::tableName);
++        put(map, org.pangrova.parser.api.ast.statement.CreateViewStatement.class,
++                org.pangrova.parser.api.ast.statement.CreateViewStatement::viewName);
++        put(map, org.pangrova.parser.api.ast.statement.DropViewStatement.class,
++                org.pangrova.parser.api.ast.statement.DropViewStatement::viewName);
+         put(map, DropTableStatement.class, DropTableStatement::tableName);
+-        put(map, AlterTableStatement.AddColumn.class, AlterTableStatement.AddColumn::tableName);
+-        put(map, AlterTableStatement.DropColumn.class, AlterTableStatement.DropColumn::tableName);
+-        put(map, AlterTableStatement.RenameColumn.class, AlterTableStatement.RenameColumn::tableName);
+-        put(map, AlterTableStatement.ChangeColumnType.class, AlterTableStatement.ChangeColumnType::tableName);
+-        put(map, AlterTableStatement.RenameTable.class, AlterTableStatement.RenameTable::tableName);
+-        put(map, AlterTableStatement.SetPartitionSpec.class, AlterTableStatement.SetPartitionSpec::tableName);
+-        put(map, AlterTableStatement.SetSortOrder.class, AlterTableStatement.SetSortOrder::tableName);
+-        put(map, AlterTableStatement.CreateBranch.class, AlterTableStatement.CreateBranch::tableName);
+-        put(map, AlterTableStatement.DropBranch.class, AlterTableStatement.DropBranch::tableName);
+-        put(map, AlterTableStatement.CreateTag.class, AlterTableStatement.CreateTag::tableName);
+-        put(map, AlterTableStatement.DropTag.class, AlterTableStatement.DropTag::tableName);
+-        put(map, AlterTableStatement.SetColumnTag.class, AlterTableStatement.SetColumnTag::tableName);
+-        put(map, AlterTableStatement.UnsetColumnTag.class, AlterTableStatement.UnsetColumnTag::tableName);
+-        put(map, AlterTableStatement.Adopt.class, AlterTableStatement.Adopt::tableName);
+-        put(map, AlterTableStatement.Unlink.class, AlterTableStatement.Unlink::tableName);
+         put(map, InsertStatement.class, InsertStatement::tableName);
+         put(map, InsertOverwriteStatement.class, InsertOverwriteStatement::tableName);
+         put(map, InsertSelectStatement.class, InsertSelectStatement::tableName);
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java
+@@ -1,4 +1,8 @@
+ package org.pangrova.coordinator.query.execution.dispatch;
++
++import org.pangrova.query.api.statement.StatementCategory;
++
++import org.pangrova.query.core.statement.StatementTableTargets;
+ 
+ import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
+ import org.pangrova.query.core.task.DispatchResult;
+@@ -99,7 +103,7 @@
+                     "Native DML dispatch returned null for "
+                             + statement.getClass().getSimpleName());
+         }
+-        var mutatedRef = StatementTableTargets.extractQualified(statement, ctx.session());
++        var mutatedRef = StatementTableTargets.resolve(statement, ctx.session());
+         String mutatedTable = mutatedRef == null ? null : mutatedRef.toString();
+         if (writeCompleteCallback != null && mutatedTable != null) {
+             try {
+@@ -135,7 +139,7 @@
+                     "INSERT VALUES requires at least one row");
+         }
+         org.pangrova.connector.api.metadata.table.QualifiedTableName ref =
+-                StatementTableTargets.extractQualified(statement, coordinatorSession);
++                StatementTableTargets.resolve(statement, coordinatorSession);
+         org.pangrova.connector.api.session.ConnectorSession session =
+                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
+                         coordinatorSession, ref.catalog(), ref.schema());
+@@ -159,7 +163,7 @@
+             return;
+         }
+         org.pangrova.connector.api.metadata.table.QualifiedTableName ref =
+-                StatementTableTargets.extractQualified(statement, session);
++                StatementTableTargets.resolve(statement, session);
+         if (ref == null) {
+             return;
+         }
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementCategory.java normalized
++++ pangrova-query/pangrova-query-api/src/main/java/org/pangrova/query/api/statement/StatementCategory.java
+@@ -1,16 +1,14 @@
+-package org.pangrova.coordinator.query.execution.dispatch;
++package org.pangrova.query.api.statement;
+ 
+-import org.pangrova.query.core.statement.StatementClassifier;
+-import org.pangrova.parser.api.ast.Statement;
+-import org.pangrova.parser.api.ast.statement.ExplainStatement;
+ 
+ /**
+  * Classifies the type of statement being executed.
+  * Used by listeners to determine which side effects to trigger,
+  * and by the dispatcher to decide routing and permission checks.
+  *
+- * All classification logic delegates to {@link StatementClassifier}.
++ * Classification and execution are owned by Query Core; this value does not imply support.
+  */
++@org.pangrova.common.api.annotation.Internal
+ public enum StatementCategory {
+     DDL,
+     DML,
+@@ -26,24 +24,4 @@
+     QUERY,
+     UNKNOWN;
+ 
+-    /**
+-     * Maps a parsed statement to its category. Statements that do not match
+-     * any known routable category return QUERY (planner-dispatched).
+-     * Unsupported statements (DESCRIBE CATALOG, ALTER CATALOG) return UNKNOWN.
+-     */
+-    public static StatementCategory categorize(Statement stmt) {
+-        if (StatementClassifier.isDdl(stmt)) return DDL;
+-        if (StatementClassifier.isDml(stmt)) return DML;
+-        if (stmt instanceof ExplainStatement) return EXPLAIN;
+-        if (StatementClassifier.isShow(stmt)) return SHOW;
+-        if (StatementClassifier.isMaintenance(stmt)) return MAINTENANCE;
+-        if (StatementClassifier.isDynamicTable(stmt)) return DYNAMIC_TABLE;
+-        if (StatementClassifier.isMaterializedView(stmt)) return MATERIALIZED_VIEW;
+-        if (StatementClassifier.isUnsupported(stmt)) return UNKNOWN;
+-        if (StatementClassifier.isIndex(stmt)) return INDEX;
+-        if (StatementClassifier.isClustering(stmt)) return CLUSTERING;
+-        if (StatementClassifier.isTenant(stmt)) return TENANT;
+-        if (StatementClassifier.isStream(stmt)) return STREAM;
+-        return QUERY;
+-    }
+ }
+--- pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergViewStore.java normalized
++++ pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergViewStore.java
+@@ -4,6 +4,11 @@
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ 
++import org.pangrova.connector.api.metadata.view.ViewCreateMode;
++import org.pangrova.common.exception.PangrovaException;
++import org.pangrova.common.exception.PangrovaErrorCode;
++
++import java.util.Objects;
+ import java.util.List;
+ import java.util.Optional;
+ import java.util.concurrent.ConcurrentHashMap;
+@@ -24,15 +29,30 @@
+         this.catalogName = catalogName;
+     }
+ 
+-    /** Registers or replaces the SQL definition of a view. */
+-    void create(SchemaTableName viewName, String sql) {
+-        viewDefinitions.put(viewName, sql);
+-        LOG.info("event=view_created catalog={} view={}", catalogName, viewName);
++    /** Makes the conflict decision atomically in this catalog instance. This store is not durable. */
++    void create(SchemaTableName viewName, String sql, ViewCreateMode mode) {
++        Objects.requireNonNull(viewName, "viewName");
++        Objects.requireNonNull(sql, "sql");
++        Objects.requireNonNull(mode, "mode");
++        switch (mode) {
++            case CREATE -> {
++                if (viewDefinitions.putIfAbsent(viewName, sql) != null) {
++                    throw new PangrovaException(PangrovaErrorCode.CONNECTOR_TABLE_ALREADY_EXISTS,
++                            "View already exists: " + viewName);
++                }
++            }
++            case IF_NOT_EXISTS -> viewDefinitions.putIfAbsent(viewName, sql);
++            case CREATE_OR_REPLACE -> viewDefinitions.put(viewName, sql);
++        }
++        LOG.info("event=view_create_completed catalog={} view={} mode={}", catalogName, viewName, mode);
+     }
+ 
+-    /** Removes the definition of a view. */
+-    void drop(SchemaTableName viewName) {
+-        viewDefinitions.remove(viewName);
++    /** Removes exactly one current definition; absence is decided by the same atomic operation. */
++    void drop(SchemaTableName viewName, boolean ifExists) {
++        if (viewDefinitions.remove(viewName) == null && !ifExists) {
++            throw new PangrovaException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
++                    "View not found: " + viewName);
++        }
+         LOG.info("event=view_dropped catalog={} view={}", catalogName, viewName);
+     }
+ 
+--- pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergMetadata.java normalized
++++ pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergMetadata.java
+@@ -513,13 +513,14 @@
+     }
+ 
+     @Override
+-    public void createView(ConnectorSession session, SchemaTableName viewName, String sql) {
+-        viewStore.create(viewName, sql);
+-    }
+-
+-    @Override
+-    public void dropView(ConnectorSession session, SchemaTableName viewName) {
+-        viewStore.drop(viewName);
++    public void createView(ConnectorSession session, SchemaTableName viewName, String sql,
++            org.pangrova.connector.api.metadata.view.ViewCreateMode mode) {
++        viewStore.create(viewName, sql, mode);
++    }
++
++    @Override
++    public void dropView(ConnectorSession session, SchemaTableName viewName, boolean ifExists) {
++        viewStore.drop(viewName, ifExists);
+     }
+ 
+     @Override
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/DropTableTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/DropTableTask.java
+@@ -26,7 +26,7 @@
+     public StatementResult execute(DropTableStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeDropTable(
+                 statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateIndexTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateIndexTask.java
+@@ -26,7 +26,7 @@
+     public StatementResult execute(CreateIndexStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeCreateIndex(
+                 statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AnalyzeTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AnalyzeTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(AnalyzeStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.execute(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extract(statement);
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable,
+                 StatementCategory.MAINTENANCE);
+     }
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/SetClusteringOrderTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/SetClusteringOrderTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(SetClusteringOrderStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeSetClusteringOrder(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.CLUSTERING);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AlterTableTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AlterTableTask.java
+@@ -26,7 +26,7 @@
+     public StatementResult execute(AlterTableStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeAlterTable(
+                 statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/VacuumTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/VacuumTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(VacuumStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeVacuum(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extract(statement);
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.MAINTENANCE);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CallProcedureTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CallProcedureTask.java
+@@ -1,21 +1,14 @@
+ package org.pangrova.coordinator.query.execution.dispatch.task;
+ 
+-import org.pangrova.coordinator.query.statement.ProcedureTableArguments;
+-import java.util.LinkedHashMap;
++import org.pangrova.query.core.statement.TableProcedureCall;
+ import java.util.List;
+-import java.util.Map;
+ 
+-import org.pangrova.common.exception.PangrovaErrorCode;
+-import org.pangrova.common.exception.PangrovaException;
+ import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
+ import org.pangrova.query.api.statement.StatementCategory;
+ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+ import org.pangrova.coordinator.query.statement.TableWarmupExecutor;
+ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+-import org.pangrova.parser.api.ast.Expression;
+-import org.pangrova.parser.api.ast.Literal;
+-import org.pangrova.parser.api.ast.LiteralValue;
+ import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;
+ import org.pangrova.coordinator.query.statement.ControlledTableMaintenance;
+ import org.pangrova.types.value.TypedRow;
+@@ -43,70 +36,17 @@
+ 
+     @Override
+     public StatementResult execute(CallStatement statement, StatementExecutionContext context) {
+-        List<String> nameParts = statement.procedureName().parts();
+-        String catalogName = resolveCatalog(nameParts);
+-        String procedureName = nameParts.get(nameParts.size() - 1);
+-
+-        Map<String, String> args = evaluateArguments(statement.arguments());
++        var call = TableProcedureCall.bind(statement);
+         LOG.info("event=call_procedure catalog={} procedure={} argCount={}",
+-                catalogName, procedureName, args.size());
+-
+-        // G-CACHE-06: intercept warmup_table and delegate to the engine-level
+-        // TableWarmupExecutor instead of the connector.
+-        if (TableWarmupExecutor.PROCEDURE_NAME.equalsIgnoreCase(procedureName)) {
++                call.target().catalog(), call.procedureName(), call.arguments().size());
++        if (call.isWarmup()) {
+             TableWarmupExecutor warmup = new TableWarmupExecutor(catalogRegistry);
+-            List<TypedRow> rows = warmup.execute(catalogName, args, context.session());
+-            return new StatementResult(
+-                    rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
++            List<TypedRow> rows = warmup.execute(call.target(), context.session());
++            return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
+         }
+-
+-        List<TypedRow> rows = maintenance.executeProcedure(procedureName,
+-                ProcedureTableArguments.resolveProcedureTableRef(statement), args, context.session());
+-        return new StatementResult(
+-                rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
+-    }
+-
+-    private static String resolveCatalog(List<String> nameParts) {
+-        if (nameParts.size() >= 2) {
+-            return nameParts.get(0);
+-        }
+-        throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+-                "CALL requires a catalog prefix: CALL catalog.procedure_name(args...)");
+-    }
+-
+-    private static Map<String, String> evaluateArguments(List<Expression> expressions) {
+-        Map<String, String> args = new LinkedHashMap<>();
+-        for (int i = 0; i < expressions.size(); i++) {
+-            Expression expr = expressions.get(i);
+-            String value = evaluateToString(expr, i);
+-            args.put("arg" + i, value);
+-        }
+-        return args;
+-    }
+-
+-    private static String evaluateToString(Expression expr, int index) {
+-        if (expr instanceof Literal literal) {
+-            return literalValueToString(literal.value());
+-        }
+-        throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+-                "CALL argument at position " + index
+-                        + " must be a literal value, got: " + expr.getClass().getSimpleName());
+-    }
+-
+-    private static String literalValueToString(LiteralValue val) {
+-        if (val instanceof LiteralValue.StringValue sv) {
+-            return sv.value();
+-        }
+-        if (val instanceof LiteralValue.IntegerValue iv) {
+-            return String.valueOf(iv.value());
+-        }
+-        if (val instanceof LiteralValue.DecimalValue dv) {
+-            return dv.value().toPlainString();
+-        }
+-        if (val instanceof LiteralValue.BooleanValue bv) {
+-            return String.valueOf(bv.value());
+-        }
+-        return val.toString();
++        List<TypedRow> rows = maintenance.executeProcedure(
++                call.procedureName(), call.target(), call.arguments(), context.session());
++        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
+     }
+ 
+     private static List<String> extractColumnNames(List<TypedRow> rows) {
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/ReclusterTableTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/ReclusterTableTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(ReclusterTableStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeReclusterTable(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.CLUSTERING);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/DropIndexTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/DropIndexTask.java
+@@ -26,7 +26,7 @@
+     public StatementResult execute(DropIndexStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeDropIndex(
+                 statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CtasTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CtasTask.java
+@@ -76,7 +76,7 @@
+                             + String.join(".", statement.tableName().parts()));
+         }
+ 
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         LOG.info("event=ctas_complete table={}", mutatedTable);
+         return new StatementResult(List.of(), List.of(), mutatedTable, StatementCategory.DDL);
+     }
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateTableTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateTableTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(CreateTableStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeCreateTable(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AlterIndexTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/AlterIndexTask.java
+@@ -26,7 +26,7 @@
+     public StatementResult execute(AlterIndexStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeAlterIndex(
+                 statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/OptimizeTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/OptimizeTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(OptimizeStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeOptimize(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extract(statement);
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.MAINTENANCE);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/DropViewTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/DropViewTask.java
+@@ -38,15 +38,7 @@
+         ConnectorMetadata metadata = catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
+         SchemaTableName viewName = new SchemaTableName(ref.schema(), ref.table());
+ 
+-        if (statement.ifExists()) {
+-            var existing = metadata.getViewDefinition(session, viewName);
+-            if (existing.isEmpty()) {
+-                LOG.info("event=view_not_found_skip view={}", ref);
+-                return new StatementResult(List.of(), List.of(), null, StatementCategory.DDL);
+-            }
+-        }
+-
+-        metadata.dropView(session, viewName);
++        metadata.dropView(session, viewName, statement.ifExists());
+         LOG.info("event=view_dropped view={}", ref);
+         return new StatementResult(List.of(), List.of(), null, StatementCategory.DDL);
+     }
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/RevokeTenantTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/RevokeTenantTask.java
+@@ -1,36 +0,0 @@
+-package org.pangrova.coordinator.query.execution.dispatch.task;
+-
+-import java.util.List;
+-
+-import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
+-import org.pangrova.query.api.statement.StatementCategory;
+-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+-import org.pangrova.parser.api.ast.statement.RevokeTenantStatement;
+-import org.pangrova.security.core.tenant.TenantLifecycleManager;
+-import org.pangrova.types.value.TypedRow;
+-
+-/**
+- * Executes REVOKE TENANT by delegating to {@link TenantLifecycleManager#revokeTenant}.
+- */
+-public final class RevokeTenantTask implements MetadataTask<RevokeTenantStatement> {
+-
+-    private final TenantLifecycleManager manager;
+-
+-    public RevokeTenantTask(TenantLifecycleManager manager) {
+-        this.manager = manager;
+-    }
+-
+-    @Override
+-    public StatementResult execute(RevokeTenantStatement statement, StatementExecutionContext context) {
+-        String tenantName = statement.tenantName().parts().get(statement.tenantName().parts().size() - 1);
+-        String principal = statement.principal().parts().get(statement.principal().parts().size() - 1);
+-        manager.revokeTenant(tenantName, principal);
+-        List<TypedRow> rows = List.of(TypedRow.builder().putString("result", "REVOKE TENANT succeeded").build());
+-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.TENANT);
+-    }
+-
+-    private static List<String> extractColumnNames(List<TypedRow> rows) {
+-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+-    }
+-}
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/GrantTenantTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/GrantTenantTask.java
+@@ -1,36 +0,0 @@
+-package org.pangrova.coordinator.query.execution.dispatch.task;
+-
+-import java.util.List;
+-
+-import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
+-import org.pangrova.query.api.statement.StatementCategory;
+-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+-import org.pangrova.parser.api.ast.statement.GrantTenantStatement;
+-import org.pangrova.security.core.tenant.TenantLifecycleManager;
+-import org.pangrova.types.value.TypedRow;
+-
+-/**
+- * Executes GRANT TENANT by delegating to {@link TenantLifecycleManager#grantTenant}.
+- */
+-public final class GrantTenantTask implements MetadataTask<GrantTenantStatement> {
+-
+-    private final TenantLifecycleManager manager;
+-
+-    public GrantTenantTask(TenantLifecycleManager manager) {
+-        this.manager = manager;
+-    }
+-
+-    @Override
+-    public StatementResult execute(GrantTenantStatement statement, StatementExecutionContext context) {
+-        String tenantName = statement.tenantName().parts().get(statement.tenantName().parts().size() - 1);
+-        String principal = statement.principal().parts().get(statement.principal().parts().size() - 1);
+-        manager.grantTenant(tenantName, principal);
+-        List<TypedRow> rows = List.of(TypedRow.builder().putString("result", "GRANT TENANT succeeded").build());
+-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.TENANT);
+-    }
+-
+-    private static List<String> extractColumnNames(List<TypedRow> rows) {
+-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+-    }
+-}
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/CreateTagTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/CreateTagTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(CreateTagStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeCreateTag(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/DropBranchTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/DropBranchTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(DropBranchStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeDropBranch(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/DropTagTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/DropTagTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(DropTagStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeDropTag(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/CreateBranchTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/branch/CreateBranchTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(CreateBranchStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeCreateBranch(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extractQualified(statement, context.session()).toString();
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateViewTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CreateViewTask.java
+@@ -38,15 +38,16 @@
+         ConnectorMetadata metadata = catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
+         SchemaTableName viewName = new SchemaTableName(ref.schema(), ref.table());
+ 
+-        if (statement.ifNotExists()) {
+-            var existing = metadata.getViewDefinition(session, viewName);
+-            if (existing.isPresent()) {
+-                LOG.info("event=view_exists_skip view={}", ref);
+-                return new StatementResult(List.of(), List.of(), null, StatementCategory.DDL);
+-            }
++        if (statement.ifNotExists() && statement.orReplace()) {
++            throw new org.pangrova.common.exception.PangrovaException(
++                    org.pangrova.common.exception.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
++                    "CREATE VIEW cannot combine OR REPLACE with IF NOT EXISTS");
+         }
+-
+-        metadata.createView(session, viewName, statement.viewSql());
++        var mode = statement.orReplace()
++                ? org.pangrova.connector.api.metadata.view.ViewCreateMode.CREATE_OR_REPLACE
++                : statement.ifNotExists() ? org.pangrova.connector.api.metadata.view.ViewCreateMode.IF_NOT_EXISTS
++                : org.pangrova.connector.api.metadata.view.ViewCreateMode.CREATE;
++        metadata.createView(session, viewName, statement.viewSql(), mode);
+         LOG.info("event=view_created view={}", ref);
+         return new StatementResult(List.of(), List.of(), null, StatementCategory.DDL);
+     }
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CompactTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/CompactTask.java
+@@ -25,7 +25,7 @@
+     @Override
+     public StatementResult execute(CompactStatement statement, StatementExecutionContext context) {
+         List<TypedRow> rows = executor.executeCompact(statement, context.session());
+-        String mutatedTable = StatementTableTargets.extract(statement);
++        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
+         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.MAINTENANCE);
+     }
+ 
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementCompletionEvent.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementCompletionEvent.java
+@@ -1,4 +1,6 @@
+ package org.pangrova.coordinator.query.execution.dispatch;
++
++import org.pangrova.query.core.statement.StatementTableTargets;
+ 
+ import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+ import org.pangrova.query.api.session.QuerySession;
+@@ -24,7 +26,7 @@
+ 
+     /** Resolves the typed target from the original statement and its admitted session. */
+     public QualifiedTableName mutatedTableIdentity() {
+-        return StatementTableTargets.extractQualified(statement, session);
++        return StatementTableTargets.resolve(statement, session);
+     }
+ 
+     /** Convenience accessor for the display table name, or null. */
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PermissionChecker.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PermissionChecker.java
+@@ -1,4 +1,6 @@
+ package org.pangrova.coordinator.query.execution.dispatch;
++
++import org.pangrova.query.core.statement.StatementTableTargets;
+ 
+ import org.pangrova.query.core.session.SessionTableNames;
+ import org.pangrova.metadata.core.resolution.QualifiedTableNames;
+@@ -52,10 +54,11 @@
+     public static void check(Statement stmt, QuerySession context,
+                               AccessControl accessControl) {
+         UserIdentity user = context == null ? null : context.userIdentity();
+-        if (StatementClassifier.isPrivilegeDdl(stmt)
++        if (StatementClassifier.isTenant(stmt) || StatementClassifier.isPrivilegeDdl(stmt)
+                 || stmt instanceof org.pangrova.parser.api.ast.statement.ShowPrivilegeMutationStatement) {
+             if (accessControl == null || user == null) {
+-                throw new AccessDeniedException("Authenticated privilege administrator is required");
++                throw new AccessDeniedException(StatementClassifier.isTenant(stmt)
++                        ? "Authenticated tenant administrator is required" : "Authenticated privilege administrator is required");
+             }
+             // The task's atomic persistence operation rechecks current grant-option authority under the mutation gate.
+             return;
+@@ -76,13 +79,18 @@
+             checkFileSpaceMutation(stmt, context, accessControl, user);
+             return;
+         }
++        boolean viewMutation = stmt instanceof org.pangrova.parser.api.ast.statement.CreateViewStatement
++                || stmt instanceof org.pangrova.parser.api.ast.statement.DropViewStatement;
++        if (viewMutation && (accessControl == null || user == null)) {
++            throw new AccessDeniedException("Authenticated view principal and access-control provider are required");
++        }
+         QualifiedTableName parts = context == null ? null
+-                : StatementClassifier.extractTableParts(stmt, context);
++                : StatementTableTargets.resolve(stmt, context);
+         checkReservedDynamicTableGeneration(stmt, parts);
+         if (accessControl == null || user == null) return;
+         if (checkCatalogOrSchema(stmt, context, accessControl, user)) return;
+         if (parts == null) return;
+-        switch (StatementCategory.categorize(stmt)) {
++        switch (StatementClassifier.categorize(stmt)) {
+             case DML -> checkDml(stmt, user, accessControl, parts.catalog(), parts.schema(), parts.table());
+             case DDL -> checkDdl(stmt, user, accessControl, parts);
+             case DYNAMIC_TABLE -> checkDynamicTable(stmt, user, accessControl, parts);
+@@ -98,8 +106,7 @@
+             AccessControl accessControl, QualifiedTableName parts) {
+         boolean readOnly = stmt instanceof org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement
+                 || (stmt instanceof org.pangrova.parser.api.ast.statement.maintenance.CallStatement call
+-                && org.pangrova.coordinator.query.statement.TableWarmupExecutor.PROCEDURE_NAME
+-                .equalsIgnoreCase(call.procedureName().parts().get(call.procedureName().parts().size() - 1)));
++                && org.pangrova.query.core.statement.TableProcedureCall.bind(call).isWarmup());
+         if (readOnly) {
+             accessControl.checkCanSelectFromTable(user, parts.catalog(), parts.schema(), parts.table());
+         } else {
+@@ -166,7 +173,8 @@
+ 
+     private static void checkDynamicTable(Statement stmt, UserIdentity user,
+             AccessControl accessControl, QualifiedTableName table) {
+-        if (stmt instanceof CreateDynamicTableStatement) {
++        if (stmt instanceof CreateDynamicTableStatement
++                || stmt instanceof org.pangrova.parser.api.ast.CreateContinuousQueryStatement) {
+             accessControl.checkCanCreateTable(user, table.catalog(), table.schema(), table.table());
+         } else if (stmt instanceof DropDynamicTableStatement) {
+             accessControl.checkCanDropTable(user, table.catalog(), table.schema(), table.table());
+@@ -237,7 +245,11 @@
+         String c = source.catalog();
+         String s = source.schema();
+         String t = source.table();
+-        if (stmt instanceof DropTableStatement) {
++        if (stmt instanceof org.pangrova.parser.api.ast.statement.CreateViewStatement create) {
++            ac.checkCanCreateView(user, c, s, t, create.orReplace());
++        } else if (stmt instanceof org.pangrova.parser.api.ast.statement.DropViewStatement) {
++            ac.checkCanDropView(user, c, s, t);
++        } else if (stmt instanceof DropTableStatement) {
+             ac.checkCanDropTable(user, c, s, t);
+         } else if (stmt instanceof CreateTableStatement || stmt instanceof CreateTableAsSelectStatement) {
+             ac.checkCanCreateTable(user, c, s, t);
+--- pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/table/QualifiedTableName.java normalized
++++ pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/table/QualifiedTableName.java
+@@ -20,10 +20,19 @@
+      * @throws IllegalArgumentException if parts is empty or has more than 3 elements
+      */
+     public static QualifiedTableName resolve(List<String> parts) {
++        return resolve(parts, "default", "default");
++    }
++
++    /**
++     * Constructs a name from one to three exact components and explicit defaults.
++     * Preserves case, dots and component boundaries; performs no lookup or authorization.
++     * Defaults are used only for omitted components; this is not a SQL string parser.
++     */
++    public static QualifiedTableName resolve(List<String> parts, String defaultCatalog, String defaultSchema) {
+         return switch (parts.size()) {
+             case 3 -> new QualifiedTableName(parts.get(0), parts.get(1), parts.get(2));
+-            case 2 -> new QualifiedTableName("default", parts.get(0), parts.get(1));
+-            case 1 -> new QualifiedTableName("default", "default", parts.get(0));
++            case 2 -> new QualifiedTableName(defaultCatalog, parts.get(0), parts.get(1));
++            case 1 -> new QualifiedTableName(defaultCatalog, defaultSchema, parts.get(0));
+             default -> throw new IllegalArgumentException("Invalid table name: " + parts);
+         };
+     }
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/file/RemoveStageTask.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/task/file/RemoveStageTask.java
+@@ -69,7 +69,7 @@
+                     ref.table(), file.path(), "delete");
+             rows.add(row(ref, file.path(), remove(deletion, file)));
+         }
+-        return new StatementResult(rows, COLUMNS, null, StatementCategory.QUERY);
++        return new StatementResult(rows, COLUMNS, null, StatementCategory.MAINTENANCE);
+     }
+ 
+     private List<FileStat> matches(FileAccessGrant grant, Pattern pattern) {
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java
+@@ -443,7 +443,7 @@
+             return;
+         }
+         if (stmt instanceof AlterTableStatement.RenameTable rename) {
+-            var source = QualifiedTableNames.resolveTableRef(rename.tableName().parts(),
++            var source = QualifiedTableName.resolve(rename.tableName().parts(),
+                     session.getCatalog().orElseThrow(), session.getSchema().orElseThrow());
+             var newRef = QualifiedTableNames.resolveRenameTarget(rename.newName().parts(), source);
+             metadata.renameTable(session, handle, newRef.schema(), newRef.table());
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/TableWarmupExecutor.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/TableWarmupExecutor.java
+@@ -73,9 +73,6 @@
+  */
+ public final class TableWarmupExecutor {
+ 
+-    /** Public procedure name (case-insensitive at the call site). */
+-    public static final String PROCEDURE_NAME = "warmup_table";
+-
+     private static final Logger LOG = LoggerFactory.getLogger(TableWarmupExecutor.class);
+ 
+     /** Hard cap on how many splits a single warmup invocation will read. */
+@@ -103,8 +100,10 @@
+      * rows_touched, bytes_prefetched, duration_ms)}.
+      */
+     public List<TypedRow> execute(
+-            String catalog, Map<String, String> arguments, QuerySession context) {
+-        SchemaTable target = parseTarget(catalog, arguments);
++            org.pangrova.connector.api.metadata.table.QualifiedTableName table, QuerySession context) {
++        java.util.Objects.requireNonNull(table, "table");
++        String catalog = table.catalog();
++        SchemaTable target = new SchemaTable(table.schema(), table.table());
+         ResolvedTable resolved = resolveTable(catalog, target, context);
+ 
+         long startNanos = System.nanoTime();
+@@ -266,26 +265,6 @@
+         }
+     }
+ 
+-    private static SchemaTable parseTarget(String catalog, Map<String, String> arguments) {
+-        String arg0 = arguments.getOrDefault("arg0", "");
+-        String arg1 = arguments.getOrDefault("arg1", "");
+-        if (arg0.isEmpty()) {
+-            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+-                    "warmup_table requires arguments: "
+-                            + "CALL " + catalog + ".warmup_table('schema.table') "
+-                            + "or CALL " + catalog + ".warmup_table('schema', 'table')");
+-        }
+-        if (!arg1.isEmpty()) {
+-            return new SchemaTable(arg0, arg1);
+-        }
+-        int dot = arg0.indexOf('.');
+-        if (dot <= 0 || dot >= arg0.length() - 1) {
+-            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+-                    "warmup_table: single-argument form must be 'schema.table', got '" + arg0 + "'");
+-        }
+-        return new SchemaTable(arg0.substring(0, dot), arg0.substring(dot + 1));
+-    }
+-
+     private record SchemaTable(String schema, String table) { }
+ 
+     private static final class WarmupCounters {
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/cache/CacheWarmupService.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/cache/CacheWarmupService.java
+@@ -116,8 +116,8 @@
+         String table = parts[2];
+ 
+         try {
+-            Map<String, String> args = Map.of("arg0", schema, "arg1", table);
+-            List<TypedRow> rows = warmupExecutor.execute(catalog, args, context);
++            List<TypedRow> rows = warmupExecutor.execute(
++                    new org.pangrova.connector.api.metadata.table.QualifiedTableName(catalog, schema, table), context);
+             TypedRow summary = rows.get(0);
+             long splitsProcessed = summary.getLong("splits_processed");
+             long splitsFailed = summary.getLong("splits_failed");
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/StatementClassifier.java normalized
++++ pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/statement/StatementClassifier.java
+@@ -1,278 +1,125 @@
+-package org.pangrova.coordinator.query.statement;
++package org.pangrova.query.core.statement;
+ 
+-import org.pangrova.query.core.session.SessionTableNames;
+-import org.pangrova.parser.api.ast.CreateCatalogStatement;
+-import org.pangrova.parser.api.ast.CreateContinuousQueryStatement;
+-import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
+-import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
+-import org.pangrova.parser.api.ast.Identifier;
+-import org.pangrova.parser.api.ast.InsertStatement;
+-import org.pangrova.parser.api.ast.ShowSchemasStatement;
+ import org.pangrova.parser.api.ast.Statement;
+-import org.pangrova.parser.api.ast.statement.AlterCatalogStatement;
+-import org.pangrova.parser.api.ast.statement.AlterDynamicTableStatement;
+-import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+-import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+-import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+-import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+-import org.pangrova.parser.api.ast.statement.DescribeDynamicTableStatement;
+-import org.pangrova.parser.api.ast.statement.DescribeMaterializedViewStatement;
+-import org.pangrova.parser.api.ast.statement.DropCatalogStatement;
+-import org.pangrova.parser.api.ast.statement.DropDynamicTableStatement;
+-import org.pangrova.parser.api.ast.statement.DropMaterializedViewStatement;
+-import org.pangrova.parser.api.ast.statement.DropTableStatement;
+-import org.pangrova.parser.api.ast.statement.RefreshMaterializedViewStatement;
+-import org.pangrova.parser.api.ast.statement.ShowMaterializationDependenciesStatement;
+-import org.pangrova.parser.api.ast.statement.ShowMaterializationGcHistoryStatement;
+-import org.pangrova.parser.api.ast.statement.ShowMaterializationRefreshHistoryStatement;
+-import org.pangrova.parser.api.ast.statement.ShowMaterializationsStatement;
+-import org.pangrova.parser.api.ast.statement.ShowMaterializedViewsStatement;
+-import org.pangrova.parser.api.ast.statement.ShowTablesStatement;
+-import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+-import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
+-import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+-import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+-import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;
+-import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
+-import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
+-import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
+-import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+-
+-import java.util.Map;
+-import java.util.function.Function;
++import org.pangrova.query.api.statement.StatementCategory;
+ 
+ /**
+- * Classifies parsed statements by category (DDL, DML, show, maintenance, etc.)
+- * and extracts table name identifiers for access control resolution.
++ * Owns syntax classification, audit and leader-routing policy. Classification is
++ * independent of provider availability; execution still requires a registered factory.
++ * Every built-in syntax kind must make an explicit classification decision.
+  */
+ public final class StatementClassifier {
++    private StatementClassifier() {}
+ 
+-    private StatementClassifier() {
++    public static StatementCategory categorize(Statement statement) {
++        return switch (statement.type()) {
++            case CREATE_CATALOG, DROP_CATALOG, CREATE_SCHEMA, CREATE_TABLE, CREATE_TABLE_AS_SELECT,
++                    DROP_TABLE, ALTER_TABLE, CREATE_BRANCH, DROP_BRANCH, CREATE_TAG, DROP_TAG,
++                    CREATE_VIEW, DROP_VIEW, CREATE_EMBEDDING_MODEL, ALTER_EMBEDDING_MODEL,
++                    DROP_EMBEDDING_MODEL, CREATE_STORAGE_PROFILE, DROP_STORAGE_PROFILE,
++                    CREATE_SEMANTIC_VIEW, PUBLISH_SEMANTIC_VIEW, CREATE_FEATURE_VIEW,
++                    PUBLISH_FEATURE_VIEW, MATERIALIZE_FEATURE_VIEW, CREATE_STAGE, ALTER_STAGE,
++                    DROP_STAGE, CREATE_VOLUME, ALTER_VOLUME, DROP_VOLUME, SET_SESSION,
++                    GRANT_PRIVILEGE, REVOKE_PRIVILEGE -> StatementCategory.DDL;
++            case INSERT, INSERT_OVERWRITE, INSERT_SELECT, DELETE, UPDATE, MERGE -> StatementCategory.DML;
++            case EXPLAIN -> StatementCategory.EXPLAIN;
++            case SHOW_SCHEMAS, SHOW_TABLES, SHOW_TABLE_CONTROLS, DESCRIBE_TABLE, SHOW_CATALOGS,
++                    SHOW_VIEWS, SHOW_EMBEDDING_MODELS, SHOW_STORAGE_PROFILES, SHOW_BRANCHES,
++                    SHOW_TAGS, SHOW_METADATA, SHOW_BACKFILL_STATUS, SHOW_SEMANTIC_VIEWS,
++                    SHOW_MATERIALIZATIONS, SHOW_MATERIALIZATION_DEPENDENCIES,
++                    SHOW_MATERIALIZATION_GC_HISTORY, SHOW_MATERIALIZATION_REFRESH_HISTORY,
++                    SHOW_VOLUMES, DESCRIBE_VOLUME, SHOW_STAGES, DESCRIBE_STAGE, LIST_STAGE,
++                    SHOW_PRIVILEGE_MUTATION -> StatementCategory.SHOW;
++            case CALL, COMPACT, OPTIMIZE, VACUUM, ANALYZE, REMOVE_STAGE -> StatementCategory.MAINTENANCE;
++            case CREATE_DYNAMIC_TABLE, CREATE_CONTINUOUS_QUERY, ALTER_DYNAMIC_TABLE,
++                    DROP_DYNAMIC_TABLE, SHOW_DYNAMIC_TABLES, DESCRIBE_DYNAMIC_TABLE -> StatementCategory.DYNAMIC_TABLE;
++            case CREATE_MATERIALIZED_VIEW, ALTER_MATERIALIZED_VIEW, DROP_MATERIALIZED_VIEW,
++                    REFRESH_MATERIALIZED_VIEW, SHOW_MATERIALIZED_VIEWS,
++                    DESCRIBE_MATERIALIZED_VIEW -> StatementCategory.MATERIALIZED_VIEW;
++            case CREATE_INDEX, ALTER_INDEX, DROP_INDEX, SHOW_INDEXES -> StatementCategory.INDEX;
++            case SET_CLUSTERING_ORDER, RECLUSTER_TABLE, SHOW_CLUSTERING_STATUS -> StatementCategory.CLUSTERING;
++            case GRANT_TENANT, REVOKE_TENANT -> StatementCategory.TENANT;
++            case CREATE_STREAM, ALTER_STREAM, DROP_STREAM, SHOW_STREAMS, DESCRIBE_STREAM -> StatementCategory.STREAM;
++            case QUERY, SET_QUERY, CTE_QUERY, INCREMENTAL_READ -> StatementCategory.QUERY;
++            // These parsed operations have no execution implementation. Never fall through to a query.
++            case ALTER_CATALOG, DESCRIBE_CATALOG, BACKFILL_COLUMN, CANCEL_BACKFILL,
++                    USE_BRANCH -> StatementCategory.UNKNOWN;
++        };
+     }
+ 
+-    /** Returns whether a statement changes catalog, table, branch, or AI metadata. */
+-    public static boolean isDdl(Statement stmt) {
+-        return isCoreDdl(stmt) || isSemanticViewDdl(stmt)
+-                || isFeatureViewDdl(stmt) || isFeatureMaterializationDdl(stmt)
+-                || isFileSpaceDdl(stmt) || isPrivilegeDdl(stmt);
++    /** Privilege changes recheck current authority inside their atomic persistence operation. */
++    public static boolean isPrivilegeDdl(Statement statement) {
++        return switch (statement.type()) {
++            case GRANT_PRIVILEGE, REVOKE_PRIVILEGE -> true;
++            default -> false;
++        };
+     }
+ 
+-    /** Privilege mutation performs its current authorization atomically in the security persistence port. */
+-    public static boolean isPrivilegeDdl(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.GrantPrivilegeStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.RevokePrivilegeStatement;
++    /** Namespace mutations only; file deletion authorizes each object through File access grants. */
++    public static boolean isFileSpaceDdl(Statement statement) {
++        return switch (statement.type()) {
++            case CREATE_VOLUME, ALTER_VOLUME, DROP_VOLUME, CREATE_STAGE, ALTER_STAGE, DROP_STAGE -> true;
++            default -> false;
++        };
+     }
+ 
+-    /** Returns whether a statement changes a Volume or Stage namespace. */
+-    public static boolean isFileSpaceDdl(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.CreateVolumeStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.AlterVolumeStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DropVolumeStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.CreateStageStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.AlterStageStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DropStageStatement;
++    public static boolean isDdl(Statement statement) {
++        return categorize(statement) == StatementCategory.DDL;
+     }
+ 
+-    private static boolean isCoreDdl(Statement stmt) {
+-        return stmt instanceof CreateTableStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement
+-                || stmt instanceof DropTableStatement
+-                || stmt instanceof AlterTableStatement
+-                || stmt instanceof CreateSchemaStatement
+-                || stmt instanceof CreateCatalogStatement
+-                || stmt instanceof DropCatalogStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.SetSessionStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.CreateBranchStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DropBranchStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.CreateTagStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DropTagStatement;
++    public static boolean isDml(Statement statement) {
++        return categorize(statement) == StatementCategory.DML;
+     }
+ 
+-    private static boolean isSemanticViewDdl(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.CreateSemanticViewStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.PublishSemanticViewStatement;
++    public static boolean isShow(Statement statement) {
++        return categorize(statement) == StatementCategory.SHOW;
+     }
+ 
+-    private static boolean isFeatureViewDdl(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.CreateFeatureViewStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.PublishFeatureViewStatement;
++    public static boolean isMaintenance(Statement statement) {
++        return categorize(statement) == StatementCategory.MAINTENANCE;
+     }
+ 
+-    private static boolean isFeatureMaterializationDdl(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.MaterializeFeatureViewStatement;
++    public static boolean isDynamicTable(Statement statement) {
++        return categorize(statement) == StatementCategory.DYNAMIC_TABLE;
+     }
+ 
+-    /** Returns whether a statement writes table rows. */
+-    public static boolean isDml(Statement stmt) {
+-        return stmt instanceof InsertStatement
+-                || stmt instanceof InsertOverwriteStatement
+-                || stmt instanceof InsertSelectStatement
+-                || stmt instanceof DeleteStatement
+-                || stmt instanceof UpdateStatement
+-                || stmt instanceof MergeStatement;
++    public static boolean isMaterializedView(Statement statement) {
++        return categorize(statement) == StatementCategory.MATERIALIZED_VIEW;
+     }
+ 
+-    /** Returns whether a statement reads descriptive catalog metadata. */
+-    public static boolean isShow(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.ShowPrivilegeMutationStatement
+-                || stmt instanceof ShowSchemasStatement
+-                || stmt instanceof ShowTablesStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowTableControlsStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DescribeTableStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowCatalogsStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowSemanticViewsStatement
+-                || stmt instanceof ShowMaterializationsStatement
+-                || stmt instanceof ShowMaterializationRefreshHistoryStatement
+-                || stmt instanceof ShowMaterializationDependenciesStatement
+-                || stmt instanceof ShowMaterializationGcHistoryStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowVolumesStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DescribeVolumeStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowStagesStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DescribeStageStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ListStageStatement;
++    public static boolean isUnsupported(Statement statement) {
++        return categorize(statement) == StatementCategory.UNKNOWN;
+     }
+ 
+-    /** Returns whether a statement is a scheduled maintenance operation. */
+-    public static boolean isMaintenance(Statement stmt) {
+-        return stmt instanceof CompactStatement
+-                || stmt instanceof OptimizeStatement
+-                || stmt instanceof VacuumStatement
+-                || stmt instanceof CallStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement;
++    public static boolean isIndex(Statement statement) {
++        return categorize(statement) == StatementCategory.INDEX;
+     }
+ 
+-    /** Returns whether a statement manages a dynamic table or continuous query. */
+-    public static boolean isDynamicTable(Statement stmt) {
+-        return stmt instanceof CreateDynamicTableStatement
+-                || stmt instanceof CreateContinuousQueryStatement
+-                || stmt instanceof AlterDynamicTableStatement
+-                || stmt instanceof DropDynamicTableStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowDynamicTablesStatement
+-                || stmt instanceof DescribeDynamicTableStatement;
++    public static boolean isClustering(Statement statement) {
++        return categorize(statement) == StatementCategory.CLUSTERING;
+     }
+ 
+-    /** Returns whether a statement manages a materialized view. */
+-    public static boolean isMaterializedView(Statement stmt) {
+-        return stmt instanceof CreateMaterializedViewStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.AlterMaterializedViewStatement
+-                || stmt instanceof RefreshMaterializedViewStatement
+-                || stmt instanceof DropMaterializedViewStatement
+-                || stmt instanceof ShowMaterializedViewsStatement
+-                || stmt instanceof DescribeMaterializedViewStatement;
++    public static boolean isTenant(Statement statement) {
++        return categorize(statement) == StatementCategory.TENANT;
+     }
+ 
+-    public static boolean isUnsupported(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.DescribeCatalogStatement
+-                || stmt instanceof AlterCatalogStatement;
++    public static boolean isStream(Statement statement) {
++        return categorize(statement) == StatementCategory.STREAM;
+     }
+ 
+-    /** Returns whether a statement manages an index. */
+-    public static boolean isIndex(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.CreateIndexStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.DropIndexStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowIndexesStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.AlterIndexStatement;
++    /** Retains the existing audit policy for metadata operation families. */
++    public static boolean requiresDdlAudit(Statement statement) {
++        return switch (categorize(statement)) {
++            case DDL, INDEX, CLUSTERING, MATERIALIZED_VIEW, TENANT -> true;
++            default -> false;
++        };
+     }
+ 
+-    public static boolean isClustering(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ReclusterTableStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement;
+-    }
+-
+-    public static boolean isTenant(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.GrantTenantStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.RevokeTenantStatement;
+-    }
+-
+-    /** Returns whether a statement manages a stream. */
+-    public static boolean isStream(Statement stmt) {
+-        return stmt instanceof org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.stream.AlterStreamStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.stream.DropStreamStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.stream.ShowStreamsStatement
+-                || stmt instanceof org.pangrova.parser.api.ast.statement.stream.DescribeStreamStatement;
+-    }
+-
+-    /** Returns true if the statement requires DDL audit logging. */
+-    public static boolean requiresDdlAudit(Statement stmt) {
+-        return isDdl(stmt) || isIndex(stmt) || isClustering(stmt)
+-                || isMaterializedView(stmt);
+-    }
+-
+-    /** Returns true if the statement must be routed to the leader coordinator. */
+-    public static boolean requiresLeaderRouting(Statement stmt) {
+-        return isDdl(stmt) || isIndex(stmt) || isClustering(stmt)
+-                || isDynamicTable(stmt) || isMaterializedView(stmt)
+-                || isStream(stmt) || isTenant(stmt);
+-    }
+-
+-    private static final Map<Class<? extends Statement>, Function<Statement, Identifier>> TABLE_NAME_EXTRACTORS =
+-            Map.ofEntries(
+-                    Map.entry(CompactStatement.class, s -> ((CompactStatement) s).tableName()),
+-                    Map.entry(OptimizeStatement.class, s -> ((OptimizeStatement) s).tableName()),
+-                    Map.entry(VacuumStatement.class, s -> ((VacuumStatement) s).tableName()),
+-                    Map.entry(org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement.class,
+-                            s -> ((org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement) s).tableName()),
+-                    Map.entry(CreateTableStatement.class, s -> ((CreateTableStatement) s).tableName()),
+-                    Map.entry(DropTableStatement.class, s -> ((DropTableStatement) s).tableName()),
+-                    Map.entry(AlterTableStatement.AddColumn.class, s -> ((AlterTableStatement) s).tableName()),
+-                    Map.entry(AlterTableStatement.DropColumn.class, s -> ((AlterTableStatement) s).tableName()),
+-                    Map.entry(AlterTableStatement.RenameColumn.class, s -> ((AlterTableStatement) s).tableName()),
+-                    Map.entry(AlterTableStatement.ChangeColumnType.class, s -> ((AlterTableStatement) s).tableName()),
+-                    Map.entry(AlterTableStatement.SetPartitionSpec.class, s -> ((AlterTableStatement) s).tableName()),
+-                    Map.entry(InsertStatement.class, s -> ((InsertStatement) s).tableName()),
+-                    Map.entry(InsertOverwriteStatement.class, s -> ((InsertOverwriteStatement) s).tableName()),
+-                    Map.entry(InsertSelectStatement.class, s -> ((InsertSelectStatement) s).tableName()),
+-                    Map.entry(DeleteStatement.class, s -> ((DeleteStatement) s).tableName()),
+-                    Map.entry(UpdateStatement.class, s -> ((UpdateStatement) s).tableName()),
+-                    Map.entry(MergeStatement.class, s -> ((MergeStatement) s).targetTable()),
+-                    Map.entry(org.pangrova.parser.api.ast.statement.CreateIndexStatement.class,
+-                            s -> ((org.pangrova.parser.api.ast.statement.CreateIndexStatement) s).tableName()),
+-                    Map.entry(org.pangrova.parser.api.ast.statement.DropIndexStatement.class,
+-                            s -> ((org.pangrova.parser.api.ast.statement.DropIndexStatement) s).tableName()),
+-                    Map.entry(org.pangrova.parser.api.ast.statement.AlterIndexStatement.class,
+-                            s -> ((org.pangrova.parser.api.ast.statement.AlterIndexStatement) s).tableName()),
+-                    Map.entry(org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement.class,
+-                            s -> ((org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement) s).tableName()),
+-                    Map.entry(org.pangrova.parser.api.ast.statement.ReclusterTableStatement.class,
+-                            s -> ((org.pangrova.parser.api.ast.statement.ReclusterTableStatement) s).tableName()),
+-                    Map.entry(CreateDynamicTableStatement.class, s -> ((CreateDynamicTableStatement) s).name()),
+-                    Map.entry(DropDynamicTableStatement.class, s -> ((DropDynamicTableStatement) s).name()),
+-                    Map.entry(AlterDynamicTableStatement.class, s -> ((AlterDynamicTableStatement) s).name()),
+-                    Map.entry(CreateMaterializedViewStatement.class,
+-                            s -> ((CreateMaterializedViewStatement) s).name()),
+-                    Map.entry(org.pangrova.parser.api.ast.statement.AlterMaterializedViewStatement.class,
+-                            s -> ((org.pangrova.parser.api.ast.statement.AlterMaterializedViewStatement) s)
+-                                    .name()),
+-                    Map.entry(RefreshMaterializedViewStatement.class,
+-                            s -> ((RefreshMaterializedViewStatement) s).name()),
+-                    Map.entry(DropMaterializedViewStatement.class,
+-                            s -> ((DropMaterializedViewStatement) s).name()),
+-                    Map.entry(DescribeMaterializedViewStatement.class,
+-                            s -> ((DescribeMaterializedViewStatement) s).name())
+-            );
+-
+-    /** Extracts the affected table identifier when the statement names one. */
+-    public static Identifier extractTableName(Statement stmt) {
+-        if (stmt instanceof AlterTableStatement alter) {
+-            return alter.tableName();
+-        }
+-        if (stmt instanceof org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement ctas) {
+-            return ctas.tableName();
+-        }
+-        Function<Statement, Identifier> extractor = TABLE_NAME_EXTRACTORS.get(stmt.getClass());
+-        return extractor != null ? extractor.apply(stmt) : null;
+-    }
+-
+-    /** Resolves the exact table targeted by SQL, including literal procedure arguments. */
+-    public static QualifiedTableName extractTableParts(
+-            Statement stmt, org.pangrova.query.api.session.QuerySession context) {
+-        if (stmt instanceof CallStatement call) {
+-            return ProcedureTableArguments.resolveProcedureTableRef(call);
+-        }
+-        Identifier name = extractTableName(stmt);
+-        if (name == null) return null;
+-        return SessionTableNames.resolveTableRef(name.parts(), context);
++    /** Metadata operation families retain their established leader requirement. */
++    public static boolean requiresLeaderRouting(Statement statement) {
++        return switch (categorize(statement)) {
++            case DDL, INDEX, CLUSTERING, DYNAMIC_TABLE, MATERIALIZED_VIEW, STREAM, TENANT -> true;
++            default -> false;
++        };
+     }
+ }
+--- pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/ProcedureTableArguments.java normalized
++++ pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/ProcedureTableArguments.java
+@@ -1,40 +0,0 @@
+-package org.pangrova.coordinator.query.statement;
+-
+-import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+-
+-import java.util.List;
+-
+-/** Interprets the table argument shared by CALL admission and execution. */
+-public final class ProcedureTableArguments {
+-    private ProcedureTableArguments() {}
+-
+-    public static QualifiedTableName resolveProcedureTableRef(
+-            org.pangrova.parser.api.ast.statement.maintenance.CallStatement statement) {
+-        List<String> procedure = statement.procedureName().parts();
+-        if (procedure.size() < 2 || procedure.size() > 3) {
+-            throw new IllegalArgumentException("CALL requires catalog[.schema].procedure_name");
+-        }
+-        String first = procedureStringArgument(statement, 0);
+-        boolean warmup = TableWarmupExecutor.PROCEDURE_NAME.equalsIgnoreCase(
+-                procedure.get(procedure.size() - 1));
+-        if (warmup && statement.arguments().size() == 2) {
+-            return new QualifiedTableName(procedure.get(0), first, procedureStringArgument(statement, 1));
+-        }
+-        String[] table = first.split("\\.", -1);
+-        if (table.length != 2 || table[0].isBlank() || table[1].isBlank()) {
+-            throw new IllegalArgumentException("CALL table argument must be 'schema.table'");
+-        }
+-        return new QualifiedTableName(procedure.get(0), table[0], table[1]);
+-    }
+-
+-    private static String procedureStringArgument(
+-            org.pangrova.parser.api.ast.statement.maintenance.CallStatement statement, int index) {
+-        if (statement.arguments().size() > index
+-                && statement.arguments().get(index) instanceof org.pangrova.parser.api.ast.Literal literal
+-                && literal.value() instanceof org.pangrova.parser.api.ast.LiteralValue.StringValue value
+-                && !value.value().isBlank()) {
+-            return value.value();
+-        }
+-        throw new IllegalArgumentException("CALL table argument must be a nonempty string literal");
+-    }
+-}
+--- pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ConnectorMetadata.java normalized
++++ pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/spi/metadata/ConnectorMetadata.java
+@@ -437,29 +437,34 @@
+                 "Procedure '" + procedureName + "' is not supported by this connector");
+     }
+ 
+-    // --- View support (additive defaults — no migration required) ---
+-
+-    /**
+-     * Creates a view with the given name and SQL definition.
++    // --- View support ---
++
++    /**
++     * Creates a view with the given name and SQL definition using an atomic conflict decision.
++     * A check followed by an unconditional write does not implement CREATE or IF_NOT_EXISTS.
++     * Completion makes the definition visible within the connector's declared catalog scope;
++     * this contract alone does not imply durability across connector restarts.
+      *
+      * @param session  the current session context
+      * @param viewName the schema-qualified view name
+      * @param sql      the view definition SQL
++     * @param mode     required atomic creation/replacement semantics
+      */
+     default void createView(ConnectorSession session,
+                             org.pangrova.connector.api.metadata.table.SchemaTableName viewName,
+-                            String sql) {
++                            String sql, org.pangrova.connector.api.metadata.view.ViewCreateMode mode) {
+         throw new UnsupportedOperationException("createView not supported");
+     }
+ 
+     /**
+-     * Drops an existing view.
++     * Atomically drops a view, failing if absent unless {@code ifExists} is true.
+      *
+      * @param session  the current session context
+      * @param viewName the schema-qualified view name
++     * @param ifExists tolerate an absent definition
+      */
+     default void dropView(ConnectorSession session,
+-                          org.pangrova.connector.api.metadata.table.SchemaTableName viewName) {
++                          org.pangrova.connector.api.metadata.table.SchemaTableName viewName, boolean ifExists) {
+         throw new UnsupportedOperationException("dropView not supported");
+     }
+ 

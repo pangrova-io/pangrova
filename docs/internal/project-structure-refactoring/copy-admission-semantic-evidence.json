@@ -1,0 +1,42 @@
+{
+  "pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/copy/JdbcCopySourceReadAdmissions.java": {
+    "fqn": "org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions",
+    "action": "change",
+    "responsibility": "Implements the authority port; old nested DTO definitions removed. SQL/authorization/fence/commit operation bodies unchanged apart from decoding an already validated immutable Ticket.",
+    "ownership": "Same DataSource owner, operation connections, transaction gate/fence ordering, nonce generation and cleanup. Server remains the sole production constructor owner.",
+    "before_sha256": "b3f65e535964c813b6e2039673024e48258e6b7db1fafe501e3c90fe933eb0de",
+    "after_sha256": "7318d869071324df4698c17a3a6195465431ca2d5aa1301b5be602ce9e760156"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/CopySourceTaskBinder.java": {
+    "fqn": "org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder",
+    "action": "change",
+    "responsibility": "Depends on API port and API values, preserving existing exact frozen-input dispatch behavior.",
+    "ownership": "Borrows explicit authority and anchor lookup; does not choose or close a persistence provider.",
+    "before_sha256": "80ed8fc12011ad90916052018981de1fe338ad274272ad4cc90f89ef8da74e69",
+    "after_sha256": "e594c595f12572f2c2677372268aecf8220e44aecb1539dcc4346bdc777bb840"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/copy/CopySourceReadResource.java": {
+    "fqn": "org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource",
+    "action": "change",
+    "responsibility": "Depends on API port and maps API values to existing HTTP DTOs; same internal authentication and endpoint credential checks.",
+    "ownership": "HTTP endpoint borrows authority and HA service; it does not create or own a backend.",
+    "before_sha256": "cd5b723bf7cbee39032c1f969d10cd6d4b1930b186c1090af82f567d1549b96a",
+    "after_sha256": "7d330525ed496d85f04764af851fc5f6440ae459e4106309d08f8dca20fc522d"
+  },
+  "pangrova-persistence/pangrova-persistence-file-api/src/main/java/org/pangrova/persistence/file/api/copy/CopySourceAdmissionValidation.java": {
+    "fqn": "org.pangrova.persistence.file.api.copy.CopySourceAdmissionValidation",
+    "action": "add",
+    "responsibility": "Existing local canonical nonce/URI/hash/text validation relocated intact; package-private implementation of value invariants.",
+    "ownership": "Pure JDK value checks; no mutable state, I/O, configuration or resource lifecycle.",
+    "before_sha256": null,
+    "after_sha256": "f2f5a5eaede40eb71bca67fb8435dcf0828d4a00e6baf8307217d5f41d3d299d"
+  },
+  "pangrova-persistence/pangrova-persistence-file-api/src/main/java/org/pangrova/persistence/file/api/copy/CopySourceReadAdmissions.java": {
+    "fqn": "org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions",
+    "action": "add",
+    "responsibility": "New backend-neutral authority port plus relocated immutable input/output records and existing digest value helper. No SQL/SDK/default implementation.",
+    "ownership": "Backend owns four atomic operations; assembler owns backend resources; API owns current identity/value invariants. Exact retries and unknown commit outcome documented.",
+    "before_sha256": null,
+    "after_sha256": "c3ceace9fbe78eef9d27fa981335a89e4f817448cffbe28fd377bde9e560a3a5"
+  }
+}

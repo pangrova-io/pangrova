@@ -1,5 +1,7 @@
 # Pangrova 长期模块化架构蓝图
 
+> 2026-11-01：目标架构由 [领域模块化 ADR](domain-modularization-adr.md) 替代。统一领域 API/SPI 制品，保留 Core，Provider/Persistence/Server 分离。下文旧模块名记录实施现状或历史约束；与 ADR 冲突的合并 owner、中央 SPI 目标不再适用。
+
 > **Status: Target architecture.** 模块名、ports、events 和迁移批次是长期目标，
 > 不是当前仓库已经实现的类型或兼容承诺。
 
@@ -16,7 +18,7 @@ Pangrova 当前最需要解决的不是 Maven module 数量不足，而是**业�
 - `pangrova-coordinator`：555 个主代码文件、约 7.0 万行；
 - `pangrova-spi`：415 个主代码文件，其中约 358 个顶层公开类型；
 - `pangrova-worker`：243 个主代码文件、约 3.5 万行；
-- `pangrova-metadata`：222 个主代码文件、约 2.47 万行，同时拥有 35 个跨越多个领域的数据库 migration。
+- `pangrova-metadata-core`：222 个主代码文件、约 2.47 万行，同时拥有 35 个跨越多个领域的数据库 migration。
 
 整个工作区约有 2,776 个 Java 主代码文件、28.1 万行 Java 主代码，以及 362 个 C++ 头文件/源文件、约 8.7 万行 C++。在这个体量下，继续依赖“Coordinator 是集成中心”“SPI 什么都能放”“metadata 负责所有需要数据库的状态”会持续放大认知成本、故障半径和发布风险。
 
@@ -41,7 +43,7 @@ Shared Primitives（逻辑层，无物理 aggregator）
 2. 撤销通用型 `pangrova-spi`，改为小型、按消费者稳定性设计的 API/SPI 制品。
 3. 将 `pangrova-coordinator` 缩减为网络入口和 composition root；Query、Scheduler 成为独立 owner artifact，Transaction 合入 Query，集群 Coordination 留在 Coordinator 内部，避免把每个逻辑子域机械拆成 Maven module。
 4. 将 `pangrova-worker` 拆成 Java task runtime、native bridge 和可选能力 runtime，C++ 内部改成多个 CMake target，最终仍打包一个共享库。
-5. 按已经定义的元数据中心方案重构 `pangrova-metadata`，并把 query journal、index、streaming、artifact、dynamic table、tenant quota 等状态迁回各自领域。
+5. 按已经定义的元数据中心方案重构 `pangrova-metadata-core`，并把 query journal、index、streaming、artifact、dynamic table、tenant quota 等状态迁回各自领域。
 6. 每个 owner artifact 必须拥有明确的 API、状态、事件、依赖和测试边界；内部子域优先用 package、migration location 和架构测试隔离，只有目录结构没有意义。
 
 历史蓝图曾选定 **24 个 root reactor entry、36 个叶子 Maven module、2 个主要引擎进程、1 个可选基础设施进程**；当前物理模块以执行计划和 manifest 为准，Query API 的独立制品已修订这一数量。其中 7 个 root entry 是无代码的产品 family aggregator，17 个是直接 root leaf；33 个叶子属于生产/客户端/打包制品，3 个属于测试制品。`type`、通用 event envelope 和 resilience primitive 合入 `pangrova-common`；Metadata、Semantic、Security、Index、Streaming、Materialization、Governance 等在该历史方案中分别使用一个 owner artifact，在内部以 package/migration 隔离 API、Core、Store 和子域。只有 Observability、Worker、Shuffle、Connector、AI、Client、Testing 因存在真实独立交付物而保留 aggregator。模块数量由事实所有权、发布、依赖冲突、插件、进程和 JNI 边界驱动，不代表要部署 36 个服务；Shuffle Service 是按部署模式启用的基础设施，不是第三个查询引擎角色。
@@ -136,7 +138,7 @@ Trino 的 Coordinator 确实负责 SQL parsing、planning 和 worker 协调，Wo
 
 Pangrova 应采用同样的原则：**运行时可以同进程，代码和状态必须分领域**。
 
-### `pangrova-metadata` 实际上是共享数据库模块
+### `pangrova-metadata-core` 实际上是共享数据库模块
 
 该模块同时包含 catalog/schema/service/cache，也包含 index、artifact、dynamic table、coordination、streaming、MV、tenant、semantic/evaluation、governance 和 checkpoint。当前 35 个 Flyway migration（版本跨度 V1–V35）全部位于 metadata，其中包括：
 
@@ -280,7 +282,7 @@ Velox 则把 type、vector、expression、operators、I/O connector、network se
 
 ### 原则一：按事实所有权拆分，不按工具拆分
 
-`JDBC`、`cache`、`service`、`util`、`store` 不能成为顶层领域。技术 adapter 属于使用它的领域，但“有独立 package”不自动意味着“有独立 Maven artifact”。例如 Metadata 的 JDBC 实现位于 `pangrova-metadata` 的 `org.pangrova.metadata.store.jdbc`，只有出现第二实现、独立发布或真实依赖隔离需求时才拆 artifact。
+`JDBC`、`cache`、`service`、`util`、`store` 不能成为顶层领域。技术 adapter 属于使用它的领域，但“有独立 package”不自动意味着“有独立 Maven artifact”。例如 Metadata 的 JDBC 实现位于 `pangrova-metadata-core` 的 `org.pangrova.metadata.store.jdbc`，只有出现第二实现、独立发布或真实依赖隔离需求时才拆 artifact。
 
 ### 原则二：进程边界不等于代码边界
 
@@ -715,7 +717,7 @@ flowchart TB
 Metadata 是 Pangrova 的**技术事实核心**，但不是所有“关于数据的信息”的物理收容所。语义模型、业务关系图谱和本体共享同一组业务概念、版本、发布事务、校验规则与查询编译生命周期，应该形成一个新的 root leaf：`pangrova-semantic`。三者当前不拆成三个 Maven artifact，而在同一个 owner artifact 内按 package 和 migration location 强隔离：
 
 ```text
-pangrova-metadata（技术事实）
+pangrova-metadata-core（技术事实）
   └── ObjectId / schema / table version / snapshot binding / statistics pointer
 
 pangrova-semantic（业务含义）
@@ -732,7 +734,7 @@ pangrova-ai-control（智能使用）
 
 这个拆分同时避免两种错误：一是继续让 Metadata 吞并所有语义、图谱、AI 状态，重新长成共享数据库模块；二是为了名词对称立即创建 `semantic-model`、`knowledge-graph`、`ontology` 三个相互循环的小 JAR。只有图数据库 adapter、外部 reasoner 或公共 ontology SDK 形成独立发布/重量依赖边界时，才把**具体 adapter**晋升为新 artifact，不能先创建一个无 owner 的 `pangrova-graph`。
 
-当前代码已经证明这是现实边界而不是远期设想：`pangrova-metadata` 内已有 `metadata.semantic`、`metadata.evaluation` 和 V26 semantic/evaluation 混合 migration；Coordinator 内已有 Semantic View service/validator/SQL task。现有定义仍以 `definition_json` 为中心，validator 只检查 `logicalTables` 与若干数组外形，没有建立 typed entity、join cardinality、metric grain、fan-out safety、ontology constraint、source-version pin 或 AI grounding contract。因此目标不是移动现有八个 class，而是以 typed domain model 重建，再通过兼容入口迁移 SQL DDL。
+当前代码已经证明这是现实边界而不是远期设想：`pangrova-metadata-core` 内已有 `metadata.semantic`、`metadata.evaluation` 和 V26 semantic/evaluation 混合 migration；Coordinator 内已有 Semantic View service/validator/SQL task。现有定义仍以 `definition_json` 为中心，validator 只检查 `logicalTables` 与若干数组外形，没有建立 typed entity、join cardinality、metric grain、fan-out safety、ontology constraint、source-version pin 或 AI grounding contract。因此目标不是移动现有八个 class，而是以 typed domain model 重建，再通过兼容入口迁移 SQL DDL。
 
 ### 业界标准对照与 Pangrova 取舍
 
@@ -1025,7 +1027,7 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 |---|---|---|
 | `pangrova-common` | type、event-api、resilience primitives | `.type/.event/.resilience`；事件 payload 仍归生产者 API |
 | `pangrova-planner` | parser、planner-core、Substrait mapper | `.parser → .core → .substrait`，framework adapter 不反向污染 parser/domain |
-| `pangrova-metadata` | metadata-api、metadata-core、metadata-store-jdbc | `.api → .core → .store.jdbc`；只 export `.api` |
+| `pangrova-metadata-core` | metadata-api、metadata-core、metadata-store-jdbc | `.api → .core → .store.jdbc`；只 export `.api` |
 | `pangrova-semantic` | semantic-model、knowledge-graph、ontology、semantic-store 等机械拆分设想 | `.api → .core/.projection → .adapter/.store.jdbc`；三类能力共享一个发布事务，只 export `.api` |
 | `pangrova-query-api` / `pangrova-query` | API 是独立低层契约；运行时拥有 query-core、query-store-jdbc、transaction-core/store | `.core/.store/.adapter → .api`；API 不反向消费实现；Query/Transaction migration location 分离 |
 | `pangrova-scheduler` | scheduler-core、resource/admission-control | `.placement/.resource`；控制面资源与 Worker 本机资源严格分开 |
@@ -1169,7 +1171,7 @@ pangrova-worker-native/                          # CMake project, not a Maven le
 
 #### 同名目录与 artifact 的约束
 
-所有聚合器统一使用基名（`pangrova-observability`、`pangrova-materialization`、`pangrova-indexing`、`pangrova-worker`、`pangrova-coordination`、`pangrova-testing`），其内部叶子统一使用 `<基名>-XX`，例如 `pangrova-observability-api`、`pangrova-observability-sdk`、`pangrova-observability-core`、`pangrova-worker-core`、`pangrova-worker-native-bridge`、`pangrova-coordination-core`、`pangrova-testing-kit`。聚合器自身为 `packaging=pom`，不再使用 `-parent` 后缀；主实现叶子使用 `-core`，不与聚合器坐标冲突。`pangrova-governance`、`pangrova-metadata` 等保持 code-bearing root leaf。
+所有聚合器统一使用基名（`pangrova-observability`、`pangrova-materialization`、`pangrova-indexing`、`pangrova-worker`、`pangrova-coordination`、`pangrova-testing`），其内部叶子统一使用 `<基名>-XX`，例如 `pangrova-observability-api`、`pangrova-observability-sdk`、`pangrova-observability-core`、`pangrova-worker-core`、`pangrova-worker-native-bridge`、`pangrova-coordination-core`、`pangrova-testing-kit`。聚合器自身为 `packaging=pom`，不再使用 `-parent` 后缀；主实现叶子使用 `-core`，不与聚合器坐标冲突。`pangrova-governance`、`pangrova-metadata-core` 等保持 code-bearing root leaf。
 
 > **2026-10-30 implementation note.** 当前 reactor 已按同一 aggregator 模式收拢
 > `pangrova-coordinator`/`pangrova-coordination-zookeeper` 到 `pangrova-coordination/`
@@ -1340,7 +1342,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 
 #### 八条不可破坏的规则
 
-1. **一个叶子一个或多个独占 root，root 之间不得相等或互为前缀。** `pangrova-metadata` 独占 `org.pangrova.metadata` 全树；任何第二个 artifact 都不能再声明其子包。
+1. **一个叶子一个或多个独占 root，root 之间不得相等或互为前缀。** `pangrova-metadata-core` 独占 `org.pangrova.metadata` 全树；任何第二个 artifact 都不能再声明其子包。
 2. **多叶子 product family 的空根包不放 class。** `worker`、`shuffle`、`connector`、`observability`、`ai`、`client`、`testing` 的 sibling leaf 必须各自拥有不重叠 root；单 owner artifact 可以拥有自己的领域根包。
 3. **跨 module 默认不可见。** 普通消费者只能 import `exports`；Standalone 等指定消费者只能 import `friendExports`。同 artifact 的 `.core/.store` 也通过 ArchUnit 禁止从非 owner package 反向穿透。Java 的 `public` 不等于架构 API。
 4. **跨 bounded context 只走登记过的 shared primitive、API/SPI/protocol/event。** 禁止 import 其它领域的 `.core`、`.internal`、`.store`、`.bootstrap`、`.endpoint`、`.server`；同 family adapter 也只能使用明确的 friend port。
@@ -1390,7 +1392,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 |---|---|---|---|
 | P0 | 原 69 叶子规划把内部 API/Core/Store 机械提升为独立 artifact | GAV、POM、发布和迁移成本大于隔离收益 | 合并为 owner artifact，使用 `.api/.core/.store.jdbc` package + exports/ArchUnit 隔离 |
 | P0 | `pangrova-common` 当前 POM 仍包含 Jetty、Jackson、SnakeYAML，主代码也直接引用 Jetty/Jackson | 所有高 fan-in 消费者被迫获得 server/serde 技术依赖，Common 会重新成为基础设施垃圾场 | Jetty 迁 app server、Jackson 迁所属 serde/wire adapter、YAML 只留 Config；Common 建禁止依赖 gate |
-| P0 | `pangrova-metadata` 当前包含 Hikari/Flyway/Curator/JDBC，`pangrova-security` 包含 KMS/JWT implementation；目标又让 Planner/Query 依赖其 exported API | 合并 artifact 后产生传递依赖污染，API/Core/Store 的 package 隔离名存实亡 | adapter-only dependency non-transitive + exported API minimal-classpath test；失败时只拆具体 store/provider adapter |
+| P0 | `pangrova-metadata-core` 当前包含 Hikari/Flyway/Curator/JDBC，`pangrova-security` 包含 KMS/JWT implementation；目标又让 Planner/Query 依赖其 exported API | 合并 artifact 后产生传递依赖污染，API/Core/Store 的 package 隔离名存实亡 | adapter-only dependency non-transitive + exported API minimal-classpath test；失败时只拆具体 store/provider adapter |
 | P0 | `shuffle-core` 有 31 个类直接位于 `org.pangrova.shuffle`，Service 类型散落在 `shuffle.checksum/deployment/security/server/transport` | Core 与 Service 的 prefix ownership 模糊，服务实现看似属于公共 contract | Core 迁入 `.shuffle.api`/`.shuffle.core`，Service 整体迁入 `.shuffle.service`；调度策略迁入 Scheduler |
 | P0 | Coordinator 直接 import `metadata.store.*`，Metadata/Security 互相穿透 store，Coordinator/Worker import `operations.bootstrap.*` | 运行时装配、持久化实现和领域逻辑形成反向依赖 | 以 API + consumer-owned port 替换；Store/Bootstrap 跨 owner import 清零 |
 | P1 | Metadata 仍有 `metadata.model`、`metadata.service`、`metadata.store` 等横向大包；Security 也有 `security.store`/`security.*.model` | 按技术层堆放多领域事实，继续形成新的 mini-monolith | 按 catalog/binding/snapshot/policy/tenant 等能力迁入 API/Core/JDBC Store，再在能力末端标注 role |
@@ -1649,26 +1651,28 @@ Control Plane 是部署和运行视角，不是代码 parent。Metadata、Query�
 
 Query Core 不发送 HTTP，不直接创建 Worker client，不执行 JDBC，不加载 Connector class。
 
-#### `org.pangrova.persistence.jdbc.query`
+#### `org.pangrova.persistence.query.postgresql`
 
-Query 持久化实现统一归 Persistence：`coordination` 保存执行锚点并校验借用事务的所有权，
-`state` 保存 query/task journal，`lineage` 管理 outbox，`event` 保存完成事件和 split profile，
-`transaction` 管理写提交日志和隔离记录。契约归 Persistence API 与 SPI；
-Query 的 `assembly` 选择后端，业务服务不执行 JDBC。历史 migration 仍只归
-`pangrova-schema-migrations`，迁移 Java 所有权不重写数据库版本。
+Query PostgreSQL 实现归 `pangrova-persistence-query-postgresql`：`coordination` 保存执行锚点并
+校验借用事务的所有权，`state` 保存 query/task journal，`lineage` 管理 outbox，`event` 保存
+完成事件和 split profile，`transaction` 管理写提交日志和隔离记录。
+契约归统一的 `pangrova-persistence-query-api`；借用连接的协作契约归 JDBC API。
+Server 显式选择后端，Core 不创建或替换后端。Metadata 的既有跨域事务装配仍待迁入 workflow。
 
-非持久部署的写隔离内存后端也必须按 `(queryId, commitFingerprint)` 保存每个确切意图，
-重复记录保留第一次决策；按 queryId 查询返回时间最新的已记录决策，不能吞掉同一查询的后续不同指纹。
+Schema 只归 `pangrova-schema-migrations`；write journal 构造器验证必需列，不自行建表。
+新项目沿用空库初始化，不新增历史数据迁移。非持久部署的写隔离内存后端也必须按
+`(queryId, commitFingerprint)` 保存每个确切意图，重复记录保留第一次决策。
 
-#### `org.pangrova.persistence.memory`
+#### `org.pangrova.persistence.query.memory`
 
-非 JDBC 内存存储独立归 `pangrova-persistence-memory`，替换原 Coordination 内存制品并收纳
-Query 的执行锚点、状态日志、写提交日志、隔离记录和有界审计缓存。按 `coordination` 与
-`query.{coordination,state,transaction,audit}` 划分能力，不向 API/JDBC 混入内存实现。
-每个实例拥有自己的状态；无可变全局 journal/cache。Query 装配在一个 Coordinator 内显式
-共享审计写入与 profile 读取，不同 Coordinator 不共享。内存租约续租/释放在取得每键锁后
-读取时钟；过期 epoch 不能凭等待前的时间复活。内存状态不提供跨进程排他或重启恢复。
+`pangrova-persistence-query-memory` 拥有现有执行锚点、状态日志、写提交日志、隔离记录和
+有界审计缓存，按 `coordination/state/transaction/audit` 组织。每个实例拥有自己的状态；
+无可变全局 journal/cache。单个进程的装配入口显式共享同一实例。Memory 不提供跨进程排他、
+重启恢复或 durable downstream publication，COPY 不可用。
 
+Coordination Memory 已独立归 `pangrova-persistence-coordination-memory`。剩余通用
+Table 已独立为 `pangrova-persistence-table-api`、`pangrova-persistence-table-postgresql` 和
+`pangrova-persistence-table-memory`；通用 `pangrova-persistence-memory` 制品已删除。
 
 #### `org.pangrova.scheduler.placement`
 
@@ -1854,6 +1858,8 @@ Streaming query 编译通过 PlannerExtension；batch Query Core 不反向依赖
 它消费 TableVersionCommitted/SchemaChanged，调用 Query Service 执行 refresh，不进入 Query Core 内部。
 
 #### `pangrova-table`
+
+当前控制、维护、统计与策略绑定编排保留在本叶子。共享表身份、版本、维护事实和策略端口位于 `org.pangrova.spi.table.<capability>`；四类存储端口与存储异常位于 `org.pangrova.persistence.table.api.<capability>`；JDBC、内存实现分别位于 Persistence JDBC、Memory。业务模块只依赖 SPI/API，由 Metadata/Coordinator 组合根显式选择后端。
 
 吸收 clustering/recluster、compaction、snapshot expiration、orphan cleanup 调度。Connector 提供 maintenance capability，Table Maintenance 决定 policy、schedule、job 和 observability。
 
@@ -2081,7 +2087,7 @@ Testing family 收敛为 testkit/integration-tests/benchmark 三叶；architectu
 
 迁移完成条件：`pangrova-coordinator` 中 query/scheduler/capability 实现迁尽；`coordinator.server` 小于 20 个主代码 class，领域状态机不在 assembly/server package。
 
-### `pangrova-metadata` 搬迁
+### `pangrova-metadata-core` 搬迁
 
 | 当前 package | 目标 module | 动作 | 说明 |
 |---|---|---|---|
@@ -2197,7 +2203,7 @@ Testing family 收敛为 testkit/integration-tests/benchmark 三叶；architectu
 | pangrova-spi | 删除 | 所有 contract/API/protocol import 清零 |
 | pangrova-coordinator | 保留并收敛 | query/scheduler/capability 逻辑迁尽；只含 coordination/assembly/server/embedding packages |
 | pangrova-worker | 保留并收敛 | AI provider 迁出；runtime/resource/assembly/server 留在一个 artifact；Coordinator 不 import其实现 |
-| pangrova-metadata | 保留并纯化 | 杂项状态迁出；`.api/.core/.store.jdbc` 内聚，V2 authority 切换 |
+| pangrova-metadata-core | 保留并纯化 | 杂项状态迁出；`.api/.core/.store.jdbc` 内聚，V2 authority 切换 |
 | pangrova-semantic | 新建单一 owner artifact | Metadata/Coordinator semantic 迁入；typed model、binding、compiler、publication 成为唯一 authority；Graph/Ontology 不再单建 artifact |
 | pangrova-planner | 合入 parser 并保留 | `.parser/.core/.substrait` 内聚，feature implementation 迁出 |
 | pangrova-protocol | 替换为 client/execution protocol | N/N-1 compatibility 通过 |
@@ -2464,7 +2470,7 @@ artifacts:
     packageRoots: [org.pangrova.query.api]
     exports: [org.pangrova.query.api]
     allowedImports: [pangrova-common, pangrova-observability-api, pangrova-protocol]
-    forbiddenImports: [pangrova-query, pangrova-metadata, pangrova-coordination-core, pangrova-worker-core, pangrova-planner, pangrova-security]
+    forbiddenImports: [pangrova-query, pangrova-metadata-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner, pangrova-security]
     providers: {}
 ```
 
@@ -2538,7 +2544,7 @@ Query 运行时拥有不重叠的 `.core/.store/.adapter`，依赖 Query API；A
 ### Wave 0：冻结与基线（2–4 周）
 
 - 批准本蓝图与 metadata 蓝图 ADR；
-- 冻结 `pangrova-spi`、`pangrova-coordinator`、`pangrova-metadata` 新增一级包；
+- 冻结 `pangrova-spi`、`pangrova-coordinator`、`pangrova-metadata-core` 新增一级包；
 - 生成当前 POM/import/package/migration dependency graph；
 - 建立 `.pangrova/modules.yaml`；
 - 把所有现有 module 纳入依赖 gate；

@@ -5,18 +5,18 @@ import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedR
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.security.authz.StaticGrantStore;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.empty.EmptyColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
+import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -412,14 +412,14 @@ class AccessControlEnforcerTest {
         void deniedWithoutSelectGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.INSERT)));
             assertThatThrownBy(() -> enforcer.checkSelectFromTable(user(), CATALOG, SCHEMA, TABLE))
-                    .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class);
+                    .isInstanceOf(org.pangrova.security.api.error.AuthorizationDeniedException.class);
         }
 
         @Test
         void deniedWithNoGrants() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkSelectFromTable(user(), CATALOG, SCHEMA, TABLE))
-                    .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class);
+                    .isInstanceOf(org.pangrova.security.api.error.AuthorizationDeniedException.class);
         }
 
         @Test

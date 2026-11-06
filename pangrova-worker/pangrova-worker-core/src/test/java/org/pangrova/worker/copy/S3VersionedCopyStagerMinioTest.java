@@ -7,7 +7,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.security.api.error.AccessDeniedException;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.filesystem.s3.blob.S3BlobStorage;

@@ -21,7 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.CommitEvidence;
 
 class GenerationAttemptLifecycleTest {
 

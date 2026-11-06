@@ -3,19 +3,19 @@ package org.pangrova.coordinator.testinfra;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 
@@ -58,7 +58,7 @@ class SourceFreeNativeWorkerFixtureIntegrationTest {
             var tracker = new CoordinatorTaskTracker();
             var dispatcher = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(
                     QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, remote,
-                            new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker,
+                            new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker,
                             null, null, null, 30L)), null, null);
             var queries = worker.connectAsync(dispatcher, tracker, workers);
             var response = queries.submitQuery("unconsumed", "SELECT 1", SourceFreeQueryFixture.session("unconsumed"));
@@ -96,7 +96,7 @@ class SourceFreeNativeWorkerFixtureIntegrationTest {
             var tracker = new CoordinatorTaskTracker();
             var dispatcher = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(
                     QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, remote,
-                            new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker,
+                            new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker,
                             null, null, null, 30L)), null, null);
             worker.connect(dispatcher, tracker, workers);
             var result = worker.execute(dispatcher, new QueryStateMachine(), "SELECT 42",

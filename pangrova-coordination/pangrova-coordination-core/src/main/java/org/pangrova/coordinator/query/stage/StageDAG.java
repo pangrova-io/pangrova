@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.stage;
 
+import org.pangrova.query.api.stage.StageState;
+
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -7,10 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.pangrova.planner.FragmentedPlan;
-import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.PlanStage;
-import org.pangrova.planner.StageTransfer;
+import org.pangrova.planner.core.analysis.FragmentedPlan;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.core.analysis.PlanStage;
+import org.pangrova.planner.core.analysis.StageTransfer;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -203,11 +206,11 @@ public record StageDAG(
      * Terminal-failure states (FAILED, CANCELLED) and the initial
      * PLANNED state are excluded to prevent premature scheduling.
      */
-    private static final Set<StageStateMachine.State> ACTIVE_STATES = Set.of(
-            StageStateMachine.State.SCHEDULING,
-            StageStateMachine.State.RUNNING,
-            StageStateMachine.State.FLUSHING,
-            StageStateMachine.State.FINISHED);
+    private static final Set<StageState> ACTIVE_STATES = Set.of(
+            StageState.SCHEDULING,
+            StageState.RUNNING,
+            StageState.FLUSHING,
+            StageState.FINISHED);
 
     /**
      * Returns Stage entities whose all upstream dependencies are in the active set

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
-import org.pangrova.scheduler.failure.TaskDispatchException;
-import org.pangrova.scheduler.failure.ErrorCategory;
+import org.pangrova.scheduler.api.error.CircuitBreakerOpenException;
+import org.pangrova.scheduler.api.error.TaskDispatchException;
+import org.pangrova.scheduler.api.error.ErrorCategory;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -27,13 +27,13 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.http.HttpClientFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

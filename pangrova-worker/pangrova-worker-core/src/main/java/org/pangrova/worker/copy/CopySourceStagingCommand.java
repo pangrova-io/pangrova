@@ -1,8 +1,8 @@
 package org.pangrova.worker.copy;
 
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.file.copy.CopySourceEndpointPolicy;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.file.api.copy.CopySourceEndpointPolicy;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.filesystem.api.blob.ManagedBlobStorage;
 import org.pangrova.filesystem.s3.blob.CopyS3ClientPolicy;

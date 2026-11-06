@@ -4,7 +4,7 @@ import java.util.Set;
 import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.SourceVector;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceRef;
 
 /**
  * Connector-aware source policy capture and drift detection.

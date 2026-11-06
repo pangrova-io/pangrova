@@ -1,6 +1,7 @@
 package org.pangrova.testing.nativefixture;
 
 import io.substrait.proto.Plan;
+import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 import io.substrait.proto.Type;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ResourceDrainEvidence;
@@ -29,7 +30,7 @@ import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.result.ResultReadTickets;
-import org.pangrova.worker.shuffle.NativeShuffleTransport;
+import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
 import org.pangrova.worker.task.TransportRefs;
 
 import java.time.Duration;
@@ -85,7 +86,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
         results = endpoints.results();
         exchange = endpoints.exchange();
         tickets = endpoints.tickets();
-        transports = new TransportRefs(new NativeShuffleTransport(executor, "127.0.0.1", ""), results, exchange);
+        transports = new TransportRefs(new NativeShuffleTransport(executor::executeCommand, "127.0.0.1", ""), results, exchange);
     }
 
     private Endpoints initializeRuntime(WorkerBootstrapConfig config, NativeFunctionConfig functionConfig) {
@@ -166,7 +167,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     }
 
     private static byte[] valuesPlan() {
-        var plan = Plan.newBuilder();
+        var plan = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build());
         var root = plan.addRelationsBuilder().getRootBuilder().addNames("value");
         var read = root.getInputBuilder().getReadBuilder();
         read.getBaseSchemaBuilder().addNames("value").getStructBuilder()

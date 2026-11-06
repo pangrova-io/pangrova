@@ -1,8 +1,8 @@
 package org.pangrova.governance.core.lineage;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.spi.query.lineage.QueryLineageFact;
-import org.pangrova.persistence.api.query.lineage.QueryLineageOutbox;
+import org.pangrova.query.api.lineage.QueryLineageFact;
+import org.pangrova.persistence.query.api.lineage.QueryLineageOutbox;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.common.lifecycle.ResourceCloser;

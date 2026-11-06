@@ -4,9 +4,9 @@ import java.util.Objects;
 import java.util.Optional;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.query.statement.StatementClassifier;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
+import org.pangrova.query.core.statement.StatementClassifier;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +31,7 @@ import org.slf4j.LoggerFactory;
  * <p>Thread safety: all fields are immutable or volatile. The HA service
  * and registry are thread-safe by contract.</p>
  *
- * @see org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig#ddlLeaderRoutingEnabled()
+ * <p>Leader routing is selected explicitly by process configuration.</p>
  */
 public final class DdlLeadershipGuard {
 

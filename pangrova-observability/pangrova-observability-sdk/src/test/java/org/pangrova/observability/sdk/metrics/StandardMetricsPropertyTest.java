@@ -6,18 +6,11 @@ import net.jqwik.api.constraints.DoubleRange;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
 import org.pangrova.observability.sdk.metrics.jvm.JvmMetricsCollector;
-import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.noop.NoOpMetricsProvider;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -37,12 +30,12 @@ class StandardMetricsPropertyTest {
     void errorCountNeverExceedsTotalRequests(
             @ForAll @IntRange(min = 100, max = 599) int statusCode,
             @ForAll @DoubleRange(min = 0.0, max = 60000.0) double durationMs) {
-        var counting = new CountingMetricsProvider();
+        var counting = new HttpMetricsCollectorTest.CapturingMetricsProvider();
         var collector = new HttpMetricsCollector(counting);
 
         collector.recordRequest(statusCode, durationMs);
 
-        assertThat(counting.errorCount.get()).isLessThanOrEqualTo(counting.requestCount.get());
+        assertThat(counting.counterValues.get("http.server.error.total")).isLessThanOrEqualTo(counting.counterValues.get("http.server.request.total"));
     }
 
     /**
@@ -54,12 +47,12 @@ class StandardMetricsPropertyTest {
     void everyRequestIncrementsCounterByOne(
             @ForAll @IntRange(min = 100, max = 599) int statusCode,
             @ForAll @DoubleRange(min = 0.0, max = 60000.0) double durationMs) {
-        var counting = new CountingMetricsProvider();
+        var counting = new HttpMetricsCollectorTest.CapturingMetricsProvider();
         var collector = new HttpMetricsCollector(counting);
 
-        long before = counting.requestCount.get();
+        long before = counting.counterValues.get("http.server.request.total");
         collector.recordRequest(statusCode, durationMs);
-        long after = counting.requestCount.get();
+        long after = counting.counterValues.get("http.server.request.total");
 
         assertThat(after - before).isEqualTo(1L);
     }
@@ -73,12 +66,12 @@ class StandardMetricsPropertyTest {
     void statusBelow400NeverCountsAsError(
             @ForAll @IntRange(min = 100, max = 399) int statusCode,
             @ForAll @DoubleRange(min = 0.0, max = 60000.0) double durationMs) {
-        var counting = new CountingMetricsProvider();
+        var counting = new HttpMetricsCollectorTest.CapturingMetricsProvider();
         var collector = new HttpMetricsCollector(counting);
 
         collector.recordRequest(statusCode, durationMs);
 
-        assertThat(counting.errorCount.get()).isEqualTo(0L);
+        assertThat(counting.counterValues.get("http.server.error.total")).isEqualTo(0L);
     }
 
     /**
@@ -90,12 +83,12 @@ class StandardMetricsPropertyTest {
     void statusAtOrAbove400AlwaysCountsAsError(
             @ForAll @IntRange(min = 400, max = 599) int statusCode,
             @ForAll @DoubleRange(min = 0.0, max = 60000.0) double durationMs) {
-        var counting = new CountingMetricsProvider();
+        var counting = new HttpMetricsCollectorTest.CapturingMetricsProvider();
         var collector = new HttpMetricsCollector(counting);
 
         collector.recordRequest(statusCode, durationMs);
 
-        assertThat(counting.errorCount.get()).isEqualTo(1L);
+        assertThat(counting.counterValues.get("http.server.error.total")).isEqualTo(1L);
     }
 
     /**
@@ -161,41 +154,6 @@ class StandardMetricsPropertyTest {
                 List.of(gc1, gc2));
 
         assertThat(collector.getTotalGcCount()).isEqualTo((double) (gc1Count + gc2Count));
-    }
-
-    /**
-     * Counting provider that tracks request and error counts via atomic counters.
-     */
-    private static final class CountingMetricsProvider implements MetricsProvider {
-        final AtomicLong requestCount = new AtomicLong();
-        final AtomicLong errorCount = new AtomicLong();
-        private boolean firstCounter = true;
-
-        @Override
-        public LongCounter createCounter(String name, String description, String unit) {
-            if (firstCounter) {
-                firstCounter = false;
-                return requestCount::addAndGet;
-            }
-            return errorCount::addAndGet;
-        }
-
-        @Override
-        public ObservableDoubleGauge createGauge(String name, String description,
-                                                  String unit, Supplier<Double> supplier) {
-            return new ObservableDoubleGauge() {};
-        }
-
-        @Override
-        public DoubleHistogram createHistogram(String name, String description,
-                                                String unit, List<Double> boundaries) {
-            return value -> {};
-        }
-
-        @Override
-        public LongUpDownCounter createUpDownCounter(String name, String description, String unit) {
-            return value -> {};
-        }
     }
 
     /**

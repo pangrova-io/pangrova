@@ -16,7 +16,7 @@ package org.pangrova.ai.worker.embedding;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.ai.invocation.EmbeddingProvider;
+import org.pangrova.ai.spi.embedding.EmbeddingProvider;
 import org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.worker.embedding.openai.OpenAiEmbeddingConfig;
 

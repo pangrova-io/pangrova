@@ -1,0 +1,10 @@
+{
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryStateMachine.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryConnectorAuthority.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryOwnershipTracker.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java": "Class body unchanged; implements and three Override annotations only",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalCleanup.java": "Typed port/field name only; explicit nonnull dependency check added; state, journal, retry and resource ordering unchanged"
+}

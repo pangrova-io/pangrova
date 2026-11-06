@@ -9,18 +9,18 @@ import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.batch.api.page.BatchFormat;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
@@ -67,7 +67,7 @@ class IcebergPageSourceProviderTest {
     private static final DynamicFilter NO_FILTER = DynamicFilter.ALL;
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -186,12 +186,12 @@ class IcebergPageSourceProviderTest {
         assertThat(firstPage.serializedBatch()).isNotEmpty();
         assertThat(firstPage.serializedBatch().length).isGreaterThan(0);
 
-        Page deserialized = NativePageConverter.toPage(firstPage);
+        Page deserialized = ConnectorBinaryPageCodec.toPage(firstPage);
         assertThat(deserialized.getPositionCount()).isGreaterThan(0);
         assertThat(deserialized.columns()).containsExactly("id", "name", "amount");
 
         List<TypedRow> allRows = nativePages.stream()
-                .map(NativePageConverter::toPage)
+                .map(ConnectorBinaryPageCodec::toPage)
                 .flatMap(p -> p.rows().stream())
                 .toList();
         assertThat(allRows).hasSize(3);

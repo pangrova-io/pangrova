@@ -1,18 +1,18 @@
 package org.pangrova.indexing.eval;
 
 import org.pangrova.indexing.registry.IndexEngineRegistry;
-import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.storage.IndexCache;
 import org.pangrova.indexing.storage.IndexFileReadResult;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.connector.index.IndexEvalResult;
-import org.pangrova.spi.indexing.IndexStrategyProvider;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.indexing.data.IndexData;
-import org.pangrova.spi.indexing.eval.IndexEvalDescriptor;
-import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.indexing.api.evaluation.IndexEvalDescriptor;
+import org.pangrova.connector.api.index.predicate.IndexPredicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -106,7 +106,7 @@ public final class IndexEvaluationService {
         }
 
         LoadOutcome outcome = loadIndexData(
-                indexId, generation, dataFilePath, indexFilePath, fsAccessor);
+                indexId, indexType, generation, dataFilePath, indexFilePath, fsAccessor);
         IndexEvaluationFailures.checkInterrupted();
         if (outcome.data() == null) {
             // Only a genuine read/deserialize ERROR trips the breaker. A MISSING
@@ -208,6 +208,7 @@ public final class IndexEvaluationService {
      */
     private LoadOutcome loadIndexData(
             String indexId,
+            IndexType expectedType,
             int generation,
             String dataFilePath,
             String indexFilePath,
@@ -235,8 +236,16 @@ public final class IndexEvaluationService {
                 return LoadOutcome.MISSING; // version skip is not a failure
             }
             IndexData data = deserialized.get();
-            cache.put(indexId, dataFilePath, generation, data);
-            return LoadOutcome.present(data);
+            if (data.indexType() != expectedType) {
+                throw new IllegalArgumentException("Index payload type differs from descriptor: " + expectedType);
+            }
+            IndexData prepared = engineRegistry.getProvider(expectedType).prepareForEvaluation(data);
+            if (prepared == null || prepared.indexType() != expectedType) {
+                throw new IllegalArgumentException("Provider prepared incompatible index data: " + expectedType);
+            }
+            IndexEvaluationFailures.checkInterrupted();
+            cache.put(indexId, dataFilePath, generation, prepared);
+            return LoadOutcome.present(prepared);
         } catch (Exception e) {
             IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.warn("action=index_deserialize_failed indexId={} file={}", indexId, indexFilePath, e);

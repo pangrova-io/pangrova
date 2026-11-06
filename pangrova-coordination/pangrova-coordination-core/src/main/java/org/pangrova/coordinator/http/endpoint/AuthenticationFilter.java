@@ -10,10 +10,10 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.security.authn.AuthenticationManager;
-import org.pangrova.spi.security.authn.AuthenticationRequest;
-import org.pangrova.spi.security.authn.AuthenticationResult;
-import org.pangrova.security.authn.BruteForceGuard;
+import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.api.authentication.AuthenticationRequest;
+import org.pangrova.security.api.authentication.AuthenticationResult;
+import org.pangrova.security.core.authentication.BruteForceGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

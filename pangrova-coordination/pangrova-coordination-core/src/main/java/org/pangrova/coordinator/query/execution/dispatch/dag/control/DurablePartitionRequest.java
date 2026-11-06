@@ -1,10 +1,13 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.coordinator.generation.template.GenerationPartitionBindings;
-import org.pangrova.coordinator.generation.template.PersistedStagePlan;
-import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
-import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PreparedPartition;
+import org.pangrova.execution.core.authority.StageExecutionContext;
+import org.pangrova.execution.api.stage.TaskStage;
+import org.pangrova.execution.api.stage.TaskPurpose;
+import org.pangrova.execution.core.deadline.TaskLeaseDeadlines;
+
+import org.pangrova.generation.core.execution.binding.GenerationPartitionBindings;
+import org.pangrova.execution.core.binding.TaskRequestFactory;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
@@ -32,31 +35,24 @@ public final class DurablePartitionRequest {
     }
 
     /** Builds no alternate protocol: all task security, budgets, options and attempt fields use the common factory. */
-    public static SubmitTaskRequest prepare(PreparedPartition partition, ExchangeAccess exchange, Instant now) {
-        return prepare(partition, exchange, now,
-                org.pangrova.observability.sdk.tracing.ExecutionTraceContext.capture());
-    }
-
-    /** Retains the same correlation snapshot across all partitions of one admitted replay. */
     public static SubmitTaskRequest prepare(PreparedPartition partition, ExchangeAccess exchange, Instant now,
-            org.pangrova.observability.sdk.tracing.ExecutionTraceContext traceContext) {
+            org.pangrova.observability.api.tracing.ExecutionTraceContext traceContext) {
         StageExchangeAccessValidator.validate(partition, exchange);
         var lease = partition.lease();
         var spec = partition.authority().dispatchSpec();
         var stage = spec.stageGraph().requireStage(lease.stageId());
         var bound = GenerationPartitionBindings.bind(partition, now);
-        String taskType = switch (stage.pageKind()) {
-            case RELATIONAL_COMPUTE -> "COMPUTE";
-            case RELATIONAL_PARTITION -> "OUTPUT";
-            case SOURCE_MAP, DEPENDENCY_REDUCE, GENERATION_FINALIZE -> "BACKGROUND_BUILD";
+        TaskPurpose taskType = switch (stage.pageKind()) {
+            case RELATIONAL_COMPUTE -> TaskPurpose.COMPUTE;
+            case RELATIONAL_PARTITION -> TaskPurpose.OUTPUT;
+            case SOURCE_MAP, DEPENDENCY_REDUCE, GENERATION_FINALIZE -> TaskPurpose.BACKGROUND_BUILD;
         };
-        var plan = new StageNode(stage.stageId(), new PersistedStagePlan(stage),
-                stage.parallelism(), taskType, List.of());
+        var plan = new TaskStage(stage.stageId(), taskType);
         return TaskRequestFactory.buildLeafTaskRequest(new TaskRequestFactory.LeafTask(
                 new StageExecutionContext.Deferred(partition.authority(), lease, traceContext), bound.planBytes(), plan,
                 lease.partitionId(), resourceGrant(partition, bound.operatorBindings()), exchange.inputs(), List.of(),
                 exchange.output(), lease.splits().stream().map(split -> split.canonicalSplitBase64()).toList(),
-                StageTaskDeadline.forPartition(lease, spec, now),
+                TaskLeaseDeadlines.forPartition(lease, spec, now),
                 new TaskAttemptDescriptor(exchange.planEpoch(), lease.attemptId(), lease.fencingToken()),
                 bound.operatorBindings(), exchange.allocation(), bound.resultColumnTypes()));
     }

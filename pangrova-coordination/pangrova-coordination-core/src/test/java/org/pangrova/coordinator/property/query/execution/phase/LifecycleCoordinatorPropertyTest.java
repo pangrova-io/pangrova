@@ -9,14 +9,14 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.phase.PhaseResult;
 import org.pangrova.coordinator.query.execution.phase.QueryExecutionContext;
 import org.pangrova.coordinator.query.execution.phase.QueryExecutionPhase;
 import org.pangrova.coordinator.query.execution.phase.QueryLifecycleCoordinator;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -124,8 +124,8 @@ class LifecycleCoordinatorPropertyTest {
 
     private static QueryExecutionContext createContext() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "q-test", Map.of(), null, "tenant-1");
+        QuerySession session = new QuerySession(
+                "q-test", Map.of(), null, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         return QueryExecutionContext.initial(sm, "SELECT 1", session, null);
     }
 

@@ -8,7 +8,7 @@ import org.apache.paimon.types.RowType;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.api.error.ConnectorException;
 
 import java.util.Map;
 
@@ -23,8 +23,8 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options, Str
     }
 
     /** Preserves SDK field IDs and declared types from this resolved schema. */
-    public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> columnHandles() {
-        var handles = new java.util.LinkedHashMap<String, org.pangrova.spi.connector.metadata.table.ColumnHandle>();
+    public Map<String, org.pangrova.connector.api.metadata.table.ColumnHandle> columnHandles() {
+        var handles = new java.util.LinkedHashMap<String, org.pangrova.connector.api.metadata.table.ColumnHandle>();
         for (var field : rowType.getFields()) {
             var type = org.pangrova.connector.paimon.type.PaimonTypeMapper.toPangrovaType(
                     field.type(), field.name(), options);

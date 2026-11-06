@@ -1,3 +1,4 @@
+#include "CanonicalTestPlan.h"
 #include "CanonicalTestAttempt.h"
 #include "LancePhysicalWriteFixture.h"
 
@@ -280,7 +281,7 @@ TEST_F(LancePhysicalCopyMetricsTest, ActualReadAndWriteCopiesSumInTaskReportAfte
   task_config.task_id = "actual-physical-copy-task";
   task_config.query_id = "actual-physical-copy-query";
   task_config.function_registry = exec::FunctionRegistrySnapshot::capture();
-  const auto serialized = plan.SerializeAsString();
+  const auto serialized = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   task_config.substrait_plan.assign(serialized.begin(), serialized.end());
   task_config.shuffle_batch_size = 1;
   task_config.resource_limit.max_threads = 1;

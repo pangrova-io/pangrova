@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.invocation;
 
+import org.pangrova.ai.spi.invocation.PhysicalAttempt;
+
 import com.google.protobuf.ByteString;
 import io.substrait.proto.Type;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
@@ -13,12 +15,12 @@ import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.VersionedRef;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.invocation.AiInvocationRequest;
-import org.pangrova.spi.ai.capability.AiRequestConstraints;
-import org.pangrova.spi.ai.capability.Modality;
-import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.invocation.AiInvocationRequest;
+import org.pangrova.ai.api.capability.AiRequestConstraints;
+import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 import org.pangrova.ai.worker.context.AiTestTaskAuthority;
@@ -85,7 +87,7 @@ public final class AiTransportTestAdmission implements AutoCloseable {
                         admission::openAttempt, callback)));
     }
 
-    public AiProviderCallContext.PhysicalAttempt openAttempt(long bytes) { return admission.openAttempt(bytes); }
+    public PhysicalAttempt openAttempt(long bytes) { return admission.openAttempt(bytes); }
     public ResourceUsage usage() { return manager.usage(context.tenantId(), context.taskAttempt()); }
     public void cancel() { manager.cancelTask(context.tenantId(), context.taskAttempt()); }
     public void terminate() { manager.releaseTask(context.tenantId(), context.taskAttempt()); }

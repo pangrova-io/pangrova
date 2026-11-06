@@ -39,7 +39,7 @@ metadata:
   host: pangrova-postgresql
   port: 5432
   database: pangrova_meta
-  existingSecret: pangrova-metadata
+  existingSecret: pangrova-metadata-core
 
 # ---- Service Account ----
 serviceAccount:

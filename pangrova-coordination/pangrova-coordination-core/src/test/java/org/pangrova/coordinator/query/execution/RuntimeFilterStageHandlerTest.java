@@ -6,8 +6,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.RuntimeFilterStageHandler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleOutputCollector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
@@ -17,12 +17,12 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.planner.runtimefilter.RuntimeFilter;
-import org.pangrova.planner.runtimefilter.RuntimeFilterGenerator;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilter;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterGenerator;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -66,9 +66,9 @@ class RuntimeFilterStageHandlerTest {
         collector.deposit("q-dpp", "0", "customer_id", buildValues);
 
         Stage buildStage = dag.findStage(0);
-        CoordinatorSessionContext session = createSession("q-dpp");
+        QuerySession session = createSession("q-dpp");
         StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-dpp",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         Optional<RuntimeFilter> registeredFilter = registry.getFilter("q-dpp:1");
@@ -102,9 +102,9 @@ class RuntimeFilterStageHandlerTest {
         ).withStages("q-no-dpp");
 
         Stage stage2 = dag.findStage(2);
-        CoordinatorSessionContext session = createSession("q-no-dpp");
+        QuerySession session = createSession("q-no-dpp");
         StageLifecycleEvent event = new StageLifecycleEvent(stage2, dag, "q-no-dpp",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         assertThat(registry.getFilter("q-no-dpp:1")).isEmpty();
@@ -131,9 +131,9 @@ class RuntimeFilterStageHandlerTest {
         ).withStages("q-empty");
 
         Stage buildStage = dag.findStage(0);
-        CoordinatorSessionContext session = createSession("q-empty");
+        QuerySession session = createSession("q-empty");
         StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-empty",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         assertThat(registry.getFilter("q-empty:1")).isEmpty();
@@ -171,9 +171,9 @@ class RuntimeFilterStageHandlerTest {
         collector.deposit("q-bloom", "0", "order_id", largeValues);
 
         Stage buildStage = dag.findStage(0);
-        CoordinatorSessionContext session = createSession("q-bloom");
+        QuerySession session = createSession("q-bloom");
         StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-bloom",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         Optional<RuntimeFilter> filter = registry.getFilter("q-bloom:1");
@@ -207,18 +207,18 @@ class RuntimeFilterStageHandlerTest {
                                byte[] filterProto, String workerId) {}
     }
 
-    private static CoordinatorSessionContext createSession(String queryId) {
+    private static QuerySession createSession(String queryId) {
         UserIdentity identity = new UserIdentity(
                 "testUser", Set.of(), Map.of(), java.time.Instant.now());
-        return new CoordinatorSessionContext(queryId, Map.of(), identity, "default-tenant");
+        return new QuerySession(queryId, Map.of(), identity, "default-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
-    private static org.pangrova.planner.PlanFragment dummyFragment() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyFragment() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

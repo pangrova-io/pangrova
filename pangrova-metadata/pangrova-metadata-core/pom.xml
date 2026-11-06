@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.pangrova</groupId>
+        <artifactId>pangrova-metadata</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pangrova-metadata-core</artifactId>
+    <name>Pangrova Metadata Core</name>
+    <description>Metadata management: models, exceptions, serialization, schema evolution, and catalog descriptors</description>
+
+    <properties>
+        <module.name>org.pangrova.metadata.core</module.name>
+    </properties>
+
+    <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-codec</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-memory</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-postgresql</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-postgresql</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-codec</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-api</artifactId></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-codec</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId></dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-jdbc-support</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-generation-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-schema-migrations</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-generation-core</artifactId>
+        </dependency>
+
+        <!-- Internal modules -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
+        <!-- Table control state, maintenance, statistics, and governance bindings. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-table-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-security-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-governance</artifactId>
+        </dependency>
+        <!-- Query-owned journal/anchor SQL helpers used by managed-source publication. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-query-core</artifactId>
+        </dependency>
+
+        <!-- Iceberg catalog adapters -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-core</artifactId>
+        </dependency>
+
+        <!-- Jackson for JSON serialization -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+
+        <!-- SLF4J for logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- HikariCP connection pool (production DataSource) -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+
+        <!-- Flyway database migration -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL JDBC driver (production) -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Caffeine for L1 cache -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- A-HA-01 ZooKeeper/Curator live in the optional pangrova-coordination-zookeeper leaf. -->
+
+        <!-- Test dependencies -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-testing-kit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Cross-provider File authority tests use Metadata's real tenant store. -->
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-file-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-generation-postgresql</artifactId>
+        </dependency>
+        <!-- Streaming-owned stores are exercised against the metadata migration chain. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Shares metadata test infrastructure (Postgres container, fixtures) with
+                 modules that own moved metadata repositories. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>metadata-test-fixtures</id>
+                        <phase>test-compile</phase>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${pangrova.metadata.excludedTestGroups}</excludedGroups>
+                    <environmentVariables>
+                        <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
+                        <TESTCONTAINERS_RYUK_DISABLED>true</TESTCONTAINERS_RYUK_DISABLED>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

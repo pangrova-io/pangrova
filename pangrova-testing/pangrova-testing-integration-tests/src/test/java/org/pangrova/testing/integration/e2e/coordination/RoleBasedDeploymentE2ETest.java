@@ -1,9 +1,9 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
-import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
-import org.pangrova.coordinator.bootstrap.CoordinatorRole;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
+import org.pangrova.server.coordinator.bootstrap.CoordinatorRole;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
@@ -271,7 +271,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
         void defaultCoreConfigUsesCombinedRole() {
             // The 3-arg constructor defaults to COMBINED
             CoreConfig core = new CoreConfig("default-coord", 8080,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0");
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0");
             assertThat(core.role()).isEqualTo(CoordinatorRole.COMBINED);
         }
 

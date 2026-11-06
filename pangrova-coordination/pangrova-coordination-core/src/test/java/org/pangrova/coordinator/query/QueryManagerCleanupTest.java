@@ -1,8 +1,14 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -49,7 +55,7 @@ class QueryManagerCleanupTest {
     @Test
     void cleanupPreservesActiveQueries() {
         QueryStateMachine active = new QueryStateMachine();
-        active.tryTransition(QueryStateMachine.State.PLANNING);
+        active.tryTransition(QueryState.PLANNING);
         queryManager.registerStateMachine("q-active", active);
 
         int removed = queryManager.cleanupTerminalQueries(Duration.ZERO);
@@ -74,11 +80,11 @@ class QueryManagerCleanupTest {
     @Test
     void cleanupHandlesFailedAndCancelledStates() {
         QueryStateMachine failed = new QueryStateMachine();
-        failed.tryTransition(QueryStateMachine.State.FAILED);
+        failed.tryTransition(QueryState.FAILED);
         queryManager.registerStateMachine("q-failed", failed);
 
         QueryStateMachine cancelled = new QueryStateMachine();
-        cancelled.tryTransition(QueryStateMachine.State.CANCELLED);
+        cancelled.tryTransition(QueryState.CANCELLED);
         queryManager.registerStateMachine("q-cancelled", cancelled);
 
         int removed = queryManager.cleanupTerminalQueries(Duration.ZERO);
@@ -117,30 +123,30 @@ class QueryManagerCleanupTest {
     }
 
     private static void transitionToFinished(QueryStateMachine sm) {
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.tryTransition(QueryStateMachine.State.FINISHING);
-        sm.tryTransition(QueryStateMachine.State.FINISHED);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
+        sm.tryTransition(QueryState.FINISHING);
+        sm.tryTransition(QueryState.FINISHED);
     }
 
     private static QueryManager buildQueryManager() {
         QueryDispatcher orchestrator = buildOrchestrator();
-        return new QueryManager(QueryManagerContext.minimal(orchestrator,
-                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()));
+        return new QueryManager(QueryManagerTestContexts.minimal(orchestrator,
+                new org.pangrova.observability.noop.NoOpTracingProvider()));
     }
 
     private static QueryDispatcher buildOrchestrator() {
-        org.pangrova.planner.SqlCompiler compiler = new org.pangrova.planner.SqlCompiler();
-        org.pangrova.scheduler.placement.TaskScheduler scheduler =
-                new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer());
+        org.pangrova.planner.core.analysis.SqlCompiler compiler = new org.pangrova.planner.core.analysis.SqlCompiler();
+        org.pangrova.scheduler.core.placement.TaskScheduler scheduler =
+                new org.pangrova.scheduler.core.placement.TaskScheduler(
+                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         return new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,
                         new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
+                                new org.pangrova.observability.noop.NoOpTracingProvider()),
                         scheduler,
                         new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),

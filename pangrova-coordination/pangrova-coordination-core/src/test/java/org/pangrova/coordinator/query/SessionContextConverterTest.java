@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -27,8 +27,8 @@ class SessionContextConverterTest {
 
     @Test
     void connectorQueryIdentityAndSnapshotSelectorsCannotBeSpoofedByClientProperties() {
-        var context = new CoordinatorSessionContext("admitted-query",
-                Map.of("queryId", "forged", "pangrova.source_snapshot.cat.db.table", "42"), null, "tenant");
+        var context = new QuerySession("admitted-query",
+                Map.of("queryId", "forged", "pangrova.source_snapshot.cat.db.table", "42"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var session = SessionContextConverter.toConnectorSession(context);
         assertThat(session.getProperties()).containsEntry("queryId", "admitted-query")
                 .doesNotContainKey("pangrova.source_snapshot.cat.db.table");
@@ -42,7 +42,7 @@ class SessionContextConverterTest {
                 "alice", Optional.of("iceberg_catalog"), Optional.of("prod"),
                 Map.of("timezone", "UTC"));
 
-        CoordinatorSessionContext result = SessionContextConverter.fromSpiSessionContext("q-1", spi);
+        QuerySession result = SessionContextConverter.fromSpiSessionContext("q-1", spi, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
 
         assertThat(result.queryId()).isEqualTo("q-1");
         assertThat(result.sessionProperties()).containsEntry("user", "alice");
@@ -56,7 +56,7 @@ class SessionContextConverterTest {
         org.pangrova.common.session.SessionContext spi = buildSpiSession(
                 "bob", Optional.empty(), Optional.empty(), Map.of());
 
-        CoordinatorSessionContext result = SessionContextConverter.fromSpiSessionContext("q-2", spi);
+        QuerySession result = SessionContextConverter.fromSpiSessionContext("q-2", spi, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
 
         assertThat(result.sessionProperties()).containsEntry("user", "bob");
         assertThat(result.sessionProperties()).doesNotContainKey("catalog");
@@ -69,7 +69,7 @@ class SessionContextConverterTest {
                 "charlie", Optional.of("cat1"), Optional.empty(),
                 Map.of("catalog", "existing_catalog", "user", "existing_user"));
 
-        CoordinatorSessionContext result = SessionContextConverter.fromSpiSessionContext("q-3", spi);
+        QuerySession result = SessionContextConverter.fromSpiSessionContext("q-3", spi, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
 
         // putIfAbsent should not override existing values
         assertThat(result.sessionProperties()).containsEntry("catalog", "existing_catalog");
@@ -81,7 +81,7 @@ class SessionContextConverterTest {
     @Test
     void toConnectorSession_extractsUserFromIdentity() {
         UserIdentity identity = new UserIdentity("alice", Set.of(), Map.of(), Instant.now());
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-1", Map.of("catalog", "cat1"), identity, null);
+        QuerySession ctx = new QuerySession("q-1", Map.of("catalog", "cat1"), identity, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -91,7 +91,7 @@ class SessionContextConverterTest {
 
     @Test
     void toConnectorSession_fallsBackToAnonymousWhenNoIdentity() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-2", Map.of(), null, null);
+        QuerySession ctx = new QuerySession("q-2", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -100,7 +100,7 @@ class SessionContextConverterTest {
 
     @Test
     void toConnectorSession_extractsUserFromPropertiesWhenNoIdentity() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-3", Map.of("user", "bob"), null, null);
+        QuerySession ctx = new QuerySession("q-3", Map.of("user", "bob"), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -109,8 +109,8 @@ class SessionContextConverterTest {
 
     @Test
     void toConnectorSession_preservesCatalogAndSchema() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
-                "q-4", Map.of("catalog", "iceberg", "schema", "analytics"), null, null);
+        QuerySession ctx = new QuerySession(
+                "q-4", Map.of("catalog", "iceberg", "schema", "analytics"), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -121,11 +121,11 @@ class SessionContextConverterTest {
     @Test
     void toConnectorSession_bindsQualifiedTableWithoutTrustingDefaultCatalogOrTenantProperty() {
         UserIdentity identity = new UserIdentity("writer", Set.of(), Map.of(), Instant.now());
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
+        QuerySession ctx = new QuerySession(
                 "q-qualified",
                 Map.of("catalog", "default_catalog", "schema", "default_schema",
                         "tenant_id", "spoofed", "timezone", "UTC"),
-                identity, "resolved-tenant");
+                identity, "resolved-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(
                 ctx, "target_catalog", "target_schema");
@@ -141,9 +141,9 @@ class SessionContextConverterTest {
 
     @Test
     void toConnectorSession_usesResolvedTenantInsteadOfClientProperty() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
+        QuerySession ctx = new QuerySession(
                 "q-tenant", Map.of("tenant_id", "spoofed", "pangrova.tenant_id", "also-spoofed"),
-                null, "tenant-1");
+                null, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -153,8 +153,8 @@ class SessionContextConverterTest {
 
     @Test
     void toConnectorSession_dropsClientTenantWhenUnresolved() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
-                "q-unresolved", Map.of("tenant_id", "spoofed"), null, null);
+        QuerySession ctx = new QuerySession(
+                "q-unresolved", Map.of("tenant_id", "spoofed"), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -163,7 +163,7 @@ class SessionContextConverterTest {
 
     @Test
     void toConnectorSession_returnsEmptyOptionalWhenNoCatalogOrSchema() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-5", Map.of(), null, null);
+        QuerySession ctx = new QuerySession("q-5", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -173,7 +173,7 @@ class SessionContextConverterTest {
 
     @Test
     void toConnectorSession_propertiesAreImmutable() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-6", Map.of("key", "value"), null, null);
+        QuerySession ctx = new QuerySession("q-6", Map.of("key", "value"), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
 
@@ -188,12 +188,12 @@ class SessionContextConverterTest {
     @Test
     void toMetadataSessionContext_mapsAllFields() {
         UserIdentity identity = new UserIdentity("alice", Set.of(), Map.of(), Instant.now());
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
+        QuerySession ctx = new QuerySession(
                 "q-1",
                 Map.of("catalog", "iceberg", "schema", "prod", "timezone", "UTC", "locale", "en_US"),
-                identity, "tenant-1");
+                identity, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
-        org.pangrova.metadata.service.MetadataSessionContext result =
+        org.pangrova.metadata.api.session.MetadataSessionContext result =
                 SessionContextConverter.toMetadataSessionContext(ctx);
 
         assertThat(result.user()).isEqualTo("alice");
@@ -208,9 +208,9 @@ class SessionContextConverterTest {
 
     @Test
     void toMetadataSessionContext_handlesNullIdentity() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-2", Map.of(), null, null);
+        QuerySession ctx = new QuerySession("q-2", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
-        org.pangrova.metadata.service.MetadataSessionContext result =
+        org.pangrova.metadata.api.session.MetadataSessionContext result =
                 SessionContextConverter.toMetadataSessionContext(ctx);
 
         assertThat(result.user()).isEqualTo("anonymous");
@@ -220,9 +220,9 @@ class SessionContextConverterTest {
 
     @Test
     void toMetadataSessionContext_connectorPropertiesAreImmutable() {
-        CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-3", Map.of("key", "val"), null, null);
+        QuerySession ctx = new QuerySession("q-3", Map.of("key", "val"), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
-        org.pangrova.metadata.service.MetadataSessionContext result =
+        org.pangrova.metadata.api.session.MetadataSessionContext result =
                 SessionContextConverter.toMetadataSessionContext(ctx);
 
         assertThat(result.connectorProperties()).containsEntry("key", "val");
@@ -238,7 +238,7 @@ class SessionContextConverterTest {
         org.pangrova.common.session.SessionContext spi = buildSpiSession(
                 "alice", Optional.of("cat1"), Optional.of("schema1"), Map.of());
 
-        CoordinatorSessionContext coordinator = SessionContextConverter.fromSpiSessionContext("q-rt", spi);
+        QuerySession coordinator = SessionContextConverter.fromSpiSessionContext("q-rt", spi, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         ConnectorSession connector = SessionContextConverter.toConnectorSession(coordinator);
 
         assertThat(connector.getUser()).isEqualTo("alice");
@@ -252,8 +252,8 @@ class SessionContextConverterTest {
                 "bob", Optional.of("paimon"), Optional.of("staging"),
                 Map.of("timezone", "Asia/Shanghai"));
 
-        CoordinatorSessionContext coordinator = SessionContextConverter.fromSpiSessionContext("q-rt2", spi);
-        org.pangrova.metadata.service.MetadataSessionContext metadata =
+        QuerySession coordinator = SessionContextConverter.fromSpiSessionContext("q-rt2", spi, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+        org.pangrova.metadata.api.session.MetadataSessionContext metadata =
                 SessionContextConverter.toMetadataSessionContext(coordinator);
 
         assertThat(metadata.user()).isEqualTo("bob");
@@ -267,8 +267,8 @@ class SessionContextConverterTest {
 
     @Test
     void metadataToConnectorSession_excludesEngineInternalFields() {
-        org.pangrova.metadata.service.MetadataSessionContext metaCtx =
-                new org.pangrova.metadata.service.MetadataSessionContext(
+        org.pangrova.metadata.api.session.MetadataSessionContext metaCtx =
+                new org.pangrova.metadata.api.session.MetadataSessionContext(
                         "alice", "iceberg", "prod", "UTC", "en_US",
                         Map.of("key", "val"), "tenant-1", "secret-token", "q-1");
 

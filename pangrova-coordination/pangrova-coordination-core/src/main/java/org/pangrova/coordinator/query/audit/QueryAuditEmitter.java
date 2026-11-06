@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.audit;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.spi.query.audit.QueryAuditRecord;
-import org.pangrova.spi.query.audit.QueryAuditSink;
-import org.pangrova.spi.security.audit.AccessedObject;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.query.spi.audit.QueryAuditSink;
+import org.pangrova.security.api.audit.AccessedObject;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
 
 import java.time.Instant;
 import java.util.List;
@@ -50,7 +50,7 @@ public final class QueryAuditEmitter {
         return new QueryAuditEmitter(null, null);
     }
 
-    public void emitQuerySubmitted(String queryId, String sql, CoordinatorSessionContext session) {
+    public void emitQuerySubmitted(String queryId, String sql, QuerySession session) {
         if (emitter == null) {
             return;
         }
@@ -80,7 +80,7 @@ public final class QueryAuditEmitter {
     }
 
     public void emitTableAccessed(String queryId, String catalog, String schema,
-                           String table, CoordinatorSessionContext session) {
+                           String table, QuerySession session) {
         if (emitter == null) {
             return;
         }
@@ -114,7 +114,7 @@ public final class QueryAuditEmitter {
                 subject.tenantId() != null ? Map.of("tenant_id", subject.tenantId()) : Map.of());
     }
 
-    private static String principalFrom(CoordinatorSessionContext session) {
+    private static String principalFrom(QuerySession session) {
         if (session == null || session.userIdentity() == null) {
             return "anonymous";
         }

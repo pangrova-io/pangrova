@@ -29,8 +29,8 @@ final class JdbcMaterializationSql {
     }
 
     <T> Optional<T> queryOne(String action, String sql,
-            org.pangrova.common.jdbc.JdbcSupport.SqlConsumer binder,
-            org.pangrova.common.jdbc.JdbcSupport.SqlFunction<ResultSet, T> mapper) {
+            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlConsumer binder,
+            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlFunction<ResultSet, T> mapper) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             binder.accept(statement);
@@ -43,8 +43,8 @@ final class JdbcMaterializationSql {
     }
 
     <T> List<T> queryList(String action, String sql,
-            org.pangrova.common.jdbc.JdbcSupport.SqlConsumer binder,
-            org.pangrova.common.jdbc.JdbcSupport.SqlFunction<ResultSet, T> mapper) {
+            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlConsumer binder,
+            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlFunction<ResultSet, T> mapper) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             binder.accept(statement);
@@ -61,7 +61,7 @@ final class JdbcMaterializationSql {
     }
 
     <T> T inTransaction(String action,
-            org.pangrova.common.jdbc.JdbcSupport.SqlFunction<Connection, T> work) {
+            org.pangrova.persistence.jdbc.support.JdbcSupport.SqlFunction<Connection, T> work) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {

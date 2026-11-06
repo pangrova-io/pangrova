@@ -5,12 +5,12 @@ import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.pangrova.coordinator.resilience.config.ResilienceConfigLoader;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig;
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -208,7 +208,7 @@ class CircuitBreakerMetricsTest {
         public ObservableDoubleGauge createGauge(String name, String description,
                                                   String unit, Supplier<Double> supplier) {
             gaugeNames.add(name);
-            return new ObservableDoubleGauge() {};
+            return () -> { /* This recording fixture retains no callback. */ };
         }
 
         @Override

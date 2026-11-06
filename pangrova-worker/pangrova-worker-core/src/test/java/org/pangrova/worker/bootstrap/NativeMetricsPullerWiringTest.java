@@ -4,10 +4,10 @@ import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPuller;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
-import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
+import org.pangrova.observability.noop.NoOpMetricsProvider;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;

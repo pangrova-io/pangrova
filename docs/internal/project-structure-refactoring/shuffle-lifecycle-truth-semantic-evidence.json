@@ -1,0 +1,98 @@
+{
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchContext.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DAGDispatchContext.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Use explicit unavailable external lifecycle for absent service. Direct tasks remain on their existing Native execution path; accidental external registration now fails rather than returning a sentinel.",
+    "before_sha256": "18e344247cc32c4a6262fc5b28537fa47c1b8507acae38f4342e908de006f72f",
+    "after_sha256": "9d4841ceb79471b12365a8480a20a2ed8621e2825161920ea27e4a71c8800058"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/InMemoryShuffleDataInventory.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/InMemoryShuffleDataInventory.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Keep diagnostic CRUD, explicitly return UNKNOWN for every assessment because incarnation/generation/completeness/admission ownership is absent; no fake production wiring or permission claim.",
+    "before_sha256": "406851c18846fb5e1855ba6359ca867b55c0977ea28bbac8d567ed74737d25bf",
+    "after_sha256": "79b1429beb1bfc53b2a1d870bde7e62f248bee6f24ab860adb27ce4f20e32c08"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java",
+    "action": "delete",
+    "token_body_identical": false,
+    "review": "Delete unassembled duplicate lifecycle that returned successful-looking empty stage commits; its actual storage/Factory/resource coverage remains in Local provider tests. No production Local session capability is removed or claimed delivered.",
+    "before_sha256": "36fd58143dd9dbcd32c5ab4c1ddba7439444ccfe8f9364b34e6b4c94749a80b0",
+    "after_sha256": null
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/DecommissionAssessment.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/DecommissionAssessment.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Add UNKNOWN with no removal/replay guarantee; SAFE and drain are evidence-dependent advisory results, not derived from storage class or elapsed time.",
+    "before_sha256": "b659031fe5d292a932cfe92197866a0a1720f42308f87098bd8fce13c22de093",
+    "after_sha256": "b3bd3560b7a2871652df0eab25933cf7ca14da7fd9e372f42335aec211b8e0fe"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleCommitResult.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleCommitResult.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Clarify EMPTY as an empty statistics value, never a successful publication or absent-stage sentinel; existing value semantics unchanged.",
+    "before_sha256": "4193a71830d209d2c22f5374a8b5628491c1140752794e9d796bb6c9b55b2a73",
+    "after_sha256": "94206b0033384b925c30789851ee18bc534704bb06d621cd421c59e32016989a"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDataInventory.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDataInventory.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Remove optimistic default based on empty list and retention; implementation must assess complete current fenced evidence or return UNKNOWN. Contract remains experimental pending authoritative production owner.",
+    "before_sha256": "bffb5b08b9db0cf36aca08a480683eef8a28be82694e2f1b687d14c314b2d91d",
+    "after_sha256": "15bf798a5112a5db774640d8fd3941d141995b896cc3f85e9351d942c8c0c777"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDataRef.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDataRef.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Reject blank query/worker and negative stage; explicitly diagnostic, retention is not proof of failure survival or safe removal.",
+    "before_sha256": "c95425c738a3fa5b35bab1e24bf573370eb35a1947d5fcc9995b7c99767b6ea3",
+    "after_sha256": "9c71a358dfd1d25baab0b3a42a9fad961f761288af88159374cbf71566439484"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleHandle.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleHandle.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Remove LOCAL sentinel and require nonempty endpoints plus complete external authority/producer identity on all handles. No generic Provider handle is introduced.",
+    "before_sha256": "47c82dc0819b5559e57bf251d9a24496832b77a34217e63005a9d24577b4c95f",
+    "after_sha256": "97cf36e0b389053ca66c19c0d33becd4ea7c2397c7999c066cdffcabc71c06f9"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleLifecycleManager.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleLifecycleManager.java",
+    "action": "change",
+    "token_body_identical": true,
+    "review": "Correct existing service-specific contract: unregistered/unsupported publication rejects. Remove nonexistent implementation examples and no-op success guarantee.",
+    "before_sha256": "2f7cc5a1be11af6822fe0be3ec7fdee04aa97bdb3c70487059e0d72c6ddba990",
+    "after_sha256": "3e3388c20ce694455a5d9ad2bf05763b160f27631f048eede10a52f833e586a1"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleRegistration.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleRegistration.java",
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Reject blank query and negative stage before allocation; remaining immutable producer/epoch fields unchanged.",
+    "before_sha256": "fcccf49df60b77aec282c6c794bc9934da7ad3363c952c087b605435d1ec9d77",
+    "after_sha256": "6ccbacac4a6a9060270edb81653396fe1de3292c24b9a25894b501e918f61a6e"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/UnavailableExternalShuffleLifecycle.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalShuffleLifecycleManager.java",
+    "action": "replace-and-move",
+    "token_body_identical": false,
+    "review": "Replace misleading Local no-op publication with explicit unconfigured external-service binding: register/commit reject; cleanup owns no external allocation and validates identity. Direct Native resource owners unchanged.",
+    "before_sha256": "37bfdb891bf8043e5fa9cdfef455cb6f3262efade50ce52bf2bd4ee413cf05a0",
+    "after_sha256": "a4ca2f14267630736c92a995b4e7479763cece0b05914cfc84321718f303e3be"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalSpillLifecycleManager.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/LocalSpillLifecycleManager.java",
+    "action": "delete",
+    "token_body_identical": false,
+    "review": "Delete unassembled package-private duplicate that equated segment finish to stage publication; no production caller or independent resource owner existed.",
+    "before_sha256": "56622b11436dde48ef8fd63b66a3e746beeabe09e1dc46a0410fbc3c170dab36",
+    "after_sha256": null
+  }
+}

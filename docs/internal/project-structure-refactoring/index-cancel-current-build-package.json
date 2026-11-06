@@ -1,0 +1,53 @@
+{
+  "scope": "Post-edit current source snapshot of main/test build package; not a reconstruction of pre-edit baseline.",
+  "files": [
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/BuildClaimHandler.java",
+      "sha256": "031b81e9e09abc99cd733230b8cd4385155a624fe33d281cbb3d1939caa40646"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/BuildFileMapping.java",
+      "sha256": "01450a10025c1a9a5816846fe9fe2fbf5e8e12ee3123e8663bd2494e62ffb411"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/DataFileInfo.java",
+      "sha256": "e2bae57a042d8c8c1467a5e8d11be94f8a58248ac0b501b2ca2444997d3db678"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/GenerationChecker.java",
+      "sha256": "453226d9812e26aaeba2512baa767a52d5b68e70a8eba0b4d8c8b5024f50cacf"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexBuildContext.java",
+      "sha256": "eec0330ff81822e85f6de828c3563bdecab8b34e2a15f46d6592885ae9a43d2f"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexBuildCoordinator.java",
+      "sha256": "f00bff3b8cb4914e74ab993208b9ee7c5b1a1600189de01fff19c499e1948a25"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexBuildResult.java",
+      "sha256": "c4606c3a4e33e8c81e8e2f19c543f2132926f9ebd3fc170802cc336f00baad91"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexFileBuilder.java",
+      "sha256": "2618abc28c938505422f8a34b97bd95ad2a5a169a365df73324ca2aa3814d102"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/BuildFileMappingTest.java",
+      "sha256": "7305a603aa9a1f361c29289f57a3cbcd369a384d785b3c22016d016e80acf34a"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/IndexBuildCancellationTest.java",
+      "sha256": "737f4cb898386b284d5b46c99895331f07f0d1fefcd503e3e9c456da75d4e93f"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/IndexBuildFileCancellationTest.java",
+      "sha256": "51de1e35c47b5420e86df30711bfb907bd6da200463f5d54761cded0e8df201c"
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/build/IndexBuildSnapshotPinTest.java",
+      "sha256": "3c54e2052420736648c5ffcafb1deea744e91622c9dedd86a220d9ee6c9cf9bf"
+    }
+  ]
+}

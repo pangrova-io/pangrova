@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.core.lifecycle.QueryTimeoutScheduler;
+
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
@@ -21,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>{@link QueryManager}: query lifecycle state machines, audit, lineage, tenant</li>
  *   <li>{@link QueryDispatcher}: compile → schedule → dispatch orchestration</li>
  *   <li>{@link TaskStatusReceiver}: task status callback processing</li>
- *   <li>{@link QueryTimeoutEnforcer}: periodic timeout enforcement</li>
+ *   <li>{@link QueryTimeoutScheduler}: periodic timeout enforcement</li>
  * </ul>
  *
  * <p>Plan fragmentation has been moved to {@code pangrova-planner.PlanFragmenter};
@@ -108,20 +112,20 @@ class QueryLifecycleResponsibilityBoundaryTest {
                         "setWriteCommitFencer", "setWriteQualityGate");
     }
 
-    // ── QueryTimeoutEnforcer boundary: timeout enforcement only ──
+    // ── QueryTimeoutScheduler boundary: timeout enforcement only ──
 
     @Test
     void queryTimeoutEnforcer_doesNotReferenceQueryDispatcher() {
-        assertClassDoesNotReference(QueryTimeoutEnforcer.class, QueryDispatcher.class,
-                "QueryTimeoutEnforcer must not depend on QueryDispatcher — "
-                        + "it only enforces timeouts on state machines");
+        assertClassDoesNotReference(QueryTimeoutScheduler.class, QueryDispatcher.class,
+                "QueryTimeoutScheduler must not depend on QueryDispatcher — "
+                        + "it only schedules timeout checks against the query owner");
     }
 
     @Test
     void queryTimeoutEnforcer_publicApiIsStartStopOnly() {
-        Set<String> publicMethods = publicMethodNames(QueryTimeoutEnforcer.class);
-        assertThat(publicMethods).as("QueryTimeoutEnforcer public API")
-                .containsExactlyInAnyOrder("start", "stop", "setTimeoutCallback");
+        Set<String> publicMethods = publicMethodNames(QueryTimeoutScheduler.class);
+        assertThat(publicMethods).as("QueryTimeoutScheduler public API")
+                .containsExactlyInAnyOrder("start", "stop");
     }
 
     // ── StatementDispatcher boundary: statement dispatch only ──
@@ -137,9 +141,17 @@ class QueryLifecycleResponsibilityBoundaryTest {
     // ── Cross-cutting: constructor dependency governance ──
 
     @Test
-    void queryManager_usesParameterObject() {
-        assertConstructorParamCount(QueryManager.class, 1,
-                "QueryManager must use QueryManagerContext parameter object");
+    void queryManager_requiresExplicitDependenciesAndTypedReaderPinPort() {
+        // Reader pins are an explicit domain port, not another field hidden in the
+        // already large Context. Check the actual permitted types, not a parameter cap.
+        var signatures = Arrays.stream(QueryManager.class.getConstructors())
+                .map(constructor -> Arrays.stream(constructor.getGenericParameterTypes())
+                        .map(java.lang.reflect.Type::getTypeName).toList())
+                .toList();
+        assertThat(signatures).containsExactlyInAnyOrder(
+                java.util.List.of(QueryManagerContext.class.getName()),
+                java.util.List.of(QueryManagerContext.class.getName(),
+                        "java.util.Optional<org.pangrova.query.spi.retention.ReaderPinLifecycle>"));
     }
 
     @Test
@@ -155,6 +167,26 @@ class QueryLifecycleResponsibilityBoundaryTest {
     void taskStatusReceiver_constructorWithinLimit() {
         assertConstructorParamCount(TaskStatusReceiver.class, 3,
                 "TaskStatusReceiver constructor must not exceed 4 parameters");
+    }
+
+    @Test
+    void queryLifecycleSignaturesExcludeClientWireDtos() {
+        for (Class<?> type : java.util.List.of(QueryManager.class, QueryStateMachine.class,
+                QueryAsyncSubmission.class, org.pangrova.coordinator.query.stage.Stage.class,
+                org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback.class)) {
+            for (var method : type.getDeclaredMethods()) {
+                assertThat(method.getGenericReturnType().getTypeName()).as("%s return", method)
+                        .doesNotContain("org.pangrova.client.");
+                for (var parameter : method.getGenericParameterTypes()) {
+                    assertThat(parameter.getTypeName()).as("%s parameter", method)
+                            .doesNotContain("org.pangrova.client.");
+                }
+            }
+            for (var field : type.getDeclaredFields()) {
+                assertThat(field.getGenericType().getTypeName()).as("%s field", field)
+                        .doesNotContain("org.pangrova.client.");
+            }
+        }
     }
 
     // ── Helpers ──

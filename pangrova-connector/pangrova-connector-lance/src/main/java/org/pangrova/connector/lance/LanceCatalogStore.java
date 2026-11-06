@@ -1,11 +1,15 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
-import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
-import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
-import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.SourceTableState;
+
+import org.pangrova.connector.api.metadata.SourceTableKey;
+
+import org.pangrova.connector.api.metadata.AcceptedSourceSnapshot;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.api.metadata.PreparedSourcePublication;
+import org.pangrova.connector.api.metadata.SourcePublicationReservation;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.io.IOException;
 import java.util.List;
@@ -42,7 +46,7 @@ final class LanceCatalogStore {
 
     LanceTableHandle load(String catalog, String tenant, SchemaTableName table) {
         requireCatalog(catalog);
-        return authority.load(new ManagedSourceCatalog.TableKey(tenant, table))
+        return authority.load(new SourceTableKey(tenant, table))
                 .map(LanceCatalogStore::decode).orElse(null);
     }
 
@@ -72,7 +76,7 @@ final class LanceCatalogStore {
             PreparedSourcePublication publication, long writtenRows) {
         var base = output.table();
         long expectedRows = output.allocation().operation()
-                == org.pangrova.spi.connector.metadata.NativeWriteAllocation.Operation.APPEND
+                == org.pangrova.connector.api.metadata.NativeWriteAllocation.Operation.APPEND
                 ? Math.addExact(base.rowCount(), writtenRows) : writtenRows;
         if (publication.rows() != expectedRows) {
             throw new IllegalArgumentException("SDK manifest rows differ from winners");
@@ -84,7 +88,7 @@ final class LanceCatalogStore {
         var accepted = authority.accept(reservation, publication, state(next));
         return new Snapshot(decode(accepted.table()), accepted.reference());
     }
-    org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abort(
+    org.pangrova.connector.api.metadata.DistributedWriteAbortReceipt abort(
             LanceOutputHandle output, DistributedWriteCommitContext context) {
         requireCatalog(output.table().catalog());
         return authority.abort(reservation(output, context));
@@ -113,17 +117,17 @@ final class LanceCatalogStore {
     static void requireSchema(String schema) {
         if (schema == null || schema.isBlank()) throw new IllegalArgumentException("Schema name must not be blank");
     }
-    static ManagedSourceCatalog.TableState state(LanceTableHandle table) {
+    static SourceTableState state(LanceTableHandle table) {
         try {
-            return new ManagedSourceCatalog.TableState(
-                    new ManagedSourceCatalog.TableKey(table.tenantId(), table.table()),
+            return new SourceTableState(
+                    new SourceTableKey(table.tenantId(), table.table()),
                     table.tableId(), table.datasetUri(), 1, table.revision(), table.version(), table.rowCount(),
                     table.schemaFence(), LanceOutputHandleCodec.MAPPER.writeValueAsBytes(table));
         } catch (IOException failure) {
             throw new IllegalArgumentException("Cannot encode source table", failure);
         }
     }
-    private static LanceTableHandle decode(ManagedSourceCatalog.TableState state) {
+    private static LanceTableHandle decode(SourceTableState state) {
         try {
             var table = LanceOutputHandleCodec.MAPPER.readValue(state.payload(), LanceTableHandle.class);
             if (!table.tenantId().equals(state.key().tenant()) || !table.table().equals(state.key().table())

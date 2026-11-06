@@ -28,7 +28,7 @@ import org.pangrova.materialization.domain.TargetLag;
 import org.pangrova.materialization.port.MaterializationEvent;
 import org.pangrova.materialization.port.MaterializationEventType;
 import org.pangrova.materialization.port.PublishCommand;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.CommitEvidence;
 
 /** Durable read-model projections and upstream-driven schedule advancement. */
 class MaterializationRepositoryProjectionTest {

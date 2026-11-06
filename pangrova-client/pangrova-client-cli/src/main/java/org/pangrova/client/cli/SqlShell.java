@@ -1,7 +1,7 @@
 package org.pangrova.client.cli;
 
 import org.pangrova.client.error.PangrovaClientException;
-import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.transport.client.http.PangrovaRestClient;
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.client.protocol.QueryStatusResponse;
 import org.pangrova.client.protocol.SubmitQueryResponse;

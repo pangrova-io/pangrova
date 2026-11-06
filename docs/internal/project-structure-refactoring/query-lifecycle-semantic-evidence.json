@@ -1,0 +1,156 @@
+{
+  "pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/retention/QueryRetentionScheduler.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryCleanupScheduler.java",
+    "token_body_identical": false,
+    "review": "Move to Query Core retention and rename QueryRetentionScheduler; expose existing internal controls. Borrowed registry/timer/work executor, eligibility and retry scheduling retained. This is not a second physical cleanup owner.",
+    "before_sha256": "91bfc0f16fc5118e4511b71edeb2a49fc885d8ae2c1c7746a73ac2950086b5d4",
+    "after_sha256": "5ac32b71b712898f549894f2a01244d7de9ccec3d32ac9596980450a6dca320b"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAdmission.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAdmission.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "e7254eef200bd148654dd173e863f61d86c98ee808c4d992351e318c65e86be9",
+    "after_sha256": "840ac00c73b4be525151b6b01ecfa4a9387153327794b6663d1022c4ceb8290f"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalEvents.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalEvents.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "8433fd9c42a0ecea911757bf43b6bbd92b370feb0dbe2ac540e4408460fe3f9b",
+    "after_sha256": "e4f8fe7336221ca72517c2caf000f4e6aac07c809a09ec94a690c2ffc9d58c2b"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "7cfd87408164d775bf80adf85b6109034ac8b7fdbf7245f3a4a1c3b199d1c765",
+    "after_sha256": "545c58b4598f53f81c401d04910018f8381a22ab597526a4b3007c41453dd8ea"
+  },
+  "pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryConnectorAuthority.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryConnectorAuthority.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "d251834d6cb7b996d6386efb908a2156b7252de2eb065ecfd147cdcc770c9d09",
+    "after_sha256": "2de9ff9bd756db043db6d9ba37904a826b8a926c219ef8b2ad12c65fdabf3a06"
+  },
+  "pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryStateMachine.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryStateMachine.java",
+    "token_body_identical": false,
+    "review": "Single state owner moves to Query Core; existing internal engine collaborators gain public access across modules. Connector operation admission remains package-private. Common lock annotation replaces accidentally transitive JSR annotation. Observer futures copy readiness: no caller can complete/cancel owner state. Existing reservation, journal, fencing, transition ordering, lineage and physical cleanup owners retained.",
+    "before_sha256": "7a1cd5cc898f37beb54bb38837d123240b701678e167f4410ec26f9b6b11ccee",
+    "after_sha256": "bfc20f1f576668cc9f9127a07b916ef17eeb17bd1f107ac480d38446c2204b86"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/NativeDmlCompileFunction.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/NativeDmlCompileFunction.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "6113f6af718509eca702d470e41cd3d5cc1dde90dc176bc53ba22d6098ebad01",
+    "after_sha256": "1e8a09a8f6d6a602969e5e33309017b49989eb3d84d0d05a868048dc8459ff07"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementDispatcher.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "97a72afd269268d03bb488d667f58948409e11de7c642b8ffb73acd6640fdfbd",
+    "after_sha256": "108757ab47515164764ccecec6cc277130ac098d08716649fdc7675a32bd23e4"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementExecutionContext.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/StatementExecutionContext.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "63d576088248c18519c9661647c060274b68a6f1f71a759de17809bbac9513c0",
+    "after_sha256": "e09eff571d252a962e237e350f44dc72542e299537d19470d742ff520d1af67e"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "7a6093b794ad9805995aa15233ed51ae5438dbbaf5b0bfe255583e2a210f94a8",
+    "after_sha256": "30622bb57fdba4d6ff2d9293b978ba0133bee4c520a8e06bfb3feea1db93a23d"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QuerySchedulingEngine.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "d6061ebd7b2ed2941024d4b37d80157b02ce096e5bfef077675a9e8dee7d075f",
+    "after_sha256": "0b3d2c7563cdd9f607da5f6baf8b7f4bb38a0a2ab74a897d1f8b800ea97ae580"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/QueryExecutionContext.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/phase/QueryExecutionContext.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "ff10e32ac5fee3d9a46daa9c035820437faab941a387a7f09180c0b8e75b435a",
+    "after_sha256": "e7539c0ea161b19164b1e54b20bc16477ce50cbbe56aca7dd1a11dfabddd53a5"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "f38e6a88378ab5a09021090511938c09cfd8cd05eebc611685ba0e7fc52cf78d",
+    "after_sha256": "0d2a6dac807a05700c1a64a19071c08edf81edbb201deab41ac8b62677392962"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAuditDispatcher.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "89e8ce30697d723b4afeab0d5c0b587ecdc47683ce4464eb71754e879dcdcde3",
+    "after_sha256": "337f8025e7a06f3308b480ba470abb120559c314a0fdfea7846104866b633ec1"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/state/JournalRecoveryService.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/state/JournalRecoveryService.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "a52f66ae22326a35025e66b180abb2f269b8001927123afce4960d7588df09ca",
+    "after_sha256": "5ffb2a328f2d700447a0897a2d47b7f50a88ab623b193667b9680092842906b9"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "a9e9e5ad5b0d3be3cdd02ee172971fbdc5d9e559813757aeb0c726d69a1b36a8",
+    "after_sha256": "07ef90489991801e6accefdf2f701472ec68405e14905b16fd2f7d0551012007"
+  },
+  "pangrova-query/pangrova-query-core/src/main/java/org/pangrova/query/core/lifecycle/QueryTerminalCleanup.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalCleanup.java",
+    "token_body_identical": false,
+    "review": "Move existing physical cleanup retry owner to Query Core; public internal constructor/control methods and immutable context permit Coordinator orchestration. Common lock annotations; no new state machine, executor ownership, retry policy, journal, cancellation or ordering changes.",
+    "before_sha256": "1ba0f240301103b6adaade2db8348808db614a6dcf33b55a38ff1cbbb51dd742",
+    "after_sha256": "54abfb022aefa10fc135cd1b5926ca452f052bf5d75261f3a476319932676254"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "9a40155f7f111c0fb1d07f837bc7db19b6c7f973bf6f2313bfe6701a18ae1908",
+    "after_sha256": "0cc6d24f5da6971825f235de03615332c10e2aaad7d15503568c6bc5b2b8b4b8"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/QueryStatusResource.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "0c5ff277796e20d6798b3b999eebdf86177b48058024d029c7156e27525ecfeb",
+    "after_sha256": "15d2044c90f7d878c86063aa8c3834b97238abdb95f3b555f6d91274f8a281de"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/WebUiResource.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/WebUiResource.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "f41363ddc2c52458e71d040af886539991d3f8dff36dabe68b3f119f63ad3a4b",
+    "after_sha256": "1f5d73243e73872379c4912d42378881d9dda1ba7fb0bc7e4f6989d5df4ed793"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/NativeCtasExecutionEngine.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/NativeCtasExecutionEngine.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "38c3283c7496f531b75670b7ead0b98aa14a63c74c4ca9fa2a0554a6c5b4d92e",
+    "after_sha256": "340a28727c20768b47df0b160c414b7fb09f883f4763aed9c8a40ce6a2154d01"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/MaterializationMaintenance.java": {
+    "old_path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/MaterializationMaintenance.java",
+    "token_body_identical": true,
+    "review": "Exact token body after FQN/retention-name substitution; imports, package, comments and whitespace ignored, literals preserved. No algorithm, permission, state, resource or wiring change.",
+    "before_sha256": "64b1875e37dbbe2bbbff9febce5840dc993aa1dc2f2c9ca5f0bee37ff4bf6d9d",
+    "after_sha256": "5cc40cbc931b93826a9ff4b34a8bb73ee11ed2cfeee7752f098954113a64a6d3"
+  }
+}

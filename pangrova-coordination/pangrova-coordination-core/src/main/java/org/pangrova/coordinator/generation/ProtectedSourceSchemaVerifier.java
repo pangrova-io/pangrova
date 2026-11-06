@@ -3,12 +3,12 @@ package org.pangrova.coordinator.generation;
 import io.substrait.proto.NamedStruct;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.execution.AuthorizedRelation;
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.planner.core.substrait.NativeDatasetSchemaCompiler;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.util.Objects;
 

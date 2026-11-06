@@ -24,8 +24,8 @@ import org.pangrova.materialization.domain.RefreshMode;
 import org.pangrova.materialization.domain.SourceVector;
 import org.pangrova.materialization.domain.StrategyId;
 import org.pangrova.materialization.domain.RefreshPlan;
-import org.pangrova.spi.connector.materialization.ChangeProof;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.ChangeProof;
+import org.pangrova.connector.api.materialization.SourceRef;
 
 class MaterializationExtensionRegistryTest {
 

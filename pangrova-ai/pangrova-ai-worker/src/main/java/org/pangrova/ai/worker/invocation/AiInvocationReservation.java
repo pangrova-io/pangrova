@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 
 import static org.pangrova.ai.worker.invocation.AiInvocationBudgetManager.budgetExceeded;

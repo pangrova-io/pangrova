@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.state;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -8,13 +10,13 @@ import java.util.Map;
 import java.util.Set;
 
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.spi.query.state.QueryStateEvent;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
-import org.pangrova.spi.query.state.TaskStateEvent;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -176,7 +178,7 @@ public final class JournalRecoveryService {
         for (QueryStateEvent event : latestByQuery.values()) {
             try {
                 QueryStateMachine sm = new QueryStateMachine();
-                QueryStateMachine.State target = QueryStateMachine.State.valueOf(event.state());
+                QueryState target = QueryState.valueOf(event.state());
                 advanceToState(sm, target);
                 // Logical events do not retain the original issued requests or Native exit receipts.
                 queryManager.markRecoveredIssuanceUnresolved(event.queryId());
@@ -294,7 +296,7 @@ public final class JournalRecoveryService {
         for (String queryId : failedQueries) {
             try {
                 queryManager.onTaskFailed(queryId,
-                        new org.pangrova.client.error.ErrorDetail(
+                        new org.pangrova.query.api.error.QueryFailure(
                                 "RECOVERY_WORKER_DEAD",
                                 queryId,
                                 "Query failed during recovery: assigned worker is dead or unreachable"));
@@ -310,29 +312,29 @@ public final class JournalRecoveryService {
     }
 
     /** Happy path: QUEUED → PLANNING → SCHEDULING → RUNNING → FINISHING → FINISHED. */
-    private static final QueryStateMachine.State[] HAPPY_PATH = {
-            QueryStateMachine.State.PLANNING,
-            QueryStateMachine.State.SCHEDULING,
-            QueryStateMachine.State.RUNNING,
-            QueryStateMachine.State.FINISHING,
-            QueryStateMachine.State.FINISHED
+    private static final QueryState[] HAPPY_PATH = {
+            QueryState.PLANNING,
+            QueryState.SCHEDULING,
+            QueryState.RUNNING,
+            QueryState.FINISHING,
+            QueryState.FINISHED
     };
 
     /**
      * Advances a fresh QueryStateMachine through the valid transition path
      * to reach the target state. Skips if target is QUEUED (initial state).
      */
-    private static void advanceToState(QueryStateMachine sm, QueryStateMachine.State target) {
-        if (target == QueryStateMachine.State.QUEUED) {
+    private static void advanceToState(QueryStateMachine sm, QueryState target) {
+        if (target == QueryState.QUEUED) {
             return;
         }
-        if (target == QueryStateMachine.State.FAILED
-                || target == QueryStateMachine.State.CANCELLED) {
-            sm.tryTransition(QueryStateMachine.State.PLANNING);
+        if (target == QueryState.FAILED
+                || target == QueryState.CANCELLED) {
+            sm.tryTransition(QueryState.PLANNING);
             sm.tryTransition(target);
             return;
         }
-        for (QueryStateMachine.State step : HAPPY_PATH) {
+        for (QueryState step : HAPPY_PATH) {
             sm.tryTransition(step);
             if (step == target) {
                 return;

@@ -1,0 +1,14 @@
+{
+  "artifact": "pangrova-persistence/pangrova-persistence-catalog-api/target/pangrova-persistence-catalog-api-0.1.0-SNAPSHOT.jar",
+  "sha256": "e92cbf0ea0e80f56c094342da6d5d2eb8ab8aa7ae762b555ba5d3ae47b03383d",
+  "interfaces": [
+    {
+      "class": "org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions",
+      "javap": "Compiled from \"MetadataProjectionTransactions.java\"\npublic interface org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions {\n  public abstract org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt apply(org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation);\n  public abstract void recoverPending(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity);\n  public abstract java.util.Optional<org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt> findReceipt(java.util.UUID);\n}\n"
+    },
+    {
+      "class": "org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository",
+      "javap": "Compiled from \"MetadataSyncRepository.java\"\npublic interface org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository {\n  public abstract java.util.Optional<java.time.Instant> loadCheckpoint(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity);\n  public abstract void complete(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion);\n  public abstract void recoverPending(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity);\n  public abstract java.util.Optional<org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion> findCompletion(java.util.UUID);\n}\n"
+    }
+  ]
+}

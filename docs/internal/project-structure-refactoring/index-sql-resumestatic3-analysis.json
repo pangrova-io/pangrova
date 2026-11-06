@@ -1,0 +1,35 @@
+[
+  {
+    "report": "pangrova-persistence/pangrova-persistence-security-postgresql/target/spotbugsXml.xml",
+    "sha256": "6edbeb9a2a546babc6c59c5af2dc1bd2f36b0f04a5f527175a628e597b7d7baa",
+    "findings": [
+      {
+        "type": "CT_CONSTRUCTOR_THROW",
+        "priority": "2",
+        "class": "org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport",
+        "message": "Exception thrown in class org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport at new org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport(DataSource) will leave the constructor. The object under construction remains partially initialized and may be vulnerable to Finalizer attacks."
+      }
+    ],
+    "missing_classes": [
+      "apply",
+      "applyAsLong",
+      "get",
+      "makeConcatWithConstants",
+      "test"
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-security-postgresql/target/checkstyle-result.xml",
+    "sha256": "96189f51e9c836e7af3dceb57edc9ae805e23cd89642bb5a6b1f0ec7b230141e",
+    "diagnostics": [
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/PrivilegeGrantRows.java",
+        "line": "57",
+        "column": "5",
+        "severity": "warning",
+        "message": "\u5708\u590d\u6742\u5ea6\uff1a 16 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+      }
+    ]
+  }
+]

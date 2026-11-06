@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
-import org.pangrova.planner.AiInvocationPlanHint;
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
+import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityLimits;
 import org.pangrova.protocol.v2.CapabilityRef;
@@ -15,12 +15,11 @@ import org.pangrova.protocol.v2.ModelBinding;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.RetryClass;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.util.Objects;
 import java.util.List;
 
-import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.resource.ModelResourceEnvelopes;
 
@@ -97,7 +96,7 @@ public final class AiInvocationOperatorBinder {
             String modelName) {
         List<ModelCapabilityContract> matches = availability
                 .getCapabilityContractsList().stream()
-                .filter(contract -> WorkerCapabilityMatcher.matchesCapabilityRef(
+                .filter(contract -> org.pangrova.protocol.capability.CapabilityIdentities.matches(
                         contract.getCapability(), capability))
                 .toList();
         if (matches.size() != 1) {

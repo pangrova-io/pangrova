@@ -24,17 +24,17 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
-import org.pangrova.spi.connector.materialization.ChangeProof;
-import org.pangrova.spi.connector.materialization.ChangeSetMode;
-import org.pangrova.spi.connector.materialization.ChangeSetPlan;
-import org.pangrova.spi.connector.materialization.MaterializationCapabilities;
-import org.pangrova.spi.connector.materialization.MaterializationSourceException;
-import org.pangrova.spi.connector.materialization.PartitionChange;
-import org.pangrova.spi.connector.materialization.PartitionValue;
-import org.pangrova.spi.connector.materialization.PinnedSource;
-import org.pangrova.spi.connector.materialization.SourceProvider;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.connector.api.materialization.ChangeProof;
+import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.materialization.ChangeSetPlan;
+import org.pangrova.connector.api.materialization.MaterializationCapabilities;
+import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.api.materialization.PartitionChange;
+import org.pangrova.connector.api.materialization.PartitionValue;
+import org.pangrova.connector.api.materialization.PinnedSource;
+import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 /**
  * Iceberg materialization source contract.

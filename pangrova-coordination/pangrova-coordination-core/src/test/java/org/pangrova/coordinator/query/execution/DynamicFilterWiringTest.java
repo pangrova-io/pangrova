@@ -7,8 +7,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.RuntimeFilterStageHandler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleOutputCollector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
@@ -18,13 +18,13 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.planner.runtimefilter.RuntimeFilter;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterGenerator;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilter;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterDescriptor;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterGenerator;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -79,7 +79,7 @@ class DynamicFilterWiringTest {
         for (var descriptor : descriptors) {
             handler.registerFilterTarget(buildStageId, probeStageId,
                     descriptor.buildColumn(), descriptor.probeColumn(),
-                    org.pangrova.spi.connector.data.type.PangrovaType.INTEGER);
+                    org.pangrova.types.PangrovaType.INTEGER);
         }
 
         // Setup probe-side tasks
@@ -97,9 +97,9 @@ class DynamicFilterWiringTest {
 
         // Fire build-side stage completion
         Stage buildStage = dag.findStage(0);
-        CoordinatorSessionContext session = createSession("q-dpp-wiring");
+        QuerySession session = createSession("q-dpp-wiring");
         StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-dpp-wiring",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         // Verify: filter was generated and registered
@@ -148,9 +148,9 @@ class DynamicFilterWiringTest {
         collector.deposit("q-no-dpp", "0", "col", List.of(1, 2, 3));
 
         Stage buildStage = dag.findStage(0);
-        CoordinatorSessionContext session = createSession("q-no-dpp");
+        QuerySession session = createSession("q-no-dpp");
         StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-no-dpp",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         // No filter targets registered → no injection
@@ -171,7 +171,7 @@ class DynamicFilterWiringTest {
 
         // Register filter target from descriptor
         handler.registerFilterTarget("0", "1", "order_id", "order_id",
-                org.pangrova.spi.connector.data.type.PangrovaType.INTEGER);
+                org.pangrova.types.PangrovaType.INTEGER);
 
         StageNode s0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyFragment(), 1, "COMPUTE", List.of());
@@ -192,9 +192,9 @@ class DynamicFilterWiringTest {
         collector.deposit("q-bloom-wiring", "0", "order_id", largeValues);
 
         Stage buildStage = dag.findStage(0);
-        CoordinatorSessionContext session = createSession("q-bloom-wiring");
+        QuerySession session = createSession("q-bloom-wiring");
         StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-bloom-wiring",
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         // Verify Bloom filter generated
@@ -231,18 +231,18 @@ class DynamicFilterWiringTest {
                                byte[] filterProto, String workerId) {}
     }
 
-    private static CoordinatorSessionContext createSession(String queryId) {
+    private static QuerySession createSession(String queryId) {
         UserIdentity identity = new UserIdentity(
                 "testUser", Set.of(), Map.of(), Instant.now());
-        return new CoordinatorSessionContext(queryId, Map.of(), identity, "default-tenant");
+        return new QuerySession(queryId, Map.of(), identity, "default-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
-    private static org.pangrova.planner.PlanFragment dummyFragment() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyFragment() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

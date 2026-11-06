@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.ai.branch;
 
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.api.session.ConnectorSession;
 
 import java.util.Map;
 import java.util.Optional;
@@ -10,7 +10,7 @@ import java.util.Optional;
  */
 record BranchConnectorSession(String catalog) implements ConnectorSession {
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+    public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
         return java.util.Optional.empty();
     }
 

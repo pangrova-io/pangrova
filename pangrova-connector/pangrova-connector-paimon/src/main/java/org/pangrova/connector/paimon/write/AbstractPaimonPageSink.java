@@ -2,14 +2,14 @@ package org.pangrova.connector.paimon.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.protocol.batch.ColumnarPageSink;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.connector.spi.data.ColumnarPageSink;
+import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.index.CommitEventType;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
@@ -80,7 +80,7 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
      * @throws ConnectorException if value conversion or writing fails
      */
     @Override
-    public void appendColumnarBatch(ColumnarBatch batch) {
+    public void appendColumnarBatch(ReadableBatch batch) {
         requireWriting();
         int[] ordinals = rowConverter.columnOrdinals(batch.columns());
         int rowCount = batch.rowCount();
@@ -96,7 +96,7 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
 
     @Override
     public void appendNativePage(NativePage page) {
-        appendPage(NativePageConverter.toPage(page));
+        appendPage(ConnectorBinaryPageCodec.toPage(page));
     }
 
     @Override

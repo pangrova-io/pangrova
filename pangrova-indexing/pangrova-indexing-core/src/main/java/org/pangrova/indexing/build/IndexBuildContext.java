@@ -1,18 +1,19 @@
 package org.pangrova.indexing.build;
 
+import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import java.util.concurrent.ExecutorService;
 import org.pangrova.indexing.registry.IndexEngineRegistry;
 import org.pangrova.indexing.config.IndexingConfig;
-import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.connector.spi.index.SnapshotPinProvider;
 
 public record IndexBuildContext(
         IndexingConfig config,
         IndexEngineRegistry engineRegistry,
         IndexStorageManager storageManager,
         IndexSerializer serializer,
-        BuildClaimHandler claimHandler,
+        IndexBuildClaimRepository claimRepository,
         GenerationChecker generationChecker,
         SnapshotPinProvider snapshotPinProvider,
         ExecutorService buildExecutor) {

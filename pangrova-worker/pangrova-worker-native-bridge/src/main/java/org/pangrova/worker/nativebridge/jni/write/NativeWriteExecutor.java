@@ -3,14 +3,15 @@ package org.pangrova.worker.nativebridge.jni.write;
 import org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.protocol.batch.ColumnarPageSink;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.batch.arrow.ColumnarBatch;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.connector.spi.data.ColumnarPageSink;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.worker.nativebridge.jni.NativeRuntimeException;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -253,7 +254,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
                         sharedAllocator.newChildAllocator(
                                 "batch-decode-" + writeHandle, 0, 16L * 1024 * 1024);
                 ColumnarBatch decoded = ColumnarBatch.open(data, allocator, rowCount, columnCount);
-                ColumnarBatch projected =
+                ReadableBatch projected =
                         WritePageProjector.projectToWriteSchema(
                                 decoded, ws.columnNames(), ws.physicalColumns())) {
             appendToSink(ws.sink(), projected);
@@ -279,7 +280,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         }
     }
 
-    private static void appendToSink(ConnectorPageSink sink, ColumnarBatch batch) {
+    private static void appendToSink(ConnectorPageSink sink, ReadableBatch batch) {
         if (sink instanceof ColumnarPageSink columnarSink) {
             columnarSink.appendColumnarBatch(batch);
             return;
@@ -527,7 +528,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
 
     private static ConnectorPageSink createPageSink(
             ConnectorPageSinkProvider sinkProvider,
-            org.pangrova.spi.connector.ConnectorSession session,
+            org.pangrova.connector.api.session.ConnectorSession session,
             ConnectorOutputTableHandle outputHandle,
             WriteDescriptor.DmlOperation dmlOperation) {
         return switch (dmlOperation) {

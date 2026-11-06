@@ -7,7 +7,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -15,7 +15,7 @@ import java.util.Optional;
 
 /** Physical schema and independently proven declaration properties of one exact SDK snapshot. */
 record IcebergReadSchema(Schema schema, Optional<Map<String, String>> declarationProperties,
-        org.pangrova.spi.connector.metadata.table.TableIdentity tableIdentity) {
+        org.pangrova.connector.api.metadata.table.TableIdentity tableIdentity) {
     private static final int MAX_METADATA_FILES = 1024;
 
     static IcebergReadSchema resolve(IcebergTableHandle handle, Table table) {
@@ -55,7 +55,7 @@ record IcebergReadSchema(Schema schema, Optional<Map<String, String>> declaratio
     private static IcebergReadSchema selected(Schema schema, Optional<Map<String, String>> properties,
             TableMetadata captured) {
         return new IcebergReadSchema(schema, properties,
-                new org.pangrova.spi.connector.metadata.table.TableIdentity("ICEBERG", captured.uuid(),
+                new org.pangrova.connector.api.metadata.table.TableIdentity("ICEBERG", captured.uuid(),
                         captured.location(), org.pangrova.common.util.DigestUtils.sha256Hex(
                                 org.apache.iceberg.SchemaParser.toJson(schema))));
     }

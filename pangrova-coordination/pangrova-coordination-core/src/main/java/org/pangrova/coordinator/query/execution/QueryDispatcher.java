@@ -1,21 +1,25 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.spi.write.WriteAuthorityResolver;
+
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
+
 import java.util.ArrayList;
 import java.util.List;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.coordinator.query.audit.QueryLineageInfo;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DefaultWorkerSelector;
+import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
-import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
+import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
@@ -23,7 +27,7 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.observability.sdk.tracing.QueryTracer;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +51,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * submissions. All mutable state uses thread-safe constructs.</p>
  */
 @org.pangrova.common.concurrent.ThreadSafe
-public class QueryDispatcher {
+public class QueryDispatcher implements org.pangrova.query.spi.lifecycle.QueryExecutionCleanup {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryDispatcher.class);
     private static final long DEFAULT_DAG_DISPATCH_TIMEOUT_MS = 300_000L;
@@ -69,6 +73,17 @@ public class QueryDispatcher {
     public QueryDispatcher(QueryDispatcherContext deps,
                            StatementDispatcher preBuiltDispatcher,
                            TracingProvider tracingProvider) {
+        this(deps, preBuiltDispatcher, tracingProvider, null);
+    }
+
+    /**
+     * Fixes current write authority for this dispatcher lifetime. A missing resolver
+     * leaves reads available but rejects every write before connector allocation.
+     */
+    public QueryDispatcher(QueryDispatcherContext deps,
+                           StatementDispatcher preBuiltDispatcher,
+                           TracingProvider tracingProvider,
+                           WriteAuthorityResolver writeAuthorityResolver) {
         checkNotNull(deps, "deps must not be null");
 
         this.lineageCapture = new QueryLineageCapture();
@@ -92,7 +107,7 @@ public class QueryDispatcher {
                         deps.workerManager(), deps.taskTracker(),
                         deps.catalogRegistry(),
                         deps.indexAwareSplitFetcher(), rfHandler,
-                        dagDispatchTimeoutMs));
+                        dagDispatchTimeoutMs), writeAuthorityResolver);
 
         this.pipelineExecutor = new QueryPipelineExecutor(
                 securityApplier, preBuiltDispatcher,
@@ -113,7 +128,7 @@ public class QueryDispatcher {
 
     /** Unified execution entry point. All paths return DispatchResult. */
     public DispatchResult execute(QueryStateMachine sm, String sql,
-                                  CoordinatorSessionContext session) {
+                                  QuerySession session) {
         checkNotNull(sm, "state machine must not be null");
         checkNotNull(sql, "sql must not be null");
         checkNotNull(session, "session must not be null");
@@ -134,19 +149,19 @@ public class QueryDispatcher {
 
     /** Executes DML SQL using the session's default write mode. */
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                        CoordinatorSessionContext session) {
+                                        QuerySession session) {
         return executeDmlSql(sm, sql, session, null);
     }
 
     /** Compiles a protected read relation using this dispatcher's current query authority. */
-    public AuthorizedRelation compileAuthorizedRelation(String sql, CoordinatorSessionContext session) {
+    public AuthorizedRelation compileAuthorizedRelation(String sql, QuerySession session) {
         checkNotNull(sql, "sql must not be null");
         return pipelineExecutor.compileAuthorizedRelation(sql, session);
     }
 
     /** Executes DML SQL with an explicit write-mode override when provided. */
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                        CoordinatorSessionContext session,
+                                        QuerySession session,
                                         String writeModeOverride) {
         session = bindConnectorAuthority(sm, session);
         try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
@@ -157,8 +172,8 @@ public class QueryDispatcher {
     /** Executes an already-parsed DML statement under the query's connector authority. */
     public DispatchResult executeDmlStatement(
             QueryStateMachine sm,
-            org.pangrova.parser.ast.Statement stmt,
-            CoordinatorSessionContext session) {
+            org.pangrova.parser.api.ast.Statement stmt,
+            QuerySession session) {
         session = bindConnectorAuthority(sm, session);
         try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
             return pipelineExecutor.executeDmlStatement(sm, stmt, session);
@@ -169,14 +184,14 @@ public class QueryDispatcher {
         return lineageCapture.removeLineageInfo(queryId);
     }
 
-    private CoordinatorSessionContext bindConnectorAuthority(QueryStateMachine state,
-            CoordinatorSessionContext session) {
+    private QuerySession bindConnectorAuthority(QueryStateMachine state,
+            QuerySession session) {
         var authority = bindConnectorAuthority(state, session.queryId());
         return session.withQueryAuthority(authority);
     }
 
     /** Registers the exact public state-bound lifetime before planning can perform connector I/O. */
-    public org.pangrova.spi.connector.metadata.ConnectorMetadataScope bindConnectorAuthority(
+    public org.pangrova.connector.spi.metadata.ConnectorMetadataScope bindConnectorAuthority(
             QueryStateMachine state, String queryId) {
         var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));
         ownershipTracker.registerConnectorAuthority(authority);
@@ -200,17 +215,12 @@ public class QueryDispatcher {
         schedulingEngine.setWriteCommitTracker(tracker);
     }
 
-    /** Binds the production generated-write authority before query submission starts. */
-    public void setGeneratedWriteAuthoritySupplier(GeneratedWriteAuthoritySupplier supplier) {
-        schedulingEngine.setGeneratedWriteAuthoritySupplier(supplier);
-    }
-
     /**
      * Injects self-intelligence components into the query pipeline for
      * workload analysis.
      */
     public void setSelfIntelligence(
-            org.pangrova.planner.advisor.QueryPatternRecorder patternRecorder) {
+            org.pangrova.planner.core.advisor.QueryPatternRecorder patternRecorder) {
         if (patternRecorder != null) {
             pipelineExecutor.setPatternRecorder(patternRecorder);
         }
@@ -224,15 +234,15 @@ public class QueryDispatcher {
         return ownershipTracker.acquireQueryOwnership(queryId);
     }
 
-    public org.pangrova.spi.connector.ConnectorQueryAuthority openQueryIssuance(String queryId) {
+    public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {
         return taskTracker.openQueryIssuance(queryId);
     }
 
-    public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryOperation(String queryId) {
+    public org.pangrova.query.api.lifecycle.QueryOperation enterQueryOperation(String queryId) {
         return taskTracker.enterQueryOperation(queryId);
     }
 
-    public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryMetadataOperation(String queryId) {
+    public org.pangrova.query.api.lifecycle.QueryOperation enterQueryMetadataOperation(String queryId) {
         return taskTracker.enterQueryMetadataOperation(queryId);
     }
 
@@ -250,12 +260,14 @@ public class QueryDispatcher {
         taskTracker.addQueryOperationExitListener(listener);
     }
 
+    @Override
     public void cleanupQuery(String queryId) {
         ownershipTracker.cleanupQuery(queryId);
         schedulingEngine.dagEngine().clearQuery(queryId);
     }
 
     /** Cleans the actual local creation scope without touching foreign execution ownership. */
+    @Override
     public void cleanupUnadmittedQuery(String queryId) {
         ownershipTracker.cleanupLocalQuery(queryId);
         schedulingEngine.dagEngine().clearQuery(queryId);
@@ -279,6 +291,7 @@ public class QueryDispatcher {
         remote.recoverCleanupShuffle(queryId);
     }
 
+    @Override
     public void cancelDispatchedTasks(String queryId) {
         ownershipTracker.cancelDispatchedTasks(queryId);
     }
@@ -325,9 +338,9 @@ public class QueryDispatcher {
     private static DefaultWorkerSelector createWorkerSelector(
             QueryDispatcherContext deps, SplitAssignmentManager splitMgr) {
         return new DefaultWorkerSelector(
-                deps.workerManager(), deps.taskScheduler(), splitMgr,
+                deps.workerManager(), deps.taskScheduler(), splitMgr.cacheAffinityAssigner(),
                 deps.spillBudget() != null
-                        ? deps.spillBudget() : new SpillBudget(0, ""),
+                        ? deps.spillBudget() : new SpillBudget(0),
                 deps.embeddingModelRegistry());
     }
 
@@ -339,7 +352,7 @@ public class QueryDispatcher {
         }
         return new org.pangrova.coordinator.query.execution.dispatch.dag
                 .handler.RuntimeFilterStageHandler(
-                new org.pangrova.planner.runtimefilter
+                new org.pangrova.planner.core.runtimefilter
                         .RuntimeFilterGenerator(),
                 deps.runtimeFilterRegistry(),
                 deps.dispatcher(),
@@ -361,7 +374,7 @@ public class QueryDispatcher {
                 deps.shuffleLifecycleManager(), splitMgr,
                 deps.resilienceRegistry(), deps.stateJournal()),
                 buildStageHandlers(deps, rfHandler),
-                deps.indexAwareSplitFetcher());
+                deps.indexAwareSplitFetcher(), deps.artifactBindingResolver(), deps.generatedValueReadResolver());
     }
 
     private static List<org.pangrova.coordinator.query.execution.dispatch
@@ -382,7 +395,7 @@ public class QueryDispatcher {
                     .dispatch.dag.handler.AdaptiveQueryStageHandler(
                     new org.pangrova.coordinator.query.execution
                             .dispatch.adaptive.AdaptiveQueryEvaluator(
-                            deps.adaptiveQueryConfig(),
+                            deps.skewDetector(), deps.adaptiveQueryConfig(),
                             deps.adaptiveQueryExecutor())));
         }
         if (deps.resilienceRegistry() != null) {

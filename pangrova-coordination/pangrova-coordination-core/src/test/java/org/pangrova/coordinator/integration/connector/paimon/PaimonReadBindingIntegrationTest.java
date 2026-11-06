@@ -16,12 +16,12 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -37,7 +37,7 @@ class PaimonReadBindingIntegrationTest {
     @TempDir Path warehouse;
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -169,10 +169,10 @@ class PaimonReadBindingIntegrationTest {
             var file = table.snapshotManager().snapshotPath(selected.snapshotId().orElseThrow());
             assertThat(table.fileIO().delete(file, false)).isTrue();
             assertThatThrownBy(() -> metadata.validateReadBinding(SESSION, selected))
-                    .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
+                    .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
                     .hasMessageContaining("unavailable");
             assertThatThrownBy(() -> splits(catalog, selected))
-                    .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
+                    .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
                     .hasMessageContaining("unavailable");
         }
     }

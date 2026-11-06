@@ -1,22 +1,24 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
 import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.coordinator.query.audit.QueryAuditEmitter;
 import org.pangrova.coordinator.query.audit.QueryLineageInfo;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.spi.query.lineage.QueryLineageFact;
-import org.pangrova.spi.observability.event.QueryEventDispatcher;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.observability.event.QueryState;
-import org.pangrova.spi.observability.event.QueryCompletedEvent;
-import org.pangrova.spi.observability.event.QueryCreatedEvent;
-import org.pangrova.spi.observability.event.QueryLineageMetadata;
-import org.pangrova.spi.observability.event.QueryStatistics;
+import org.pangrova.query.api.lineage.QueryLineageFact;
+import org.pangrova.query.core.event.QueryEventDispatcher;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.event.QueryCompletedEvent;
+import org.pangrova.query.api.event.QueryCreatedEvent;
+import org.pangrova.query.api.lineage.QueryLineageMetadata;
+import org.pangrova.query.api.event.QueryStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +46,7 @@ final class QueryAuditDispatcher {
         this.events = parent;
     }
 
-    void emitAuditSubmitted(String queryId, String sql, CoordinatorSessionContext session, QueryStateMachine state) {
+    void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state) {
         String principal = session.userIdentity() == null ? "anonymous" : session.userIdentity().principal();
         if (lineageEnabled) {
             QueryLineageFact fact = state.freezeLineage(QueryLineageFact.Phase.START,
@@ -61,7 +63,7 @@ final class QueryAuditDispatcher {
         if (auditEmitter != null) auditEmitter.emitQueryCompleted(queryId, state.getDurationMs(), subject(state));
     }
 
-    void emitAuditFailed(String queryId, QueryStateMachine state, ErrorDetail error) {
+    void emitAuditFailed(String queryId, QueryStateMachine state, QueryFailure error) {
         String message = error == null ? "unknown" : error.message();
         emitTerminal(queryId, state, QueryState.FAILED, Optional.of(message));
         if (auditEmitter != null) auditEmitter.emitQueryFailed(queryId, message, state.getDurationMs(), subject(state));
@@ -72,7 +74,7 @@ final class QueryAuditDispatcher {
     }
 
     void emitTableAccessedAudit(String queryId, String catalog, String schema,
-            String table, CoordinatorSessionContext session) {
+            String table, QuerySession session) {
         if (auditEmitter != null) auditEmitter.emitTableAccessed(queryId, catalog, schema, table, session);
     }
 
@@ -102,7 +104,7 @@ final class QueryAuditDispatcher {
         return new QueryLineageMetadata(inputs, outputs);
     }
 
-    QueryLineageFact terminalFact(String queryId, QueryStateMachine state, QueryStateMachine.State target) {
+    QueryLineageFact terminalFact(String queryId, QueryStateMachine state, QueryState target) {
         if (!lineageEnabled) return null;
         QueryLineageFact.Phase phase = switch (target) {
             case FINISHED -> QueryLineageFact.Phase.COMPLETE;
@@ -112,7 +114,7 @@ final class QueryAuditDispatcher {
         };
         return state.freezeLineage(phase, () -> {
             String failureMessage = phase == QueryLineageFact.Phase.FAIL
-                    ? state.getError().map(ErrorDetail::message).orElse("unknown") : null;
+                    ? state.getError().map(QueryFailure::message).orElse("unknown") : null;
             return new QueryLineageFact(lineageEmitter.namespace(), queryId, phase,
                     System.currentTimeMillis(), null, failureMessage, state.lineageMetadata());
         });
@@ -144,7 +146,7 @@ final class QueryAuditDispatcher {
     }
 
     static QueryAuditEmitter createAuditEmitter(AuditEventEmitter emitter,
-            org.pangrova.spi.query.audit.QueryAuditSink service) {
+            org.pangrova.query.spi.audit.QueryAuditSink service) {
         return emitter == null ? null : new QueryAuditEmitter(emitter, service);
     }
 }

@@ -14,7 +14,7 @@ import javax.sql.DataSource;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.file.directory.FileDirectoryReference;
+import org.pangrova.file.api.directory.FileDirectoryReference;
 import org.pangrova.filesystem.api.object.FileStat;
 
 /**

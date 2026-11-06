@@ -11,10 +11,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.coordination.HeartbeatSnapshot;
-import org.pangrova.persistence.api.coordination.WorkerRegistry;
-import org.pangrova.spi.coordination.WorkerSnapshot;
-import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot;
+import org.pangrova.persistence.coordination.api.membership.WorkerRegistry;
+import org.pangrova.coordination.api.membership.WorkerSnapshot;
+import org.pangrova.observability.api.metrics.LongCounter;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -55,7 +55,7 @@ public final class WorkerManager {
             double cpuUtilization,
             int runningTaskCount,
             long availableMemoryBytes,
-            org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary,
+            org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary,
             Map<String, org.pangrova.protocol.rest.worker.TenantUsageSnapshot> tenantUsage) {
 
         public HeartbeatData {
@@ -72,20 +72,16 @@ public final class WorkerManager {
         /** Convenience constructor including the cache catalog summary. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
                              int runningTaskCount, long availableMemoryBytes,
-                             org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary) {
+                             org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary) {
             this(pressure, cpuUtilization, runningTaskCount,
                     availableMemoryBytes, cacheSummary, Map.of());
         }
 
     }
 
-    /**
-     * Creates a WorkerManager with default thresholds and an in-memory registry.
-     * Suitable for testing and standalone deployments.
-     */
-    public WorkerManager() {
-        this(DEFAULT_SUSPECT_THRESHOLD_MS, DEFAULT_DEAD_THRESHOLD_MS,
-                new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+    /** Creates a manager with default health thresholds and an explicitly selected backend. */
+    public WorkerManager(WorkerRegistry registry) {
+        this(DEFAULT_SUSPECT_THRESHOLD_MS, DEFAULT_DEAD_THRESHOLD_MS, registry);
     }
 
     /**
@@ -110,27 +106,72 @@ public final class WorkerManager {
 
     /** Persists and publishes a newly admitted Worker in the topology view. */
     public void registerWorker(WorkerInfo info) {
-        checkNotNull(info, "WorkerInfo must not be null");
-        WorkerInfo registered = inventoryPool.share(info);
-        registry.register(toSnapshot(registered));
-        workers.put(registered.workerId(), registered);
-        fireTopologyChanged();
+        registerWorker(info, false);
     }
 
-    /** Refreshes one Worker's health, registry heartbeat, and tenant usage. */
-    public void onHeartbeat(String workerId, HeartbeatData data) {
-        checkNotNull(workerId, "workerId must not be null");
+    /** Automatic re-registration may repair absence but cannot replace another process. */
+    public boolean refreshWorker(WorkerInfo info) {
+        return registerWorker(info, true);
+    }
+
+    private boolean registerWorker(WorkerInfo info, boolean refresh) {
+        checkNotNull(info, "WorkerInfo must not be null");
+        WorkerInfo registered = inventoryPool.share(info);
+        AtomicBoolean accepted = new AtomicBoolean();
+        workers.compute(registered.workerId(), (id, existing) -> {
+            // Serialize persistence and local publication with conditional withdrawal.
+            WorkerInfo next = existing != null
+                    && existing.workerExecutionIdentity().equals(registered.workerExecutionIdentity())
+                    && existing.healthState() == HealthState.DECOMMISSIONING
+                    ? existing : registered;
+            if (refresh) {
+                if (!registry.refreshRegistration(toSnapshot(next))) return existing;
+            } else {
+                registry.register(toSnapshot(next));
+            }
+            accepted.set(true);
+            if (existing == null || !existing.workerExecutionIdentity().equals(next.workerExecutionIdentity())) {
+                dropTenantUsage(id);
+            }
+            return next;
+        });
+        if (accepted.get()) fireTopologyChanged();
+        return accepted.get();
+    }
+
+    /** Updates the exact process only after durable acceptance, serialized with local withdrawal. */
+    public org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus onHeartbeat(
+            org.pangrova.coordination.api.membership.WorkerRegistrationIdentity expected, HeartbeatData data) {
+        checkNotNull(expected, "expected must not be null");
         checkNotNull(data, "HeartbeatData must not be null");
-        workers.computeIfPresent(workerId, (id, existing) -> buildUpdatedWorker(existing, data));
-        registry.heartbeat(workerId, toHeartbeatSnapshot(data));
-
-        // P1-5: feed this worker's per-tenant usage into the cluster-wide aggregator
-        // so admission control can reason about total usage across all nodes.
-        ClusterTenantUsageAggregator aggregator = this.tenantUsageAggregator;
-        if (aggregator != null) {
-            aggregator.updateWorkerUsage(workerId, data.tenantUsage());
-        }
-
+        var status = new AtomicReference<>(org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus.REGISTRATION_REQUIRED);
+        AtomicBoolean changed = new AtomicBoolean();
+        workers.compute(expected.workerId(), (id, existing) -> {
+            var accepted = registry.heartbeat(expected, toHeartbeatSnapshot(data));
+            if (accepted.isEmpty()) {
+                var current = registry.getWorker(id);
+                if (current.isPresent() && !current.orElseThrow().registrationIdentity().equals(expected)) {
+                    status.set(org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus.FENCED);
+                    if (existing == null || !toSnapshot(existing).registrationIdentity()
+                            .equals(current.orElseThrow().registrationIdentity())) {
+                        dropTenantUsage(id);
+                        changed.set(true);
+                        return inventoryPool.share(fromSnapshot(current.orElseThrow()));
+                    }
+                }
+                return existing;
+            }
+            boolean same = existing != null && toSnapshot(existing).registrationIdentity().equals(expected);
+            WorkerInfo base = same ? existing : inventoryPool.share(fromSnapshot(accepted.orElseThrow()));
+            WorkerInfo next = buildUpdatedWorker(base, data);
+            changed.set(!same || base.healthState() != next.healthState());
+            ClusterTenantUsageAggregator aggregator = tenantUsageAggregator;
+            if (aggregator != null) aggregator.updateWorkerUsage(id, data.tenantUsage());
+            status.set(org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus.ACCEPTED);
+            return next;
+        });
+        if (changed.get()) fireTopologyChanged();
+        return status.get();
     }
 
     /**
@@ -164,6 +205,10 @@ public final class WorkerManager {
         AtomicReference<HealthState> result = new AtomicReference<>(HealthState.UNKNOWN);
         AtomicBoolean topologyChanged = new AtomicBoolean(false);
         workers.computeIfPresent(workerId, (id, existing) -> {
+            if (existing.healthState() == HealthState.DECOMMISSIONING) {
+                result.set(HealthState.DECOMMISSIONING);
+                return existing;
+            }
             long elapsed = Duration.between(existing.lastHeartbeat(), now).toMillis();
             HealthState state = classifyHealth(elapsed);
             result.set(state);
@@ -193,38 +238,56 @@ public final class WorkerManager {
 
     /** Removes dead Workers from both the local view and durable registry. */
     public void removeDeadWorkers() {
-        // C-WK-04: Sync registry when removing dead workers to prevent
-        // stale DB entries from being reloaded via loadFromRegistry().
-        List<String> deadIds = workers.values().stream()
-                .filter(w -> w.healthState() == HealthState.DEAD)
-                .map(WorkerInfo::workerId)
-                .toList();
-        if (deadIds.isEmpty()) {
-            return;
-        }
-        for (String id : deadIds) {
-            workers.remove(id);
-            registry.unregister(id);
-            dropTenantUsage(id);
-        }
-        fireTopologyChanged();
+        workers.values().stream().filter(w -> w.healthState() == HealthState.DEAD)
+                .toList().forEach(this::removeObservedWorker);
     }
 
-    /** Unregisters a Worker and withdraws its tenant usage from aggregation. */
+    /** Explicit withdrawal of the currently observed registration (not a safe-shutdown permit). */
     public void removeWorker(String workerId) {
-        WorkerInfo prev = workers.remove(workerId);
-        if (prev != null) {
-            registry.unregister(workerId);
-            dropTenantUsage(workerId);
-            fireTopologyChanged();
-        }
+        WorkerInfo observed = workers.get(workerId);
+        if (observed != null) removeObservedWorker(observed);
+    }
+
+    /** Idempotent withdrawal of a caller's exact process, not the current logical ID owner. */
+    public boolean removeWorker(org.pangrova.coordination.api.membership.WorkerRegistrationIdentity expected) {
+        checkNotNull(expected, "expected must not be null");
+        AtomicBoolean removed = new AtomicBoolean();
+        workers.compute(expected.workerId(), (id, current) -> {
+            if (current != null && !toSnapshot(current).registrationIdentity().equals(expected)) return current;
+            boolean persisted = registry.unregister(expected);
+            if (current != null) dropTenantUsage(id);
+            removed.set(persisted || current != null);
+            return null;
+        });
+        if (removed.get()) fireTopologyChanged();
+        return removed.get();
+    }
+
+    /**
+     * Withdraws only the unchanged local observation and its exact persistent incarnation.
+     * A heartbeat or replacement published after the decision makes that decision stale.
+     * Persistence failures leave local state and usage intact for an explicit retry.
+     */
+    public boolean removeObservedWorker(WorkerInfo observed) {
+        checkNotNull(observed, "observed must not be null");
+        AtomicBoolean removed = new AtomicBoolean();
+        workers.computeIfPresent(observed.workerId(), (id, current) -> {
+            if (current != observed) return current;
+            registry.unregister(toSnapshot(observed).registrationIdentity());
+            dropTenantUsage(id);
+            removed.set(true);
+            return null;
+        });
+        if (removed.get()) fireTopologyChanged();
+        return removed.get();
     }
 
     /**
      * Initiates graceful decommission of a worker. The worker transitions to
-     * DECOMMISSIONING state, which prevents new task assignments while allowing
-     * existing tasks to complete. Once running tasks reach zero, the worker
-     * can be safely removed.
+     * DECOMMISSIONING state, which removes it from the active placement view.
+     * Heartbeats and same-incarnation registration preserve that state. This
+     * transition does not itself fence dispatches selected earlier or prove that
+     * completed Shuffle outputs have no readers; it is not a shutdown permit.
      *
      * @param workerId the worker to decommission
      * @return true if the worker was found and transitioned to DECOMMISSIONING
@@ -248,7 +311,8 @@ public final class WorkerManager {
     }
 
     /**
-     * Checks if a decommissioning worker has drained all tasks and can be removed.
+     * Checks the current heartbeat's task-count drain signal. This does not prove
+     * physical execution/output drain and must not be treated as a safe-shutdown permit.
      *
      * @param workerId the worker to check
      * @return true if the worker is decommissioning and has no running tasks
@@ -309,13 +373,14 @@ public final class WorkerManager {
 
     private static WorkerInfo buildUpdatedWorker(WorkerInfo existing, HeartbeatData data) {
         // F-CHAIN-CACHE-02: refresh cacheSummary on every heartbeat.
-        org.pangrova.spi.coordination.CacheCatalogSummary newSummary =
+        org.pangrova.coordination.api.heartbeat.CacheCatalogSummary newSummary =
                 data.cacheSummary() != null ? data.cacheSummary() : existing.cacheSummary();
         return new WorkerInfo(
                 existing.workerId(), existing.host(),
                 existing.httpPort(), existing.transportPort(),
                 existing.resultServerPort(),
-                HealthState.ACTIVE, data.pressure(),
+                existing.healthState() == HealthState.DECOMMISSIONING
+                        ? HealthState.DECOMMISSIONING : HealthState.ACTIVE, data.pressure(),
                 data.cpuUtilization(), data.runningTaskCount(),
                 data.availableMemoryBytes(), Instant.now(),
                 existing.performanceScore(), existing.resourcePoolId(),
@@ -333,7 +398,7 @@ public final class WorkerManager {
         List<WorkerSnapshot> active = registry.getActiveWorkers(Duration.ofMillis(deadThresholdMs));
         for (WorkerSnapshot snapshot : active) {
             WorkerInfo info = inventoryPool.share(fromSnapshot(snapshot));
-            workers.put(info.workerId(), info);
+            workers.putIfAbsent(info.workerId(), info);
         }
         fireTopologyChanged();
         LOG.info("event=registry_loaded workerCount={}", active.size());

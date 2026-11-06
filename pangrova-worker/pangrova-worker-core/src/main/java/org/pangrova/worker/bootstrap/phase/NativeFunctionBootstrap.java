@@ -1,10 +1,10 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.spi.function.aggregate.AggregateFunction;
-import org.pangrova.spi.function.registry.FunctionFactory;
-import org.pangrova.spi.function.runtime.FunctionCallbackScope;
-import org.pangrova.spi.function.runtime.FunctionFailureProjector;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.function.spi.aggregate.AggregateFunction;
+import org.pangrova.function.spi.registry.FunctionFactory;
+import org.pangrova.function.spi.runtime.FunctionCallbackScope;
+import org.pangrova.function.spi.runtime.FunctionFailureProjector;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionBridge;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
@@ -73,6 +73,7 @@ public final class NativeFunctionBootstrap {
         int scalarCount = 0;
         int aggregateCount = 0;
         int factoryCount = 0;
+        java.util.Set<String> factoryIds = new java.util.HashSet<>();
 
         try {
             for (FunctionFactory factory : factories) {
@@ -81,6 +82,12 @@ public final class NativeFunctionBootstrap {
                 }
                 factoryCount++;
                 String pluginName = factory.getName();
+                if (pluginName == null || pluginName.isBlank()) {
+                    throw new IllegalStateException("Function factory ID must not be blank");
+                }
+                if (!factoryIds.add(pluginName)) {
+                    throw new IllegalStateException("Duplicate function factory ID: " + pluginName);
+                }
                 Map<String, String> pluginConfig = functionConfig.configForPlugin(pluginName);
                 LOG.info("event=function_factory_discovered plugin={}", pluginName);
 

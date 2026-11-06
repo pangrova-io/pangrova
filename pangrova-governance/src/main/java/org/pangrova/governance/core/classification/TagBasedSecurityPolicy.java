@@ -1,7 +1,7 @@
 package org.pangrova.governance.core.classification;
 
-import org.pangrova.spi.security.mask.ColumnMaskRecord;
-import org.pangrova.persistence.api.security.mask.ColumnMaskStore;
+import org.pangrova.security.api.mask.ColumnMaskRecord;
+import org.pangrova.persistence.security.api.mask.ColumnMaskStore;
 import org.pangrova.governance.api.classification.AuditConfigStore;
 import org.pangrova.governance.api.classification.TagChangedEvent;
 import org.pangrova.governance.api.classification.TagChangedEventListener;

@@ -1,50 +1,47 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
-import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.spi.connector.coordination.WriteCommitJournal;
-import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -84,7 +81,7 @@ class WriteCommitJournalIdempotencyTest {
     void setUp() {
         tracker = new CoordinatorTaskTracker();
         WorkerManager workerManager = new WorkerManager(20_000, 60_000,
-                new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+                new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         workerManager.registerWorker(workerInfo(WORKER_ID));
         writeCommitTracker = new NativeWriteCommitTracker();
         recordingMetadata = new RecordingConnectorMetadata();
@@ -213,7 +210,7 @@ class WriteCommitJournalIdempotencyTest {
         // markCommitted, and pending replay must exclude committed entries.
         java.util.List<byte[]> fragments = java.util.List.of(new byte[]{9, 8, 7});
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
                         "q-replayable",
                         "tenant-test",
                         CATALOG_NAME,
@@ -330,7 +327,7 @@ class WriteCommitJournalIdempotencyTest {
             WriteCommitEntry.State state, long timestampMs) {
         String mode = "INSERT";
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
                         queryId,
                         "tenant-test",
                         catalog,
@@ -439,7 +436,7 @@ class WriteCommitJournalIdempotencyTest {
 
     private static QueryManager buildQueryManager(WorkerManager wm,
                                                    CoordinatorTaskTracker tracker) {
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         RemoteTaskDispatcher td = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
         QueryDispatcherContext qdDeps = QueryDispatcherContext.withDefaults(
@@ -449,7 +446,7 @@ class WriteCommitJournalIdempotencyTest {
         QueryDispatcher dispatcher = new QueryDispatcher(
                 qdDeps, null, null);
         return new QueryManager(
-                QueryManagerContext.minimal(dispatcher, new NoOpTracingProvider()));
+                QueryManagerTestContexts.minimal(dispatcher, new NoOpTracingProvider()));
     }
 
     private static CatalogRegistry buildCatalogRegistry(String catalogName,
@@ -461,7 +458,7 @@ class WriteCommitJournalIdempotencyTest {
                 descriptor, new TestConnector(metadata));
         ConnectorHandleFactory factory = desc -> handle;
         return new CatalogRegistry(
-                new ReadOnlyMetadataStore(List.of(descriptor)), factory, null, null);
+                new ReadOnlyCatalogDeployments(List.of(descriptor)), factory, null, null);
     }
 
     // --- Test doubles ---
@@ -556,7 +553,7 @@ class WriteCommitJournalIdempotencyTest {
 
     static final class TestConnectorSession implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -568,10 +565,16 @@ class WriteCommitJournalIdempotencyTest {
         }
     }
 
-    static final class ReadOnlyMetadataStore implements MetadataStore {
+    static final class ReadOnlyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final List<CatalogDescriptor> descriptors;
 
-        ReadOnlyMetadataStore(List<CatalogDescriptor> descriptors) {
+        ReadOnlyCatalogDeployments(List<CatalogDescriptor> descriptors) {
             this.descriptors = List.copyOf(descriptors);
         }
 
@@ -581,13 +584,6 @@ class WriteCommitJournalIdempotencyTest {
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String name) {
             return descriptors.stream().filter(d -> d.name().equals(name)).findFirst();
         }
-        @Override public void saveTable(TableMetadata m) {}
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) {}
-        @Override public List<QualifiedTableRef> searchTables(String pattern) { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String catalogName) { return Optional.empty(); }
-        @Override public void updateSyncTime(String cn, Instant st) {}
-        @Override public void recordSyncHistory(SyncResult r) {}
-        @Override public void saveSchemas(String cn, List<String> s) {}
+
     }
 }

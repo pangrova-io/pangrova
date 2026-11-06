@@ -8,8 +8,8 @@ import java.util.TreeMap;
 
 import org.pangrova.protocol.v2.IcebergManifestPartitionField;
 import org.pangrova.protocol.v2.IcebergManifestPartitionSpec;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /** A read-only Iceberg $manifests selection pinned to one snapshot and manifest list. */
 public record IcebergManifestTableHandle(

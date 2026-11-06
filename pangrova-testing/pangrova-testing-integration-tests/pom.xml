@@ -19,6 +19,93 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-codec</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-strategies-builtin</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-api</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-memory</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-api</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-postgresql</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-memory</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-codec</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-native-adapter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-pangrova</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-codec</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-worker-adapter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-memory</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId><scope>test</scope></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-api</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-auth-oauth2</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-auth-builtin</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-auth-ldap</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-api</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-policy-builtin</artifactId><scope>test</scope></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-scheduler-strategies-builtin</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-scheduler-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-core</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-noop</artifactId><scope>test</scope></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-flight</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-coordinator</artifactId><scope>test</scope></dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-function-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-coordination-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-jdbc-support</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-batch-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-connector-runtime</artifactId>
@@ -26,18 +113,13 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-memory</artifactId>
+            <artifactId>pangrova-persistence-generation-api</artifactId>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-metadata</artifactId>
+            <artifactId>pangrova-metadata-core</artifactId>
             <classifier>tests</classifier>
             <type>test-jar</type>
             <version>${project.version}</version>
@@ -45,17 +127,12 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-parser</artifactId>
+            <artifactId>pangrova-parser-api</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-generation-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
         </dependency>
 
         <dependency>
@@ -70,8 +147,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-testing-kit</artifactId>
-        </dependency>
+            <artifactId>pangrova-testing-kit</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
@@ -103,11 +179,11 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-query</artifactId>
+            <artifactId>pangrova-query-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-scheduler</artifactId>
+            <artifactId>pangrova-scheduler-core</artifactId>
         </dependency>
         <!-- Pipeline integration dependencies for E2E tests -->
         <dependency>
@@ -126,6 +202,14 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-coordination-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-coordination-core</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <classifier>query-fixtures</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -170,18 +254,18 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-transport</artifactId>
+            <artifactId>pangrova-transport-client</artifactId>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
+            <artifactId>pangrova-security-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-metadata</artifactId>
+            <artifactId>pangrova-metadata-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -189,20 +273,21 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-table</artifactId>
+            <artifactId>pangrova-table-core</artifactId>
         </dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file</artifactId>
+            <artifactId>pangrova-file-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-jdbc</artifactId>
+            <artifactId>pangrova-persistence-generation-postgresql</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-planner</artifactId>
+            <artifactId>pangrova-planner-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

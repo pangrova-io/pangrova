@@ -1,11 +1,12 @@
 package org.pangrova.protocol.source;
 
+import org.pangrova.connector.api.metadata.SourceCatalogDeployment;
+
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.AcceptedSourceSnapshotRef;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
-import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.api.metadata.AcceptedSourceSnapshot;
 
 /** Canonical source membership encoding shared by write allocation, metadata RPC and physical split readers. */
 public final class SourceSnapshotBindings {
@@ -37,7 +38,7 @@ public final class SourceSnapshotBindings {
                 || !reference.getCatalog().equals(catalog)) {
             throw new IllegalArgumentException("Accepted source catalog binding differs");
         }
-        return new AcceptedSourceSnapshot(new ManagedSourceCatalog.Deployment(catalog.getCatalogName(),
+        return new AcceptedSourceSnapshot(new SourceCatalogDeployment(catalog.getCatalogName(),
                 catalog.getCatalogIncarnationId(), catalog.getCatalogRevision()), reference.getTenantId(),
                 reference.getTableId(),
                 reference.getTableGeneration(), reference.getDatasetUri(), reference.getVersion(),

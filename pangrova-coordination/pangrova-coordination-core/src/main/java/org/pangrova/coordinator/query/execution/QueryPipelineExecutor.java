@@ -1,13 +1,20 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
+import org.pangrova.planner.core.substrait.CompiledScanSchemas;
+
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.phase.CompilationPhase;
 import org.pangrova.coordinator.query.execution.phase.DistributedDispatchPhase;
 import org.pangrova.coordinator.query.execution.phase.QueryExecutionContext;
@@ -19,15 +26,15 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.observability.sdk.tracing.QueryTracer;
-import org.pangrova.parser.ast.statement.dml.MergeStatement;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.PlannerException;
+import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.api.error.PlannerException;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.observability.Span;
-import org.pangrova.planner.PlannedQuery;
+import org.pangrova.observability.api.tracing.Span;
+import org.pangrova.planner.core.analysis.PlannedQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,7 +59,7 @@ final class QueryPipelineExecutor {
     private final QuerySchedulingEngine schedulingEngine;
     private final CatalogRegistry catalogRegistry;
     private final ViewExpander viewExpander;
-    private volatile org.pangrova.planner.advisor.QueryPatternRecorder patternRecorder;
+    private volatile org.pangrova.planner.core.advisor.QueryPatternRecorder patternRecorder;
 
     QueryPipelineExecutor(SecurityPolicyApplier securityPolicyApplier,
                           StatementDispatcher statementDispatcher,
@@ -72,7 +79,7 @@ final class QueryPipelineExecutor {
 
     // ── Pipeline execution ──
 
-    void setPatternRecorder(org.pangrova.planner.advisor.QueryPatternRecorder recorder) {
+    void setPatternRecorder(org.pangrova.planner.core.advisor.QueryPatternRecorder recorder) {
         this.patternRecorder = recorder;
     }
 
@@ -81,8 +88,8 @@ final class QueryPipelineExecutor {
      * cache lookup → distributed dispatch.
      */
     DispatchResult doExecute(QueryStateMachine sm, String sql,
-                             CoordinatorSessionContext session) {
-        if (!sm.tryTransition(QueryStateMachine.State.PLANNING)) {
+                             QuerySession session) {
+        if (!sm.tryTransition(QueryState.PLANNING)) {
             return null;
         }
         Span querySpan = queryTracer != null
@@ -106,11 +113,11 @@ final class QueryPipelineExecutor {
     }
 
     private void recordQueryCompletion(String queryId, String sql,
-                                        CoordinatorSessionContext session) {
+                                        QuerySession session) {
         if (patternRecorder != null) {
             try {
                 String tableName = extractPrimaryTableFromSql(sql);
-                patternRecorder.record(new org.pangrova.planner.advisor.QueryPatternRecorder.QueryPattern(
+                patternRecorder.record(new org.pangrova.planner.core.advisor.QueryPatternRecorder.QueryPattern(
                         tableName, java.util.Set.of(), java.util.Set.of(),
                         java.util.Set.of(), java.util.Set.of(),
                         false, java.time.Instant.now()));
@@ -138,7 +145,7 @@ final class QueryPipelineExecutor {
         }
         try {
             var stmt = compiler.parseToAst(sql);
-            if (!(stmt instanceof org.pangrova.parser.ast.Query query)) {
+            if (!(stmt instanceof org.pangrova.parser.api.ast.Query query)) {
                 return "unknown";
             }
             return extractFirstBaseTable(query);
@@ -147,7 +154,7 @@ final class QueryPipelineExecutor {
         }
     }
 
-    private static String extractFirstBaseTable(org.pangrova.parser.ast.Query query) {
+    private static String extractFirstBaseTable(org.pangrova.parser.api.ast.Query query) {
         var tables = query.from();
         if (tables == null || tables.isEmpty()) {
             return "unknown";
@@ -162,13 +169,13 @@ final class QueryPipelineExecutor {
     // ── DML compilation and dispatch ──
 
     /** Compiles reusable read intent through the current authenticated query authority. */
-    AuthorizedRelation compileAuthorizedRelation(String sql, CoordinatorSessionContext session) {
+    AuthorizedRelation compileAuthorizedRelation(String sql, QuerySession session) {
         requireAuthorizedSession(session);
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
         var statement = compiler.parseToAst(sql);
-        if (!(statement instanceof org.pangrova.parser.ast.Query)
-                && !(statement instanceof org.pangrova.parser.ast.CteQuery)) {
+        if (!(statement instanceof org.pangrova.parser.api.ast.Query)
+                && !(statement instanceof org.pangrova.parser.api.ast.CteQuery)) {
             throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Reusable relational intent must be a read-only query");
         }
@@ -187,14 +194,14 @@ final class QueryPipelineExecutor {
         byte[] bytes = plan.serializeValidated(compiler);
         return new AuthorizedRelation(bytes, plan.splitSources(), plan.columnNames(),
                 plan.queryOutputColumnTypeNames(), plan.effectivePlanDigest(),
-                plan.isSplitIndependent(), AuthorizedRelationSchemas.extract(bytes), protectedResult.policies(),
+                plan.isSplitIndependent(), CompiledScanSchemas.extract(bytes), protectedResult.policies(),
                 plan.serializeAuthorizedStageGraph(compiler, 0));
     }
 
-    private static void requireAuthorizedSession(CoordinatorSessionContext session) {
+    private static void requireAuthorizedSession(QuerySession session) {
         if (session == null || session.userIdentity() == null
                 || session.tenantId() == null || session.tenantId().isBlank()) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "Protected compilation requires an authenticated tenant context");
         }
     }
@@ -204,7 +211,7 @@ final class QueryPipelineExecutor {
      * bypassing StatementDispatchPhase.
      */
     DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                 CoordinatorSessionContext session) {
+                                 QuerySession session) {
         return executeDmlSql(sm, sql, session, null);
     }
 
@@ -213,7 +220,7 @@ final class QueryPipelineExecutor {
      * When writeModeOverride is non-null, it replaces the Calcite-derived write mode.
      */
     DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                 CoordinatorSessionContext session,
+                                 QuerySession session,
                                  String writeModeOverride) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
@@ -239,8 +246,8 @@ final class QueryPipelineExecutor {
      * round-trip.
      */
     DispatchResult executeDmlStatement(QueryStateMachine sm,
-                                       org.pangrova.parser.ast.Statement stmt,
-                                       CoordinatorSessionContext session) {
+                                       org.pangrova.parser.api.ast.Statement stmt,
+                                       QuerySession session) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
 
@@ -259,7 +266,7 @@ final class QueryPipelineExecutor {
                                 + "as one atomic native write");
             }
             if (hasUpdate || hasDelete) {
-                String sql = new org.pangrova.parser.AstPrinter().print(merge);
+                String sql = new org.pangrova.parser.core.format.AstPrinter().print(merge);
                 return executeDmlSql(sm, sql, session, "OVERWRITE");
             }
         }
@@ -270,7 +277,7 @@ final class QueryPipelineExecutor {
         // The dispatch context is reparsed for enrichment and retry. Calcite's
         // SqlNode unparser emits VALUES ROW(...), which the Pangrova SQL grammar
         // does not accept; preserve the source dialect when serializing the AST.
-        String sqlForRetry = new org.pangrova.parser.AstPrinter().print(stmt);
+        String sqlForRetry = new org.pangrova.parser.core.format.AstPrinter().print(stmt);
         DispatchQueryContext ctx = new DispatchQueryContext(
                 Map.of(), sqlForRetry, compiler);
         ctx = enrichWithDmlWriteContext(plan, ctx);
@@ -281,7 +288,7 @@ final class QueryPipelineExecutor {
     }
 
     private static DispatchQueryContext adjustNativeDmlWriteMode(
-            org.pangrova.parser.ast.Statement stmt, DispatchQueryContext ctx) {
+            org.pangrova.parser.api.ast.Statement stmt, DispatchQueryContext ctx) {
         if (ctx.dmlWriteContext().isEmpty()) {
             return ctx;
         }
@@ -291,11 +298,11 @@ final class QueryPipelineExecutor {
         if (stmt instanceof DeleteStatement) {
             return withWriteMode(ctx, "OVERWRITE");
         }
-        if (stmt instanceof org.pangrova.parser.ast.statement.dml.InsertSelectStatement iss
+        if (stmt instanceof org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement iss
                 && iss.overwrite()) {
             return withWriteMode(ctx, "OVERWRITE");
         }
-        if (stmt instanceof org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement overwrite) {
+        if (stmt instanceof org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement overwrite) {
             return withWriteModeAndPartitions(
                     ctx, "OVERWRITE", staticPartitionSpec(overwrite));
         }
@@ -333,7 +340,7 @@ final class QueryPipelineExecutor {
     }
 
     private static List<String> staticPartitionSpec(
-            org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement statement) {
+            org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement statement) {
         return statement.partitionSpec().stream()
                 .flatMap(spec -> spec.entrySet().stream())
                 .sorted(java.util.Map.Entry.comparingByKey())
@@ -341,34 +348,34 @@ final class QueryPipelineExecutor {
                 .toList();
     }
 
-    private static String partitionValue(org.pangrova.parser.ast.Literal literal) {
-        org.pangrova.parser.ast.LiteralValue value = literal.value();
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.IntegerValue integer) {
+    private static String partitionValue(org.pangrova.parser.api.ast.Literal literal) {
+        org.pangrova.parser.api.ast.LiteralValue value = literal.value();
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.IntegerValue integer) {
             return Long.toString(integer.value());
         }
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.DecimalValue decimal) {
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.DecimalValue decimal) {
             return decimal.value().toPlainString();
         }
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.StringValue string) {
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.StringValue string) {
             return string.value();
         }
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.BooleanValue bool) {
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.BooleanValue bool) {
             return Boolean.toString(bool.value());
         }
         return temporalPartitionValue(value);
     }
 
-    private static String temporalPartitionValue(org.pangrova.parser.ast.LiteralValue value) {
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.DateValue date) {
+    private static String temporalPartitionValue(org.pangrova.parser.api.ast.LiteralValue value) {
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.DateValue date) {
             return date.value();
         }
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.TimestampValue timestamp) {
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.TimestampValue timestamp) {
             return timestamp.value();
         }
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.TimestampWithTimeZoneValue timestamp) {
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.TimestampWithTimeZoneValue timestamp) {
             return timestamp.value();
         }
-        if (value instanceof org.pangrova.parser.ast.LiteralValue.NullValue) {
+        if (value instanceof org.pangrova.parser.api.ast.LiteralValue.NullValue) {
             throw new IllegalArgumentException(
                     "Static overwrite partition value must not be NULL");
         }
@@ -393,7 +400,7 @@ final class QueryPipelineExecutor {
     }
 
     private CompilationPhase.TimeTravelResult extractTimeTravelFromSql(
-            String sql, SqlCompiler compiler, CoordinatorSessionContext context) {
+            String sql, SqlCompiler compiler, QuerySession context) {
         String expanded = viewExpander.expand(sql, compiler, context);
         return TimeTravelExtractor.extract(expanded, context,
                 (catalog, schema, table, refType, refName) -> resolveRefSnapshot(
@@ -401,7 +408,7 @@ final class QueryPipelineExecutor {
     }
 
     private java.util.OptionalLong resolveRefSnapshot(
-            CoordinatorSessionContext context,
+            QuerySession context,
             String catalog, String schema, String table,
             String refType, String refName) {
         if (catalogRegistry == null) {
@@ -448,7 +455,7 @@ final class QueryPipelineExecutor {
                     if (parts.size() != 3) {
                         throw new IllegalArgumentException("Distributed write target requires three name components");
                     }
-                    var tableName = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+                    var tableName = new org.pangrova.connector.api.metadata.table.QualifiedTableName(
                             parts.get(0), parts.get(1), parts.get(2));
                     return ctx.withDmlWriteContext(new DmlWriteContext(
                             tableName, target.operation().name(), List.of(), Optional.empty()));
@@ -456,19 +463,19 @@ final class QueryPipelineExecutor {
                 .orElse(ctx);
     }
 
-    private org.pangrova.planner.MetadataTableQuery resolveMetadataListing(java.util.List<String> parts,
-            org.pangrova.spi.connector.metadata.MetadataTableKind kind, CoordinatorSessionContext context) {
+    private org.pangrova.planner.core.analysis.MetadataTableQuery resolveMetadataListing(java.util.List<String> parts,
+            org.pangrova.connector.api.metadata.MetadataTableKind kind, QuerySession context) {
         if (catalogRegistry == null) {
             throw new IllegalStateException("SHOW metadata requires the query catalog registry");
         }
-        var table = org.pangrova.coordinator.query.statement.TableResolver.resolveTableRef(parts, context);
-        var session = org.pangrova.coordinator.query.statement.TableResolver.buildSession(
+        var table = SessionTableNames.resolveTableRef(parts, context);
+        var session = SessionContextConverter.toConnectorSession(
                 context, table.catalog(), table.schema());
         var metadata = catalogRegistry.getCatalog(table.catalog()).getMetadata(session);
         var listing = metadata.getMetadataListing(session, kind).orElseThrow(() ->
                 new org.pangrova.common.exception.PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                         "Catalog '" + table.catalog() + "' has no Native metadata listing for " + kind));
-        return new org.pangrova.planner.MetadataTableQuery(
+        return new org.pangrova.planner.core.analysis.MetadataTableQuery(
                 List.of(table.catalog(), table.schema(), table.table()), listing);
     }
 

@@ -2,7 +2,7 @@ package org.pangrova.coordinator.scheduler;
 
 import java.util.concurrent.CompletableFuture;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 

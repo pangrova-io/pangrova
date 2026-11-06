@@ -118,7 +118,8 @@ public final class WorkerOptions {
             ConfigOptions.key("worker.task.result-retention-seconds")
             .intType()
             .defaultValue(300)
-            .withDescription("Seconds to retain query results before expiration")
+            .withDescription("Seconds to retain terminal task records and any still-owned results; "
+                    + "earlier authority expiry or consumption may release them")
             .build();
 
     // ---- Shuffle ----

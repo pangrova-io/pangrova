@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
@@ -19,7 +23,7 @@ import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.coordinator.query.task.UnregisteredWorkerException;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
@@ -158,7 +162,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         QueryManager qm = buildMinimalQueryManager();
 
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         TaskStatusReport report = new TaskStatusReport(
                 "t1", "q1", 0, 0, "COMPUTE", "ghost",
@@ -181,7 +185,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
         QueryManager qm = buildMinimalQueryManager();
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         TaskStatusReport report = new TaskStatusReport(
                 "t1", "q1", 0, 0, "COMPUTE", "w1",
@@ -207,7 +211,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         QueryManager qm = buildMinimalQueryManager();
         qm.registerStateMachine("q1", new QueryStateMachine());
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         receiver.onTaskStatus(report(tracker, "t1", "q1", "w1", "RUNNING", 1));
         receiver.onTaskStatus(report(tracker, "t1", "q1", "w1", "FINISHED", 2));
@@ -229,7 +233,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         QueryManager qm = buildMinimalQueryManager();
         qm.registerStateMachine("q1", new QueryStateMachine());
         TaskStatusReceiver receiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
+                TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
 
         receiver.onTaskStatus(report(tracker, "t1", "q1", "w1", "RUNNING", 1));
 
@@ -308,22 +312,22 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
     }
 
     private static QueryManager buildMinimalQueryManager() {
-        org.pangrova.planner.SqlCompiler compiler = new org.pangrova.planner.SqlCompiler();
-        org.pangrova.scheduler.placement.TaskScheduler scheduler =
-                new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer());
+        org.pangrova.planner.core.analysis.SqlCompiler compiler = new org.pangrova.planner.core.analysis.SqlCompiler();
+        org.pangrova.scheduler.core.placement.TaskScheduler scheduler =
+                new org.pangrova.scheduler.core.placement.TaskScheduler(
+                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         QueryDispatcher dispatcher = new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null,
                         new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
+                                new org.pangrova.observability.noop.NoOpTracingProvider()),
                         scheduler,
-                        new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
+                        new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                         null, null, null, 0L),
                 null, null);
-        return new QueryManager(QueryManagerContext.minimal(dispatcher,
-                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()));
+        return new QueryManager(QueryManagerTestContexts.minimal(dispatcher,
+                new org.pangrova.observability.noop.NoOpTracingProvider()));
     }
 }

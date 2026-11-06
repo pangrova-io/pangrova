@@ -1,0 +1,10 @@
+{
+  "module_manifest": "passed; 89 code/resource artifacts, 25 aggregators",
+  "spi_annotations": 189,
+  "stable_types": 24,
+  "dead_stub_scan": "passed; lexical gate does not prove runtime reachability",
+  "empty_main_java_directories": [],
+  "source_packages": 785,
+  "source_cyclic_components": 1,
+  "coordinator_cyclic_packages": 16
+}

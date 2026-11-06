@@ -1,19 +1,21 @@
 package org.pangrova.coordinator.testinfra;
 
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 
 /** Real control-plane collaborators for REST registry tests; no Native task or SQL result is simulated. */
@@ -27,10 +29,10 @@ public final class QueryControlPlaneFixture implements AutoCloseable {
     public QueryControlPlaneFixture() {
         try {
             var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null,
-                    transport, new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker,
+                    transport, new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker,
                     null, null, null, 0L);
             var dispatcher = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
-            queries = new QueryManager(QueryManagerContext.minimal(dispatcher, TestObservability.TRACING));
+            queries = new QueryManager(QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
         } catch (RuntimeException | Error failure) {
             try { transport.close(); }
             catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
@@ -47,11 +49,11 @@ public final class QueryControlPlaneFixture implements AutoCloseable {
         queries.setAcceptingQueries(false);
         for (String queryId : queries.getActiveQueryIds()) {
             var state = queries.getStateMachine(queryId);
-            if (state.getState() == QueryStateMachine.State.FINISHED) {
+            if (state.getState() == QueryState.FINISHED) {
                 queries.onAllTasksFinished(queryId);
-            } else if (state.getState() == QueryStateMachine.State.FAILED) {
+            } else if (state.getState() == QueryState.FAILED) {
                 queries.onTaskFailed(queryId, state.getError().orElseGet(() ->
-                        new ErrorDetail("FIXTURE_FAILED", "COMPONENT_TEST", "Registered component state failed")));
+                        new QueryFailure("FIXTURE_FAILED", "COMPONENT_TEST", "Registered component state failed")));
             } else {
                 queries.cancelQuery(queryId);
             }

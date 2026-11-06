@@ -1,8 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
+import org.pangrova.query.api.task.QuerySplit;
+
 import java.util.ArrayList;
 import java.util.List;
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.common.api.annotation.Internal;
 
 /** Generic immutable split allocation and affinity metadata; no connector enumeration or dispatch. */
@@ -47,7 +48,7 @@ public final class StageSplitPartitions {
 
     /** Derives physical-object cache affinity without changing the exact split allocation order. */
     public static List<List<String>> buildPartitionFilePaths(
-            List<SplitFetcher.SplitWithPaths> splitsWithPaths,
+            List<QuerySplit> splitsWithPaths,
             List<List<String>> partitionedSplits) {
         List<List<String>> result = new ArrayList<>(partitionedSplits.size());
         for (int i = 0; i < partitionedSplits.size(); i++) {
@@ -55,8 +56,8 @@ public final class StageSplitPartitions {
         }
         java.util.Map<String, List<String>> pathsBySplit = splitsWithPaths.stream()
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        SplitFetcher.SplitWithPaths::serializedData,
-                        SplitFetcher.SplitWithPaths::filePaths));
+                        QuerySplit::serializedData,
+                        QuerySplit::filePaths));
         for (int partition = 0; partition < partitionedSplits.size(); partition++) {
             for (String split : partitionedSplits.get(partition)) {
                 List<String> paths = pathsBySplit.get(split);

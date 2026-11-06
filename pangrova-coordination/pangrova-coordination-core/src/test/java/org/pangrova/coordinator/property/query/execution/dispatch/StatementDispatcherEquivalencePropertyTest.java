@@ -12,20 +12,20 @@ import net.jqwik.api.Arbitraries;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.InsertStatement;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
+import org.pangrova.query.core.statement.StatementTableTargets;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.parser.api.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,7 +45,7 @@ class StatementDispatcherEquivalencePropertyTest {
      * Property 11: Behavioral equivalence.
      * For all isDdlOrDml statements, the new factory-based dispatch produces
      * the expected category and mutatedTable via factory registration
-     * and TableNameExtractor.
+     * and StatementTableTargets.
      */
     @Property(tries = 50)
     void newDispatchMatchesOldRouterBehavior(
@@ -59,8 +59,9 @@ class StatementDispatcherEquivalencePropertyTest {
         // Verify category matches what old router would produce
         assertThat(result.category()).isEqualTo(expectedCategory);
 
-        // Verify mutatedTable matches TableNameExtractor (which replaced the old instanceof chain)
-        String expectedTable = TableNameExtractor.extract(stmt);
+        // Verify mutatedTable matches StatementTableTargets (which replaced the old instanceof chain)
+        String expectedTable = java.util.Optional.ofNullable(StatementTableTargets.identifier(stmt))
+                .map(id -> String.join(".", id.parts())).orElse(null);
         assertThat(result.mutatedTable()).isEqualTo(expectedTable);
 
         // Verify isRoutable classification is consistent
@@ -92,7 +93,7 @@ class StatementDispatcherEquivalencePropertyTest {
                         new DropTableStatement(TABLE_ID, false),
                         StatementCategory.DDL),
                 new StatementWithExpected(
-                        new AlterTableStatement.AddColumn(TABLE_ID, "col", DataTypeSpec.fromRawTypeString("STRING")),
+                        new AlterTableStatement.AddColumn(TABLE_ID, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("STRING")),
                         StatementCategory.DDL),
                 new StatementWithExpected(
                         new AlterTableStatement.DropColumn(TABLE_ID, "col"),
@@ -101,7 +102,7 @@ class StatementDispatcherEquivalencePropertyTest {
                         new AlterTableStatement.RenameColumn(TABLE_ID, "old", "new_col"),
                         StatementCategory.DDL),
                 new StatementWithExpected(
-                        new AlterTableStatement.ChangeColumnType(TABLE_ID, "col", DataTypeSpec.fromRawTypeString("BIGINT")),
+                        new AlterTableStatement.ChangeColumnType(TABLE_ID, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT")),
                         StatementCategory.DDL),
                 new StatementWithExpected(
                         new AlterTableStatement.SetPartitionSpec(TABLE_ID, List.of()),
@@ -116,7 +117,8 @@ class StatementDispatcherEquivalencePropertyTest {
 
     private static StatementResult dispatchViaFactory(
             Statement stmt, StatementCategory category) {
-        String mutatedTable = TableNameExtractor.extract(stmt);
+        String mutatedTable = java.util.Optional.ofNullable(StatementTableTargets.identifier(stmt))
+                .map(id -> String.join(".", id.parts())).orElse(null);
         return new StatementResult(List.of(), List.of(), mutatedTable, category);
     }
 

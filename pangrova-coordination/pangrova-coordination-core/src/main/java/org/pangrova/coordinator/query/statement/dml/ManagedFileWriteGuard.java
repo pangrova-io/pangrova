@@ -7,9 +7,9 @@ import java.util.stream.Collectors;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.ValidationException;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /**
  * Fail-closed guard for {@code FILE MANAGED} columns.

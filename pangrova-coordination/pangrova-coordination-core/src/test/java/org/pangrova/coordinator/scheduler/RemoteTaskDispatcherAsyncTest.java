@@ -7,13 +7,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.coordinator.resilience.breaker.CircuitBreaker;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;

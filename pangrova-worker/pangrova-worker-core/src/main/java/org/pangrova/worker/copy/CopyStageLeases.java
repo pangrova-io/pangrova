@@ -226,7 +226,7 @@ public final class CopyStageLeases implements AutoCloseable {
 
     private static ErrorClass failureCategory(Exception failure) {
         if (failure instanceof CopyPreparation.Halted halted) return halted.category();
-        if (failure instanceof org.pangrova.spi.security.AccessDeniedException
+        if (failure instanceof org.pangrova.security.api.error.AccessDeniedException
                 || failure instanceof CopySourceReadClient.Rejected rejected && rejected.isPolicyDenial()) {
             return ErrorClass.ERROR_CLASS_POLICY_DENIED;
         }

@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,13 +31,13 @@ class QueryDispatcherStageLineageTest {
     @Test
     void lineageEmitterIsNullableInDependencies() {
         QueryDispatcherContext deps = QueryDispatcherContext.withDefaults(
-                new org.pangrova.planner.SqlCompiler(),
+                new org.pangrova.planner.core.analysis.SqlCompiler(),
                 null, null, null,
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                        new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
-                new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer()),
+                        new org.pangrova.observability.noop.NoOpTracingProvider()),
+                new org.pangrova.scheduler.core.placement.TaskScheduler(
+                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                 null, null, null, 0L);
@@ -66,13 +66,13 @@ class QueryDispatcherStageLineageTest {
         emitter = new LineageEventEmitter(new CapturingLineageBackend(captured));
 
         QueryDispatcherContext deps = QueryDispatcherContext.withDefaults(
-                new org.pangrova.planner.SqlCompiler(),
+                new org.pangrova.planner.core.analysis.SqlCompiler(),
                 null, null, null,
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                        new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
-                new org.pangrova.scheduler.placement.TaskScheduler(
-                        new org.pangrova.scheduler.scoring.WorkerPerformanceScorer()),
+                        new org.pangrova.observability.noop.NoOpTracingProvider()),
+                new org.pangrova.scheduler.core.placement.TaskScheduler(
+                        new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                 null, null, emitter, 0L);

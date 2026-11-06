@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.coordination;
 
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +27,7 @@ class StepDownTimingDependencyTest {
     void stepDown_demotionCallbackFiresWithoutClearingQueryOwnership() {
         haService = new HighAvailabilityCoordinationService(
                 new InMemoryDistributedLease(),
-                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
+                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         haService.tryBecomeLeader("node-1");
         haService.acquireQueryOwnership("q-1", "node-1");
@@ -50,7 +50,7 @@ class StepDownTimingDependencyTest {
     void stepDown_roleTransitionsToStandby() {
         haService = new HighAvailabilityCoordinationService(
                 new InMemoryDistributedLease(),
-                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
+                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         haService.tryBecomeLeader("node-1");
         assertThat(haService.getRole())
@@ -67,8 +67,8 @@ class StepDownTimingDependencyTest {
         InMemoryDistributedLease sharedLease = new InMemoryDistributedLease();
         var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
 
-        var node1 = new HighAvailabilityCoordinationService(sharedLease, config);
-        var node2 = new HighAvailabilityCoordinationService(sharedLease, config);
+        var node1 = new HighAvailabilityCoordinationService(sharedLease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
+        var node2 = new HighAvailabilityCoordinationService(sharedLease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         try {
             node1.tryBecomeLeader("node-1");
             assertThat(node1.isLeader("node-1")).isTrue();
@@ -88,7 +88,7 @@ class StepDownTimingDependencyTest {
     void stepDown_nonLeaderCannotStepDown() {
         haService = new HighAvailabilityCoordinationService(
                 new InMemoryDistributedLease(),
-                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
+                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         haService.tryBecomeLeader("node-1");
         assertThat(haService.stepDown("node-2")).isFalse();

@@ -1,10 +1,11 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
+import org.pangrova.query.api.stage.StageState;
+
 import io.github.resilience4j.retry.Retry;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.coordinator.query.stage.Stage;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +56,7 @@ public final class RetryStageHandler implements StageLifecycleHandler {
     }
 
     private void retryFailedOwner(StageLifecycleEvent event, Stage failed) {
-        if (failed.stateMachine().getState() != StageStateMachine.State.FAILED) return;
+        if (failed.stateMachine().getState() != StageState.FAILED) return;
         var classified = resolveErrorCode(failed.lastError());
         if (classified.isEmpty()) {
             LOG.info("event=stage_retry_declined queryId={} stageId={} reason=unclassified_error",
@@ -80,7 +81,7 @@ public final class RetryStageHandler implements StageLifecycleHandler {
                 event.queryId(), failed.stageId(), code.getCode(), failed.retryCount());
     }
 
-    private static Optional<PangrovaErrorCode> resolveErrorCode(ErrorDetail error) {
+    private static Optional<PangrovaErrorCode> resolveErrorCode(QueryFailure error) {
         if (error == null || error.errorCode() == null) return Optional.empty();
         for (PangrovaErrorCode code : PangrovaErrorCode.values()) {
             if (code.getCode().equals(error.errorCode())) return Optional.of(code);

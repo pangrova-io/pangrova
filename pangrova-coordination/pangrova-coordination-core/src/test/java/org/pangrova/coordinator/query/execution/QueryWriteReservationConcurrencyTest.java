@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -32,7 +32,7 @@ class QueryWriteReservationConcurrencyTest {
             var release = new CountDownLatch(1);
             var authorities = new CountDownLatch(2);
             fixture.metadata.beforeInsert = () -> waitAtSdkBoundary(entered, release);
-            fixture.engine.setGeneratedWriteAuthoritySupplier(request -> {
+            fixture.createEngineWithAuthority(request -> {
                 fixture.observations.add(request);
                 authorities.countDown();
                 return fixture.receipt(request);
@@ -150,9 +150,9 @@ class QueryWriteReservationConcurrencyTest {
                 Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT), fixture.declaration())));
     }
 
-    private static CoordinatorSessionContext actor() {
-        return new CoordinatorSessionContext("reservation-query", Map.of(),
-                new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-1");
+    private static QuerySession actor() {
+        return new QuerySession("reservation-query", Map.of(),
+                new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static void waitAtSdkBoundary(CountDownLatch entered, CountDownLatch release) {

@@ -25,11 +25,11 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
 import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
-import org.pangrova.security.authn.AuthenticationManager;
-import org.pangrova.spi.security.authn.AuthenticationRequest;
-import org.pangrova.spi.security.authn.AuthenticationResult;
-import org.pangrova.spi.security.authn.Authenticator;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.api.authentication.AuthenticationRequest;
+import org.pangrova.security.api.authentication.AuthenticationResult;
+import org.pangrova.security.spi.authentication.Authenticator;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -120,11 +120,13 @@ class RequestLimitControlIsolationTest {
         assertThat(rejected.body()).contains("PAYLOAD_TOO_LARGE");
     }
 
-    @Test
-    void authenticatedRegistrationAcceptsTheBoundedCanonicalInventoryEnvelope() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"/v1/workers/register", "/v1/workers/refresh"})
+    void authenticatedRegistrationAcceptsTheBoundedCanonicalInventoryEnvelope(String path) throws Exception {
         int maximum = 4 * 1024 * 1024 + 64 * 1024;
-        var response = postRegistration("Bearer " + SECRET,
-                HttpRequest.BodyPublishers.ofByteArray(new byte[maximum]));
+        var response = client.send(HttpRequest.newBuilder(base.resolve(path))
+                .header("Authorization", "Bearer " + SECRET)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[maximum])).build(), HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).isEqualTo(Integer.toString(maximum));
     }
@@ -192,7 +194,7 @@ class RequestLimitControlIsolationTest {
         }
     }
 
-    @Path("/v1/workers/register")
+    @Path("/v1/workers/{operation:register|refresh}")
     public static class RegistrationEndpoint {
         @POST
         public String post(@Context ContainerRequestContext context, byte[] body) {

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.api.write.WriteAuthorityRequest;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -10,7 +11,7 @@ import org.pangrova.connector.iceberg.IcebergMetadata;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
@@ -21,47 +22,46 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.rowfilter.RowPolicy;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
-
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -69,15 +69,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Real SDK allocation and serialization; the leaf catalog router is not an HTTP or Native fixture. */
 final class SchedulingWriteFixture implements AutoCloseable {
     static final QualifiedTableName TABLE = new QualifiedTableName("catalog", "schema", "documents");
     final NativeWriteCommitTracker tracker = new NativeWriteCommitTracker();
     final CountingMetadata metadata;
-    final QuerySchedulingEngine engine;
+    QuerySchedulingEngine engine;
     final CatalogRegistry registry;
-    final List<GeneratedWriteAuthoritySupplier.WriteAuthorityRequest> observations =
+    final List<WriteAuthorityRequest> observations =
             new java.util.concurrent.CopyOnWriteArrayList<>();
     private final HadoopCatalog catalog;
     private final CatalogHandle catalogHandle;
@@ -103,19 +106,24 @@ final class SchedulingWriteFixture implements AutoCloseable {
         var handle = new ConnectorCatalogHandle(descriptor, new MetadataConnector(metadata));
         catalogHandle = handle;
         registry = new SingleCatalogRegistry(handle);
-        engine = new QuerySchedulingEngine(new QuerySchedulingEngine.SchedulingDependencies(
-                null, null, null, null, registry, null, null, 0));
-        engine.setWriteCommitTracker(tracker);
+        createEngineWithAuthority(null);
     }
 
     void enforceOwnership() {
-        registry.setTableControlService(new org.pangrova.table.control.TableControlService(
-                new org.pangrova.table.store.memory.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
-                new org.pangrova.table.control.TableControlSettings(true, true, Set.of())));
+        registry.setTableControlService(new org.pangrova.table.core.ownership.TableControlService(
+                new org.pangrova.persistence.table.memory.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
+                new org.pangrova.table.core.config.TableControlSettings(true, true, Set.of())));
+    }
+
+    /** Creates a fresh dispatcher for a test, never mutates a running authority. */
+    void createEngineWithAuthority(org.pangrova.query.spi.write.WriteAuthorityResolver resolver) {
+        engine = new QuerySchedulingEngine(new QuerySchedulingEngine.SchedulingDependencies(
+                null, null, null, null, registry, null, null, 0), resolver);
+        engine.setWriteCommitTracker(tracker);
     }
 
     void installOrdinaryAuthority() {
-        engine.setGeneratedWriteAuthoritySupplier(request -> {
+        createEngineWithAuthority(request -> {
             observations.add(request);
             return receipt(request);
         });
@@ -126,17 +134,16 @@ final class SchedulingWriteFixture implements AutoCloseable {
                 .addColumn("new_column", Types.StringType.get()).commit();
     }
 
-    WritePolicyObservation compileProtectedInsert(CoordinatorSessionContext actor) throws Exception {
+    WritePolicyObservation compileProtectedInsert(QuerySession actor) throws Exception {
         String sql = generated
                 ? "INSERT INTO catalog.schema.documents (id, title) SELECT id, title FROM catalog.schema.other"
                 : "INSERT INTO catalog.schema.documents SELECT id, title, embedding FROM catalog.schema.other";
         return compileProtectedWrite(actor, sql);
     }
 
-    WritePolicyObservation compileProtectedWrite(CoordinatorSessionContext actor, String sql) throws Exception {
+    WritePolicyObservation compileProtectedWrite(QuerySession actor, String sql) throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("write_read_binding");
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of(actor.userIdentity().principal(), "reader"));
         var grants = new JdbcGrantStore(dataSource);
@@ -149,9 +156,9 @@ final class SchedulingWriteFixture implements AutoCloseable {
                 "'masked'", List.of("reader"), List.of(), true, null));
         var authority = new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks));
-        var directory = new JdbcMetadataStore(dataSource);
+        var directory = new PostgresCatalogDeploymentRepository(dataSource);
         directory.saveCatalogDescriptor(catalogHandle.getDescriptor());
-        var bootstrap = MetadataBootstrap.initialize(directory, ignored -> catalogHandle);
+        var bootstrap = MetadataBootstrap.initialize(directory, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), ignored -> catalogHandle);
         try {
             var schema = bootstrap.buildCalciteSchema(SessionContextConverter.toConnectorSession(actor));
             var compiler = new SqlCompiler(new PangrovaPlanner(schema, List.of("catalog", "schema")),
@@ -166,9 +173,9 @@ final class SchedulingWriteFixture implements AutoCloseable {
     }
 
     WriteDeclarationSnapshot declaration() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
-                "fixture-compilation", Map.of(), new org.pangrova.spi.security.UserIdentity(
-                        "alice", Set.of(), Map.of(), java.time.Instant.EPOCH), "tenant-1"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession(
+                "fixture-compilation", Map.of(), new org.pangrova.security.api.identity.UserIdentity(
+                        "alice", Set.of(), Map.of(), java.time.Instant.EPOCH), "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         var handle = metadata.getTableHandle(session, new SchemaTableName(TABLE.schema(), TABLE.table()));
         var actual = metadata.getTableMetadata(session, handle);
         var definitions = GeneratedColumnMetadataCodec.decode(actual.properties());
@@ -187,7 +194,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
         update.commit();
     }
 
-    WriteAuthorizationReceipt receipt(GeneratedWriteAuthoritySupplier.WriteAuthorityRequest request) {
+    WriteAuthorizationReceipt receipt(WriteAuthorityRequest request) {
         var table = metadata.getTableHandle(request.session(),
                 new SchemaTableName(request.table().schema(), request.table().table()));
         var actual = metadata.getTableMetadata(request.session(), table);
@@ -221,13 +228,13 @@ final class SchedulingWriteFixture implements AutoCloseable {
         Map<String, String> partition = Map.of();
         boolean failOverwrite;
         Runnable beforeInsert = () -> { };
-        org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities =
+        org.pangrova.connector.api.metadata.table.TableCapabilities capabilities =
                 org.pangrova.connector.iceberg.handle.IcebergTableHandle.CAPABILITIES;
 
         CountingMetadata(HadoopCatalog catalog) { super(catalog, "catalog"); }
 
         @Override
-        public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
+        public org.pangrova.connector.api.metadata.table.TableCapabilities getTableCapabilities(
                 ConnectorSession session, ConnectorTableHandle table) {
             return capabilities;
         }
@@ -274,9 +281,9 @@ final class SchedulingWriteFixture implements AutoCloseable {
         @Override public CatalogHandle getCatalog(String name) {
             return name.equals("catalog") ? handle : null;
         }
-        @Override public org.pangrova.table.api.control.CatalogDeploymentIdentity requireCurrentCatalogIdentity(String name) {
+        @Override public org.pangrova.table.api.identity.CatalogDeploymentIdentity requireCurrentCatalogIdentity(String name) {
             var deployment = getCatalog(name).getDescriptor();
-            return new org.pangrova.table.api.control.CatalogDeploymentIdentity(
+            return new org.pangrova.table.api.identity.CatalogDeploymentIdentity(
                     deployment.incarnationId(), deployment.revision());
         }
     }

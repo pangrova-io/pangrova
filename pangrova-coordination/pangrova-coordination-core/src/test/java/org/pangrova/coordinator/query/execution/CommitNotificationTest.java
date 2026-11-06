@@ -1,16 +1,17 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.core.task.StageDispatchRecord;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,8 +29,8 @@ class CommitNotificationTest {
     void commitNotificationOnlyForBlockingEdges() {
         // Stage 0 (scan) → Stage 1 (join) via HASH (BLOCKING)
         // Stage 2 (broadcast) → Stage 1 (join) via BROADCAST (STREAMING)
-        StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
-        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST,
+        StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.HASH);
+        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.core.analysis.ShuffleType.BROADCAST,
                 List.of(), "exchange-2-to-1", 1,
                 org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
 
@@ -56,8 +57,8 @@ class CommitNotificationTest {
         downstream.addTaskId("task-1-0");
 
         // Build dispatch records
-        List<DAGDispatchEngine.StageDispatchRecord> dispatched = List.of(
-                new DAGDispatchEngine.StageDispatchRecord(1,
+        List<StageDispatchRecord> dispatched = List.of(
+                new StageDispatchRecord(1,
                         new DispatchResult("worker-b", "task-1-0",
                                 new ResultEndpoint("worker-b", 8816, "q-commit", "grpc-transport")),
                         8080, 8816)
@@ -82,7 +83,7 @@ class CommitNotificationTest {
     @Test
     @DisplayName("No notification when no downstream tasks dispatched")
     void noNotificationWhenNoDownstreamTasks() {
-        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
+        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.HASH);
         StageNode s0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyFragment(), 1, "COMPUTE", List.of());
 
@@ -100,7 +101,7 @@ class CommitNotificationTest {
      * Replicates notifyDownstreamOfCommit logic for unit testing.
      */
     private static void notifyDownstream(Stage finished, StageDAG dag, String queryId,
-            List<DAGDispatchEngine.StageDispatchRecord> dispatched,
+            List<StageDispatchRecord> dispatched,
             RecordingDispatcher recorder) {
         for (Stage downstream : dag.stageEntities()) {
             ExchangeReadMode mode = dag.getEdgeReadMode(finished.stageId(), downstream.stageId());
@@ -108,7 +109,7 @@ class CommitNotificationTest {
                 continue;
             }
             for (String taskId : downstream.taskIds()) {
-                for (DAGDispatchEngine.StageDispatchRecord rec : dispatched) {
+                for (StageDispatchRecord rec : dispatched) {
                     if (rec.result().taskId().equals(taskId)) {
                         recorder.notifyUpstreamCommit(
                                 rec.result().workerHost(), rec.workerHttpPort(),
@@ -130,12 +131,12 @@ class CommitNotificationTest {
         record CommitRecord(String workerHost, int httpPort, String queryId, int upstreamStageId) {}
     }
 
-    private static org.pangrova.planner.PlanFragment dummyFragment() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyFragment() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

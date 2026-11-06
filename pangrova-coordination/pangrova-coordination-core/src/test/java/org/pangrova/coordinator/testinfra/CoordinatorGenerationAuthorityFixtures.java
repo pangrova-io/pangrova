@@ -1,15 +1,15 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -24,11 +24,10 @@ public final class CoordinatorGenerationAuthorityFixtures {
     public static void provision(DataSource dataSource, String tenantId, String principal,
                                  DeferredAuthorizationScope scope) {
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of("artifact_builder"));
         roles.grantRoleToUser(UserRoleAssignment.of(principal, "artifact_builder"));
         var tenants = new JdbcTenantStore(dataSource);
-        tenants.initSchema();
+
         tenants.createTenant(new Tenant(tenantId, tenantId, TenantStatus.ACTIVE,
                 null, List.of(), List.of(), null, Map.of(), Instant.EPOCH, principal));
         tenants.addUserToTenant(tenantId, principal, TenantRole.MEMBER);

@@ -21,7 +21,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  * HTTP client for Worker registration/deregistration with Coordinator.
- * POST /v1/workers/register on startup, DELETE /v1/workers/{workerId} on shutdown.
+ * First POST uses /v1/workers/register; retries and repair use conditional /v1/workers/refresh.
+ * DELETE /v1/workers/{workerId} withdraws only the original process on shutdown.
+ * One client owns one logical ID and execution incarnation, retained before sending the
+ * first registration attempt. DELETE carries that original identity as JSON, including
+ * retries after an unknown response; the client cannot switch to another process.
  *
  * <p>Serialization failures throw {@link SerializationException} with error code
  * {@link PangrovaErrorCode#WORKER_REGISTRATION_SERIALIZATION_FAILED} instead of
@@ -46,6 +50,13 @@ public final class WorkerRegistrationClient implements AutoCloseable {
     private final org.pangrova.common.http.ManagedHttpClient managedClient;
     private final ObjectMapper mapper;
     private final String internalAuthSecret;
+    // This client owns one registration attempt domain, including an unknown HTTP outcome.
+    private final java.util.concurrent.atomic.AtomicReference<RegistrationTarget> registration =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
+    private record RegistrationTarget(String workerId,
+            org.pangrova.protocol.execution.identity.WorkerExecutionIdentity identity) {}
+
 
     public WorkerRegistrationClient(String coordinatorUrl) {
         this(coordinatorUrl, (String) null);
@@ -88,7 +99,14 @@ public final class WorkerRegistrationClient implements AutoCloseable {
     /** Registers this worker with the coordinator. */
     public WorkerControlResponse register(WorkerRegistrationRequest request) {
         byte[] body = serialize(request);
-        String url = coordinatorUrl + REGISTER_PATH;
+        var target = new RegistrationTarget(request.workerId(), request.workerExecutionIdentity());
+        RegistrationTarget previous = registration.getAndUpdate(existing -> {
+            if (existing != null && !existing.equals(target)) {
+                throw new IllegalStateException("Registration client cannot change its Worker incarnation");
+            }
+            return target;
+        });
+        String url = coordinatorUrl + (previous == null ? REGISTER_PATH : "/v1/workers/refresh");
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
@@ -100,13 +118,24 @@ public final class WorkerRegistrationClient implements AutoCloseable {
         return sendControlRequest(builder.build(), "register");
     }
 
-    /** Deregisters this worker from the coordinator. */
+    /** Withdraws this client's exact attempted registration, never a later process using its ID. */
     public void deregister(String workerId) {
+        RegistrationTarget target = registration.get();
+        if (target == null || !target.workerId().equals(workerId)) {
+            throw new IllegalStateException("No matching Worker registration belongs to this client");
+        }
+        byte[] identity;
+        try {
+            identity = mapper.writeValueAsBytes(target.identity());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException("Cannot serialize Worker withdrawal identity", failure);
+        }
         String url = coordinatorUrl + "/v1/workers/" + workerId;
         HttpRequest httpReq = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(HTTP_TIMEOUT)
-                .DELETE()
+                .header("Content-Type", "application/json")
+                .method("DELETE", HttpRequest.BodyPublishers.ofByteArray(identity))
                 .build();
         if (internalAuthSecret != null && !internalAuthSecret.isBlank()) {
             httpReq = HttpRequest.newBuilder(httpReq, (name, value) -> true)

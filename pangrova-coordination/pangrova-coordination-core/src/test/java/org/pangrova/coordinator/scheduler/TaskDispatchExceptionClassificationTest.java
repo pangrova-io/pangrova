@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.failure.TaskDispatchException;
-import org.pangrova.scheduler.failure.ErrorCategory;
+import org.pangrova.scheduler.api.error.TaskDispatchException;
+import org.pangrova.scheduler.api.error.ErrorCategory;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -13,8 +13,8 @@ import java.util.concurrent.TimeoutException;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,12 +1,11 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
-import org.pangrova.security.secret.SecretResolverRegistry;
+import org.pangrova.metadata.api.error.catalog.CatalogProviderNotFoundException;
+import org.pangrova.security.core.secret.SecretResolverRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -98,10 +97,10 @@ class PluginConnectorHandleFactoryTest {
 
     @Test
     void metadataBootstrapWithConnectorFactory() {
-        MetadataBootstrapTest.InMemoryMetadataStore store = new MetadataBootstrapTest.InMemoryMetadataStore();
+        MetadataBootstrapTest.InMemoryCatalogDeployments store = new MetadataBootstrapTest.InMemoryCatalogDeployments();
         store.saveCatalogDescriptor(connectorDescriptor("test_iceberg", "iceberg"));
 
-        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, factory);
+        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository(), factory);
 
         assertThat(bootstrap.catalogRegistry().listCatalogNames()).contains("test_iceberg");
         bootstrap.shutdown();

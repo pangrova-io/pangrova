@@ -4,8 +4,8 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
-import org.pangrova.security.secret.SecretResolverRegistry;
+import org.pangrova.metadata.api.error.catalog.CatalogProviderNotFoundException;
+import org.pangrova.security.core.secret.SecretResolverRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -34,14 +34,14 @@ class PluginFederationHandleFactoryTest {
 
     @Test
     void metadataBootstrapWithFederationFactory() {
-        MetadataBootstrapTest.InMemoryMetadataStore store = new MetadataBootstrapTest.InMemoryMetadataStore();
+        MetadataBootstrapTest.InMemoryCatalogDeployments store = new MetadataBootstrapTest.InMemoryCatalogDeployments();
         PluginConnectorHandleFactory connectorFactory =
                 new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(), descriptor -> java.util.Optional.empty());
         PluginFederationHandleFactory federationFactory =
                 new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry());
 
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(
-                store, connectorFactory, federationFactory);
+                store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository(), connectorFactory, federationFactory);
 
         assertThat(bootstrap.catalogRegistry()).isNotNull();
         assertThat(bootstrap.metadataService()).isNotNull();
@@ -52,7 +52,7 @@ class PluginFederationHandleFactoryTest {
 
     @Test
     void connectorCatalogStillWorksWithBothFactories() {
-        MetadataBootstrapTest.InMemoryMetadataStore store = new MetadataBootstrapTest.InMemoryMetadataStore();
+        MetadataBootstrapTest.InMemoryCatalogDeployments store = new MetadataBootstrapTest.InMemoryCatalogDeployments();
         store.saveCatalogDescriptor(connectorDescriptor("test_iceberg", "iceberg"));
 
         PluginConnectorHandleFactory connectorFactory =
@@ -61,7 +61,7 @@ class PluginFederationHandleFactoryTest {
                 new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry());
 
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(
-                store, connectorFactory, federationFactory);
+                store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository(), connectorFactory, federationFactory);
 
         assertThat(bootstrap.catalogRegistry().listCatalogNames()).contains("test_iceberg");
 
@@ -75,12 +75,12 @@ class PluginFederationHandleFactoryTest {
 
     @Test
     void catalogHealthStatusTrackedPerCatalog() {
-        MetadataBootstrapTest.InMemoryMetadataStore store = new MetadataBootstrapTest.InMemoryMetadataStore();
+        MetadataBootstrapTest.InMemoryCatalogDeployments store = new MetadataBootstrapTest.InMemoryCatalogDeployments();
         store.saveCatalogDescriptor(connectorDescriptor("ice_cat", "iceberg"));
 
         PluginConnectorHandleFactory connectorFactory =
                 new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(), descriptor -> java.util.Optional.empty());
-        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
+        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository(), connectorFactory);
 
         CatalogHandle handle = bootstrap.catalogRegistry().getCatalog("ice_cat");
         assertThat(handle.checkHealth()).isNotNull();

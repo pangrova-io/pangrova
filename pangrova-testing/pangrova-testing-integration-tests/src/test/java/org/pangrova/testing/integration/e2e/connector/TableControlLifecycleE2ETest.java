@@ -15,11 +15,11 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
-import org.pangrova.table.api.control.OwnershipMode;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.table.control.TableControlSettings;
-import org.pangrova.table.api.control.TableControlState;
+import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
+import org.pangrova.table.api.ownership.OwnershipMode;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.table.core.config.TableControlSettings;
+import org.pangrova.table.api.ownership.TableControlState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
@@ -70,7 +70,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         var service = metadataBootstrap.metadataService();
         // The trusted engine API receives the configured test actor's metadata-only context.
         // Writes and result reads below traverse authenticated HTTP SQL and actual Native execution.
-        var actor = new org.pangrova.metadata.service.MetadataSessionContext("e2e-user", PAIMON, SCHEMA,
+        var actor = new org.pangrova.metadata.api.session.MetadataSessionContext("e2e-user", PAIMON, SCHEMA,
                 "UTC", "en", java.util.Map.of(), "default", null, null);
         var ref = new org.pangrova.metadata.api.object.QualifiedTableRef(PAIMON, SCHEMA, table);
         var columns = List.of(
@@ -147,8 +147,8 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         sqlRunner.execute("INSERT INTO " + source + " VALUES (1),(2)");
         var policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
                 new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()),
-                new org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore(stateStoreDataSource()));
-        policies.savePolicy(new org.pangrova.spi.security.rowfilter.RowPolicy(0, "private_rows", PAIMON,
+                new org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore(stateStoreDataSource()));
+        policies.savePolicy(new org.pangrova.security.api.rowfilter.RowPolicy(0, "private_rows", PAIMON,
                 SCHEMA, table, "id > 1", List.of(), true, 1, null));
         var original = policies.getPolicies(PAIMON, SCHEMA, table).get(0);
         assertThat(sqlRunner.execute("SELECT id FROM " + source))
@@ -162,7 +162,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + source + " VALUES (0),(3)");
         assertThat(sqlRunner.execute("SELECT id FROM " + source)).hasSize(2);
-        policies.savePolicy(new org.pangrova.spi.security.rowfilter.RowPolicy(0, "private_rows", PAIMON,
+        policies.savePolicy(new org.pangrova.security.api.rowfilter.RowPolicy(0, "private_rows", PAIMON,
                 SCHEMA, table, "id > 2", List.of(), true, 1, null));
         policies.deletePolicy(original.policyId());
         assertThat(sqlRunner.execute("SELECT id FROM " + source))

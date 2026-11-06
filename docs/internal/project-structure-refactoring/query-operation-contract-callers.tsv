@@ -1,0 +1,8 @@
+source	change
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/task/TaskQueryCompletion.java	Consume QueryOperation contract instead of concrete owner implementation
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryStateMachine.java	Consume QueryOperation contract instead of concrete owner implementation
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalFrontendOwnershipTest.java	Consume QueryOperation contract instead of concrete owner implementation
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalNativeFixture.java	Consume QueryOperation contract instead of concrete owner implementation
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java	Consume QueryOperation contract instead of concrete owner implementation
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	Consume QueryOperation contract instead of concrete owner implementation
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalControlFixture.java	Consume QueryOperation contract instead of concrete owner implementation

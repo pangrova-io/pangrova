@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.tracing.otel;
 
-import org.pangrova.spi.observability.TextMapGetter;
+import org.pangrova.observability.api.tracing.TextMapGetter;
 
 /**
  * Adapts Pangrova's {@link TextMapGetter} to OTel's {@link io.opentelemetry.context.propagation.TextMapGetter}.

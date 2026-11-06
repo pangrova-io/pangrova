@@ -21,12 +21,12 @@ import java.util.List;
 import java.util.Map;
 
 import org.pangrova.common.exception.ValidationException;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.expression.FunctionCall;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

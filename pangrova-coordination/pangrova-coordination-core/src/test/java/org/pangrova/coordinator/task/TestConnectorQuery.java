@@ -1,11 +1,13 @@
 package org.pangrova.coordinator.task;
 
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
+import org.pangrova.connector.api.session.ConnectorSession;
 
 import java.util.Map;
 
@@ -14,7 +16,7 @@ public final class TestConnectorQuery {
     private final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
     private final QueryStateMachine state = new QueryStateMachine();
     private final ConnectorMetadataScope authority;
-    private final CoordinatorSessionContext session;
+    private final QuerySession session;
 
     /** Creates a fresh engine owner, not an authority decoded from session properties. */
     public TestConnectorQuery(String queryId) {
@@ -26,7 +28,7 @@ public final class TestConnectorQuery {
         authority = state.bindConnectorAuthority(tracker.openQueryIssuance(queryId));
         var options = new java.util.HashMap<>(properties);
         options.put("user", user);
-        session = new CoordinatorSessionContext(queryId, options, null, tenant).withQueryAuthority(authority);
+        session = new QuerySession(queryId, options, null, tenant, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()).withQueryAuthority(authority);
     }
 
     /** Returns the same actual authority used by all session copies. */
@@ -44,7 +46,7 @@ public final class TestConnectorQuery {
 
     /** Closes admission, but deliberately does not pretend that active readers have exited. */
     public void seal() {
-        state.tryTransition(QueryStateMachine.State.CANCELLED);
+        state.tryTransition(QueryState.CANCELLED);
         tracker.sealQueryIssuance(authority.queryId());
     }
 

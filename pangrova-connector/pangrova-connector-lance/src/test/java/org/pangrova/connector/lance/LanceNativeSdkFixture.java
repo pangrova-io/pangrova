@@ -65,7 +65,7 @@ final class LanceNativeSdkFixture {
     List<PrepareDistributedWriteResult> prepare(PrepareDistributedWriteRequest first) throws Exception {
         List<PrepareDistributedWriteResult> pages = new ArrayList<>();
         var request = first.toBuilder().clearInvocationId().build();
-        for (int page = 0; page < org.pangrova.spi.connector.metadata.SourceObjectPage.MAX_PAGES; page++) {
+        for (int page = 0; page < org.pangrova.connector.api.metadata.SourceObjectPage.MAX_PAGES; page++) {
             var result = preparePage(request);
             if (result.getOutcome() != WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_PREPARED
                     || !result.hasPublication() || !result.hasObjectPage()) {
@@ -113,7 +113,7 @@ final class LanceNativeSdkFixture {
     }
 
     void cleanup(String execution) throws Exception {
-        for (int page = 0; page < org.pangrova.spi.connector.metadata.SourceObjectPage.MAX_PAGES; page++) {
+        for (int page = 0; page < org.pangrova.connector.api.metadata.SourceObjectPage.MAX_PAGES; page++) {
             var request = catalog.cleanupRequest(execution);
             if (request.isEmpty()) return;
             catalog.completeCleanup(execution, cleanupPage(request.orElseThrow()));

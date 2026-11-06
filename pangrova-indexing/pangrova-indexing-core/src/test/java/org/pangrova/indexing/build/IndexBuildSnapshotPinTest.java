@@ -3,12 +3,12 @@ package org.pangrova.indexing.build;
 import org.junit.jupiter.api.Test;
 import org.pangrova.indexing.registry.IndexEngineRegistry;
 import org.pangrova.indexing.config.IndexingConfig;
-import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.spi.connector.index.SnapshotPinProvider;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.connector.spi.index.SnapshotPinProvider;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 
 import java.time.Instant;
 import java.util.List;

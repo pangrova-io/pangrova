@@ -1,34 +1,36 @@
 package org.pangrova.coordinator.coordination.store.jdbc;
 
+import org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions;
+
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
+import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.file.storage.FileStorageException;
-import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
-import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
-import org.pangrova.spi.security.tenant.ResourceQuota;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions;
+import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 
@@ -76,7 +78,7 @@ class JdbcCopySourceReadAdmissionsTest {
         }
         assertThat(fixture.redeem(ticket, scope).profile().profile().bucket()).isEqualTo("bucket");
         assertThat(new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence())
+                new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence())
                 .redeem(ticket, scope, fixture.anchor()).profile().profile().bucket()).isEqualTo("bucket");
         try (var connection = fixture.source().getConnection();
                 var statement = connection.prepareStatement(
@@ -96,7 +98,7 @@ class JdbcCopySourceReadAdmissionsTest {
         assertThatThrownBy(() -> fixture.issue(scope, ALICE))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("already has a private ticket");
         assertThat(first.nonce()).hasSize(43);
-        assertThat(JdbcCopySourceReadAdmissions.commandSha256(scope)).hasSize(64);
+        assertThat(CopySourceReadAdmissions.commandSha256(scope)).hasSize(64);
         try (var connection = fixture.source().getConnection();
                 var query = connection.prepareStatement("""
                         SELECT count(*), count(DISTINCT staging_command_sha256)
@@ -113,7 +115,7 @@ class JdbcCopySourceReadAdmissionsTest {
         var fixture = fixture("copy_source_admission_scope");
         var scope = fixture.scope();
         var ticket = fixture.issue(scope, ALICE);
-        for (var changed : new JdbcCopySourceReadAdmissions.Scope[]{
+        for (var changed : new CopySourceReadAdmissions.Scope[]{
                 scopeWith(scope, "tenant-b", scope.principal(), scope.profileIncarnationId(),
                         scope.profileRevision(), scope.canonicalSourceUrl(), scope.executionId(),
                         scope.stagingAttemptId(), scope.ownerId(), scope.ownerIncarnation(),
@@ -174,7 +176,7 @@ class JdbcCopySourceReadAdmissionsTest {
             assertThatThrownBy(() -> fixture.redeem(ticket, changed))
                     .isInstanceOf(AccessDeniedException.class);
         }
-        var redirectedRoot = new JdbcCopySourceReadAdmissions.Scope(scope.tenantId(),
+        var redirectedRoot = new CopySourceReadAdmissions.Scope(scope.tenantId(),
                 scope.principal(), scope.profileName(), scope.profileIncarnationId(),
                 scope.profileRevision(), scope.canonicalSourceUrl(), "s3://untrusted/copy-managed",
                 scope.managedBackendIdentitySha256(),
@@ -183,7 +185,7 @@ class JdbcCopySourceReadAdmissionsTest {
                 scope.deadlineEpochMs());
         assertThatThrownBy(() -> fixture.redeem(ticket, redirectedRoot))
                 .isInstanceOf(AccessDeniedException.class);
-        var redirectedBackend = new JdbcCopySourceReadAdmissions.Scope(scope.tenantId(),
+        var redirectedBackend = new CopySourceReadAdmissions.Scope(scope.tenantId(),
                 scope.principal(), scope.profileName(), scope.profileIncarnationId(),
                 scope.profileRevision(), scope.canonicalSourceUrl(), scope.managedStorageRootUri(),
                 "b".repeat(64), scope.executionId(), scope.stagingAttemptId(), scope.ownerId(),
@@ -192,7 +194,7 @@ class JdbcCopySourceReadAdmissionsTest {
         assertThatThrownBy(() -> fixture.redeem(ticket, redirectedBackend))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> fixture.redeem(
-                new JdbcCopySourceReadAdmissions.Ticket("A".repeat(43)), scope))
+                new CopySourceReadAdmissions.Ticket("A".repeat(43)), scope))
                 .isInstanceOf(AccessDeniedException.class);
         assertThat(fixture.redeem(ticket, scope).profile().profile().bucket()).isEqualTo("bucket");
     }
@@ -251,7 +253,7 @@ class JdbcCopySourceReadAdmissionsTest {
                 scope.controlEpoch(), scope.ownerFencingToken(), scope.deadlineEpochMs());
         var next = fixture.issue(nextScope, ALICE);
         assertThat(fixture.redeem(next, nextScope).profile().profile().bucket()).isEqualTo("bucket");
-        var exactVersion = new JdbcCopySourceReadAdmissions.StagedSource("version-one",
+        var exactVersion = new CopySourceReadAdmissions.StagedSource("version-one",
                 managedObjectUri(nextScope.tenantId(), "b".repeat(64)), "b".repeat(64),
                 123, tenantScope(nextScope.tenantId()));
         assertThat(fixture.recordStagedSource(next, nextScope, exactVersion)).isEqualTo(exactVersion);
@@ -281,7 +283,7 @@ class JdbcCopySourceReadAdmissionsTest {
         var scope = fixture.scope();
         var ticket = fixture.issue(scope, ALICE);
         var other = new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
+                new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence());
         var executor = Executors.newFixedThreadPool(2);
         try {
             var calls = java.util.List.<Callable<String>>of(
@@ -376,7 +378,7 @@ class JdbcCopySourceReadAdmissionsTest {
         assertThatThrownBy(() -> fixture.redeem(ticket, scope))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("owner is absent, replaced or expired");
-        var staged = new JdbcCopySourceReadAdmissions.StagedSource("version-one",
+        var staged = new CopySourceReadAdmissions.StagedSource("version-one",
                 managedObjectUri(scope.tenantId(), "b".repeat(64)), "b".repeat(64),
                 123, tenantScope(scope.tenantId()));
         assertThatThrownBy(() -> fixture.recordStagedSource(ticket, scope, staged))
@@ -399,7 +401,7 @@ class JdbcCopySourceReadAdmissionsTest {
         var nextLeader = lease.tryAcquire("coordinator_leader", "coordinator-two",
                 Duration.ofMinutes(5)).orElseThrow();
         assertThat(nextLeader.epoch()).isGreaterThan(scope.controlEpoch());
-        var staged = new JdbcCopySourceReadAdmissions.StagedSource("version-one",
+        var staged = new CopySourceReadAdmissions.StagedSource("version-one",
                 managedObjectUri(scope.tenantId(), "b".repeat(64)), "b".repeat(64),
                 123, tenantScope(scope.tenantId()));
         assertThatThrownBy(() -> fixture.recordStagedSource(ticket, scope, staged))
@@ -419,7 +421,7 @@ class JdbcCopySourceReadAdmissionsTest {
         var fixture = fixture("copy_source_admission_staged");
         var scope = fixture.scope();
         var ticket = fixture.issue(scope, ALICE);
-        var staged = new JdbcCopySourceReadAdmissions.StagedSource("version-one",
+        var staged = new CopySourceReadAdmissions.StagedSource("version-one",
                 managedObjectUri(scope.tenantId(), "b".repeat(64)), "b".repeat(64),
                 123, tenantScope(scope.tenantId()));
         assertThatThrownBy(() -> fixture.recordStagedSource(ticket, scope, staged))
@@ -427,29 +429,29 @@ class JdbcCopySourceReadAdmissionsTest {
         assertThat(fixture.redeem(ticket, scope).stagedSource()).isEmpty();
         assertThat(fixture.recordStagedSource(ticket, scope, staged)).isEqualTo(staged);
         var restarted = new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
+                new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence());
         assertThat(restarted.redeem(ticket, scope, fixture.anchor()).stagedSource()).contains(staged);
         assertThat(restarted.redeem(ticket, scope, fixture.anchor()).stagedSource().orElseThrow()
                 .managedObjectUri()).isEqualTo(staged.managedObjectUri());
         assertThat(restarted.recordStagedSource(ticket, scope, staged, fixture.anchor())).isEqualTo(staged);
         assertThatThrownBy(() -> restarted.recordStagedSource(ticket, scope,
-                new JdbcCopySourceReadAdmissions.StagedSource("version-one",
+                new CopySourceReadAdmissions.StagedSource("version-one",
                         "s3://untrusted/copy-managed/tenants/" + tenantScope(scope.tenantId())
                                 + "/sha256/bb/" + "b".repeat(64), "b".repeat(64),
                         123, tenantScope(scope.tenantId())), fixture.anchor()))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> restarted.recordStagedSource(ticket, scope,
-                new JdbcCopySourceReadAdmissions.StagedSource("version-two",
+                new CopySourceReadAdmissions.StagedSource("version-two",
                         managedObjectUri(scope.tenantId(), "c".repeat(64)), "c".repeat(64),
                         123, tenantScope(scope.tenantId())), fixture.anchor()))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("conflicts");
         assertThatThrownBy(() -> restarted.recordStagedSource(ticket, scope,
-                new JdbcCopySourceReadAdmissions.StagedSource("version-one",
+                new CopySourceReadAdmissions.StagedSource("version-one",
                         "s3://managed/copy-managed/tenants/" + "0".repeat(64)
                                 + "/sha256/bb/" + "b".repeat(64), "b".repeat(64),
                         123, "0".repeat(64)), fixture.anchor()))
                 .isInstanceOf(AccessDeniedException.class);
-        assertThatThrownBy(() -> new JdbcCopySourceReadAdmissions.StagedSource("version-one",
+        assertThatThrownBy(() -> new CopySourceReadAdmissions.StagedSource("version-one",
                 "s3://managed/copy-managed/tenants/" + "0".repeat(64)
                         + "/sha256/bb/" + "b".repeat(64),
                 "b".repeat(64), 123, tenantScope(scope.tenantId())))
@@ -500,9 +502,8 @@ class JdbcCopySourceReadAdmissionsTest {
     }
 
     @Test
-    void freshMigrationThenSecurityBootstrapTracksDirectAuthorityMutations() throws Exception {
+    void freshMigrationTracksDirectAuthorityMutationsBeforeSecurityBootstrap() throws Exception {
         var source = SharedPostgresContainer.migratedDataSource("copy_source_authority_fresh");
-        new JdbcRoleStore(source).initSchema();
         assertDirectMutationBumpsRevision(source);
     }
 
@@ -511,7 +512,27 @@ class JdbcCopySourceReadAdmissionsTest {
         var source = SharedPostgresContainer.isolatedDataSource("copy_source_authority_upgrade");
         Flyway.configure().dataSource(source).locations("classpath:db/migration")
                 .target(MigrationVersion.fromVersion("58")).load().migrate();
-        new JdbcRoleStore(source).initSchema();
+        // Pre-V59 authority fixture only: V59 must replace this function under an existing trigger.
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE OR REPLACE FUNCTION pangrova_authority_mutation_gate()
+                    RETURNS trigger LANGUAGE plpgsql AS $gate$
+                    BEGIN
+                        IF TG_OP='TRUNCATE' THEN
+                            RAISE EXCEPTION 'Authority tables cannot be truncated; use gated DELETE';
+                        END IF;
+                        PERFORM pg_advisory_xact_lock(207578817, 1);
+                        IF to_regclass('pangrova_authorization_revision') IS NOT NULL THEN
+                            UPDATE pangrova_authorization_revision SET revision=revision+1 WHERE singleton=TRUE;
+                        END IF;
+                        RETURN NULL;
+                    END
+                    $gate$
+                    """);
+            statement.execute("CREATE OR REPLACE TRIGGER pangrova_authority_gate "
+                    + "BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON tenants "
+                    + "FOR EACH STATEMENT EXECUTE FUNCTION pangrova_authority_mutation_gate()");
+        }
         Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
         assertDirectMutationBumpsRevision(source);
     }
@@ -519,7 +540,6 @@ class JdbcCopySourceReadAdmissionsTest {
     @Test
     void directSqlCannotResetOrEraseAuthorizationRevision() throws Exception {
         var source = SharedPostgresContainer.migratedDataSource("copy_source_authority_immutable");
-        new JdbcRoleStore(source).initSchema();
         long before = authorityRevision(source);
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             for (String mutation : new String[]{
@@ -557,14 +577,14 @@ class JdbcCopySourceReadAdmissionsTest {
             assertThat(rows.getString(3)).hasSize(64).isNotEqualTo(bound.ticket().nonce());
         }
         var restarted = new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
+                new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence());
         var redelivered = restarted.issueFrozenInput(attempt, fixture.anchor());
         assertThat(redelivered.ticket()).isNotEqualTo(bound.ticket());
         assertThat(redelivered.scope()).isEqualTo(bound.scope());
         assertThat(restarted.redeem(bound.ticket(), bound.scope(), fixture.anchor()).stagedSource()).contains(proof);
         assertThat(restarted.redeem(redelivered.ticket(), redelivered.scope(), fixture.anchor()).stagedSource())
                 .contains(proof);
-        var changed = new JdbcCopySourceReadAdmissions.FrozenInputAttempt(attempt.tenantId(), attempt.principal(),
+        var changed = new CopySourceReadAdmissions.FrozenInputAttempt(attempt.tenantId(), attempt.principal(),
                 attempt.executionId(), attempt.sourceAttemptId(), attempt.taskId(), attempt.controlEpoch(),
                 attempt.deadlineEpochMs() + 1);
         assertThatThrownBy(() -> restarted.issueFrozenInput(changed, fixture.anchor()))
@@ -578,11 +598,11 @@ class JdbcCopySourceReadAdmissionsTest {
         assertThatThrownBy(() -> fixture.admissions().issueFrozenInput(attempt, fixture.anchor()))
                 .isInstanceOf(AccessDeniedException.class);
         stageRoot(fixture);
-        for (var changed : new JdbcCopySourceReadAdmissions.FrozenInputAttempt[]{
-                new JdbcCopySourceReadAdmissions.FrozenInputAttempt("other", attempt.principal(),
+        for (var changed : new CopySourceReadAdmissions.FrozenInputAttempt[]{
+                new CopySourceReadAdmissions.FrozenInputAttempt("other", attempt.principal(),
                         attempt.executionId(), attempt.sourceAttemptId(), "leaf-two", attempt.controlEpoch(),
                         attempt.deadlineEpochMs()),
-                new JdbcCopySourceReadAdmissions.FrozenInputAttempt(attempt.tenantId(), "other",
+                new CopySourceReadAdmissions.FrozenInputAttempt(attempt.tenantId(), "other",
                         attempt.executionId(), attempt.sourceAttemptId(), "leaf-two", attempt.controlEpoch(),
                         attempt.deadlineEpochMs())}) {
             assertThatThrownBy(() -> fixture.admissions().issueFrozenInput(changed, fixture.anchor()))
@@ -612,17 +632,17 @@ class JdbcCopySourceReadAdmissionsTest {
                 .contains(proof);
     }
 
-    static JdbcCopySourceReadAdmissions.StagedSource stageRoot(Fixture fixture) throws Exception {
+    static CopySourceReadAdmissions.StagedSource stageRoot(Fixture fixture) throws Exception {
         var ticket = fixture.issue(fixture.scope(), ALICE);
         fixture.redeem(ticket, fixture.scope());
-        return fixture.recordStagedSource(ticket, fixture.scope(), new JdbcCopySourceReadAdmissions.StagedSource(
+        return fixture.recordStagedSource(ticket, fixture.scope(), new CopySourceReadAdmissions.StagedSource(
                 "version-one", managedObjectUri(fixture.scope().tenantId(), "b".repeat(64)), "b".repeat(64),
                 123, tenantScope(fixture.scope().tenantId())));
     }
 
-    static JdbcCopySourceReadAdmissions.FrozenInputAttempt inputAttempt(Fixture fixture, String taskId) {
+    static CopySourceReadAdmissions.FrozenInputAttempt inputAttempt(Fixture fixture, String taskId) {
         var scope = fixture.scope();
-        return new JdbcCopySourceReadAdmissions.FrozenInputAttempt(scope.tenantId(), scope.principal(),
+        return new CopySourceReadAdmissions.FrozenInputAttempt(scope.tenantId(), scope.principal(),
                 scope.executionId(), scope.stagingAttemptId(), taskId, scope.controlEpoch(), scope.deadlineEpochMs());
     }
 
@@ -645,12 +665,12 @@ class JdbcCopySourceReadAdmissionsTest {
                 "UPDATE tenant_user_memberships SET role='ADMIN' WHERE user_principal='alice'",
                 "DELETE FROM tenant_user_memberships WHERE user_principal='alice'",
                 "DELETE FROM tenants WHERE tenant_id='tenant-a'",
-                "INSERT INTO tenant(tenant_id,name) VALUES ('tenant-a','A')",
-                "INSERT INTO tenant_membership(user_principal,tenant_id,role) "
-                        + "VALUES ('alice','tenant-a','MEMBER')",
-                "UPDATE tenant_membership SET role='ADMIN' WHERE user_principal='alice'",
-                "DELETE FROM tenant_membership WHERE user_principal='alice'",
-                "DELETE FROM tenant WHERE tenant_id='tenant-a'",
+                "INSERT INTO tenants(tenant_id,name,status,created_at,updated_at) "
+                        + "VALUES ('tenant-b','B','ACTIVE',clock_timestamp(),clock_timestamp())",
+                "UPDATE tenants SET max_concurrent_queries=3 WHERE tenant_id='tenant-b'",
+                "UPDATE tenants SET allowed_catalogs='[\"private\"]' WHERE tenant_id='tenant-b'",
+                "UPDATE tenants SET properties='{\"env\":\"secure\"}' WHERE tenant_id='tenant-b'",
+                "DELETE FROM tenants WHERE tenant_id='tenant-b'",
                 "DELETE FROM pangrova_roles WHERE role_name='rev-role'"
         };
         for (String mutation : mutations) {
@@ -666,7 +686,7 @@ class JdbcCopySourceReadAdmissionsTest {
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             assertThatThrownBy(() -> statement.execute("TRUNCATE security_grants"))
                     .isInstanceOf(SQLException.class).hasMessageContaining("cannot be truncated");
-            assertThatThrownBy(() -> statement.execute("TRUNCATE tenant_membership"))
+            assertThatThrownBy(() -> statement.execute("TRUNCATE tenant_user_memberships"))
                     .isInstanceOf(SQLException.class).hasMessageContaining("cannot be truncated");
         }
         assertThat(authorityRevision(source)).isEqualTo(before);
@@ -696,13 +716,17 @@ class JdbcCopySourceReadAdmissionsTest {
     }
 
     static Fixture fixture(DataSource source) throws Exception {
-        var roles = new JdbcRoleStore(source);
-        roles.initSchema();
         var tenants = new JdbcTenantStore(source);
         tenants.createTenant(new Tenant("tenant-a", "Tenant A", TenantStatus.ACTIVE,
                 new ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
                 java.util.List.of(), java.util.List.of(), null, Map.of(), Instant.now(), "system"));
         tenants.addUserToTenant("tenant-a", "alice", TenantRole.MEMBER);
+        return fixtureWithExistingTenant(source);
+    }
+
+    /** Shares the normal COPY authority setup after a historical-schema test seeds its tenant. */
+    static Fixture fixtureWithExistingTenant(DataSource source) throws Exception {
+        var roles = new JdbcRoleStore(source);
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
         var grants = new JdbcGrantStore(source);
@@ -719,7 +743,7 @@ class JdbcCopySourceReadAdmissionsTest {
                 .orElseThrow();
         var controlLease = new JdbcDistributedLease(source).tryAcquire(
                 "coordinator_leader", "coordinator-one", Duration.ofMinutes(5)).orElseThrow();
-        var scope = new JdbcCopySourceReadAdmissions.Scope("tenant-a", "alice", "incoming",
+        var scope = new CopySourceReadAdmissions.Scope("tenant-a", "alice", "incoming",
                 revision.incarnationId(), revision.revision(), SOURCE, MANAGED_ROOT,
                 "a".repeat(64),
                 "execution-one", "stage-one",
@@ -727,7 +751,7 @@ class JdbcCopySourceReadAdmissionsTest {
                 System.currentTimeMillis() + 60_000);
         return new Fixture(source, profiles, grants, access,
                 new JdbcCopySourceReadAdmissions(source, access,
-                        new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence()), scope, anchor);
+                        new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence()), scope, anchor);
     }
 
     private static StorageProfile profile() {
@@ -747,11 +771,11 @@ class JdbcCopySourceReadAdmissionsTest {
                 + "/sha256/" + checksum.substring(0, 2) + "/" + checksum;
     }
 
-    private static JdbcCopySourceReadAdmissions.Scope scopeWith(
-            JdbcCopySourceReadAdmissions.Scope base, String tenant, String principal,
+    private static CopySourceReadAdmissions.Scope scopeWith(
+            CopySourceReadAdmissions.Scope base, String tenant, String principal,
             String incarnation, long revision, String url, String execution, String attempt,
             String owner, String ownerIncarnation, long epoch, long fence, long deadline) {
-        return new JdbcCopySourceReadAdmissions.Scope(tenant, principal, base.profileName(),
+        return new CopySourceReadAdmissions.Scope(tenant, principal, base.profileName(),
                 incarnation, revision, url, base.managedStorageRootUri(),
                 base.managedBackendIdentitySha256(),
                 execution, attempt, owner, ownerIncarnation,
@@ -761,21 +785,21 @@ class JdbcCopySourceReadAdmissionsTest {
     record Fixture(DataSource source, JdbcStorageProfileRegistry profiles,
                            JdbcGrantStore grants, DynamicRbacAccessControl accessControl,
                            JdbcCopySourceReadAdmissions admissions,
-                           JdbcCopySourceReadAdmissions.Scope scope, ExecutionAnchor anchor) {
-        JdbcCopySourceReadAdmissions.Ticket issue(JdbcCopySourceReadAdmissions.Scope requested,
+                           CopySourceReadAdmissions.Scope scope, ExecutionAnchor anchor) {
+        CopySourceReadAdmissions.Ticket issue(CopySourceReadAdmissions.Scope requested,
                                                   UserIdentity identity) {
             return admissions.issue(requested, identity, anchor);
         }
 
-        JdbcCopySourceReadAdmissions.Redemption redeem(JdbcCopySourceReadAdmissions.Ticket ticket,
-                                                       JdbcCopySourceReadAdmissions.Scope presented) {
+        CopySourceReadAdmissions.Redemption redeem(CopySourceReadAdmissions.Ticket ticket,
+                                                       CopySourceReadAdmissions.Scope presented) {
             return admissions.redeem(ticket, presented, anchor);
         }
 
-        JdbcCopySourceReadAdmissions.StagedSource recordStagedSource(
-                JdbcCopySourceReadAdmissions.Ticket ticket,
-                JdbcCopySourceReadAdmissions.Scope presented,
-                JdbcCopySourceReadAdmissions.StagedSource staged) {
+        CopySourceReadAdmissions.StagedSource recordStagedSource(
+                CopySourceReadAdmissions.Ticket ticket,
+                CopySourceReadAdmissions.Scope presented,
+                CopySourceReadAdmissions.StagedSource staged) {
             return admissions.recordStagedSource(ticket, presented, staged, anchor);
         }
     }

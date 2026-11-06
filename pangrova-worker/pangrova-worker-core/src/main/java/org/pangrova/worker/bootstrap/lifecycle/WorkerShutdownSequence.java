@@ -2,6 +2,7 @@ package org.pangrova.worker.bootstrap.lifecycle;
 
 import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
 
+import org.pangrova.observability.core.metrics.MetricsScope;
 import org.pangrova.observability.sdk.config.TelemetryInitializer;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
 import org.pangrova.worker.resource.ResourceManager;
@@ -83,7 +84,7 @@ public final class WorkerShutdownSequence {
                         resources.shuffleServiceMemoryLease().close();
                     }
                 });
-        resourceCleanup.attempt(() -> closeObservability(resources.otelInitializer()));
+        resourceCleanup.attempt(() -> closeObservability(resources.metricsScope(), resources.otelInitializer()));
         resourceCleanup.requireSuccess();
         closeResourceManager(resources.resourceManager());
         LOG.info("event=resources_released");
@@ -153,7 +154,8 @@ public final class WorkerShutdownSequence {
         }
     }
 
-    private static void closeObservability(TelemetryInitializer initializer) {
+    private static void closeObservability(MetricsScope metrics, TelemetryInitializer initializer) {
+        if (metrics != null) metrics.close();
         if (initializer != null) {
             initializer.close();
         }

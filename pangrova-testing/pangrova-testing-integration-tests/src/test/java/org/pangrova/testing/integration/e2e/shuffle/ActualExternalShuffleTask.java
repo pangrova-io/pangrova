@@ -3,6 +3,7 @@ package org.pangrova.testing.integration.e2e.shuffle;
 import com.google.protobuf.Any;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
+import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 import io.substrait.proto.Type;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
@@ -39,7 +40,7 @@ final class ActualExternalShuffleTask {
                 .setDistribution(ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON).setPartitionCount(1)
                 .setOutputSchema(schema).setBatchSerde(BatchSerde.BATCH_SERDE_ARROW_BATCH).setRequireComplete(true);
         var envelope = RelationDetailEnvelope.newBuilder().setSchemaVersion(1).setExchangeInput(detail).build();
-        var plan = Plan.newBuilder();
+        var plan = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build());
         plan.addRelationsBuilder().getRootBuilder().addNames("value").getInputBuilder()
                 .getExtensionLeafBuilder().setDetail(Any.pack(envelope));
         var base = ActualNativeTaskFixture.planTaskRequest(true, plan.build().toByteArray());

@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.indexing;
 
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.planner.IndexHint;
-import org.pangrova.indexing.planner.IndexPredicateAnalyzer;
-import org.pangrova.spi.indexing.descriptor.IndexCoverageStats;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.indexing.api.pruning.IndexHint;
+import org.pangrova.indexing.core.pruning.IndexPredicateAnalyzer;
+import org.pangrova.indexing.api.descriptor.IndexCoverageStats;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.connector.api.index.predicate.IndexPredicate;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.plan.RelOptTable;

@@ -1,0 +1,63 @@
+[
+  {
+    "type": "CompositeIndexKey",
+    "source_files": [
+      "./pangrova-indexing/pangrova-indexing-codec/src/main/java/org/pangrova/indexing/codec/data/SerdeCodec.java",
+      "./pangrova-indexing/pangrova-indexing-codec/src/test/java/org/pangrova/indexing/codec/data/SerdeCodecCompositeKeyTest.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/provider/BTreeStrategyProvider.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/evaluator/BTreeSearcher.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/BTreeCompositeRoundTripTest.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/engine/BTreeCompositePropertyTest.java",
+      "./pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/CompositeIndexKey.java",
+      "./pangrova-indexing/pangrova-indexing-api/src/test/java/org/pangrova/indexing/api/data/CompositeIndexKeyTest.java",
+      "./pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/index/IndexDdlLifecycleE2ETest.java"
+    ],
+    "scope": "References by symbol; production invocation/wiring conclusions are reviewed separately in btree-composite.md."
+  },
+  {
+    "type": "BTreeStrategyProvider",
+    "source_files": [
+      "./pangrova-testing/pangrova-testing-integration-tests/src/test/java/org/pangrova/testing/integration/e2e/arch/SpiWiringVerificationTest.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/provider/BTreeStrategyProvider.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/BTreeCompositeRoundTripTest.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/property/engine/BTreeCompositePropertyTest.java"
+    ],
+    "scope": "References by symbol; production invocation/wiring conclusions are reviewed separately in btree-composite.md."
+  },
+  {
+    "type": "BTreeSearcher",
+    "source_files": [
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/provider/BTreeStrategyProvider.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/evaluator/BTreeSearcher.java"
+    ],
+    "scope": "References by symbol; production invocation/wiring conclusions are reviewed separately in btree-composite.md."
+  },
+  {
+    "type": "BTreeSerializer",
+    "source_files": [
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/serializer/BTreeSerializer.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/codec/BuiltinIndexSerializers.java",
+      "./pangrova-indexing/pangrova-indexing-strategies-builtin/src/test/java/org/pangrova/indexing/builtin/test/engine/BTreeCompositeRoundTripTest.java"
+    ],
+    "scope": "References by symbol; production invocation/wiring conclusions are reviewed separately in btree-composite.md."
+  },
+  {
+    "type": "IndexFileBuilder",
+    "source_files": [
+      "./pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexBuildCoordinator.java",
+      "./pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/build/IndexFileBuilder.java"
+    ],
+    "scope": "References by symbol; production invocation/wiring conclusions are reviewed separately in btree-composite.md."
+  },
+  {
+    "type": "IndexEvaluationService",
+    "source_files": [
+      "./pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/eval/IndexEvaluationService.java",
+      "./pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/property/eval/MultiHintAggregationPropertyTest.java",
+      "./pangrova-indexing/pangrova-indexing-core/src/test/java/org/pangrova/indexing/eval/IndexEvaluationPreparationTest.java",
+      "./pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/indexing/filter/IndexEvaluationAuthorityIntegrationTest.java",
+      "./pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/IndexingBootstrap.java"
+    ],
+    "scope": "References by symbol; production invocation/wiring conclusions are reviewed separately in btree-composite.md."
+  }
+]

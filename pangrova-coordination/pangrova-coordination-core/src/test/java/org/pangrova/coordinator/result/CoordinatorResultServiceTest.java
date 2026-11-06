@@ -1,10 +1,12 @@
 package org.pangrova.coordinator.result;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.result.CoordinatorResultService.ControlPlaneDispatchResult;
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.core.task.DispatchResult;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.types.value.TypedRow;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,7 +73,7 @@ class CoordinatorResultServiceTest {
     void dispatchControlPlaneRowsReturnsCoordinatorEndpoint() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+        DispatchResult result = service.dispatchControlPlaneRows(
                 QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result).isNotNull();
@@ -90,7 +92,7 @@ class CoordinatorResultServiceTest {
         service.dispatchControlPlaneRows(
                 QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
         assertThat(sm.isTerminal()).isTrue();
     }
 
@@ -101,14 +103,14 @@ class CoordinatorResultServiceTest {
         List<String> columnNames = List.of("result");
         QueryStateMachine sm = new QueryStateMachine();
 
-        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+        DispatchResult result = service.dispatchControlPlaneRows(
                 QUERY_ID, rows, columnNames, sm.toFinisher());
 
         assertThat(result).isNotNull();
         assertThat(result.workerHost()).isEqualTo("coordinator-control");
         assertThat(buffer.get(QUERY_ID)).isNotNull();
         assertThat(buffer.get(QUERY_ID).length).isGreaterThan(0);
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
 
     @Test
@@ -120,24 +122,24 @@ class CoordinatorResultServiceTest {
         List<String> columnNames = List.of("id", "name");
         QueryStateMachine sm = new QueryStateMachine();
 
-        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+        DispatchResult result = service.dispatchControlPlaneRows(
                 "multi-col-q", List.of(row), columnNames, sm.toFinisher());
 
         assertThat(result).isNotNull();
         assertThat(buffer.get("multi-col-q")).isNotNull();
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
 
     @Test
     void dispatchControlPlaneRowsHandlesEmptyRows() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+        DispatchResult result = service.dispatchControlPlaneRows(
                 "empty-q", List.of(), List.of(), sm.toFinisher());
 
         assertThat(result).isNotNull();
         assertThat(buffer.get("empty-q")).isNotNull();
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
 
     @Test
@@ -145,7 +147,7 @@ class CoordinatorResultServiceTest {
         String queryId = "ticket-check-q";
         QueryStateMachine sm = new QueryStateMachine();
 
-        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+        DispatchResult result = service.dispatchControlPlaneRows(
                 queryId, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result.resultEndpoint().ticket()).isEqualTo(queryId);
@@ -155,7 +157,7 @@ class CoordinatorResultServiceTest {
     void resultEndpointPreservesProtocol() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+        DispatchResult result = service.dispatchControlPlaneRows(
                 QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result.resultEndpoint().protocol()).isEqualTo("grpc");
@@ -165,18 +167,18 @@ class CoordinatorResultServiceTest {
     void dispatchControlPlaneTransitionsThroughAllStatesToFinished() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+        DispatchResult result = service.dispatchControlPlaneRows(
                 QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result).isNotNull();
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
         assertThat(sm.isTerminal()).isTrue();
     }
 
     @Test
     void dispatchControlPlaneThrowsWhenQueryAlreadyFailed() {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.FAILED);
+        sm.tryTransition(QueryState.FAILED);
 
         assertThatThrownBy(() -> service.dispatchControlPlaneRows(
                 QUERY_ID, List.of(), List.of(), sm.toFinisher()))
@@ -188,7 +190,7 @@ class CoordinatorResultServiceTest {
     @Test
     void dispatchControlPlaneThrowsWhenQueryAlreadyCancelled() {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.CANCELLED);
+        sm.tryTransition(QueryState.CANCELLED);
 
         assertThatThrownBy(() -> service.dispatchControlPlaneRows(
                 QUERY_ID, List.of(), List.of(), sm.toFinisher()))

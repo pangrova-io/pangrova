@@ -46,11 +46,10 @@ import org.pangrova.materialization.port.MaterializationAction;
 import org.pangrova.materialization.port.MaterializationAuthorizer;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PlannedDefinition;
-import org.pangrova.materialization.port.PlanningRequest;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.spi.connector.materialization.MaterializationSourceException;
-import org.pangrova.spi.connector.materialization.PinnedSource;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.api.materialization.PinnedSource;
+import org.pangrova.connector.api.materialization.SourceRef;
 
 class MaterializationServicePinningTest {
 

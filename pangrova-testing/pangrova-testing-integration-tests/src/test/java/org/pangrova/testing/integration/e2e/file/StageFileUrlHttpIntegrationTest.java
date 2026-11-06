@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.file;
 
-import org.pangrova.spi.file.access.FileAccessGrant;
+import org.pangrova.file.api.access.FileAccessGrant;
 
 import java.net.ProxySelector;
 import java.net.URI;
@@ -30,40 +30,40 @@ import org.junit.jupiter.api.io.TempDir;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
-import org.pangrova.file.space.FileSpaceAccessService;
-import org.pangrova.file.space.FileUrlService;
+import org.pangrova.file.core.access.FileSpaceAccessService;
+import org.pangrova.file.core.access.FileUrlService;
 import org.pangrova.coordinator.file.StageFileUrlService;
-import org.pangrova.file.worker.WorkerFileClient;
+import org.pangrova.file.adapter.worker.WorkerFileClient;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
 import org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry;
-import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
+import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
+import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
-import org.pangrova.security.authn.AuthenticationManager;
-import org.pangrova.spi.security.authn.AuthenticationRequest;
-import org.pangrova.spi.security.authn.AuthenticationResult;
-import org.pangrova.spi.security.authn.Authenticator;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.api.authentication.AuthenticationRequest;
+import org.pangrova.security.api.authentication.AuthenticationResult;
+import org.pangrova.security.spi.authentication.Authenticator;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.spi.file.space.FileSpaceLayout;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceLayout;
+import org.pangrova.file.api.space.FileSpaceType;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.worker.file.FileSpaceFileResource;
 import org.pangrova.worker.file.ObjectStoreAccessorFactory;
@@ -110,17 +110,16 @@ class StageFileUrlHttpIntegrationTest {
         }
         source.setCurrentSchema(schema);
         SchemaMigrationRunner.migrate(source);
-        var tenants = new org.pangrova.metadata.tenant.JdbcTenantStore(source);
-        tenants.initSchema();
-        tenants.createTenant(new org.pangrova.spi.security.tenant.Tenant("tenant-a", "HTTP file tests",
-                org.pangrova.spi.security.tenant.TenantStatus.ACTIVE,
-                new org.pangrova.spi.security.tenant.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
+        var tenants = new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source);
+
+        tenants.createTenant(new org.pangrova.security.api.tenant.Tenant("tenant-a", "HTTP file tests",
+                org.pangrova.security.api.tenant.TenantStatus.ACTIVE,
+                new org.pangrova.security.api.tenant.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
                 List.of(), List.of(), "", Map.of(), Instant.EPOCH, "fixture"));
         for (String principal : List.of("alice", "bob")) {
-            tenants.addUserToTenant("tenant-a", principal, org.pangrova.spi.security.tenant.TenantRole.MEMBER);
+            tenants.addUserToTenant("tenant-a", principal, org.pangrova.security.api.tenant.TenantRole.MEMBER);
         }
         grants = new JdbcGrantStore(source);
-        grants.initSchema();
         var roles = new JdbcRoleStore(source);
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
@@ -139,8 +138,8 @@ class StageFileUrlHttpIntegrationTest {
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class));
         var context = FileSpaceAccessService.FileSpaceAccessContext.of("local",
                 () -> List.of(base(worker).toString()), new FileSpaceAuditEmitter(null), SECRET,
-                new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(source,
-                        new org.pangrova.metadata.tenant.JdbcTenantStore(source)));
+                new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(source,
+                        new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source)));
         var access = new FileSpaceAccessService(spaces, profiles, rbac, context);
         authentication = new AuthenticationManager(List.of(new TestAuthenticator()));
         coordinator = start(new ResourceConfig().register(new FileSpaceFilesResource(access,

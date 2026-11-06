@@ -1,20 +1,22 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.planner.core.substrait.CompiledScanSchemas;
+
 import io.substrait.proto.NamedStruct;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier.ObservedPlan;
-import org.pangrova.parser.ast.InsertStatement;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
-import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
-import org.pangrova.parser.ast.statement.dml.MergeStatement;
-import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ReadMode;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope.TablePermission;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.parser.api.ast.InsertStatement;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertOverwriteStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
+import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ReadMode;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -34,9 +36,9 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
     }
 
     static WritePolicyObservation capture(ObservedPlan observed, SqlCompiler compiler, Statement statement) {
-        var schemas = AuthorizedRelationSchemas.extract(observed.plan().serializeValidated(compiler));
+        var schemas = CompiledScanSchemas.extract(observed.plan().serializeValidated(compiler));
         if (!schemas.keySet().equals(observed.policies().keySet())) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "Write source policy observations are incomplete");
         }
         var tables = new java.util.HashMap<String, QualifiedTableName>();
@@ -56,7 +58,7 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
                 // Policy masks are keyed by top-level SDK columns, unlike flattened nested schema names.
                 Set<String> columns = policies.columnMasks().keySet();
                 if (columns.isEmpty() || schema.getStruct().getTypesCount() != columns.size()) {
-                    throw new org.pangrova.spi.security.AccessDeniedException(
+                    throw new org.pangrova.security.api.error.AccessDeniedException(
                             "Write read columns lack exact policy evidence");
                 }
                 var scan = java.util.Objects.requireNonNull(tables.get(name));
@@ -68,8 +70,8 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
                 throw new IllegalArgumentException("Compiled write schema is malformed", exception);
             }
         });
-        var declaration = observed.plan().dmlWriteTarget().flatMap(org.pangrova.planner.DmlWriteTarget::declaration)
-                .orElseThrow(() -> new org.pangrova.spi.security.AccessDeniedException(
+        var declaration = observed.plan().dmlWriteTarget().flatMap(org.pangrova.planner.core.analysis.DmlWriteTarget::declaration)
+                .orElseThrow(() -> new org.pangrova.security.api.error.AccessDeniedException(
                         "Write target lacks its compiled connector declaration"));
         return new WritePolicyObservation(reads, actions(statement), declaration);
     }

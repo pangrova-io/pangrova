@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.coordination;
 
-import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
-import org.pangrova.spi.coordination.CoordinatorRole;
-import org.pangrova.spi.coordination.CoordinatorSnapshot;
+import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
+import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,12 +29,7 @@ final class CoordinatorRegistryClient {
         if (reg == null) {
             return;
         }
-        try {
-            reg.heartbeat(coordinatorId);
-        } catch (Exception e) {
-            LOG.warn("event=coordinator_heartbeat_failed coordinatorId={} error={}",
-                    coordinatorId, e.getMessage());
-        }
+        reg.heartbeat(coordinatorId);
     }
 
     void register(String coordinatorId, long epoch) {
@@ -42,16 +37,12 @@ final class CoordinatorRegistryClient {
         if (reg == null) {
             return;
         }
-        try {
-            long now = System.currentTimeMillis();
-            reg.register(new CoordinatorSnapshot(
-                    coordinatorId, host, httpPort,
-                    "STANDBY", epoch, now, now));
-            LOG.debug("event=coordinator_registered coordinatorId={} host={} httpPort={}",
-                    coordinatorId, host, httpPort);
-        } catch (Exception e) {
-            LOG.error("event=coordinator_register_failed coordinatorId={}", coordinatorId, e);
-        }
+        long now = System.currentTimeMillis();
+        reg.register(new CoordinatorSnapshot(
+                coordinatorId, host, httpPort,
+                "STANDBY", epoch, now, now));
+        LOG.debug("event=coordinator_registered coordinatorId={} host={} httpPort={}",
+                coordinatorId, host, httpPort);
     }
 
     void updateRole(String coordinatorId, CoordinatorRole newRole) {
@@ -59,13 +50,8 @@ final class CoordinatorRegistryClient {
         if (reg == null) {
             return;
         }
-        try {
-            reg.updateRole(coordinatorId, newRole);
-            LOG.debug("event=coordinator_role_updated coordinatorId={} role={}", coordinatorId, newRole);
-        } catch (Exception e) {
-            LOG.error("event=coordinator_role_update_failed coordinatorId={} role={}",
-                    coordinatorId, newRole, e);
-        }
+        reg.updateRole(coordinatorId, newRole);
+        LOG.debug("event=coordinator_role_updated coordinatorId={} role={}", coordinatorId, newRole);
     }
 
     void unregister(String coordinatorId) {
@@ -73,11 +59,7 @@ final class CoordinatorRegistryClient {
         if (reg == null) {
             return;
         }
-        try {
-            reg.unregister(coordinatorId);
-            LOG.debug("event=coordinator_unregistered coordinatorId={}", coordinatorId);
-        } catch (Exception e) {
-            LOG.error("event=coordinator_unregister_failed coordinatorId={}", coordinatorId, e);
-        }
+        reg.unregister(coordinatorId);
+        LOG.debug("event=coordinator_unregistered coordinatorId={}", coordinatorId);
     }
 }

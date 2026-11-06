@@ -4,23 +4,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
+import org.pangrova.query.core.statement.StatementTableTargets;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
-import org.pangrova.parser.AstPrinter;
-import org.pangrova.parser.ast.Query;
-import org.pangrova.parser.ast.SetQuery;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.CreateTableAsSelectStatement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.planner.PlannedQuery;
+import org.pangrova.parser.core.format.AstPrinter;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.SetQuery;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.planner.core.analysis.PlannedQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,7 +76,7 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
                             + String.join(".", statement.tableName().parts()));
         }
 
-        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
+        String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
         LOG.info("event=ctas_complete table={}", mutatedTable);
         return new StatementResult(List.of(), List.of(), mutatedTable, StatementCategory.DDL);
     }
@@ -91,7 +91,7 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
         }
         return java.util.stream.IntStream.range(0, names.size())
                 .mapToObj(i -> new CreateTableStatement.ColumnDefinition(
-                        names.get(i), DataTypeSpec.fromRawTypeString(types.get(i))))
+                        names.get(i), org.pangrova.parser.core.build.type.RawSqlTypeParser.parse(types.get(i))))
                 .toList();
     }
 

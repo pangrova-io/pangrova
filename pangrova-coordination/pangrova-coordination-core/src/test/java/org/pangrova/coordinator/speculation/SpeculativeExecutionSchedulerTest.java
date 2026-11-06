@@ -1,37 +1,42 @@
 package org.pangrova.coordinator.speculation;
 
-import org.pangrova.scheduler.speculation.SpeculationConfig;
-import org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.speculation.StragglerDetector;
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeQueryInventory;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.scheduler.core.speculation.SpeculationConfig;
+import org.pangrova.scheduler.core.speculation.SpeculativeExecutionScheduler;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.core.speculation.StragglerDetector;
 
 import java.time.Instant;
 import java.util.List;
 
-import org.pangrova.coordinator.scheduler.SpeculationAdapters;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,7 +66,7 @@ class SpeculativeExecutionSchedulerTest {
         launcher = new SpeculativeTaskLauncher();
         stageHandler = new SpeculativeStageHandler(
                 new SpeculationConfig(true, SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS),
-                new StragglerDetector(), launcher, SpeculationAdapters.taskRegistry(taskTracker));
+                new StragglerDetector(), launcher, new CoordinatorSpeculativeTaskRegistry(taskTracker));
         workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         workerManager.registerWorker(worker("worker-a", "host-a"));
         workerManager.registerWorker(worker("worker-b", "host-b"));
@@ -69,10 +74,10 @@ class SpeculativeExecutionSchedulerTest {
                 worker.host(), request.taskRequest().getAttempt().getTaskId(),
                 new ResultEndpoint(worker.host(), worker.httpPort(), "result", "grpc"));
         launcher.setDispatchDependencies(
-                SpeculationAdapters.dispatcher(dispatch),
-                SpeculationAdapters.workerInventory(workerManager),
-                SpeculationAdapters.taskRegistry(taskTracker));
-        launcher.setCancelRetrier(SpeculationAdapters.canceller(
+                new CoordinatorSpeculativeAttemptDispatcher(dispatch),
+                new CoordinatorSpeculativeWorkerInventory(workerManager),
+                new CoordinatorSpeculativeTaskRegistry(taskTracker));
+        launcher.setCancelRetrier(new CoordinatorSpeculativeAttemptCanceller(
                 new org.pangrova.coordinator.task.TaskCancelRetrier(dispatch, taskTracker)));
         taskTracker.addExecutionDrainListener(launcher::executionDrained);
         queryManager = buildMinimalQueryManager();
@@ -120,8 +125,8 @@ class SpeculativeExecutionSchedulerTest {
 
         // Start the scheduler with a short interval (100ms for test speed)
         scheduler = new SpeculativeExecutionScheduler(
-                stageHandler, SpeculationAdapters.queryInventory(queryManager),
-                SpeculationAdapters.taskRegistry(taskTracker), 100L);
+                stageHandler, new CoordinatorSpeculativeQueryInventory(queryManager),
+                new CoordinatorSpeculativeTaskRegistry(taskTracker), 100L);
         scheduler.start();
 
         org.awaitility.Awaitility.await("speculative copy dispatched to its alternate worker")
@@ -140,8 +145,8 @@ class SpeculativeExecutionSchedulerTest {
     @Test
     void schedulerClosesGracefully() {
         scheduler = new SpeculativeExecutionScheduler(
-                stageHandler, SpeculationAdapters.queryInventory(queryManager),
-                SpeculationAdapters.taskRegistry(taskTracker), 500L);
+                stageHandler, new CoordinatorSpeculativeQueryInventory(queryManager),
+                new CoordinatorSpeculativeTaskRegistry(taskTracker), 500L);
         scheduler.start();
         scheduler.close();
         // Second close should not throw (idempotent)
@@ -152,8 +157,8 @@ class SpeculativeExecutionSchedulerTest {
     void noActiveQueries_noErrors() throws Exception {
         // No queries registered — scheduler should run without errors
         scheduler = new SpeculativeExecutionScheduler(
-                stageHandler, SpeculationAdapters.queryInventory(queryManager),
-                SpeculationAdapters.taskRegistry(taskTracker), 100L);
+                stageHandler, new CoordinatorSpeculativeQueryInventory(queryManager),
+                new CoordinatorSpeculativeTaskRegistry(taskTracker), 100L);
         scheduler.start();
         Thread.sleep(300);
         // No exception means success — scheduler handles empty query set gracefully
@@ -161,14 +166,14 @@ class SpeculativeExecutionSchedulerTest {
     }
 
     private QueryManager buildMinimalQueryManager() {
-        var scorer = new WorkerPerformanceScorer();
-        var taskScheduler = new TaskScheduler(scorer);
+        var scorer = new LoadBalancedStrategy();
+        var taskScheduler = new TaskScheduler(scorer, ignoredTenantForPlacement -> java.util.Optional.empty());
         var rtd = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
         var ctx = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, rtd, taskScheduler,
                 workerManager, taskTracker, null, null, null, 0L);
         var dispatcher = new QueryDispatcher(ctx, null, null);
-        return new QueryManager(QueryManagerContext.minimal(dispatcher, new NoOpTracingProvider()));
+        return new QueryManager(QueryManagerTestContexts.minimal(dispatcher, new NoOpTracingProvider()));
     }
 
     private static WorkerInfo worker(String id, String host) {

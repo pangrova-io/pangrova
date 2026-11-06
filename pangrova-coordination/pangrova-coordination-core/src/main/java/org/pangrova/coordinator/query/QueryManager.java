@@ -1,8 +1,18 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.retention.QueryRetentionScheduler;
+
+import org.pangrova.query.core.lifecycle.QueryTerminalCleanup;
+
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.coordinator.query.admission.QueryRejectedException;
-import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
+import org.pangrova.query.api.session.QuerySession;
 
 import java.time.Duration;
 import java.util.List;
@@ -23,29 +33,28 @@ import org.slf4j.LoggerFactory;
 import java.util.stream.Collectors;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.query.lifecycle.ReaderPinLifecycle;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.client.protocol.SubmitQueryResponse;
-import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.Span;
-import org.pangrova.spi.observability.SpanKind;
-import org.pangrova.spi.observability.Scope;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.query.spi.retention.ReaderPinLifecycle;
+import org.pangrova.query.core.retention.ReaderPinRenewal;
+import org.pangrova.query.core.task.DispatchResult;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.query.api.submission.QuerySubmissionResult;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.tracing.Span;
+import org.pangrova.observability.api.tracing.SpanKind;
+import org.pangrova.observability.api.tracing.Scope;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.observability.sdk.logging.mdc.LogContext;
-import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.core.logging.LogContext;
 import org.pangrova.coordinator.query.tenant.TenantQueryGuard;
 
 @ThreadSafe
-public class QueryManager {
+public class QueryManager implements org.pangrova.query.spi.lifecycle.QueryTimeoutHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryManager.class);
     private static final String DRAIN_REJECTION_MESSAGE =
@@ -64,8 +73,9 @@ public class QueryManager {
 
     private final QueryDispatcher queryDispatcher;
     private final TracingProvider tracingProvider;
+    private final ExecutionTraceContextFactory traceContexts;
     private final TenantQueryGuard tenantGuard;
-    private final QueryCleanupScheduler cleanupScheduler;
+    private final QueryRetentionScheduler cleanupScheduler;
     private final QueryAuditDispatcher auditBridge;
     private final LongCounter querySubmitCounter;
     private final QueryTerminalEvents terminalEvents;
@@ -73,35 +83,44 @@ public class QueryManager {
     private final QueryJournalLifecycle journalLifecycle;
     private final AsyncSubmitConfig asyncSubmitConfig;
     private final ExecutorService asyncExecutor;
-    private final LongSupplier nanoClock;
     private volatile java.util.function.Consumer<String> shuffleCleanupPending = ignored -> { };
-    private volatile ReaderPinLifecycle readerPinLifecycle = ReaderPinLifecycle.NOOP;
-    private volatile long nextReaderPinRenewal;
+    private final Optional<ReaderPinLifecycle> readerPinLifecycle;
+    private final Optional<ReaderPinRenewal> readerPinRenewal;
 
     public QueryManager(QueryManagerContext deps) {
-        this(deps, System::nanoTime);
+        this(deps, Optional.empty(), System::nanoTime);
+    }
+
+    public QueryManager(QueryManagerContext deps, Optional<ReaderPinLifecycle> readerPins) {
+        this(deps, readerPins, System::nanoTime);
     }
 
     QueryManager(QueryManagerContext deps, LongSupplier nanoClock) {
-        this.nanoClock = java.util.Objects.requireNonNull(nanoClock, "nanoClock");
-        this.nextReaderPinRenewal = nanoClock.getAsLong();
+        this(deps, Optional.empty(), nanoClock);
+    }
+
+    QueryManager(QueryManagerContext deps, Optional<ReaderPinLifecycle> readerPins, LongSupplier nanoClock) {
+        java.util.Objects.requireNonNull(nanoClock, "nanoClock");
+        this.readerPinLifecycle = java.util.Objects.requireNonNull(readerPins, "readerPins");
+        this.readerPinRenewal = readerPins.map(lifecycle ->
+                new ReaderPinRenewal(lifecycle, this::getActiveQueryIds, nanoClock));
         this.queryDispatcher = java.util.Objects.requireNonNull(deps.queryDispatcher(), "queryDispatcher");
         this.tracingProvider = deps.tracingProvider();
+        this.traceContexts = deps.traceContexts();
         this.tenantGuard = QueryAdmission.tenantGuard(deps, queries.values());
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
                 this::releasePhysicalQuery, nanoClock);
         this.queryDispatcher.addExecutionDrainListener(terminalCleanup::onExecutionDrain);
         this.queryDispatcher.addQueryOperationExitListener(terminalCleanup::onOperationExit);
-        this.cleanupScheduler = new QueryCleanupScheduler(queries,
+        this.cleanupScheduler = new QueryRetentionScheduler(queries,
                 terminalCleanup::isPending, this::retryPendingTerminalCompletions);
         this.auditBridge = new QueryAuditDispatcher(
                 QueryAuditDispatcher.createAuditEmitter(deps.auditEmitter(), deps.queryAuditService()),
                 deps.lineageEmitter(),
                 deps.queryDispatcher(), deps.eventDispatcher());
         this.admission = new QueryAdmission(deps.resilienceRegistry(), deps.throttlingService());
-        this.journalLifecycle = new QueryJournalLifecycle(deps.stateJournal() != null
-                ? deps.stateJournal() : new InMemoryQueryStateJournal(), auditBridge);
+        this.journalLifecycle = new QueryJournalLifecycle(deps.stateJournal(), auditBridge);
         this.asyncSubmitConfig = deps.asyncSubmitConfig();
         this.asyncExecutor = deps.asyncExecutor();
         this.querySubmitCounter = createCounter(deps.metricsProvider(),
@@ -127,21 +146,16 @@ public class QueryManager {
                 () -> shuffleCleanupPending.accept(queryId)));
     }
 
-    /** Installs the reader-pin lease lifecycle used by queries that scan materializations. */
-    public void setReaderPinLifecycle(ReaderPinLifecycle lifecycle) {
-        this.readerPinLifecycle = java.util.Objects.requireNonNull(lifecycle, "lifecycle");
-    }
-
     private void incrementCounter(LongCounter counter) { if (counter != null) counter.add(1); }
 
     /** Admits and submits a query under its execution authority. */
-    public SubmitQueryResponse submitQuery(String queryId, String sql, CoordinatorSessionContext session) {
+    public QuerySubmissionResult submitQuery(String queryId, String sql, QuerySession session) {
         checkNotNull(queryId, "queryId must not be null");
         checkNotNull(sql, "sql must not be null");
         checkNotNull(session, "session must not be null");
-        CoordinatorSessionContext submittedSession;
+        QuerySession submittedSession;
         QueryStateMachine stateMachine;
-        org.pangrova.coordinator.task.QueryIssuanceOperation submission;
+        org.pangrova.query.api.lifecycle.QueryOperation submission;
         queryLifecycleLock.readLock().lock();
         try {
             if (draining) {
@@ -161,8 +175,8 @@ public class QueryManager {
                 Map<String, String> previousLogContext = LogContext.snapshot();
                 try (Scope current = span.makeCurrent()) {
                     submittedSession = submittedSession.withTraceContext(
-                            org.pangrova.observability.sdk.tracing.ExecutionTraceContext.capture());
-                    LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
+                            traceContexts.capture());
+                    LogContext.set(submittedSession.traceContext().traceId(), submittedSession.traceContext().spanId());
                     LogContext.setQueryId(queryId);
                     incrementCounter(querySubmitCounter);
                     LOG.info("event=query_submitted queryId={}", queryId);
@@ -178,7 +192,7 @@ public class QueryManager {
             submissionFailure = failure;
             stateMachine.resolveOwnership(false);
             try {
-                failQuery(queryId, new ErrorDetail("QUERY_SUBMISSION_FAILED", failure.getClass().getSimpleName(),
+                failQuery(queryId, new QueryFailure("QUERY_SUBMISSION_FAILED", failure.getClass().getSimpleName(),
                         String.valueOf(failure.getMessage())), "submission_failed");
             } catch (RuntimeException | Error cleanup) {
                 if (cleanup != failure) {
@@ -191,7 +205,7 @@ public class QueryManager {
         }
     }
 
-    private void finishSubmission(org.pangrova.coordinator.task.QueryIssuanceOperation submission,
+    private void finishSubmission(org.pangrova.query.api.lifecycle.QueryOperation submission,
             String queryId, QueryStateMachine state, Throwable original) {
         try {
             submission.close();
@@ -202,9 +216,9 @@ public class QueryManager {
         }
     }
 
-    private SubmitQueryResponse executeQuery(String queryId, String sql, CoordinatorSessionContext session,
+    private QuerySubmissionResult executeQuery(String queryId, String sql, QuerySession session,
                                              QueryStateMachine sm) {
-        CoordinatorSessionContext enriched;
+        QuerySession enriched;
         try {
             registerJournalListener(queryId, sm);
 
@@ -221,7 +235,7 @@ public class QueryManager {
         } catch (RuntimeException | Error failure) {
             sm.resolveOwnership(false);
             try {
-                failQuery(queryId, new ErrorDetail("QUERY_ADMISSION_FAILED", failure.getClass().getSimpleName(),
+                failQuery(queryId, new QueryFailure("QUERY_ADMISSION_FAILED", failure.getClass().getSimpleName(),
                         String.valueOf(failure.getMessage())), "admission_failed");
             } catch (RuntimeException | Error cleanupFailure) {
                 if (cleanupFailure != failure) failure.addSuppressed(cleanupFailure);
@@ -237,7 +251,7 @@ public class QueryManager {
         try {
             result = queryDispatcher.execute(sm, sql, enriched);
         } catch (RuntimeException failure) {
-            failQuery(queryId, new ErrorDetail(
+            failQuery(queryId, new QueryFailure(
                     "INTERNAL_ERROR", failure.getClass().getSimpleName(),
                     failure.getMessage()), "dispatch_failed");
             throw failure;
@@ -246,15 +260,15 @@ public class QueryManager {
         return buildResponse(queryId, sm, result, queryDispatcher.removeColumnNames(queryId));
     }
 
-    private SubmitQueryResponse executeQueryAsync(String queryId, String sql,
-                                                 CoordinatorSessionContext session, QueryStateMachine state) {
+    private QuerySubmissionResult executeQueryAsync(String queryId, String sql,
+                                                 QuerySession session, QueryStateMachine state) {
         return new QueryAsyncSubmission(queryDispatcher, asyncSubmitConfig, asyncExecutor,
                 this::failQuery, this::applyDispatchResult).execute(queryId, sql, session, state);
     }
 
-    private CoordinatorSessionContext enrichTenant(
-            CoordinatorSessionContext session, QueryStateMachine sm) {
-        CoordinatorSessionContext enriched = enrichWithTenant(session);
+    private QuerySession enrichTenant(
+            QuerySession session, QueryStateMachine sm) {
+        QuerySession enriched = enrichWithTenant(session);
         if (enriched.tenantId() != null) {
             sm.setTenantId(enriched.tenantId());
         }
@@ -268,8 +282,9 @@ public class QueryManager {
         }
     }
 
-    private QueryStateMachine resolveOrCreateStateMachine(String queryId, CoordinatorSessionContext session) {
-        QueryStateMachine sm = new QueryStateMachine(true, session);
+    private QueryStateMachine resolveOrCreateStateMachine(String queryId, QuerySession session) {
+        QueryStateMachine sm = new QueryStateMachine(true, session != null && session.userIdentity() != null
+                ? session.userIdentity().principal() : "anonymous");
         sm.setTransitionOperations(() -> queryDispatcher.enterQueryMetadataOperation(queryId));
         sm.setBeforeTerminalTransition(() -> shuffleCleanupPending.accept(queryId));
         QueryStateMachine existing = queries.putIfAbsent(queryId, sm);
@@ -296,46 +311,44 @@ public class QueryManager {
         if (result != null) {
             sm.setResultEndpoint(result.resultEndpoint());
         }
-        if (sm.getState() == QueryStateMachine.State.FINISHED) {
+        if (sm.getState() == QueryState.FINISHED) {
             completeFinishedQuery(queryId, sm);
         }
     }
 
-    private CoordinatorSessionContext enrichWithTenant(CoordinatorSessionContext session) {
+    private QuerySession enrichWithTenant(QuerySession session) {
         String tenantId = tenantGuard != null
                 ? tenantGuard.checkAndResolve(session.userIdentity())
                 : (session.tenantId() != null && !session.tenantId().isBlank()
                         ? session.tenantId() : "default");
-        return new CoordinatorSessionContext(
-                session.queryId(), session.sessionProperties(),
-                session.userIdentity(), tenantId, session.queryAuthority(), session.traceContext());
+        return session.withTenantId(tenantId);
     }
 
     public void setClusterAdmissionController(
-            org.pangrova.scheduler.api.resource.ClusterAdmissionController controller) {
+            org.pangrova.scheduler.spi.admission.ClusterAdmissionController controller) {
         admission.setClusterController(controller);
     }
 
     /** Requests cancellation and completes terminal effects for the query. */
     public boolean cancelQuery(String queryId) {
         QueryStateMachine sm = queries.get(queryId);
-        boolean cancelled = sm != null && sm.tryTransition(QueryStateMachine.State.CANCELLED);
+        boolean cancelled = sm != null && sm.tryTransition(QueryState.CANCELLED);
         if (cancelled) {
             completeTerminalQuery(queryId, sm, "user_cancelled");
-        } else if (sm != null && sm.getState() == QueryStateMachine.State.CANCELLED) {
+        } else if (sm != null && sm.getState() == QueryState.CANCELLED) {
             completeTerminalQuery(queryId, sm, "user_cancelled");
         }
         return cancelled;
     }
 
-    public Optional<QueryStateMachine.State> getQueryState(String queryId) {
+    public Optional<QueryState> getQueryState(String queryId) {
         QueryStateMachine sm = queries.get(queryId);
         return sm != null ? Optional.of(sm.getState()) : Optional.empty();
     }
 
     /** Looks up local state, then the durable journal when no local owner exists. */
-    public Optional<QueryStateMachine.State> getQueryStateWithJournalFallback(String queryId) {
-        Optional<QueryStateMachine.State> local = getQueryState(queryId);
+    public Optional<QueryState> getQueryStateWithJournalFallback(String queryId) {
+        Optional<QueryState> local = getQueryState(queryId);
         if (local.isPresent()) {
             return local;
         }
@@ -459,7 +472,12 @@ public class QueryManager {
         terminalCleanup.startRetryDispatch(timer, cleanupExecutor);
     }
 
+    public void startReaderPinRenewal(ScheduledExecutorService timer, Executor renewalExecutor) {
+        readerPinRenewal.ifPresent(renewal -> renewal.start(timer, renewalExecutor));
+    }
+
     public void stopPeriodicCleanup() {
+        readerPinRenewal.ifPresent(ReaderPinRenewal::close);
         terminalCleanup.stopRetryDispatch();
         cleanupScheduler.stopPeriodicCleanup();
     }
@@ -470,16 +488,16 @@ public class QueryManager {
         if (sm == null) {
             return;
         }
-        if (sm.getState() == QueryStateMachine.State.FINISHED) {
+        if (sm.getState() == QueryState.FINISHED) {
             completeFinishedQuery(queryId, sm);
             return;
         }
         if (sm.signalNativeWriteCompletedForControlPlane()) {
             return;
         }
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.tryTransition(QueryStateMachine.State.FINISHING);
-        if (!sm.tryTransition(QueryStateMachine.State.FINISHED)) {
+        sm.tryTransition(QueryState.RUNNING);
+        sm.tryTransition(QueryState.FINISHING);
+        if (!sm.tryTransition(QueryState.FINISHED)) {
             return;
         }
         completeFinishedQuery(queryId, sm);
@@ -500,7 +518,7 @@ public class QueryManager {
     private void emitTerminalEvents(QueryTerminalCleanup.Context context) { terminalEvents.emit(context); }
 
     private void releasePhysicalQuery(QueryTerminalCleanup.Context context) {
-        readerPinLifecycle.release(context.queryId());
+        readerPinLifecycle.ifPresent(lifecycle -> lifecycle.release(context.queryId()));
         journalLifecycle.purge(context.queryId(), context.state());
         context.state().releaseAdmission();
         admission.releaseThrottle(context.queryId());
@@ -513,61 +531,50 @@ public class QueryManager {
     }
 
     void retryPendingTerminalCompletions() {
+        readerPinRenewal.ifPresent(ReaderPinRenewal::renewDue);
         terminalCleanup.retryPending();
-        renewReaderPins();
     }
 
-    private void renewReaderPins() {
-        ReaderPinLifecycle lifecycle = readerPinLifecycle;
-        if (lifecycle == ReaderPinLifecycle.NOOP) {
-            return;
-        }
-        long now = nanoClock.getAsLong();
-        if (now - nextReaderPinRenewal < 0) {
-            return;
-        }
-        nextReaderPinRenewal = now + lifecycle.renewIntervalNanos();
-        java.util.List<String> active = queries.entrySet().stream()
-                .filter(entry -> !entry.getValue().isTerminal())
-                .map(java.util.Map.Entry::getKey)
-                .toList();
-        if (active.isEmpty()) {
-            return;
-        }
-        try {
-            lifecycle.renew(active);
-        } catch (RuntimeException failure) {
-            LOG.warn("event=reader_pin_renewal_failed queries={} error={}",
-                    active.size(), failure.getMessage(), failure);
-        }
-    }
-
-    public void onTaskFailed(String queryId, ErrorDetail error) {
+    public void onTaskFailed(String queryId, QueryFailure error) {
         failQuery(queryId, error, "task_failed");
     }
 
-    public void onQueryTimeout(String queryId, ErrorDetail error) {
-        failQuery(queryId, error, "query_timeout");
+    /** Timeout selection and terminal transition share the actual query owner. */
+    @Override
+    public void timeoutQueriesCreatedBy(java.time.Instant deadline, Duration timeout) {
+        java.util.Objects.requireNonNull(deadline, "deadline");
+        java.util.Objects.requireNonNull(timeout, "timeout");
+        queries.forEach((queryId, state) -> {
+            if (state.isTerminal() || state.getCreatedAt().isAfter(deadline)) return;
+            QueryFailure error = new QueryFailure("QUERY_TIMEOUT", "TIMEOUT",
+                    "Query " + queryId + " exceeded timeout of " + timeout);
+            // Retain this observed lifetime. A concurrent winner owns its terminal
+            // path; never look up a later registration by query ID to apply timeout.
+            if (state.tryTransitionToFailed(error)) {
+                completeTerminalQuery(queryId, state, "query_timeout");
+                LOG.warn("event=query_timeout queryId={} timeout={} delegated=true", queryId, timeout);
+            }
+        });
     }
 
-    private void failQuery(String queryId, ErrorDetail error, String reason) {
+    private void failQuery(String queryId, QueryFailure error, String reason) {
         QueryStateMachine sm = queries.get(queryId);
         if (sm == null) {
             return;
         }
         if (!sm.isTerminal()) {
             if (!sm.tryTransitionToFailed(error)
-                    && sm.getState() != QueryStateMachine.State.FAILED) {
+                    && sm.getState() != QueryState.FAILED) {
                 return;
             }
-        } else if (sm.getState() != QueryStateMachine.State.FAILED) {
+        } else if (sm.getState() != QueryState.FAILED) {
             return;
         }
         completeTerminalQuery(queryId, sm, reason);
     }
 
     /** Returns the query's recorded error when present. */
-    public Optional<ErrorDetail> getQueryError(String queryId) {
+    public Optional<QueryFailure> getQueryError(String queryId) {
         QueryStateMachine sm = queries.get(queryId);
         if (sm == null) {
             return Optional.empty();
@@ -576,17 +583,17 @@ public class QueryManager {
     }
 
     public void emitTableAccessedAudit(String queryId, String catalog, String schema,
-                                       String table, CoordinatorSessionContext session) {
+                                       String table, QuerySession session) {
         auditBridge.emitTableAccessedAudit(queryId, catalog, schema, table, session);
     }
 
-    private static SubmitQueryResponse buildResponse(
+    private static QuerySubmissionResult buildResponse(
             String queryId, QueryStateMachine sm, DispatchResult result, List<String> columnNames) {
         var endpoint = (result != null)
                 ? result.resultEndpoint()
                 : sm.getResultEndpoint().orElse(null);
-        return new SubmitQueryResponse(
-                queryId, sm.getState().name(), endpoint, columnNames);
+        return new QuerySubmissionResult(
+                queryId, sm.getState(), endpoint, columnNames);
     }
 
     private void signalDrainProgress() {

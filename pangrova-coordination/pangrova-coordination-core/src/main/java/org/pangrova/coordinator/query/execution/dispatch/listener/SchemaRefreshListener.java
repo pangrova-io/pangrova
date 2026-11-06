@@ -3,10 +3,10 @@ package org.pangrova.coordinator.query.execution.dispatch.listener;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionListener;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

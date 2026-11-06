@@ -1,22 +1,22 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.indexing.assembly.serde.DefaultTypeSerializers;
+import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.IndexBuildServices;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.indexing.registry.IndexEngineRegistry;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.config.IndexingConfig;
-import org.pangrova.indexing.serde.IndexSerializer;
+import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.storage.IndexStorageManager;
-import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
-import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.spi.connector.index.CommitEvent;
-import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
+import org.pangrova.connector.api.index.CommitEvent;
+import org.pangrova.connector.api.index.CommitEventType;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -35,7 +35,7 @@ class GeneratedValueCommitLogIntegrationTest {
             throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource(
                 "generated_value_commit_log");
-        JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(dataSource);
+        JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
         IndexBuildCoordinator buildCoordinator = buildCoordinator(temporaryDirectory);
         MaintenanceLeaderElection leaderElection = new MaintenanceLeaderElection(
                 new JdbcDistributedLease(dataSource), "generated-value-test-coordinator");
@@ -74,7 +74,7 @@ class GeneratedValueCommitLogIntegrationTest {
         IndexBuildContext buildContext = new IndexBuildContext(
                 config, new IndexEngineRegistry(List.of()),
                 new IndexStorageManager(),
-                new IndexSerializer(DefaultTypeSerializers.createRegistry()));
+                new IndexSerializer(BuiltinIndexSerializers.createRegistry()));
         return new IndexBuildCoordinator(buildContext, null);
     }
 

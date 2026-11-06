@@ -25,8 +25,8 @@ class StageDAGTest {
     private static final RelOptCluster CLUSTER = RelOptCluster.create(
             new VolcanoPlanner(), new RexBuilder(TYPE_FACTORY));
 
-    private org.pangrova.planner.PlanFragment dummyPlan() {
-        return new org.pangrova.planner.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L);
+    private org.pangrova.planner.core.analysis.PlanFragment dummyPlan() {
+        return new org.pangrova.planner.core.analysis.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L);
     }
 
     @Test

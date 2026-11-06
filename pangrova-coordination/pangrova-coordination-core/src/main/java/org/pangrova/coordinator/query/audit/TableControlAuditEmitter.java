@@ -1,15 +1,15 @@
 package org.pangrova.coordinator.query.audit;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.table.api.control.TableControlRecord;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
-import org.pangrova.metadata.event.MetadataEvent;
-import org.pangrova.metadata.event.MetadataEventListener;
-import org.pangrova.spi.security.audit.AccessedObject;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.metadata.api.event.MetadataEvent;
+import org.pangrova.metadata.spi.event.MetadataEventListener;
+import org.pangrova.security.api.audit.AccessedObject;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -38,7 +38,7 @@ public final class TableControlAuditEmitter implements MetadataEventListener {
     }
 
     /** Audits an external table becoming LINKED. */
-    public void adopted(CoordinatorSessionContext context, QualifiedTableName ref,
+    public void adopted(QuerySession context, QualifiedTableName ref,
             TableControlRecord record) {
         emit(new AuditEvent(
                 UUID.randomUUID().toString(), AuditEventType.TABLE_ADOPTED, Instant.now(),
@@ -49,7 +49,7 @@ public final class TableControlAuditEmitter implements MetadataEventListener {
     }
 
     /** Audits removal of a control record; the physical table is left untouched. */
-    public void unlinked(CoordinatorSessionContext context, QualifiedTableName ref,
+    public void unlinked(QuerySession context, QualifiedTableName ref,
             TableControlRecord record) {
         emit(new AuditEvent(
                 UUID.randomUUID().toString(), AuditEventType.TABLE_UNLINKED, Instant.now(),
@@ -63,7 +63,7 @@ public final class TableControlAuditEmitter implements MetadataEventListener {
      * Records a terminal maintenance run. SKIPPED runs are audited as failures:
      * an operator needs to see that maintenance was requested but did not run.
      */
-    public void maintenance(CoordinatorSessionContext context, QualifiedTableName ref,
+    public void maintenance(QuerySession context, QualifiedTableName ref,
             TableMaintenanceRun run, String error) {
         Map<String, String> properties = new LinkedHashMap<>(run.details());
         properties.put("table_id", run.tableId().toString());
@@ -120,7 +120,7 @@ public final class TableControlAuditEmitter implements MetadataEventListener {
     }
 
     private static Map<String, String> recordProperties(
-            CoordinatorSessionContext context, TableControlRecord record) {
+            QuerySession context, TableControlRecord record) {
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put("table_id", record.tableId().toString());
         properties.put("ownership_mode", record.ownershipMode().name());
@@ -145,12 +145,12 @@ public final class TableControlAuditEmitter implements MetadataEventListener {
                 List.of(), accessType);
     }
 
-    private static String principal(CoordinatorSessionContext context) {
+    private static String principal(QuerySession context) {
         return context == null || context.userIdentity() == null
                 ? SYSTEM_PRINCIPAL : context.userIdentity().principal();
     }
 
-    private static String queryId(CoordinatorSessionContext context) {
+    private static String queryId(QuerySession context) {
         return context == null ? null : context.queryId();
     }
 

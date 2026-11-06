@@ -49,7 +49,24 @@ public final class WorkerHttpServer {
     /** Worker HTTP server configuration. */
     public record WorkerHttpConfig(int port, String workerHost, int transportPort,
                                    String internalAuthSecret, String resultProtocol,
-                                   CopyTaskTls copyTaskTls) {
+                                   CopyTaskTls copyTaskTls, String bindHost) {
+        public WorkerHttpConfig {
+            if (bindHost == null || bindHost.isBlank()) {
+                throw new IllegalArgumentException("Worker HTTP bind host must be explicit");
+            }
+        }
+
+        public WorkerHttpConfig(int port, String workerHost, int transportPort,
+                                String internalAuthSecret, String resultProtocol, CopyTaskTls copyTaskTls) {
+            this(port, workerHost, transportPort, internalAuthSecret, resultProtocol, copyTaskTls, "0.0.0.0");
+        }
+
+        /** Selects the listening interface independently of the advertised Worker identity. */
+        public WorkerHttpConfig withBindHost(String host) {
+            return new WorkerHttpConfig(port, workerHost, transportPort,
+                    internalAuthSecret, resultProtocol, copyTaskTls, host);
+        }
+
         public WorkerHttpConfig(int port, String workerHost, int transportPort,
                                 String internalAuthSecret, String resultProtocol) {
             this(port, workerHost, transportPort, internalAuthSecret, resultProtocol, null);
@@ -162,7 +179,7 @@ public final class WorkerHttpServer {
         servlet.setInitOrder(0);
         handler.addServlet(servlet, "/*");
         this.server = EmbeddedHttpServerFactory.create(
-                config.port(), handler, WORKER_MAX_THREADS);
+                new java.net.InetSocketAddress(config.bindHost(), config.port()), handler, WORKER_MAX_THREADS);
         if (config.copyTaskTls() == null) {
             this.copyTaskTlsConnector = null;
         } else {
@@ -188,13 +205,25 @@ public final class WorkerHttpServer {
     }
 
     public void start() throws Exception {
-        server.start();
+        try {
+            server.start();
+        } catch (Exception startupFailure) {
+            try {
+                stop();
+            } catch (Exception closeFailure) {
+                if (startupFailure != closeFailure) startupFailure.addSuppressed(closeFailure);
+            }
+            throw startupFailure;
+        }
     }
 
     /** Stops the server and releases endpoint resources. */
     public void stop() throws Exception {
         Exception failure = null;
         try {
+            // Graceful drain requires a started context. A failed bind can leave the
+            // context STOPPED; stop acquired components directly in that case.
+            if (!server.isStarted()) server.setStopTimeout(0);
             server.stop();
         } catch (Exception stopFailure) {
             failure = stopFailure;

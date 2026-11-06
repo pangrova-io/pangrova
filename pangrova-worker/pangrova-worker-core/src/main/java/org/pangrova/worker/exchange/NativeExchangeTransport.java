@@ -14,13 +14,13 @@ import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.shuffle.exchange.DirectExchangeTransport;
 import org.pangrova.shuffle.exchange.ExchangeEndpoint;
 import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 import org.pangrova.worker.execution.TaskExecutor;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientException;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
-import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
 import org.pangrova.worker.nativebridge.jni.NativeCommandBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -174,7 +174,8 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
                 RuntimeCommandType.RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE,
                 payload, "connect external shuffle " + external.shuffleId());
         RemoteShuffleExchangeSource source = new RemoteShuffleExchangeSource(
-                external, clientPool.borrow(external.selectedEndpoint()));
+                ExchangeProtocolMapper.partitionRead(external), external.readAccess(),
+                clientPool.borrow(external.selectedEndpoint()));
         session.addSource(source);
         return new PendingExternalInput(input, source);
     }

@@ -8,10 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.worker.exchange.remote.RemoteShuffleAdmissionException;
-import org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientException;
-import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleAdmissionException;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,7 +31,7 @@ class RemoteShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
                 service.wire(0).pauseReadOutput = true;
                 var lease = first.borrow(binding.selectedEndpoint());
                 var actual = lease.client();
-                try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+                try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                     assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
                     assertThatThrownBy(() -> second.borrow(binding.selectedEndpoint()))
                             .isInstanceOf(RemoteShuffleAdmissionException.class).hasMessageContaining("scope=TOTAL");
@@ -61,7 +61,7 @@ class RemoteShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
                 service.wire(0).pauseReadOutput = true;
                 var lease = pool.borrow(binding.selectedEndpoint());
                 var actual = lease.client();
-                try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+                try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                     assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
                     await().during(Duration.ofMillis(300)).atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
                         pool.cleanUp();
@@ -89,7 +89,7 @@ class RemoteShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
             try (var first = service.clientPool(admission); var second = service.clientPool(admission)) {
                 var lease = first.borrow(binding.selectedEndpoint());
                 var actual = lease.client();
-                try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+                try (var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), lease)) {
                     assertThat(source.nextVerifiedChunk()).isNotNull();
                     assertThat(source.nextVerifiedChunk()).isNull();
                     assertThatThrownBy(first::close).isInstanceOf(IllegalStateException.class);

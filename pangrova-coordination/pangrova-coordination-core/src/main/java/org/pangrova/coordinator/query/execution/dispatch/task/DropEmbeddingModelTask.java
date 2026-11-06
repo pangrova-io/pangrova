@@ -19,12 +19,12 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.statement.DropEmbeddingModelStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.statement.DropEmbeddingModelStatement;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Routes DROP EMBEDDING MODEL to the registry. The registry currently rejects

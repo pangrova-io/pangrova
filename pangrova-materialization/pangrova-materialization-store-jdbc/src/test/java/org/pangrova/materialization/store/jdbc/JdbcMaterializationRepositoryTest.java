@@ -70,9 +70,9 @@ import org.pangrova.materialization.port.PublishCommand;
 import org.pangrova.materialization.port.PublishedMaterialization;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.connector.api.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 /**
@@ -309,6 +309,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         repository.pinReader(pin);
         assertReaderPinCount(dataSource, pin, 1);
         repository.releaseReaderPin(pin.generation(), pin.query());
+        assertReaderPinCount(dataSource, pin, 0);
+        repository.renewReaderPins(pin.query(), now.plusSeconds(360), now.plusSeconds(300));
+        assertReaderPinCount(dataSource, pin, 0); // A late renewal must never recreate released pins.
+        repository.releaseReaderPins(pin.query());
         assertReaderPinCount(dataSource, pin, 0);
     }
 

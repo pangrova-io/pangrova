@@ -25,7 +25,7 @@ import org.pangrova.protocol.write.PhysicalFileWriteBindings;
 import org.pangrova.protocol.write.NativeWriteBindings;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -83,9 +83,9 @@ class PaimonPhysicalAllocationIntegrationTest {
             var allocation = PaimonPhysicalWriteAllocations.append(table, -1);
             var column = allocation.schema().columns().get(1);
             assertThat(column.fieldId()).isEqualTo(table.schema().fields().get(1).id());
-            assertThat(column.logicalType()).isEqualTo(new org.pangrova.spi.connector.data.type.VectorType(7,
-                    doubled ? org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE
-                            : org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT).getTypeSignature());
+            assertThat(column.logicalType()).isEqualTo(new org.pangrova.types.VectorType(7,
+                    doubled ? org.pangrova.types.VectorType.ElementType.DOUBLE
+                            : org.pangrova.types.VectorType.ElementType.FLOAT).getTypeSignature());
             assertThat(column.nullable()).isTrue();
             assertThat(column.declaredType().children()).singleElement()
                     .satisfies(child -> assertThat(child.nullable()).isTrue());

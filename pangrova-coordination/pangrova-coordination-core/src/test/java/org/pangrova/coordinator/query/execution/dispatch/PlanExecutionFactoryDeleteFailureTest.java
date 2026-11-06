@@ -9,10 +9,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.Fixture;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.connector.api.error.ConnectorException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

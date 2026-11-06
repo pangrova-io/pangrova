@@ -25,7 +25,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BASELINE_FILE="${ROOT_DIR}/.pangrova/scripts/.spi-annotation-baseline.txt"
 
 # Contract roots are every artifact declared in .pangrova/modules.yaml whose
-# artifactId is pangrova-spi or ends in -api or -spi. Adding a contract artifact to the manifest
+# artifactId ends in -api or -spi. Adding a contract artifact to the manifest
 # enrolls it in this gate automatically.
 CONTRACT_ROOTS=()
 while IFS= read -r artifact; do
@@ -37,8 +37,7 @@ while IFS= read -r artifact; do
     [[ -n "${dir}" && -d "${ROOT_DIR}/${dir}/src/main/java" ]] \
         && CONTRACT_ROOTS+=("${ROOT_DIR}/${dir}/src/main/java")
 done < <(sed -n -e 's/^  \(pangrova-.*-api\):$/\1/p' \
-    -e 's/^  \(pangrova-.*-spi\):$/\1/p' \
-    -e 's/^  \(pangrova-spi\):$/\1/p' "${ROOT_DIR}/.pangrova/modules.yaml")
+    -e 's/^  \(pangrova-.*-spi\):$/\1/p' "${ROOT_DIR}/.pangrova/modules.yaml")
 
 if [[ ${#CONTRACT_ROOTS[@]} -eq 0 ]]; then
     echo "ERROR: no -api/-spi contract roots found in .pangrova/modules.yaml" >&2

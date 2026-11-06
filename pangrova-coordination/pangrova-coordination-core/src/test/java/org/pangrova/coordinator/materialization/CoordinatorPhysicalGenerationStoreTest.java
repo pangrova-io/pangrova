@@ -3,7 +3,6 @@ package org.pangrova.coordinator.materialization;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,22 +18,19 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.exception.catalog.CatalogNotFoundException;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.api.error.catalog.CatalogNotFoundException;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 
 /** GC physical generation lifecycle against connector-owned catalogs. */
 class CoordinatorPhysicalGenerationStoreTest {
@@ -107,7 +103,7 @@ class CoordinatorPhysicalGenerationStoreTest {
                 descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
         registry.register(new CatalogDescriptor(CATALOG, CatalogType.CONNECTOR, "iceberg",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
-        return new CoordinatorPhysicalGenerationStore(registry);
+        return new CoordinatorPhysicalGenerationStore(registry, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 
     private static final class FakeHandle implements ConnectorTableHandle {
@@ -195,23 +191,11 @@ class CoordinatorPhysicalGenerationStoreTest {
         }
     }
 
-    private static final class EmptyStore implements MetadataStore {
+    private static final class EmptyStore implements CatalogDeploymentRepository {
         @Override
-        public void saveTable(TableMetadata metadata) {
-        }
-
-        @Override
-        public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
-            return Optional.empty();
-        }
-
-        @Override
-        public void deleteTable(String catalog, String schema, String table) {
-        }
-
-        @Override
-        public List<QualifiedTableRef> searchTables(String pattern) {
-            return List.of();
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
         }
 
         @Override
@@ -232,21 +216,5 @@ class CoordinatorPhysicalGenerationStoreTest {
             return List.of();
         }
 
-        @Override
-        public Optional<Instant> getLastSyncTime(String catalogName) {
-            return Optional.empty();
-        }
-
-        @Override
-        public void updateSyncTime(String catalogName, Instant syncTime) {
-        }
-
-        @Override
-        public void recordSyncHistory(SyncResult result) {
-        }
-
-        @Override
-        public void saveSchemas(String catalogName, List<String> schemas) {
-        }
     }
 }

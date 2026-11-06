@@ -1,21 +1,21 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.data.type.MapType;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.mapping.PangrovaTypeMapping;
-import org.pangrova.spi.connector.data.type.RowField;
-import org.pangrova.spi.connector.data.type.RowType;
-import org.pangrova.spi.connector.data.type.Type;
-import org.pangrova.spi.connector.data.type.TypeSignature;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.data.type.primitive.CharType;
-import org.pangrova.spi.connector.data.type.primitive.DecimalType;
-import org.pangrova.spi.connector.data.type.primitive.RealType;
-import org.pangrova.spi.connector.data.type.primitive.VarcharType;
-import org.pangrova.spi.connector.data.type.primitive.temporal.IntervalDayTimeType;
-import org.pangrova.spi.connector.data.type.primitive.temporal.IntervalYearMonthType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.types.ArrayType;
+import org.pangrova.types.MapType;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.types.mapping.PangrovaTypeMapping;
+import org.pangrova.types.RowField;
+import org.pangrova.types.RowType;
+import org.pangrova.types.Type;
+import org.pangrova.types.TypeSignature;
+import org.pangrova.types.VectorType;
+import org.pangrova.types.primitive.CharType;
+import org.pangrova.types.primitive.DecimalType;
+import org.pangrova.types.primitive.RealType;
+import org.pangrova.types.primitive.VarcharType;
+import org.pangrova.types.primitive.temporal.IntervalDayTimeType;
+import org.pangrova.types.primitive.temporal.IntervalYearMonthType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import java.util.List;
 import java.util.OptionalInt;
 

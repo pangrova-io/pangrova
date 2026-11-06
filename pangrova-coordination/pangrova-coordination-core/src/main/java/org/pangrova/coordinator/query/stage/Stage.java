@@ -1,5 +1,10 @@
 package org.pangrova.coordinator.query.stage;
 
+import org.pangrova.query.api.stage.StageState;
+
+import org.pangrova.query.api.stage.StageRetryPolicy;
+import org.pangrova.query.core.stage.StageStateMachine;
+
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -7,9 +12,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveDecision;
-import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskRetryCallback;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.planner.api.adaptive.AdaptiveDecision;
+import org.pangrova.query.spi.task.TaskRetryCallback;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.slf4j.Logger;
@@ -41,7 +46,7 @@ public final class Stage {
      * (generation mismatch) are silently discarded to prevent cross-attempt pollution.
      */
     private final AtomicInteger attemptGeneration = new AtomicInteger(0);
-    private volatile ErrorDetail lastError;
+    private volatile QueryFailure lastError;
     private volatile ShuffleStageStatsReport shuffleStatsReport;
     private volatile ShuffleHandle shuffleHandle;
     private volatile long shufflePlanEpoch;
@@ -91,10 +96,10 @@ public final class Stage {
         finishedTaskIds.add(taskId);
         failedTaskIds.remove(taskId);
         if (allTasksFinished()) {
-            stateMachine.tryTransitionTo(StageStateMachine.State.FLUSHING);
-            stateMachine.tryTransitionTo(StageStateMachine.State.FINISHED);
+            stateMachine.tryTransitionTo(StageState.FLUSHING);
+            stateMachine.tryTransitionTo(StageState.FINISHED);
         } else if (allTasksReported() && !failedTaskIds.isEmpty()) {
-            stateMachine.tryTransitionTo(StageStateMachine.State.FAILED);
+            stateMachine.tryTransitionTo(StageState.FAILED);
         }
     }
 
@@ -111,7 +116,7 @@ public final class Stage {
      * @param error      error detail
      * @param generation the attempt generation at dispatch time
      */
-    public void onTaskFailed(String taskId, ErrorDetail error, int generation) {
+    public void onTaskFailed(String taskId, QueryFailure error, int generation) {
         checkNotNull(taskId, "taskId must not be null");
         if (generation != attemptGeneration.get()) {
             return; // stale callback from a previous attempt — discard
@@ -121,12 +126,12 @@ public final class Stage {
         if (allTasksReported()) {
             // Always transition to FAILED; RetryStageHandler (via DAGDispatchEngine
             // state listener) will decide whether to retry and reset to PLANNED.
-            stateMachine.tryTransitionTo(StageStateMachine.State.FAILED);
+            stateMachine.tryTransitionTo(StageState.FAILED);
         }
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */
-    public void onTaskFailed(String taskId, ErrorDetail error) {
+    public void onTaskFailed(String taskId, QueryFailure error) {
         onTaskFailed(taskId, error, attemptGeneration.get());
     }
 
@@ -231,7 +236,7 @@ public final class Stage {
         return retryCount.get();
     }
 
-    public ErrorDetail lastError() {
+    public QueryFailure lastError() {
         return lastError;
     }
 

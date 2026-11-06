@@ -66,7 +66,7 @@ final class NativeCreationOwners {
 
     NativeTaskCreationFailure rollbackWithoutNativeOwner(
             Owner owner,
-            org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress egress,
+            org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress egress,
             Throwable original) {
         try {
             cleanupCallbacks(owner, egress);
@@ -79,7 +79,7 @@ final class NativeCreationOwners {
     }
 
     static void cleanupCallbacks(
-            Owner owner, org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress egress) {
+            Owner owner, org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress egress) {
         Throwable failure = null;
         try {
             if (owner.externalRegistered) {

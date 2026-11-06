@@ -8,50 +8,51 @@ import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.types.Types;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.PlannerContext;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.GroupRoleMapping;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.spi.security.rowfilter.RowPolicy;
-import org.pangrova.security.secret.SecretResolverRegistry;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.PlannerContext;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.GroupRoleMapping;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.security.core.secret.SecretResolverRegistry;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
 import org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures;
 import org.pangrova.materialization.domain.InternalNamespace;
-import org.pangrova.planner.mv.DynamicTableRewriter;
-
+import org.pangrova.planner.core.mv.DynamicTableRewriter;
 import javax.sql.DataSource;
-
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
+import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Real catalog and durable authority for protected SQL compilation, not Native execution. */
 final class SecuritySqlFixture implements AutoCloseable {
@@ -66,12 +67,11 @@ final class SecuritySqlFixture implements AutoCloseable {
     private final JdbcColumnMaskStore masks;
     private final DynamicRbacAccessControl authority;
     private final DataSource dataSource;
-    private org.pangrova.spi.connector.metadata.table.QualifiedTableName dynamicPhysical;
+    private org.pangrova.connector.api.metadata.table.QualifiedTableName dynamicPhysical;
 
     SecuritySqlFixture(Path warehouse) throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("security_sql");
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         for (String role : ROLES) {
             roles.createRole(Role.of(role));
             roles.mapGroupToRole(GroupRoleMapping.of(role, role));
@@ -88,12 +88,12 @@ final class SecuritySqlFixture implements AutoCloseable {
         for (String table : List.of("orders", "source_orders")) {
             catalog.createTable(TableIdentifier.of("default", table), ordersSchema());
         }
-        var store = new JdbcMetadataStore(dataSource);
+        var store = new PostgresCatalogDeploymentRepository(dataSource);
         store.saveCatalogDescriptor(new CatalogDescriptor("default", CatalogType.CONNECTOR, "iceberg",
                 CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString(), "type", "hadoop"), "", Set.of()));
         connectors = new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolverRegistry(),
                 descriptor -> Optional.empty());
-        metadata = MetadataBootstrap.initialize(store, connectors);
+        metadata = MetadataBootstrap.initialize(store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), connectors);
         var schema = metadata.buildCalciteSchema(SessionContextConverter.toConnectorSession(
                 session("schema_reader", Set.of())));
         compiler = new SqlCompiler(new PangrovaPlanner(schema, List.of("default", "default")),
@@ -117,7 +117,7 @@ final class SecuritySqlFixture implements AutoCloseable {
         var publications = DynamicTablePublicationFixtures.catalog();
         var published = DynamicTablePublicationFixtures.create(publications, "security-test-tenant",
                 "default.default.rollup", "SELECT id FROM default.default.orders");
-        dynamicPhysical = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+        dynamicPhysical = new org.pangrova.connector.api.metadata.table.QualifiedTableName(
                 "default", published.physicalTable().schema(), published.physicalTable().table());
         catalog.createNamespace(Namespace.of(InternalNamespace.SCHEMA_NAME));
         catalog.createTable(TableIdentifier.of(InternalNamespace.SCHEMA_NAME, dynamicPhysical.table()),
@@ -125,13 +125,18 @@ final class SecuritySqlFixture implements AutoCloseable {
         var schema = metadata.buildCalciteSchema(SessionContextConverter.toConnectorSession(
                 session("schema_reader", Set.of())));
         var rewrite = new DynamicTableRewriter(new DurableDynamicTableResolver(publications,
-                "security-test-tenant", "default", "default"));
+                "security-test-tenant", "default", "default", candidate -> {
+                    // Policy-only compilation: no physical scan or generation GC in this fixture.
+                    if (!candidate.generation().equals(published.generation())) {
+                        throw new AssertionError("Unexpected generation in security compilation");
+                    }
+                }));
         var context = new PlannerContext(null, null, null, null, null, rewrite, null, null, null);
         return new SqlCompiler(new PangrovaPlanner(schema, List.of("default", "default"), context),
                 new SubstraitConverter(), new SubstraitPlanSerializer());
     }
 
-    org.pangrova.spi.connector.metadata.table.QualifiedTableName dynamicPhysical() {
+    org.pangrova.connector.api.metadata.table.QualifiedTableName dynamicPhysical() {
         return java.util.Objects.requireNonNull(dynamicPhysical);
     }
 
@@ -182,11 +187,11 @@ final class SecuritySqlFixture implements AutoCloseable {
         definitions.forEach(masks::saveColumnMask);
     }
 
-    static CoordinatorSessionContext session(String principal, Set<String> groups) {
-        return new CoordinatorSessionContext("security-query-" + principal,
+    static QuerySession session(String principal, Set<String> groups) {
+        return new QuerySession("security-query-" + principal,
                 Map.of("catalog", "default", "schema", "default"),
                 principal == null ? null : new UserIdentity(principal, groups, Map.of(), Instant.EPOCH),
-                "security-test-tenant");
+                "security-test-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static Schema ordersSchema() {

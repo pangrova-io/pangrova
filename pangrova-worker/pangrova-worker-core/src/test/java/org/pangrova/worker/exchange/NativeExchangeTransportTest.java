@@ -7,10 +7,10 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.shuffle.exchange.DirectExchangeTransport;
 import org.pangrova.shuffle.exchange.ExchangeEndpoint;
 import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.shuffle.NativeShuffleTransport;
+import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
 
 import java.util.List;
 
@@ -29,7 +29,7 @@ class NativeExchangeTransportTest {
             var secondRequest = producer.toBuilder().setAttempt(producer.getAttempt().toBuilder()
                     .setTaskId(producer.getAttempt().getTaskId() + "-second").setPartitionId(1)).build();
             long second = runtime.createPending(secondRequest);
-            var servers = new NativeShuffleTransport(runtime.executor(), "127.0.0.1", "");
+            var servers = new NativeShuffleTransport(runtime.executor()::executeCommand, "127.0.0.1", "");
             var firstServer = servers.startServer(first, 1);
             var secondServer = servers.startServer(second, 1);
             var consumer = runtime.valuesRequest(false);

@@ -1,7 +1,9 @@
 package org.pangrova.coordinator.indexing.ddl;
 
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
+
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.indexing.store.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

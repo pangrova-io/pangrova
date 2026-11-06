@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg.write;
 
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.protocol.batch.ColumnarPageSink;
+import org.pangrova.batch.arrow.ColumnarBatch;
+import org.pangrova.connector.spi.data.ColumnarPageSink;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.ContentFileParser;

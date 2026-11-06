@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.setup;
 
 import org.pangrova.connector.iceberg.IcebergConnector;
-import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.connector.spi.plugin.Connector;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.nio.file.Path;

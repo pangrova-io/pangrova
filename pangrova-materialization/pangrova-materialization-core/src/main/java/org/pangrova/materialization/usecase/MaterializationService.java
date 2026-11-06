@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceRef;
 import org.pangrova.materialization.domain.DefinitionRevision;
 import org.pangrova.materialization.domain.Generation;
 import org.pangrova.materialization.domain.InternalNamespace;

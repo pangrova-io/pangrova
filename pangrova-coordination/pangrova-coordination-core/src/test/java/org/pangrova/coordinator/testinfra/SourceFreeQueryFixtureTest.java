@@ -5,12 +5,12 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 
 import java.util.List;
@@ -45,9 +45,9 @@ class SourceFreeQueryFixtureTest {
         var policy = SourceFreeQueryFixture.withPolicies(unprotected()).accessControlEnforcer();
         assertThatThrownBy(() -> policy.checkTableAccess(List.of(List.of("lake", "public", "facts")),
                 List.of(), SourceFreeQueryFixture.session("fixture-query").userIdentity()))
-                .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class);
+                .isInstanceOf(org.pangrova.security.api.error.AuthorizationDeniedException.class);
         assertThatThrownBy(() -> policy.checkTableAccess(List.of(), List.of(), null))
-                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class);
     }
 
     @Test
@@ -61,7 +61,7 @@ class SourceFreeQueryFixtureTest {
     private static QueryDispatcherContext unprotected() {
         return QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null,
                 new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING),
-                new TaskScheduler(new WorkerPerformanceScorer()),
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new CoordinatorTaskTracker(), null, null, null, 37);
     }

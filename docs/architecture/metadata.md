@@ -1216,172 +1216,38 @@ public class TieredMetadataCache implements MetadataCache {
 
 ### 3.6 MetadataSyncService — Metadata Synchronization
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                         Metadata Sync Architecture                                                                   │
-├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                                                      │
-│  Sync modes:                                                                                                         │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐                                  │
-│  │   Mode         │ Trigger                     │ Use case                        │                                  │
-│  │   ──────────────────────────────────────────────────────────────────────────── │                                  │
-│  │   Incremental  │ Scheduled (default 60s)     │ Normal operation, low overhead  │                                  │
-│  │   Full         │ Manual / first registration │ Initialization, data repair     │                                  │
-│  │   Event-driven │ External Webhook/Listener   │ Latency-sensitive scenarios     │                                  │
-│  └────────────────────────────────────────────────────────────────────────────────┘                                  │
-│                                                                                                                      │
-│  Sync flow (incremental):                                                                                            │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐                                  │
-│  │   1. Read last_sync_time                                                       │                                  │
-│  │   2. FederatedCatalog.getChangesSince(last_sync_time)                            │                                  │
-│  │   3. For each MetadataChange:                                                  │                                  │
-│  │      • ADD    → Metastore.saveTable() + Cache.put()                            │                                  │
-│  │      • UPDATE → Metastore.saveTable() + Cache.invalidate()                     │                                  │
-│  │      • DELETE → Metastore.deleteTable() + Cache.invalidate()                   │                                  │
-│  │   4. Update last_sync_time                                                     │                                  │
-│  │   5. Record SyncResult (changes, errors, elapsed)                              │                                  │
-│  └────────────────────────────────────────────────────────────────────────────────┘                                  │
-│                                                                                                                      │
-│  Conflict resolution: the external backend is the Source of Truth; the local Metastore is overwritten unconditionally│
-│                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
+The sync service borrows four explicit persistence ports: `CatalogDeploymentRepository`,
+`TableProjectionRepository`, `MetadataProjectionTransactions`, and `MetadataSyncRepository`.
+Server assembles their PostgreSQL implementations on the selected metadata DataSource;
+Core does not choose a backend or own the shared pool.
 
+The periodic caller passes the descriptor from the actual federation handle together
+with its adapter. Incremental reads return `MetadataChangeBatch`. Only an error-free
+batch with a source-certified `completeThrough` can advance a checkpoint. A certified
+empty batch may advance; an unbounded inventory, partial failure, or full enumeration
+cannot manufacture a checkpoint from local wall time. Progress belongs to a catalog
+incarnation and revision, not its reusable name.
 
-```java
-/**
- * Metadata synchronization service
- *
- * Synchronizes metadata from an external Catalog backend to the local Metastore.
- * Runs only on the Coordinator Leader (see distributed.md §1.1),
- * using ZK Leader Election to guarantee single-point execution and avoid duplicate synchronization.
- */
-public class MetadataSyncService {
+The synchronization repository atomically checks current deployment and expected
+checkpoint, records the run, and advances progress. An unknown COMMIT is confirmed
+using the original run receipt; if confirmation fails, the same invocation does not
+retry incremental sync or fall back to full sync. Partial results are failures for
+`syncWithRetry`.
 
-    private final CatalogRegistry catalogRegistry;
-    private final MetadataStore metadataStore;
-    private final MetadataCache metadataCache;
-    private final MetadataEventDispatcher eventDispatcher;
-    private final MetricsProvider metrics;
-    private final ScheduledExecutorService scheduler;
-
-    private static final int MAX_RETRY_ATTEMPTS = 3;
-    private static final Duration BASE_BACKOFF = Duration.ofSeconds(1);
-
-    /**
-     * Incremental sync — pull only changes since the last sync
-     */
-    public SyncResult incrementalSync(String catalogName) {
-        CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-        FederatedCatalog adapter = extractAdapter(handle);
-
-        Instant lastSync = metadataStore.getLastSyncTime(catalogName)
-            .orElse(Instant.EPOCH);
-
-        int changesApplied = 0;
-        List<String> errors = new ArrayList<>();
-        Instant startTime = Instant.now();
-
-        try {
-            List<MetadataChange> changes = adapter.getChangesSince(lastSync);
-            for (MetadataChange change : changes) {
-                try {
-                    applyChange(catalogName, change);
-                    changesApplied++;
-                } catch (Exception e) {
-                    errors.add(change.describe() + ": " + e.getMessage());
-                }
-            }
-            metadataStore.updateSyncTime(catalogName, Instant.now());
-        } catch (Exception e) {
-            errors.add("Sync failed: " + e.getMessage());
-        }
-
-        SyncResult result = new SyncResult(catalogName, Instant.now(),
-            changesApplied, errors.size(), errors,
-            Duration.between(startTime, Instant.now()).toMillis());
-
-        metadataStore.recordSyncHistory(result);
-        metrics.createCounter("metadata.sync.changes", "Sync changes applied", "1")
-            .add(changesApplied);
-
-        return result;
-    }
-
-    /**
-     * Full sync — completely replace the local Metastore with the external backend state
-     */
-    public SyncResult fullSync(String catalogName) {
-        CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-        FederatedCatalog adapter = extractAdapter(handle);
-
-        int changesApplied = 0;
-        List<String> errors = new ArrayList<>();
-        Instant startTime = Instant.now();
-
-        for (String schema : adapter.listSchemas()) {
-            metadataStore.saveSchemas(catalogName, List.of(schema));
-            for (String table : adapter.listTables(schema)) {
-                try {
-                    TableMetadata metadata = adapter.getTable(schema, table);
-                    metadataStore.saveTable(catalogName, schema, table, metadata);
-                    metadataCache.invalidateTable(catalogName, schema, table);
-                    changesApplied++;
-                } catch (Exception e) {
-                    errors.add(schema + "." + table + ": " + e.getMessage());
-                }
-            }
-        }
-
-        metadataStore.updateSyncTime(catalogName, Instant.now());
-
-        SyncResult result = new SyncResult(catalogName, Instant.now(),
-            changesApplied, errors.size(), errors,
-            Duration.between(startTime, Instant.now()).toMillis());
-        metadataStore.recordSyncHistory(result);
-        return result;
-    }
-
-    /**
-     * Apply a single metadata change
-     */
-    private void applyChange(String catalogName, MetadataChange change) {
-        switch (change.getType()) {
-            case ADD, UPDATE -> {
-                metadataStore.saveTable(catalogName, change.getSchema(),
-                    change.getTable(), change.getMetadata());
-                metadataCache.invalidateTable(catalogName,
-                    change.getSchema(), change.getTable());
-            }
-            case DELETE -> {
-                metadataStore.deleteTable(catalogName,
-                    change.getSchema(), change.getTable());
-                metadataCache.invalidateTable(catalogName,
-                    change.getSchema(), change.getTable());
-            }
-        }
-        eventDispatcher.dispatch(new MetadataSyncedEvent(catalogName, change));
-    }
-
-    /**
-     * Retry synchronization with exponential backoff
-     * See the retry strategy in resilience.md
-     */
-    public SyncResult syncWithRetry(String catalogName) {
-        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-            try {
-                return incrementalSync(catalogName);
-            } catch (CatalogBackendException e) {
-                if (attempt == MAX_RETRY_ATTEMPTS) throw e;
-                Duration backoff = BASE_BACKOFF.multipliedBy((long) Math.pow(2, attempt - 1));
-                sleep(backoff);
-            }
-        }
-        throw new IllegalStateException("Unreachable");
-    }
-}
-```
-
+Each projection write carries the original handle's `CatalogDeploymentIdentity`.
+`MetadataProjectionTransactions` locks and verifies that deployment, rejects foreign
+catalog targets, then commits the projection, invalidation and immutable operation
+receipt together. Unknown commit results are confirmed with that original operation ID;
+unconfirmed results terminate that invocation without a new mutation or full-sync fallback.
+The periodic Server scheduler still lacks a durable pending-operation barrier across
+invocations/restarts; this recovery boundary remains unfinished and must retain the
+original operation identity before another round can be authorized.
+The complete external scan is **not** one transaction: source-version conditional writes,
+concurrent same-deployment inventory, omitted deletions, and the scheduler's full
+lease/lifecycle remain unfinished. The former leader-only and
+wall-clock-watermark examples were not evidence that those guarantees existed.
+See [current synchronization guarantees](../internal/project-structure-refactoring/metadata-sync-ownership.md)
+and [projection transaction ownership](../internal/project-structure-refactoring/projection-fence-ownership.md).
 
 ### 3.7 SchemaEvolutionValidator — Schema Change Validation
 
@@ -1493,54 +1359,19 @@ public class SchemaEvolutionValidator {
 
 ### 3.8 FederatedCatalog SPI — External Catalog Federation Interface
 
+`FederatedCatalog` currently lives in Metadata Core's adapter package; moving this
+extension boundary into the unified Metadata API/SPI artifact is still planned.
+It exposes schema/table enumeration, table metadata and statistics, incremental
+`readChangesSince(Instant)` returning `MetadataChangeBatch`, and adapter close.
+The caching decorator forwards incremental batches without caching them.
 
-
-
-
-The `FederatedCatalog` SPI is the abstraction layer for integrating external metastores
-(HMS, AWS Glue, Iceberg REST Catalog, etc.) into Pangrova's unified metadata management.
-This is the **authoritative definition** — all other documents (including
-[overview.md §5.1](./overview.md) and [connectors.md](./connectors.md))
-should reference this section for the complete interface specification.
-
-`FederationCatalogHandle` (§3.3) delegates to `FederatedCatalog` to bridge external
-catalog metadata into the `ConnectorMetadata` interface expected by the query engine.
-`MetadataSyncService` (§3.6) uses `FederatedCatalog` for both incremental and full
-metadata synchronization.
-
-The source interfaces currently expose this contract:
-
-```java
-public interface FederatedCatalog extends AutoCloseable {
-    List<String> listSchemas();
-    List<String> listTables(String schema);
-    TableMetadata getTable(String schema, String table);
-    TableStatistics getTableStatistics(String schema, String table);
-    List<MetadataChange> getChangesSince(Instant since);
-    default void subscribeToChanges(ChangeListener listener) {}
-    void close();
-}
-
-public interface FederatedCatalogFactory {
-    String name();
-    FederatedCatalog create(Map<String, String> properties);
-}
-```
-
-`PluginFederationHandleFactory` discovers factories with `ServiceLoader` and resolves
-the configured provider name. The repository currently contains the SPI and wiring,
-but no built-in `FederatedCatalogFactory` service registration; HMS, Glue, or Iceberg
-REST federation therefore requires a provider plugin.
-
-**Relationship to ConnectorMetadata (connectors.md §1.2):**
-
-`FederatedCatalog` is intentionally narrower than `ConnectorMetadata`.
-Federation catalogs expose read-only metadata; DDL and write operations are not
-supported through the federation path. `FederationConnectorMetadata` (§3.3) bridges
-`FederatedCatalog` to the `ConnectorMetadata` interface by delegating supported methods
-and throwing `UnsupportedOperationException` for DDL/write methods.
-
----
+A complete-through bound must represent every change (including deletions) in the
+requested interval and exclude late commits into that interval. A successful SELECT,
+an empty result, or the current database time is insufficient. An adapter without
+that guarantee explicitly returns an absent bound. The current push-subscription
+default is a no-op and must not be treated as evidence of push support. Federation
+factory discovery is plugin-based; a configured provider name alone does not establish
+an installed implementation or its capabilities.
 
 ## 4. Unified Metadata Model
 
@@ -1652,8 +1483,8 @@ Information lost during conversion is compensated by the following mechanisms:
 
 | Lost Field | Compensation | When Needed |
 |---|---|---|
-| `tags` (data classification) | reloaded from MetadataCache or MetadataStore at query time | when RLS/Column Masking needs tag information ([security.md §5](./security.md)) |
-| `createdAt/updatedAt` | loaded from MetadataStore at query time (e.g., `system.metadata.tables` queries) | auditing and data-governance scenarios |
+| `tags` (data classification) | classification authority must be read from Governance; table projections do not grant policy authority | when RLS/Column Masking needs tag information ([security.md §5](./security.md)) |
+| `createdAt/updatedAt` | available as source metadata or local table-projection observations; actual query routing determines freshness | auditing and data-governance scenarios |
 | `ConnectorTableHandle` | created by `ConnectorMetadata.getTableHandle()`; includes runtime information such as the Iceberg snapshot ID | required during query execution |
 
 #### Conversion Implementation
@@ -1663,7 +1494,7 @@ Information lost during conversion is compensated by the following mechanisms:
  * TableMetadata ↔ ConnectorTableMetadata converter
  *
  * One-way conversion: resolveTable() obtains ConnectorTableMetadata from ConnectorMetadata,
- * then merges supplementary TableMetadata information (tags, audit info) from the MetadataStore.
+ * then maps the selected source observation. Local projections do not replace current governance or source authority.
  *
  * No reverse conversion is provided: ConnectorTableMetadata → TableMetadata is handled by MetadataSyncService,
  * which builds TableMetadata directly from the external backend via the FederatedCatalog.
@@ -1894,179 +1725,58 @@ tests and metadata-less modes.
 
 ---
 
-## 5. Metadata Persistence (Metastore)
+## 5. Metadata Persistence
 
-### 5.1 PostgreSQL Schema
+### 5.1 Canonical PostgreSQL initialization
 
-Persisted to a PostgreSQL Cluster (see [distributed.md §3.4](./distributed.md)).
+`pangrova-schema-migrations` is the sole owner of `db/migration` resources and the
+checksum manifest. Server and PostgreSQL tests use that bundle to initialize an empty
+database. Repositories never create parallel schemas. The new project does not need
+historical data conversion, dual writes, or compatibility stores.
 
-```sql
--- Catalog definition table
-CREATE TABLE catalog_definitions (
-    name VARCHAR(255) PRIMARY KEY,
-    type VARCHAR(50) NOT NULL,              -- INTERNAL, CONNECTOR, FEDERATION
-    provider VARCHAR(50) NOT NULL,          -- iceberg, paimon, hms, glue, rest
-    state VARCHAR(20) NOT NULL DEFAULT 'CREATING',
-    properties JSON NOT NULL,
-    comment TEXT,
-    allowed_tenants JSON,                   -- list of visible tenants (see multi-tenancy.md)
-    created_by VARCHAR(255),
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+Catalog current/history rows, schema/table projections, and invalidation outbox remain
+separate facts. V107 adds synchronization progress and immutable run receipts; V108 adds per-operation projection receipts. Runtime
+code no longer reads or writes the historical `sync_history` table. The earlier
+MySQL-style schema/full-text examples have been removed; the canonical SQL resources
+are the executable PostgreSQL specification.
 
--- Schema metadata table
-CREATE TABLE schema_metadata (
-    catalog_name VARCHAR(255) NOT NULL,
-    schema_name VARCHAR(255) NOT NULL,
-    properties JSON,
-    synced_at TIMESTAMP NOT NULL,
-    PRIMARY KEY (catalog_name, schema_name),
-    FOREIGN KEY (catalog_name) REFERENCES catalog_definitions(name) ON DELETE CASCADE
-);
+### 5.2 Independent domain ports and PostgreSQL implementations
 
--- Table metadata table
-CREATE TABLE table_metadata (
-    catalog_name VARCHAR(255) NOT NULL,
-    schema_name VARCHAR(255) NOT NULL,
-    table_name VARCHAR(255) NOT NULL,
-    columns JSON NOT NULL,                  -- serialized List<ColumnMetadata>
-    partition_spec JSON,
-    sort_order JSON,
-    properties JSON,
-    table_created_at TIMESTAMP,
-    table_updated_at TIMESTAMP,
-    synced_at TIMESTAMP NOT NULL,
-    PRIMARY KEY (catalog_name, schema_name, table_name),
-    FOREIGN KEY (catalog_name, schema_name)
-        REFERENCES schema_metadata(catalog_name, schema_name) ON DELETE CASCADE
-);
+| Capability | Contract in Catalog Persistence API | PostgreSQL implementation |
+|---|---|---|
+| Current deployment and exact revision history | `CatalogDeploymentRepository` | `PostgresCatalogDeploymentRepository` |
+| Read rebuildable table projections | `TableProjectionRepository` | `PostgresTableProjectionRepository` |
+| Read observed schema names | `SchemaProjectionRepository` | `PostgresSchemaProjectionRepository` |
+| Deployment-fenced projection + invalidation + receipt | `MetadataProjectionTransactions` | `PostgresMetadataProjectionTransactions` |
+| Source progress, diagnostics and completion receipts | `MetadataSyncRepository` | `PostgresMetadataSyncRepository` |
 
--- full-text search index (supports searchTables)
-CREATE FULLTEXT INDEX idx_table_search
-    ON table_metadata(catalog_name, schema_name, table_name);
+The former composite MetadataStore interface and PostgresMetadataStore implementation have
+been removed. Deployment-only consumers do not implement or borrow projection methods.
+Server selects providers explicitly; each provider borrows the same externally owned
+DataSource and closes only the connections it acquires.
 
--- synchronization history table
-CREATE TABLE sync_history (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    catalog_name VARCHAR(255) NOT NULL,
-    sync_type VARCHAR(20) NOT NULL,         -- INCREMENTAL, FULL
-    sync_time TIMESTAMP NOT NULL,
-    changes_applied INT NOT NULL DEFAULT 0,
-    errors INT NOT NULL DEFAULT 0,
-    error_messages JSON,
-    duration_ms BIGINT NOT NULL,
-    INDEX idx_catalog_time (catalog_name, sync_time)
-);
-```
+Deployment current/history publication and its invalidation are atomic. Each table
+mutation and its invalidation are atomic, including its operation receipt and current deployment check; schema observation batches use the same atomic port. A schema list is an observed upsert batch, not a complete snapshot or a
+request to delete omitted schemas. Failed/unknown persistence outcomes must not become
+empty results or successful local-cache notifications.
 
+Provider-internal `PostgresCatalogPersistenceSupport` shares transaction handling.
+Its package is excluded from consumer exports. RuntimeException/Error during rollback
+is attached to the original failure, and shared resources are not closed by repositories.
+This helper is not a domain SQL callback API. The projection workflow has its own typed
+transaction coordinator; package-private SQL participants borrow its connection and
+never commit or close it. Table/schema repositories are read-only. Receipt JSON stays
+inside the PostgreSQL Provider and has an explicit format version. A replay confirms
+past execution, including after deployment replacement; it never grants current authority.
+Schema observations do not reconcile omitted schemas. PostgreSQL timestamp-column
+precision remains unchanged; operation JSON retains request identity for exact replay.
+The schema read port currently has component tests but no production consumer; it is
+not evidence that a new end-user schema-list endpoint has been delivered.
 
-### 5.2 MetadataStore Implementation
-
-```java
-/**
- * PostgreSQL-backed Metastore implementation
- *
- * Uses JDBC + a HikariCP connection pool.
- * All JSON columns are serialized/deserialized with TableMetadataSerializer.
- */
-public class JdbcMetadataStore implements MetadataStore {
-
-    private final DataSource dataSource;
-    private final TableMetadataSerializer serializer;
-
-    public JdbcMetadataStore(DataSource dataSource) {
-        this.dataSource = dataSource;
-        this.serializer = new TableMetadataSerializer();
-    }
-
-    @Override
-    public void saveTable(String catalog, String schema, String table,
-                          TableMetadata metadata) {
-        String sql = """
-            INSERT INTO table_metadata
-                (catalog_name, schema_name, table_name, columns,
-                 partition_spec, sort_order, properties,
-                 table_created_at, table_updated_at, synced_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE
-                columns = VALUES(columns),
-                partition_spec = VALUES(partition_spec),
-                sort_order = VALUES(sort_order),
-                properties = VALUES(properties),
-                table_updated_at = VALUES(table_updated_at),
-                synced_at = NOW()
-            """;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, catalog);
-            ps.setString(2, schema);
-            ps.setString(3, table);
-            ps.setString(4, serializer.serializeColumns(metadata.columns()));
-            ps.setString(5, serializer.serializeMap(metadata.partitionSpec()));
-            ps.setString(6, serializer.serializeList(metadata.sortOrder()));
-            ps.setString(7, serializer.serializeMap(metadata.properties()));
-            ps.setTimestamp(8, Timestamp.from(metadata.createdAt()));
-            ps.setTimestamp(9, Timestamp.from(metadata.updatedAt()));
-            ps.executeUpdate();
-        }
-    }
-
-    @Override
-    public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
-        String sql = """
-            SELECT columns, partition_spec, sort_order, properties,
-                   table_created_at, table_updated_at
-            FROM table_metadata
-            WHERE catalog_name = ? AND schema_name = ? AND table_name = ?
-            """;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, catalog);
-            ps.setString(2, schema);
-            ps.setString(3, table);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) return Optional.empty();
-                return Optional.of(new TableMetadata(
-                    catalog, schema, table,
-                    serializer.deserializeColumns(rs.getString("columns")),
-                    serializer.deserializeMap(rs.getString("partition_spec")),
-                    serializer.deserializeList(rs.getString("sort_order")),
-                    serializer.deserializeMap(rs.getString("properties")),
-                    rs.getTimestamp("table_created_at").toInstant(),
-                    rs.getTimestamp("table_updated_at").toInstant()));
-            }
-        }
-    }
-
-    @Override
-    public List<TableRef> searchTables(String pattern) {
-        String sql = """
-            SELECT catalog_name, schema_name, table_name
-            FROM table_metadata
-            WHERE MATCH(catalog_name, schema_name, table_name) AGAINST(? IN BOOLEAN MODE)
-            LIMIT 100
-            """;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, pattern);
-            List<TableRef> results = new ArrayList<>();
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    results.add(new TableRef(
-                        rs.getString("catalog_name"),
-                        rs.getString("schema_name"),
-                        rs.getString("table_name")));
-                }
-            }
-            return results;
-        }
-    }
-}
-```
-
-
----
+The existing table-projection substring search primitive is implemented but currently
+has no production caller. It is not a full-text search feature or an advertised SQL
+entry point. Inventory search requirements and its eventual endpoint/retirement remain
+an explicit capability-review item.
 
 ## 6. SQL DDL Support
 
@@ -2503,63 +2213,32 @@ public record ValidationResult(boolean compatible, List<String> errors, List<Str
 
 ## 11. Module Structure
 
-```
+```text
 pangrova-metadata/
-├── src/main/java/org/pangrova/metadata/
-│   ├── MetadataModule.java                  # module entry point; assembles all components
-│   ├── service/
-│   │   ├── MetadataService.java             # unified entry interface
-│   │   └── DefaultMetadataService.java      # default implementation
-│   ├── catalog/
-│   │   ├── CatalogDescriptor.java           # Catalog descriptor
-│   │   ├── CatalogType.java                 # Catalog type enum
-│   │   ├── CatalogState.java                # lifecycle state
-│   │   ├── CatalogHandle.java               # Catalog handle interface
-│   │   ├── ConnectorCatalogHandle.java      # Connector-backed implementation
-│   │   ├── FederationCatalogHandle.java     # Federation implementation
-│   │   ├── InternalCatalogHandle.java       # built-in Catalog implementation
-│   │   ├── CatalogRegistry.java             # registry
-│   │   └── CatalogHealthMonitor.java        # health check
-│   ├── cache/
-│   │   ├── MetadataCache.java               # cache interface
-│   │   ├── TieredMetadataCache.java         # L1+L2 implementation
-│   │   └── MetadataCacheConfig.java         # cache config
-│   ├── store/
-│   │   ├── MetadataStore.java               # persistence interface
-│   │   └── JdbcMetadataStore.java           # PostgreSQL implementation
-│   ├── sync/
-│   │   ├── MetadataSyncService.java         # sync service
-│   │   ├── MetadataChange.java              # change model
-│   │   └── SyncResult.java                  # sync result
-│   ├── schema/
-│   │   ├── SchemaChange.java                # Schema change sealed interface
-│   │   ├── SchemaEvolutionValidator.java    # compatibility validation
-│   │   └── ValidationResult.java            # validation result
-│   ├── model/
-│   │   ├── TableMetadata.java               # unified table metadata
-│   │   ├── ColumnMetadata.java              # column metadata
-│   │   ├── ColumnType.java                  # column type
-│   │   └── TableRef.java                    # three-part table reference
-│   ├── event/
-│   │   ├── MetadataEvent.java               # event sealed interface
-│   │   ├── MetadataEventDispatcher.java     # event dispatch
-│   │   └── MetadataEventListener.java       # event listener interface
-│   ├── serde/
-│   │   └── TableMetadataSerializer.java     # JSON serialization
-│   └── exception/
-│       ├── MetadataException.java           # base exception class
-│       ├── CatalogNotFoundException.java
-│       ├── CatalogAlreadyExistsException.java
-│       ├── CatalogBackendException.java
-│       ├── MetastoreException.java
-│       └── MetadataSerializationException.java
-└── src/main/resources/
-    └── db/
-        └── migration/
-            └── V1__init_schema.sql          # Flyway migration script
+  pangrova-metadata-api/       # metadata.api and actual metadata.spi contracts
+  pangrova-metadata-codec/     # shared table/JSON encoding
+  pangrova-metadata-core/      # domain orchestration, caches and remaining adapters
+pangrova-persistence/
+  pangrova-persistence-catalog-api/
+    .../api/catalog/          # deployment authority
+    .../api/projection/       # table and schema projection ports
+    .../api/synchronization/  # checkpoints and run receipts
+    .../api/dependency/       # dependency graph port
+    .../api/invalidation/     # maintenance port
+  pangrova-persistence-catalog-postgresql/
+    .../postgresql/catalog/
+    .../postgresql/projection/
+    .../postgresql/synchronization/
+    .../postgresql/invalidation/
+    .../postgresql/transaction/ # internal, not consumer-exported
+pangrova-schema-migrations/  # sole canonical initialization resource bundle
 ```
 
-
+This is the currently implemented ownership, not a claim that all Metadata adapters,
+graph providers or Coordinator assembly have reached their final locations. The
+[modularization ADR](domain-modularization-adr.md) defines the complete target and the
+[implementation ledger](../internal/project-structure-refactoring/domain-modularization-progress.md)
+records each verified batch and remaining work.
 
 ## 12. Observability Integration
 
@@ -2608,3 +2287,18 @@ that the Metadata model cannot represent are rejected before physical creation. 
 service does not fabricate format field IDs. This bridge does not establish REST
 catalog protocol compatibility, recursive schema/nullability support or field-bound
 governance; each requires its own provider contract and qualification.
+
+### Durable synchronization recovery
+
+Catalog Persistence records immutable projection and completion intents before execution.
+`MetadataSyncService` resolves them under their original IDs before reading another source batch,
+including when the service and providers are recreated. An unresolved intent rejects new IDs;
+Pending and OutcomeUnknown errors stop the invocation without a full-sync fallback. Projection,
+parent schema observation, invalidation, receipt and terminal intent state commit together;
+checkpoint, completion receipt and terminal intent state also commit together. Obsolete deployment
+intents are fenced and rejected, never reauthorized with a current descriptor.
+
+This is per-operation recovery, not a lease or an atomic publication of an entire scan. A new scan
+may create new observations after pending work is recovered. Generic cache invalidation is durable;
+process-local schema-evolution event recovery, retention and scan lifecycle remain incomplete. See
+[the implementation and verification record](../internal/project-structure-refactoring/projection-recovery-ownership.md).

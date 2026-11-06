@@ -115,7 +115,7 @@ public final class WorkerHealthScheduler {
     private void evaluateDecommission(WorkerInfo worker, Instant now) {
         if (workerManager.isDecommissionComplete(worker.workerId())) {
             LOG.info("event=decommission_complete workerId={}", worker.workerId());
-            workerManager.removeWorker(worker.workerId());
+            workerManager.removeObservedWorker(worker);
             return;
         }
         long heartbeatAge = Duration.between(worker.lastHeartbeat(), now).toMillis();
@@ -131,7 +131,7 @@ public final class WorkerHealthScheduler {
             } catch (Exception e) {
                 LOG.error("event=decommission_timeout_callback_failed workerId={}", worker.workerId(), e);
             }
-            workerManager.removeWorker(worker.workerId());
+            workerManager.removeObservedWorker(worker);
         }
     }
 
@@ -140,6 +140,8 @@ public final class WorkerHealthScheduler {
         if (state == HealthState.SUSPECT) {
             logSuspect(workerId);
         } else if (state == HealthState.DEAD) {
+            WorkerInfo observed = workerManager.getWorker(workerId);
+            if (observed == null || observed.healthState() != HealthState.DEAD) return;
             logDead(workerId);
             // C-WK-08: Invoke callback first (may trigger task rescheduling),
             // then remove. The callback is synchronous so rescheduling completes
@@ -150,7 +152,7 @@ public final class WorkerHealthScheduler {
                 LOG.error("event=dead_worker_callback_failed workerId={} error={}",
                         workerId, e.getMessage(), e);
             }
-            workerManager.removeWorker(workerId);
+            workerManager.removeObservedWorker(observed);
         }
     }
 

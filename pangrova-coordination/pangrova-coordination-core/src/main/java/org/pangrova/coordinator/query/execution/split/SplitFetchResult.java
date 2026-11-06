@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.query.api.task.QuerySplit;
+
 import java.util.List;
 
 /**
@@ -8,14 +10,14 @@ import java.util.List;
  */
 public record SplitFetchResult(
         SplitFetchOutcome outcome,
-        List<SplitFetcher.SplitWithPaths> splits,
+        List<QuerySplit> splits,
         String failureReason
 ) {
     public SplitFetchResult {
         splits = splits != null ? List.copyOf(splits) : List.of();
     }
 
-    public static SplitFetchResult success(List<SplitFetcher.SplitWithPaths> splits) {
+    public static SplitFetchResult success(List<QuerySplit> splits) {
         return new SplitFetchResult(SplitFetchOutcome.SUCCESS, splits, null);
     }
 
@@ -23,7 +25,7 @@ public record SplitFetchResult(
         return new SplitFetchResult(SplitFetchOutcome.FAILED, List.of(), reason);
     }
 
-    public static SplitFetchResult limitReached(List<SplitFetcher.SplitWithPaths> splits, String reason) {
+    public static SplitFetchResult limitReached(List<QuerySplit> splits, String reason) {
         return new SplitFetchResult(SplitFetchOutcome.LIMIT_REACHED, splits, reason);
     }
 

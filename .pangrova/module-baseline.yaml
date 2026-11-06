@@ -4,6 +4,8 @@ version: 1
 reactor:
   - artifactId: pangrova-ai
     path: pangrova-ai
+  - artifactId: pangrova-batch
+    path: pangrova-batch
   - artifactId: pangrova-bom
     path: .
   - artifactId: pangrova-client
@@ -12,64 +14,133 @@ reactor:
     path: pangrova-connector
   - artifactId: pangrova-coordination
     path: pangrova-coordination
+  - artifactId: pangrova-execution
+    path: pangrova-execution
+  - artifactId: pangrova-file
+    path: pangrova-file
   - artifactId: pangrova-filesystem
     path: pangrova-filesystem
+  - artifactId: pangrova-function
+    path: pangrova-function
   - artifactId: pangrova-generation
     path: pangrova-generation
   - artifactId: pangrova-indexing
     path: pangrova-indexing
   - artifactId: pangrova-materialization
     path: pangrova-materialization
+  - artifactId: pangrova-metadata
+    path: pangrova-metadata
   - artifactId: pangrova-native-bundle
     path: pangrova-native-bundle
   - artifactId: pangrova-observability
     path: pangrova-observability
+  - artifactId: pangrova-parser
+    path: pangrova-parser
   - artifactId: pangrova-persistence
     path: pangrova-persistence
+  - artifactId: pangrova-planner
+    path: pangrova-planner
+  - artifactId: pangrova-query
+    path: pangrova-query
+  - artifactId: pangrova-scheduler
+    path: pangrova-scheduler
+  - artifactId: pangrova-security
+    path: pangrova-security
+  - artifactId: pangrova-server
+    path: pangrova-server
   - artifactId: pangrova-shuffle
     path: pangrova-shuffle
+  - artifactId: pangrova-table
+    path: pangrova-table
   - artifactId: pangrova-testing
     path: pangrova-testing
+  - artifactId: pangrova-transport
+    path: pangrova-transport
   - artifactId: pangrova-worker
     path: pangrova-worker
 artifacts:
+  pangrova-ai-api:
+    path: pangrova-ai/pangrova-ai-api
+    mainPackages:
+      - org.pangrova.ai.api.capability
+      - org.pangrova.ai.api.embedding
+      - org.pangrova.ai.api.error
+      - org.pangrova.ai.api.invocation
+      - org.pangrova.ai.api.model
+      - org.pangrova.ai.spi.embedding
+      - org.pangrova.ai.spi.inference
+      - org.pangrova.ai.spi.invocation
+      - org.pangrova.ai.spi.model
+      - org.pangrova.ai.spi.reranking
+    pomDependencies:
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.ai.api.capability
+      - org.pangrova.ai.api.embedding
+      - org.pangrova.ai.api.error
+      - org.pangrova.ai.api.invocation
+      - org.pangrova.ai.api.model
+      - org.pangrova.ai.spi.embedding
+      - org.pangrova.ai.spi.inference
+      - org.pangrova.ai.spi.invocation
+      - org.pangrova.ai.spi.model
+      - org.pangrova.ai.spi.reranking
+    providers:
+      {}
   pangrova-ai-control:
     path: pangrova-ai/pangrova-ai-control
     mainPackages:
       - org.pangrova.ai.control.api
       - org.pangrova.ai.control.assembly
+      - org.pangrova.ai.control.config
       - org.pangrova.ai.control.embedding
       - org.pangrova.ai.control.evaluation
       - org.pangrova.ai.control.feature
+      - org.pangrova.ai.control.model
       - org.pangrova.ai.control.store.jdbc.embedding
       - org.pangrova.ai.control.store.jdbc.evaluation
       - org.pangrova.ai.control.store.jdbc.feature
     pomDependencies:
+      pangrova-ai-api: compile
       pangrova-common: compile
+      pangrova-generation-api: compile
       pangrova-generation-core: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-security: compile
-      pangrova-spi: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-persistence-security-postgresql: compile
+      pangrova-protocol: compile
+      pangrova-security-api: compile
       pangrova-testing-kit: test
     imports:
       main:
+        - pangrova-ai-api
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-security
-        - pangrova-spi
+        - pangrova-generation-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-persistence-security-postgresql
+        - pangrova-protocol
+        - pangrova-security-api
       test:
+        - pangrova-ai-api
         - pangrova-common
-        - pangrova-persistence-jdbc
-        - pangrova-spi
+        - pangrova-persistence-security-postgresql
+        - pangrova-protocol
+        - pangrova-security-api
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.ai.control.api
       - org.pangrova.ai.control.assembly
+      - org.pangrova.ai.control.config
       - org.pangrova.ai.control.embedding
       - org.pangrova.ai.control.evaluation
       - org.pangrova.ai.control.feature
+      - org.pangrova.ai.control.model
       - org.pangrova.ai.control.store.jdbc.embedding
     providers:
       {}
@@ -93,46 +164,94 @@ artifacts:
       - org.pangrova.ai.worker.rerank.openai
       - org.pangrova.ai.worker.text
     pomDependencies:
+      pangrova-ai-api: compile
+      pangrova-ai-control: compile
       pangrova-common: compile
       pangrova-filesystem-api: compile
       pangrova-filesystem-local: compile
       pangrova-filesystem-oss: compile
       pangrova-filesystem-s3: compile
+      pangrova-function-api: compile
       pangrova-protocol: compile
-      pangrova-security: compile
-      pangrova-spi: compile
+      pangrova-security-api: compile
       pangrova-testing-kit: test
+      pangrova-types: compile
       pangrova-worker-native-bridge: compile
     imports:
       main:
+        - pangrova-ai-api
+        - pangrova-ai-control
         - pangrova-common
         - pangrova-filesystem-api
         - pangrova-filesystem-local
         - pangrova-filesystem-oss
         - pangrova-filesystem-s3
+        - pangrova-function-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-security-api
+        - pangrova-types
         - pangrova-worker-native-bridge
       test:
+        - pangrova-ai-api
         - pangrova-common
         - pangrova-filesystem-api
         - pangrova-filesystem-local
+        - pangrova-function-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-security-api
         - pangrova-testing-kit
+        - pangrova-types
     exportedPackages:
       - org.pangrova.ai.worker.blob
     providers:
+      "org.pangrova.ai.spi.model.AiModelCatalog":
+        - org.pangrova.ai.worker.provider.WorkerAiModelCatalog
+      "org.pangrova.function.spi.registry.FunctionFactory":
+        - org.pangrova.ai.worker.function.AiFunctionFactory
+      "org.pangrova.function.spi.runtime.FunctionCallbackScope":
+        - org.pangrova.ai.worker.context.WorkerAiCallbackScope
+      "org.pangrova.function.spi.runtime.FunctionFailureProjector":
+        - org.pangrova.ai.worker.function.AiFunctionFailureProjector
       "org.pangrova.protocol.execution.AiTaskLifecycle":
         - org.pangrova.ai.worker.invocation.WorkerAiTaskLifecycle
-      "org.pangrova.spi.ai.runtime.AiModelCatalog":
-        - org.pangrova.ai.worker.provider.WorkerAiModelCatalog
-      "org.pangrova.spi.function.registry.FunctionFactory":
-        - org.pangrova.ai.worker.function.AiFunctionFactory
-      "org.pangrova.spi.function.runtime.FunctionCallbackScope":
-        - org.pangrova.ai.worker.context.WorkerAiCallbackScope
-      "org.pangrova.spi.function.runtime.FunctionFailureProjector":
-        - org.pangrova.ai.worker.function.AiFunctionFailureProjector
+  pangrova-batch-api:
+    path: pangrova-batch/pangrova-batch-api
+    mainPackages:
+      - org.pangrova.batch.api.block
+      - org.pangrova.batch.api.page
+      - org.pangrova.batch.api.reader
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-types: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-types
+      test:
+        - pangrova-common
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.batch.api.page
+      - org.pangrova.batch.api.reader
+    providers:
+      {}
+  pangrova-batch-arrow:
+    path: pangrova-batch/pangrova-batch-arrow
+    mainPackages:
+      - org.pangrova.batch.arrow
+    pomDependencies:
+      pangrova-batch-api: compile
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-batch-api
+        - pangrova-common
+      test:
+        - pangrova-batch-api
+    exportedPackages:
+      - org.pangrova.batch.arrow
+    providers:
+      {}
   pangrova-client-cli:
     path: pangrova-client/pangrova-client-cli
     mainPackages:
@@ -141,15 +260,18 @@ artifacts:
       pangrova-client-core: compile
       pangrova-common: compile
       pangrova-protocol: compile
-      pangrova-transport: compile
+      pangrova-transport-api: compile
+      pangrova-transport-client: compile
     imports:
       main:
         - pangrova-client-core
         - pangrova-common
-        - pangrova-transport
+        - pangrova-transport-api
+        - pangrova-transport-client
       test:
         - pangrova-client-core
-        - pangrova-transport
+        - pangrova-transport-api
+        - pangrova-transport-client
     exportedPackages:
       - org.pangrova.client.cli
     providers:
@@ -163,9 +285,12 @@ artifacts:
       - org.pangrova.client.session
     pomDependencies:
       pangrova-common: compile
+      pangrova-transport-api: compile
     imports:
-      main: []
-      test: []
+      main:
+        - pangrova-transport-api
+      test:
+        - pangrova-transport-api
     exportedPackages:
       - org.pangrova.client.api
       - org.pangrova.client.error
@@ -183,18 +308,21 @@ artifacts:
       pangrova-common: compile
       pangrova-protocol: compile
       pangrova-testing-kit: test
-      pangrova-transport: compile
+      pangrova-transport-api: compile
+      pangrova-transport-client: compile
     imports:
       main:
         - pangrova-client-core
         - pangrova-common
-        - pangrova-transport
+        - pangrova-transport-api
+        - pangrova-transport-client
       test:
         - pangrova-client-core
         - pangrova-common
         - pangrova-protocol
         - pangrova-testing-kit
-        - pangrova-transport
+        - pangrova-transport-api
+        - pangrova-transport-client
     exportedPackages: []
     providers:
       "java.sql.Driver":
@@ -212,7 +340,6 @@ artifacts:
       - org.pangrova.common.file
       - org.pangrova.common.http
       - org.pangrova.common.http.jetty
-      - org.pangrova.common.jdbc
       - org.pangrova.common.json
       - org.pangrova.common.json.jackson
       - org.pangrova.common.lifecycle
@@ -237,7 +364,6 @@ artifacts:
       - org.pangrova.common.file
       - org.pangrova.common.http
       - org.pangrova.common.http.jetty
-      - org.pangrova.common.jdbc
       - org.pangrova.common.json
       - org.pangrova.common.json.jackson
       - org.pangrova.common.lifecycle
@@ -264,6 +390,77 @@ artifacts:
       - org.pangrova.config
     providers:
       {}
+  pangrova-connector-api:
+    path: pangrova-connector/pangrova-connector-api
+    mainPackages:
+      - org.pangrova.connector.api.clustering
+      - org.pangrova.connector.api.commit
+      - org.pangrova.connector.api.data
+      - org.pangrova.connector.api.error
+      - org.pangrova.connector.api.index
+      - org.pangrova.connector.api.index.predicate
+      - org.pangrova.connector.api.index.statistics
+      - org.pangrova.connector.api.materialization
+      - org.pangrova.connector.api.metadata
+      - org.pangrova.connector.api.metadata.table
+      - org.pangrova.connector.api.metadata.view
+      - org.pangrova.connector.api.plugin
+      - org.pangrova.connector.api.protocol
+      - org.pangrova.connector.api.query
+      - org.pangrova.connector.api.session
+      - org.pangrova.connector.api.transaction
+      - org.pangrova.connector.api.write
+      - org.pangrova.connector.spi.cache
+      - org.pangrova.connector.spi.clustering
+      - org.pangrova.connector.spi.data
+      - org.pangrova.connector.spi.index
+      - org.pangrova.connector.spi.materialization
+      - org.pangrova.connector.spi.metadata
+      - org.pangrova.connector.spi.plugin
+      - org.pangrova.connector.spi.scan
+      - org.pangrova.connector.spi.secret
+      - org.pangrova.connector.spi.write
+    pomDependencies:
+      pangrova-batch-api: compile
+      pangrova-common: compile
+      pangrova-types: compile
+    imports:
+      main:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-types
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.connector.api.clustering
+      - org.pangrova.connector.api.commit
+      - org.pangrova.connector.api.data
+      - org.pangrova.connector.api.error
+      - org.pangrova.connector.api.index
+      - org.pangrova.connector.api.index.predicate
+      - org.pangrova.connector.api.index.statistics
+      - org.pangrova.connector.api.materialization
+      - org.pangrova.connector.api.metadata
+      - org.pangrova.connector.api.metadata.table
+      - org.pangrova.connector.api.metadata.view
+      - org.pangrova.connector.api.plugin
+      - org.pangrova.connector.api.query
+      - org.pangrova.connector.api.session
+      - org.pangrova.connector.api.transaction
+      - org.pangrova.connector.api.write
+      - org.pangrova.connector.spi.cache
+      - org.pangrova.connector.spi.clustering
+      - org.pangrova.connector.spi.data
+      - org.pangrova.connector.spi.index
+      - org.pangrova.connector.spi.materialization
+      - org.pangrova.connector.spi.metadata
+      - org.pangrova.connector.spi.plugin
+      - org.pangrova.connector.spi.secret
+      - org.pangrova.connector.spi.write
+    providers:
+      {}
   pangrova-connector-iceberg:
     path: pangrova-connector/pangrova-connector-iceberg
     mainPackages:
@@ -277,28 +474,48 @@ artifacts:
       - org.pangrova.connector.iceberg.type
       - org.pangrova.connector.iceberg.write
     pomDependencies:
+      pangrova-batch-api: compile
+      pangrova-batch-arrow: test
       pangrova-common: compile
-      pangrova-persistence-api: test
+      pangrova-connector-api: compile
+      pangrova-connector-runtime: compile
+      pangrova-generation-codec: compile
+      pangrova-indexing-api: compile
+      pangrova-persistence-file-api: test
+      pangrova-persistence-query-api: compile
       pangrova-protocol: compile
-      pangrova-spi: compile
       pangrova-testing-kit: test
+      pangrova-types: compile
     imports:
       main:
+        - pangrova-batch-api
         - pangrova-common
+        - pangrova-connector-api
+        - pangrova-connector-runtime
+        - pangrova-generation-codec
+        - pangrova-indexing-api
+        - pangrova-persistence-query-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-types
       test:
+        - pangrova-batch-api
+        - pangrova-batch-arrow
         - pangrova-common
-        - pangrova-persistence-api
+        - pangrova-connector-api
+        - pangrova-connector-runtime
+        - pangrova-generation-codec
+        - pangrova-indexing-api
+        - pangrova-persistence-file-api
+        - pangrova-persistence-query-api
         - pangrova-protocol
-        - pangrova-spi
         - pangrova-testing-kit
+        - pangrova-types
     exportedPackages:
       - org.pangrova.connector.iceberg
       - org.pangrova.connector.iceberg.handle
       - org.pangrova.connector.iceberg.index
     providers:
-      "org.pangrova.spi.connector.plugin.ConnectorFactory":
+      "org.pangrova.connector.spi.plugin.ConnectorFactory":
         - org.pangrova.connector.iceberg.IcebergConnectorFactory
   pangrova-connector-lance:
     path: pangrova-connector/pangrova-connector-lance
@@ -306,32 +523,47 @@ artifacts:
       - org.pangrova.connector.lance
     pomDependencies:
       pangrova-common: compile
-      pangrova-metadata: test
-      pangrova-persistence-api: test
-      pangrova-persistence-jdbc: test
+      pangrova-connector-api: compile
+      pangrova-metadata-api: test
+      pangrova-metadata-core: test
+      pangrova-persistence-catalog-postgresql: test
+      pangrova-persistence-jdbc-api: test
+      pangrova-persistence-query-api: test
+      pangrova-persistence-query-postgresql: test
+      pangrova-persistence-security-postgresql: test
       pangrova-protocol: compile
-      pangrova-query: test
-      pangrova-security: test
-      pangrova-spi: compile
+      pangrova-query-api: test
+      pangrova-query-core: test
+      pangrova-security-api: test
+      pangrova-security-codec: test
       pangrova-testing-kit: test
+      pangrova-types: compile
     imports:
       main:
         - pangrova-common
+        - pangrova-connector-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-types
       test:
         - pangrova-common
-        - pangrova-metadata
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
+        - pangrova-connector-api
+        - pangrova-metadata-api
+        - pangrova-metadata-core
+        - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-postgresql
+        - pangrova-persistence-security-postgresql
         - pangrova-protocol
-        - pangrova-security
-        - pangrova-spi
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-security-codec
         - pangrova-testing-kit
+        - pangrova-types
     exportedPackages:
       - org.pangrova.connector.lance
     providers:
-      "org.pangrova.spi.connector.plugin.ConnectorFactory":
+      "org.pangrova.connector.spi.plugin.ConnectorFactory":
         - org.pangrova.connector.lance.LanceConnectorFactory
   pangrova-connector-paimon:
     path: pangrova-connector/pangrova-connector-paimon
@@ -347,18 +579,34 @@ artifacts:
       - org.pangrova.connector.paimon.type
       - org.pangrova.connector.paimon.write
     pomDependencies:
+      pangrova-batch-api: compile
+      pangrova-batch-arrow: test
       pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-connector-runtime: compile
+      pangrova-generation-codec: compile
+      pangrova-persistence-query-api: compile
       pangrova-protocol: compile
-      pangrova-spi: compile
+      pangrova-types: compile
     imports:
       main:
+        - pangrova-batch-api
         - pangrova-common
+        - pangrova-connector-api
+        - pangrova-connector-runtime
+        - pangrova-generation-codec
+        - pangrova-persistence-query-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-types
       test:
+        - pangrova-batch-api
+        - pangrova-batch-arrow
         - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-codec
+        - pangrova-persistence-query-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-types
     exportedPackages:
       - org.pangrova.connector.paimon
       - org.pangrova.connector.paimon.handle
@@ -366,48 +614,88 @@ artifacts:
       - org.pangrova.connector.paimon.write
       - org.pangrova.testfixtures.tableformat
     providers:
-      "org.pangrova.spi.connector.plugin.ConnectorFactory":
+      "org.pangrova.connector.spi.plugin.ConnectorFactory":
         - org.pangrova.connector.paimon.PaimonConnectorFactory
   pangrova-connector-runtime:
     path: pangrova-connector/pangrova-connector-runtime
     mainPackages:
+      - org.pangrova.connector.runtime.cache
       - org.pangrova.connector.runtime.classloader
+      - org.pangrova.connector.runtime.codec
       - org.pangrova.connector.runtime.discovery
+      - org.pangrova.connector.runtime.error
       - org.pangrova.connector.runtime.lifecycle
+      - org.pangrova.connector.runtime.scan
+    pomDependencies:
+      pangrova-ai-api: test
+      pangrova-batch-api: compile
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-coordination-api: test
+      pangrova-function-api: test
+      pangrova-indexing-api: test
+      pangrova-query-api: test
+      pangrova-security-api: test
+      pangrova-types: compile
+    imports:
+      main:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-types
+      test:
+        - pangrova-ai-api
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-coordination-api
+        - pangrova-function-api
+        - pangrova-indexing-api
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.connector.runtime.classloader
+      - org.pangrova.connector.runtime.codec
+      - org.pangrova.connector.runtime.discovery
+      - org.pangrova.connector.runtime.scan
+    providers:
+      {}
+  pangrova-coordination-api:
+    path: pangrova-coordination/pangrova-coordination-api
+    mainPackages:
+      - org.pangrova.coordination.api.heartbeat
+      - org.pangrova.coordination.api.lease
+      - org.pangrova.coordination.api.membership
+      - org.pangrova.coordination.spi.leadership
     pomDependencies:
       pangrova-common: compile
-      pangrova-spi: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-spi
       test:
         - pangrova-common
-        - pangrova-spi
     exportedPackages:
-      - org.pangrova.connector.runtime.classloader
-      - org.pangrova.connector.runtime.discovery
+      - org.pangrova.coordination.api.heartbeat
+      - org.pangrova.coordination.api.lease
+      - org.pangrova.coordination.api.membership
+      - org.pangrova.coordination.spi.leadership
     providers:
       {}
   pangrova-coordination-core:
     path: pangrova-coordination/pangrova-coordination-core
     mainPackages:
-      - org.pangrova.coordinator
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.ai.layout
-      - org.pangrova.coordinator.ai.model
-      - org.pangrova.coordinator.bootstrap
-      - org.pangrova.coordinator.bootstrap.lifecycle
-      - org.pangrova.coordinator.bootstrap.module
       - org.pangrova.coordinator.cache
       - org.pangrova.coordinator.clustering
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
-      - org.pangrova.coordinator.embedding
       - org.pangrova.coordinator.feature
       - org.pangrova.coordinator.file
       - org.pangrova.coordinator.generation
+      - org.pangrova.coordinator.generation.read
       - org.pangrova.coordinator.generation.runtime
       - org.pangrova.coordinator.generation.template
       - org.pangrova.coordinator.governance
@@ -419,6 +707,7 @@ artifacts:
       - org.pangrova.coordinator.http.jdbc
       - org.pangrova.coordinator.indexing
       - org.pangrova.coordinator.indexing.ai.lifecycle
+      - org.pangrova.coordinator.indexing.connector
       - org.pangrova.coordinator.indexing.ddl
       - org.pangrova.coordinator.indexing.filter
       - org.pangrova.coordinator.indexing.lifecycle
@@ -429,6 +718,7 @@ artifacts:
       - org.pangrova.coordinator.metadata.nativecontrol
       - org.pangrova.coordinator.metadata.read
       - org.pangrova.coordinator.query
+      - org.pangrova.coordinator.query.adapter.scheduler
       - org.pangrova.coordinator.query.admission
       - org.pangrova.coordinator.query.audit
       - org.pangrova.coordinator.query.cache
@@ -441,7 +731,6 @@ artifacts:
       - org.pangrova.coordinator.query.execution.dispatch.dag.handler
       - org.pangrova.coordinator.query.execution.dispatch.dag.retrieval
       - org.pangrova.coordinator.query.execution.dispatch.dag.runtime
-      - org.pangrova.coordinator.query.execution.dispatch.dag.split
       - org.pangrova.coordinator.query.execution.dispatch.listener
       - org.pangrova.coordinator.query.execution.dispatch.shuffle
       - org.pangrova.coordinator.query.execution.dispatch.shuffle.generation
@@ -481,146 +770,289 @@ artifacts:
       - org.pangrova.coordinator.result
       - org.pangrova.coordinator.scheduler
       - org.pangrova.coordinator.scheduler.ft
+      - org.pangrova.coordinator.scheduler.placement
       - org.pangrova.coordinator.semantic
-      - org.pangrova.coordinator.storage
       - org.pangrova.coordinator.task
       - org.pangrova.coordinator.transport
       - org.pangrova.coordinator.worker
     pomDependencies:
+      pangrova-ai-api: compile
       pangrova-ai-control: compile
+      pangrova-batch-api: compile
       pangrova-client-core: compile
       pangrova-common: compile
       pangrova-config: compile
+      pangrova-connector-api: compile
       pangrova-connector-iceberg: test
       pangrova-connector-lance: runtime
       pangrova-connector-paimon: test
       pangrova-connector-runtime: compile
-      pangrova-file: compile
+      pangrova-coordination-api: compile
+      pangrova-execution-api: compile
+      pangrova-execution-core: compile
+      pangrova-file-api: compile
+      pangrova-file-core: compile
       pangrova-filesystem-api: compile
+      pangrova-generation-api: compile
+      pangrova-generation-codec: compile
       pangrova-generation-core: compile
       pangrova-governance: compile
+      pangrova-indexing-api: compile
+      pangrova-indexing-codec: compile
       pangrova-indexing-core: compile
+      pangrova-indexing-planner-adapter: compile
+      pangrova-indexing-strategies-builtin: test
       pangrova-materialization-core: compile
       pangrova-materialization-store-jdbc: compile
-      pangrova-metadata: compile
+      pangrova-metadata-api: compile
+      pangrova-metadata-codec: compile
+      pangrova-metadata-core: compile
+      pangrova-observability-api: compile
+      pangrova-observability-core: compile
+      pangrova-observability-noop: test
       pangrova-observability-sdk: compile
       pangrova-operations: compile
-      pangrova-parser: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-persistence-memory: compile
-      pangrova-planner: compile
+      pangrova-parser-api: compile
+      pangrova-parser-core: compile
+      pangrova-persistence-catalog-api: compile
+      pangrova-persistence-catalog-postgresql: compile
+      pangrova-persistence-coordination-api: compile
+      pangrova-persistence-coordination-memory: test
+      pangrova-persistence-coordination-postgresql: test
+      pangrova-persistence-file-api: compile
+      pangrova-persistence-file-postgresql: test
+      pangrova-persistence-generation-api: compile
+      pangrova-persistence-generation-postgresql: test
+      pangrova-persistence-indexing-api: compile
+      pangrova-persistence-indexing-postgresql: test
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-query-api: compile
+      pangrova-persistence-query-memory: test
+      pangrova-persistence-query-postgresql: test
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-memory: test
+      pangrova-persistence-security-postgresql: compile
+      pangrova-persistence-table-memory: test
+      pangrova-persistence-table-postgresql: test
+      pangrova-planner-api: compile
+      pangrova-planner-core: compile
       pangrova-protocol: compile
-      pangrova-query: compile
-      pangrova-scheduler: compile
-      pangrova-security: compile
+      pangrova-query-api: compile
+      pangrova-query-core: compile
+      pangrova-scheduler-api: compile
+      pangrova-scheduler-core: compile
+      pangrova-scheduler-strategies-builtin: test
+      pangrova-security-api: compile
+      pangrova-security-auth-oauth2: test
+      pangrova-security-codec: compile
+      pangrova-security-core: compile
+      pangrova-security-policy-builtin: test
+      pangrova-security-secret-env: test
+      pangrova-security-secret-file: test
       pangrova-semantic: compile
+      pangrova-shuffle-api: compile
       pangrova-shuffle-core: compile
-      pangrova-spi: compile
+      pangrova-shuffle-native-adapter: test
       pangrova-streaming: compile
-      pangrova-table: compile
+      pangrova-table-api: compile
+      pangrova-table-core: compile
       pangrova-testing-kit: test
-      pangrova-transport: test
-      pangrova-worker-core: compile
+      pangrova-transport-api: compile
+      pangrova-transport-client: test
+      pangrova-transport-flight: test
+      pangrova-types: compile
+      pangrova-worker-core: test
       pangrova-worker-native-bridge: test
     imports:
       main:
+        - pangrova-ai-api
         - pangrova-ai-control
+        - pangrova-batch-api
         - pangrova-client-core
         - pangrova-common
-        - pangrova-config
+        - pangrova-connector-api
         - pangrova-connector-runtime
-        - pangrova-file
+        - pangrova-coordination-api
+        - pangrova-execution-api
+        - pangrova-execution-core
+        - pangrova-file-api
+        - pangrova-file-core
         - pangrova-filesystem-api
+        - pangrova-generation-api
+        - pangrova-generation-codec
         - pangrova-generation-core
         - pangrova-governance
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
         - pangrova-indexing-core
+        - pangrova-indexing-planner-adapter
         - pangrova-materialization-core
         - pangrova-materialization-store-jdbc
-        - pangrova-metadata
+        - pangrova-metadata-api
+        - pangrova-metadata-codec
+        - pangrova-metadata-core
+        - pangrova-observability-api
+        - pangrova-observability-core
         - pangrova-observability-sdk
-        - pangrova-operations
-        - pangrova-parser
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-persistence-memory
-        - pangrova-planner
+        - pangrova-parser-api
+        - pangrova-parser-core
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-file-api
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-indexing-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-query-api
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-postgresql
+        - pangrova-planner-api
+        - pangrova-planner-core
         - pangrova-protocol
-        - pangrova-query
-        - pangrova-scheduler
-        - pangrova-security
+        - pangrova-query-api
+        - pangrova-query-core
+        - pangrova-scheduler-api
+        - pangrova-scheduler-core
+        - pangrova-security-api
+        - pangrova-security-codec
+        - pangrova-security-core
         - pangrova-semantic
+        - pangrova-shuffle-api
         - pangrova-shuffle-core
-        - pangrova-spi
         - pangrova-streaming
-        - pangrova-table
-        - pangrova-worker-core
+        - pangrova-table-api
+        - pangrova-table-core
+        - pangrova-transport-api
+        - pangrova-types
       test:
+        - pangrova-ai-api
         - pangrova-ai-control
+        - pangrova-batch-api
         - pangrova-client-core
         - pangrova-common
-        - pangrova-config
+        - pangrova-connector-api
         - pangrova-connector-iceberg
         - pangrova-connector-lance
         - pangrova-connector-paimon
         - pangrova-connector-runtime
-        - pangrova-file
+        - pangrova-coordination-api
+        - pangrova-execution-api
+        - pangrova-execution-core
+        - pangrova-file-api
+        - pangrova-file-core
         - pangrova-filesystem-api
+        - pangrova-generation-api
+        - pangrova-generation-codec
         - pangrova-generation-core
         - pangrova-governance
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
         - pangrova-indexing-core
+        - pangrova-indexing-planner-adapter
+        - pangrova-indexing-strategies-builtin
         - pangrova-materialization-core
-        - pangrova-metadata
+        - pangrova-materialization-store-jdbc
+        - pangrova-metadata-api
+        - pangrova-metadata-core
+        - pangrova-observability-api
+        - pangrova-observability-noop
         - pangrova-observability-sdk
-        - pangrova-operations
-        - pangrova-parser
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-persistence-memory
-        - pangrova-planner
+        - pangrova-parser-api
+        - pangrova-parser-core
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-coordination-memory
+        - pangrova-persistence-coordination-postgresql
+        - pangrova-persistence-file-api
+        - pangrova-persistence-file-postgresql
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-generation-postgresql
+        - pangrova-persistence-indexing-api
+        - pangrova-persistence-indexing-postgresql
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-memory
+        - pangrova-persistence-query-postgresql
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-memory
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-memory
+        - pangrova-persistence-table-postgresql
+        - pangrova-planner-api
+        - pangrova-planner-core
         - pangrova-protocol
-        - pangrova-query
-        - pangrova-scheduler
-        - pangrova-security
+        - pangrova-query-api
+        - pangrova-query-core
+        - pangrova-scheduler-api
+        - pangrova-scheduler-core
+        - pangrova-scheduler-strategies-builtin
+        - pangrova-security-api
+        - pangrova-security-auth-oauth2
+        - pangrova-security-codec
+        - pangrova-security-core
+        - pangrova-security-policy-builtin
+        - pangrova-security-secret-env
+        - pangrova-security-secret-file
         - pangrova-semantic
+        - pangrova-shuffle-api
         - pangrova-shuffle-core
-        - pangrova-spi
+        - pangrova-shuffle-native-adapter
         - pangrova-streaming
-        - pangrova-table
+        - pangrova-table-api
+        - pangrova-table-core
         - pangrova-testing-kit
-        - pangrova-transport
+        - pangrova-transport-api
+        - pangrova-transport-flight
+        - pangrova-types
         - pangrova-worker-core
         - pangrova-worker-native-bridge
     exportedPackages:
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
-      - org.pangrova.coordinator.bootstrap
+      - org.pangrova.coordinator.ai.layout
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
-      - org.pangrova.coordinator.embedding
       - org.pangrova.coordinator.feature
       - org.pangrova.coordinator.file
       - org.pangrova.coordinator.generation
+      - org.pangrova.coordinator.generation.read
       - org.pangrova.coordinator.http
       - org.pangrova.coordinator.http.endpoint
+      - org.pangrova.coordinator.http.endpoint.catalog
       - org.pangrova.coordinator.http.endpoint.copy
       - org.pangrova.coordinator.http.endpoint.file
       - org.pangrova.coordinator.indexing
+      - org.pangrova.coordinator.indexing.ai.lifecycle
+      - org.pangrova.coordinator.indexing.connector
+      - org.pangrova.coordinator.indexing.ddl
+      - org.pangrova.coordinator.indexing.filter
       - org.pangrova.coordinator.indexing.lifecycle
+      - org.pangrova.coordinator.indexing.lifecycle.gc
+      - org.pangrova.coordinator.maintenance
       - org.pangrova.coordinator.materialization
       - org.pangrova.coordinator.metadata
       - org.pangrova.coordinator.metadata.read
       - org.pangrova.coordinator.query
+      - org.pangrova.coordinator.query.adapter.scheduler
+      - org.pangrova.coordinator.query.admission
       - org.pangrova.coordinator.query.audit
+      - org.pangrova.coordinator.query.cache
       - org.pangrova.coordinator.query.execution
       - org.pangrova.coordinator.query.execution.dispatch
       - org.pangrova.coordinator.query.execution.dispatch.dag
       - org.pangrova.coordinator.query.execution.dispatch.dag.binding
+      - org.pangrova.coordinator.query.execution.dispatch.listener
+      - org.pangrova.coordinator.query.execution.dispatch.shuffle
       - org.pangrova.coordinator.query.execution.dispatch.task
       - org.pangrova.coordinator.query.execution.dispatch.task.branch
       - org.pangrova.coordinator.query.execution.dispatch.task.catalog
       - org.pangrova.coordinator.query.execution.dispatch.task.file
+      - org.pangrova.coordinator.query.execution.dispatch.task.semantic
       - org.pangrova.coordinator.query.execution.dispatch.task.storage
+      - org.pangrova.coordinator.query.execution.dispatch.task.stream
+      - org.pangrova.coordinator.query.execution.result
+      - org.pangrova.coordinator.query.execution.security
       - org.pangrova.coordinator.query.execution.split
       - org.pangrova.coordinator.query.security
       - org.pangrova.coordinator.query.session
@@ -630,10 +1062,19 @@ artifacts:
       - org.pangrova.coordinator.query.task.report
       - org.pangrova.coordinator.query.task.write
       - org.pangrova.coordinator.resilience.breaker
+      - org.pangrova.coordinator.resilience.checkpoint
+      - org.pangrova.coordinator.resilience.config
+      - org.pangrova.coordinator.resilience.degradation
+      - org.pangrova.coordinator.resilience.idempotency
+      - org.pangrova.coordinator.resilience.resilience4j
+      - org.pangrova.coordinator.resilience.retry
       - org.pangrova.coordinator.result
       - org.pangrova.coordinator.scheduler
-      - org.pangrova.coordinator.storage
+      - org.pangrova.coordinator.scheduler.placement
+      - org.pangrova.coordinator.semantic
       - org.pangrova.coordinator.task
+      - org.pangrova.coordinator.testinfra
+      - org.pangrova.coordinator.transport
       - org.pangrova.coordinator.worker
     providers:
       {}
@@ -643,40 +1084,150 @@ artifacts:
       - org.pangrova.coordination.zookeeper
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-api: compile
-      pangrova-spi: compile
+      pangrova-coordination-api: compile
+      pangrova-persistence-coordination-api: compile
     imports:
       main:
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-coordination-api
+        - pangrova-persistence-coordination-api
       test:
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-coordination-api
+        - pangrova-persistence-coordination-api
     exportedPackages: []
     providers:
       {}
-  pangrova-file:
-    path: pangrova-file
+  pangrova-execution-api:
+    path: pangrova-execution/pangrova-execution-api
     mainPackages:
-      - org.pangrova.file.directory
-      - org.pangrova.file.space
-      - org.pangrova.file.worker
+      - org.pangrova.execution.api.deadline
+      - org.pangrova.execution.api.stage
+    pomDependencies:
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.execution.api.deadline
+      - org.pangrova.execution.api.stage
+    providers:
+      {}
+  pangrova-execution-core:
+    path: pangrova-execution/pangrova-execution-core
+    mainPackages:
+      - org.pangrova.execution.core.authority
+      - org.pangrova.execution.core.binding
+      - org.pangrova.execution.core.deadline
+      - org.pangrova.execution.core.identity
+      - org.pangrova.execution.core.split
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-execution-api: compile
+      pangrova-generation-api: compile
+      pangrova-observability-api: compile
+      pangrova-persistence-generation-api: compile
+      pangrova-protocol: compile
+      pangrova-query-api: compile
+      pangrova-security-codec: compile
+      pangrova-shuffle-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-execution-api
+        - pangrova-generation-api
+        - pangrova-observability-api
+        - pangrova-persistence-generation-api
+        - pangrova-protocol
+        - pangrova-query-api
+        - pangrova-security-codec
+        - pangrova-shuffle-api
+      test:
+        - pangrova-protocol
+    exportedPackages:
+      - org.pangrova.execution.core.authority
+      - org.pangrova.execution.core.binding
+      - org.pangrova.execution.core.deadline
+    providers:
+      {}
+  pangrova-file-api:
+    path: pangrova-file/pangrova-file-api
+    mainPackages:
+      - org.pangrova.file.api.access
+      - org.pangrova.file.api.copy
+      - org.pangrova.file.api.directory
+      - org.pangrova.file.api.error
+      - org.pangrova.file.api.space
+      - org.pangrova.file.spi.access
+      - org.pangrova.file.spi.audit
+      - org.pangrova.file.spi.authority
     pomDependencies:
       pangrova-common: compile
       pangrova-filesystem-api: compile
-      pangrova-persistence-api: compile
-      pangrova-spi: compile
+      pangrova-security-api: compile
     imports:
       main:
         - pangrova-common
         - pangrova-filesystem-api
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-security-api
+      test:
+        - pangrova-common
+        - pangrova-filesystem-api
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.file.api.access
+      - org.pangrova.file.api.copy
+      - org.pangrova.file.api.directory
+      - org.pangrova.file.api.error
+      - org.pangrova.file.api.space
+      - org.pangrova.file.spi.access
+      - org.pangrova.file.spi.audit
+      - org.pangrova.file.spi.authority
+    providers:
+      {}
+  pangrova-file-core:
+    path: pangrova-file/pangrova-file-core
+    mainPackages:
+      - org.pangrova.file.core.access
+      - org.pangrova.file.core.directory
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
+      pangrova-filesystem-api: compile
+      pangrova-persistence-file-api: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-file-api
+        - pangrova-filesystem-api
+        - pangrova-persistence-file-api
+        - pangrova-security-api
       test: []
     exportedPackages:
-      - org.pangrova.file.directory
-      - org.pangrova.file.space
-      - org.pangrova.file.worker
+      - org.pangrova.file.core.access
+      - org.pangrova.file.core.directory
+    providers:
+      {}
+  pangrova-file-worker-adapter:
+    path: pangrova-file/pangrova-file-worker-adapter
+    mainPackages:
+      - org.pangrova.file.adapter.worker
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
+      pangrova-filesystem-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-file-api
+        - pangrova-filesystem-api
+      test:
+        - pangrova-common
+        - pangrova-file-api
+        - pangrova-filesystem-api
+    exportedPackages:
+      - org.pangrova.file.adapter.worker
     providers:
       {}
   pangrova-filesystem-api:
@@ -760,28 +1311,139 @@ artifacts:
       - org.pangrova.filesystem.s3.object
     providers:
       {}
-  pangrova-generation-core:
-    path: pangrova-generation/pangrova-generation-core
+  pangrova-function-api:
+    path: pangrova-function/pangrova-function-api
     mainPackages:
-      - org.pangrova.generation.assembly
-      - org.pangrova.generation.protocol
-      - org.pangrova.generation.publication
+      - org.pangrova.function.api.metadata
+      - org.pangrova.function.api.table
+      - org.pangrova.function.spi.aggregate
+      - org.pangrova.function.spi.registry
+      - org.pangrova.function.spi.runtime
+      - org.pangrova.function.spi.scalar
+      - org.pangrova.function.spi.table
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-api: compile
-      pangrova-spi: compile
+      pangrova-types: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-types
       test:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-types
     exportedPackages:
-      - org.pangrova.generation.assembly
-      - org.pangrova.generation.protocol
+      - org.pangrova.function.api.metadata
+      - org.pangrova.function.spi.aggregate
+      - org.pangrova.function.spi.registry
+      - org.pangrova.function.spi.runtime
+      - org.pangrova.function.spi.scalar
+    providers:
+      {}
+  pangrova-generation-api:
+    path: pangrova-generation/pangrova-generation-api
+    mainPackages:
+      - org.pangrova.generation.api.dependency
+      - org.pangrova.generation.api.exchange
+      - org.pangrova.generation.api.execution
+      - org.pangrova.generation.api.graph
+      - org.pangrova.generation.api.graph.template
+      - org.pangrova.generation.api.identity
+      - org.pangrova.generation.api.job
+      - org.pangrova.generation.api.output
+      - org.pangrova.generation.api.page
+      - org.pangrova.generation.api.publication
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-query-api: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-query-api
+        - pangrova-security-api
+      test: []
+    exportedPackages:
+      - org.pangrova.generation.api.dependency
+      - org.pangrova.generation.api.exchange
+      - org.pangrova.generation.api.execution
+      - org.pangrova.generation.api.graph
+      - org.pangrova.generation.api.graph.template
+      - org.pangrova.generation.api.identity
+      - org.pangrova.generation.api.job
+      - org.pangrova.generation.api.output
+      - org.pangrova.generation.api.page
+      - org.pangrova.generation.api.publication
+    providers:
+      {}
+  pangrova-generation-codec:
+    path: pangrova-generation/pangrova-generation-codec
+    mainPackages:
+      - org.pangrova.generation.codec.column
+      - org.pangrova.generation.codec.execution
+      - org.pangrova.generation.codec.format
+      - org.pangrova.generation.codec.source
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-generation-api: compile
+      pangrova-protocol: compile
+      pangrova-security-api: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-generation-api
+        - pangrova-protocol
+      test:
+        - pangrova-common
+        - pangrova-generation-api
+        - pangrova-protocol
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.generation.codec.column
+      - org.pangrova.generation.codec.execution
+      - org.pangrova.generation.codec.format
+      - org.pangrova.generation.codec.source
+    providers:
+      {}
+  pangrova-generation-core:
+    path: pangrova-generation/pangrova-generation-core
+    mainPackages:
+      - org.pangrova.generation.core.execution.binding
+      - org.pangrova.generation.core.execution.template
+      - org.pangrova.generation.core.execution.validation
+      - org.pangrova.generation.core.publication
+      - org.pangrova.generation.core.publication.read
+      - org.pangrova.generation.core.submission
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: test
+      pangrova-generation-api: compile
+      pangrova-generation-codec: compile
+      pangrova-persistence-generation-api: compile
+      pangrova-protocol: compile
+      pangrova-query-api: test
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-generation-api
+        - pangrova-generation-codec
+        - pangrova-persistence-generation-api
+        - pangrova-protocol
+        - pangrova-security-api
+      test:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-api
+        - pangrova-generation-codec
+        - pangrova-persistence-generation-api
+        - pangrova-protocol
+        - pangrova-query-api
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.generation.core.execution.binding
+      - org.pangrova.generation.core.execution.template
+      - org.pangrova.generation.core.publication.read
+      - org.pangrova.generation.core.submission
     providers:
       {}
   pangrova-governance:
@@ -804,21 +1466,34 @@ artifacts:
       - org.pangrova.governance.store.jdbc
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-security: compile
-      pangrova-spi: compile
+      pangrova-connector-api: compile
+      pangrova-observability-api: compile
+      pangrova-persistence-query-api: compile
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-postgresql: compile
+      pangrova-query-api: compile
+      pangrova-query-core: test
+      pangrova-security-api: compile
+      pangrova-security-core: test
+      pangrova-security-policy-builtin: test
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-persistence-query-api
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-postgresql
+        - pangrova-query-api
+        - pangrova-security-api
       test:
-        - pangrova-persistence-api
-        - pangrova-security
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-persistence-security-api
+        - pangrova-query-api
+        - pangrova-query-core
+        - pangrova-security-api
+        - pangrova-security-core
+        - pangrova-security-policy-builtin
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.governance.api.classification
@@ -834,101 +1509,226 @@ artifacts:
       - org.pangrova.governance.store.jdbc
     providers:
       {}
+  pangrova-indexing-api:
+    path: pangrova-indexing/pangrova-indexing-api
+    mainPackages:
+      - org.pangrova.indexing.api.data
+      - org.pangrova.indexing.api.data.bitmap
+      - org.pangrova.indexing.api.data.spatial
+      - org.pangrova.indexing.api.data.text
+      - org.pangrova.indexing.api.descriptor
+      - org.pangrova.indexing.api.error
+      - org.pangrova.indexing.api.evaluation
+      - org.pangrova.indexing.api.lifecycle
+      - org.pangrova.indexing.api.pruning
+      - org.pangrova.indexing.api.statistics
+      - org.pangrova.indexing.api.vector
+      - org.pangrova.indexing.spi.codec
+      - org.pangrova.indexing.spi.pruning
+      - org.pangrova.indexing.spi.publication
+      - org.pangrova.indexing.spi.strategy
+      - org.pangrova.indexing.spi.vector
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-filesystem-api: test
+      pangrova-query-api: test
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-filesystem-api
+        - pangrova-query-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.indexing.api.data
+      - org.pangrova.indexing.api.data.bitmap
+      - org.pangrova.indexing.api.data.spatial
+      - org.pangrova.indexing.api.data.text
+      - org.pangrova.indexing.api.descriptor
+      - org.pangrova.indexing.api.error
+      - org.pangrova.indexing.api.evaluation
+      - org.pangrova.indexing.api.lifecycle
+      - org.pangrova.indexing.api.pruning
+      - org.pangrova.indexing.api.statistics
+      - org.pangrova.indexing.api.vector
+      - org.pangrova.indexing.spi.codec
+      - org.pangrova.indexing.spi.publication
+      - org.pangrova.indexing.spi.strategy
+      - org.pangrova.indexing.spi.vector
+    providers:
+      {}
+  pangrova-indexing-codec:
+    path: pangrova-indexing/pangrova-indexing-codec
+    mainPackages:
+      - org.pangrova.indexing.codec.data
+      - org.pangrova.indexing.codec.predicate
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-indexing-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-indexing-api
+      test:
+        - pangrova-indexing-api
+    exportedPackages:
+      - org.pangrova.indexing.codec.data
+    providers:
+      {}
   pangrova-indexing-core:
     path: pangrova-indexing/pangrova-indexing-core
     mainPackages:
-      - org.pangrova.indexing.assembly.serde
       - org.pangrova.indexing.build
       - org.pangrova.indexing.config
-      - org.pangrova.indexing.engine.bitmap.provider
-      - org.pangrova.indexing.engine.bitmap.serializer
-      - org.pangrova.indexing.engine.bloom.provider
-      - org.pangrova.indexing.engine.bloom.serializer
-      - org.pangrova.indexing.engine.btree.evaluator
-      - org.pangrova.indexing.engine.btree.provider
-      - org.pangrova.indexing.engine.btree.serializer
-      - org.pangrova.indexing.engine.gin.provider
-      - org.pangrova.indexing.engine.gin.serializer
-      - org.pangrova.indexing.engine.hash.provider
-      - org.pangrova.indexing.engine.hash.serializer
-      - org.pangrova.indexing.engine.ngram.provider
-      - org.pangrova.indexing.engine.ngram.serializer
-      - org.pangrova.indexing.engine.prefix.provider
-      - org.pangrova.indexing.engine.prefix.serializer
-      - org.pangrova.indexing.engine.rtree.provider
-      - org.pangrova.indexing.engine.rtree.serializer
-      - org.pangrova.indexing.engine.sparse.provider
-      - org.pangrova.indexing.engine.sparse.serializer
+      - org.pangrova.indexing.core.build
+      - org.pangrova.indexing.core.descriptor
+      - org.pangrova.indexing.core.evaluation
+      - org.pangrova.indexing.core.pruning
       - org.pangrova.indexing.eval
-      - org.pangrova.indexing.eval.defaults
       - org.pangrova.indexing.fs
       - org.pangrova.indexing.lifecycle
       - org.pangrova.indexing.metrics
-      - org.pangrova.indexing.normalize
-      - org.pangrova.indexing.planner
-      - org.pangrova.indexing.planner.vector
       - org.pangrova.indexing.registry
-      - org.pangrova.indexing.serde
       - org.pangrova.indexing.storage
       - org.pangrova.indexing.store
-      - org.pangrova.indexing.store.jdbc
     pomDependencies:
       pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-generation-api: test
       pangrova-generation-core: compile
-      pangrova-metadata: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-planner: compile
-      pangrova-protocol: compile
-      pangrova-query: test
-      pangrova-security: compile
-      pangrova-spi: compile
+      pangrova-indexing-api: compile
+      pangrova-indexing-codec: compile
+      pangrova-indexing-strategies-builtin: test
+      pangrova-observability-api: compile
+      pangrova-persistence-generation-api: test
+      pangrova-persistence-generation-postgresql: test
+      pangrova-persistence-indexing-api: compile
+      pangrova-persistence-query-postgresql: test
+      pangrova-query-api: test
+      pangrova-query-core: test
+      pangrova-security-api: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
-        - pangrova-metadata
-        - pangrova-persistence-jdbc
-        - pangrova-planner
-        - pangrova-protocol
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
+        - pangrova-observability-api
+        - pangrova-persistence-indexing-api
+        - pangrova-security-api
       test:
         - pangrova-common
-        - pangrova-generation-core
-        - pangrova-metadata
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-planner
-        - pangrova-protocol
-        - pangrova-spi
-        - pangrova-testing-kit
+        - pangrova-connector-api
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
+        - pangrova-indexing-strategies-builtin
+        - pangrova-observability-api
+        - pangrova-persistence-indexing-api
     exportedPackages:
-      - org.pangrova.indexing.assembly.serde
       - org.pangrova.indexing.build
       - org.pangrova.indexing.config
+      - org.pangrova.indexing.core.build
+      - org.pangrova.indexing.core.descriptor
+      - org.pangrova.indexing.core.evaluation
+      - org.pangrova.indexing.core.pruning
       - org.pangrova.indexing.eval
       - org.pangrova.indexing.fs
       - org.pangrova.indexing.metrics
-      - org.pangrova.indexing.planner
-      - org.pangrova.indexing.planner.vector
       - org.pangrova.indexing.registry
-      - org.pangrova.indexing.serde
       - org.pangrova.indexing.storage
       - org.pangrova.indexing.store
-      - org.pangrova.indexing.store.jdbc
     providers:
-      "org.pangrova.spi.indexing.IndexStrategyProvider":
-        - org.pangrova.indexing.engine.bloom.provider.BloomFilterStrategyProvider
-        - org.pangrova.indexing.engine.btree.provider.BTreeStrategyProvider
-        - org.pangrova.indexing.engine.hash.provider.HashStrategyProvider
-        - org.pangrova.indexing.engine.sparse.provider.SparseStrategyProvider
-        - org.pangrova.indexing.engine.rtree.provider.RTreeStrategyProvider
-        - org.pangrova.indexing.engine.gin.provider.GinStrategyProvider
-        - org.pangrova.indexing.engine.bitmap.provider.BitmapStrategyProvider
-        - org.pangrova.indexing.engine.prefix.provider.PrefixStrategyProvider
-        - org.pangrova.indexing.engine.ngram.provider.NGramBloomStrategyProvider
-      "org.pangrova.spi.indexing.eval.IndexFileEvaluatorFactory":
-        - org.pangrova.indexing.eval.defaults.DefaultIndexFileEvaluatorFactory
+      {}
+  pangrova-indexing-planner-adapter:
+    path: pangrova-indexing/pangrova-indexing-planner-adapter
+    mainPackages:
+      - org.pangrova.indexing.adapter.planner.vector
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-indexing-api: compile
+      pangrova-planner-core: compile
+      pangrova-protocol: compile
+    imports:
+      main:
+        - pangrova-indexing-api
+        - pangrova-planner-core
+        - pangrova-protocol
+      test:
+        - pangrova-indexing-api
+        - pangrova-planner-core
+        - pangrova-protocol
+    exportedPackages:
+      - org.pangrova.indexing.adapter.planner.vector
+    providers:
+      {}
+  pangrova-indexing-strategies-builtin:
+    path: pangrova-indexing/pangrova-indexing-strategies-builtin
+    mainPackages:
+      - org.pangrova.indexing.builtin.bitmap.provider
+      - org.pangrova.indexing.builtin.bitmap.serializer
+      - org.pangrova.indexing.builtin.bloom.data
+      - org.pangrova.indexing.builtin.bloom.provider
+      - org.pangrova.indexing.builtin.bloom.serializer
+      - org.pangrova.indexing.builtin.btree.evaluator
+      - org.pangrova.indexing.builtin.btree.provider
+      - org.pangrova.indexing.builtin.btree.serializer
+      - org.pangrova.indexing.builtin.codec
+      - org.pangrova.indexing.builtin.gin.provider
+      - org.pangrova.indexing.builtin.gin.serializer
+      - org.pangrova.indexing.builtin.hash.provider
+      - org.pangrova.indexing.builtin.hash.serializer
+      - org.pangrova.indexing.builtin.ngram.provider
+      - org.pangrova.indexing.builtin.ngram.serializer
+      - org.pangrova.indexing.builtin.normalize
+      - org.pangrova.indexing.builtin.prefix.provider
+      - org.pangrova.indexing.builtin.prefix.serializer
+      - org.pangrova.indexing.builtin.rtree.provider
+      - org.pangrova.indexing.builtin.rtree.serializer
+      - org.pangrova.indexing.builtin.sparse.provider
+      - org.pangrova.indexing.builtin.sparse.serializer
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-indexing-api: compile
+      pangrova-indexing-codec: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
+      test:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
+    exportedPackages:
+      - org.pangrova.indexing.builtin.bloom.data
+      - org.pangrova.indexing.builtin.bloom.provider
+      - org.pangrova.indexing.builtin.codec
+      - org.pangrova.indexing.builtin.hash.provider
+      - org.pangrova.indexing.builtin.hash.serializer
+    providers:
+      "org.pangrova.indexing.spi.strategy.IndexStrategyProvider":
+        - org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider
+        - org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider
+        - org.pangrova.indexing.builtin.hash.provider.HashStrategyProvider
+        - org.pangrova.indexing.builtin.sparse.provider.SparseStrategyProvider
+        - org.pangrova.indexing.builtin.rtree.provider.RTreeStrategyProvider
+        - org.pangrova.indexing.builtin.gin.provider.GinStrategyProvider
+        - org.pangrova.indexing.builtin.bitmap.provider.BitmapStrategyProvider
+        - org.pangrova.indexing.builtin.prefix.provider.PrefixStrategyProvider
+        - org.pangrova.indexing.builtin.ngram.provider.NGramBloomStrategyProvider
   pangrova-materialization-core:
     path: pangrova-materialization/pangrova-materialization-core
     mainPackages:
@@ -939,14 +1739,14 @@ artifacts:
       - org.pangrova.materialization.usecase
     pomDependencies:
       pangrova-common: compile
-      pangrova-spi: compile
+      pangrova-connector-api: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-spi
+        - pangrova-connector-api
       test:
         - pangrova-common
-        - pangrova-spi
+        - pangrova-connector-api
     exportedPackages:
       - org.pangrova.materialization.domain
       - org.pangrova.materialization.extension
@@ -961,34 +1761,101 @@ artifacts:
       - org.pangrova.materialization.store.jdbc
     pomDependencies:
       pangrova-common: compile
+      pangrova-connector-api: compile
       pangrova-materialization-core: compile
-      pangrova-spi: compile
+      pangrova-persistence-jdbc-support: compile
       pangrova-testing-kit: test
     imports:
       main:
-        - pangrova-common
+        - pangrova-connector-api
         - pangrova-materialization-core
-        - pangrova-spi
+        - pangrova-persistence-jdbc-support
       test:
         - pangrova-common
+        - pangrova-connector-api
         - pangrova-materialization-core
-        - pangrova-spi
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.materialization.store.jdbc
     providers:
       {}
-  pangrova-metadata:
-    path: pangrova-metadata
+  pangrova-metadata-api:
+    path: pangrova-metadata/pangrova-metadata-api
+    mainPackages:
+      - org.pangrova.metadata.api.cache
+      - org.pangrova.metadata.api.catalog
+      - org.pangrova.metadata.api.error
+      - org.pangrova.metadata.api.error.catalog
+      - org.pangrova.metadata.api.event
+      - org.pangrova.metadata.api.object
+      - org.pangrova.metadata.api.relation
+      - org.pangrova.metadata.api.resolution
+      - org.pangrova.metadata.api.schema
+      - org.pangrova.metadata.api.session
+      - org.pangrova.metadata.spi.cache
+      - org.pangrova.metadata.spi.catalog
+      - org.pangrova.metadata.spi.dependency
+      - org.pangrova.metadata.spi.event
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-table-api: compile
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-table-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-table-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.metadata.api.cache
+      - org.pangrova.metadata.api.catalog
+      - org.pangrova.metadata.api.error
+      - org.pangrova.metadata.api.error.catalog
+      - org.pangrova.metadata.api.event
+      - org.pangrova.metadata.api.object
+      - org.pangrova.metadata.api.relation
+      - org.pangrova.metadata.api.resolution
+      - org.pangrova.metadata.api.schema
+      - org.pangrova.metadata.api.session
+      - org.pangrova.metadata.spi.cache
+      - org.pangrova.metadata.spi.catalog
+      - org.pangrova.metadata.spi.dependency
+      - org.pangrova.metadata.spi.event
+    providers:
+      {}
+  pangrova-metadata-codec:
+    path: pangrova-metadata/pangrova-metadata-codec
+    mainPackages:
+      - org.pangrova.metadata.codec.json
+      - org.pangrova.metadata.codec.table
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-metadata-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-metadata-api
+      test:
+        - pangrova-metadata-api
+    exportedPackages:
+      - org.pangrova.metadata.codec.json
+      - org.pangrova.metadata.codec.table
+    providers:
+      {}
+  pangrova-metadata-core:
+    path: pangrova-metadata/pangrova-metadata-core
     mainPackages:
       - org.pangrova.metadata.adapter
       - org.pangrova.metadata.adapter.generation
       - org.pangrova.metadata.adapter.governance
       - org.pangrova.metadata.adapter.security
-      - org.pangrova.metadata.api.cache
-      - org.pangrova.metadata.api.catalog
-      - org.pangrova.metadata.api.object
-      - org.pangrova.metadata.api.relation
       - org.pangrova.metadata.assembly.generation
       - org.pangrova.metadata.assembly.security
       - org.pangrova.metadata.cache
@@ -997,65 +1864,123 @@ artifacts:
       - org.pangrova.metadata.catalog.handle.internal
       - org.pangrova.metadata.catalog.registry
       - org.pangrova.metadata.checkpoint
+      - org.pangrova.metadata.core.resolution
       - org.pangrova.metadata.event
-      - org.pangrova.metadata.exception
-      - org.pangrova.metadata.exception.catalog
       - org.pangrova.metadata.generation
       - org.pangrova.metadata.generation.jdbc
       - org.pangrova.metadata.generation.jdbc.submission
       - org.pangrova.metadata.memory.relation
-      - org.pangrova.metadata.object
       - org.pangrova.metadata.outbox
       - org.pangrova.metadata.relation
       - org.pangrova.metadata.schema
       - org.pangrova.metadata.service
       - org.pangrova.metadata.source.jdbc
-      - org.pangrova.metadata.store.jdbc.cache
       - org.pangrova.metadata.store.jdbc.catalog
       - org.pangrova.metadata.store.jdbc.object
-      - org.pangrova.metadata.tenant
     pomDependencies:
       pangrova-common: compile
-      pangrova-file: test
+      pangrova-connector-api: compile
+      pangrova-file-api: test
+      pangrova-file-core: test
+      pangrova-generation-api: compile
+      pangrova-generation-codec: compile
       pangrova-generation-core: compile
       pangrova-governance: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-query: compile
+      pangrova-indexing-api: compile
+      pangrova-metadata-api: compile
+      pangrova-metadata-codec: compile
+      pangrova-observability-api: compile
+      pangrova-persistence-catalog-api: compile
+      pangrova-persistence-catalog-postgresql: test
+      pangrova-persistence-file-api: test
+      pangrova-persistence-file-postgresql: test
+      pangrova-persistence-generation-api: compile
+      pangrova-persistence-generation-postgresql: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-persistence-query-api: compile
+      pangrova-persistence-query-postgresql: compile
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-postgresql: compile
+      pangrova-persistence-table-api: compile
+      pangrova-persistence-table-memory: compile
+      pangrova-persistence-table-postgresql: compile
+      pangrova-query-api: compile
+      pangrova-query-core: compile
       pangrova-schema-migrations: runtime
-      pangrova-security: compile
-      pangrova-spi: compile
+      pangrova-security-api: compile
+      pangrova-security-codec: compile
+      pangrova-security-core: compile
       pangrova-streaming: test
-      pangrova-table: compile
+      pangrova-table-api: compile
+      pangrova-table-core: compile
       pangrova-testing-kit: test
+      pangrova-types: compile
     imports:
       main:
         - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-api
+        - pangrova-generation-codec
         - pangrova-governance
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-security
-        - pangrova-spi
-        - pangrova-table
+        - pangrova-indexing-api
+        - pangrova-metadata-api
+        - pangrova-metadata-codec
+        - pangrova-observability-api
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-generation-postgresql
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-postgresql
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-api
+        - pangrova-persistence-table-memory
+        - pangrova-persistence-table-postgresql
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-security-codec
+        - pangrova-security-core
+        - pangrova-table-api
+        - pangrova-table-core
+        - pangrova-types
       test:
         - pangrova-common
+        - pangrova-connector-api
+        - pangrova-file-api
+        - pangrova-generation-api
+        - pangrova-generation-codec
         - pangrova-generation-core
         - pangrova-governance
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-security
-        - pangrova-spi
+        - pangrova-metadata-api
+        - pangrova-metadata-codec
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-file-api
+        - pangrova-persistence-file-postgresql
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-generation-postgresql
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-postgresql
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-memory
+        - pangrova-persistence-table-postgresql
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-security-codec
+        - pangrova-security-core
         - pangrova-streaming
-        - pangrova-table
+        - pangrova-table-api
+        - pangrova-table-core
         - pangrova-testing-kit
+        - pangrova-types
     exportedPackages:
       - org.pangrova.metadata.adapter
       - org.pangrova.metadata.adapter.governance
       - org.pangrova.metadata.adapter.security
-      - org.pangrova.metadata.api.cache
-      - org.pangrova.metadata.api.catalog
-      - org.pangrova.metadata.api.object
-      - org.pangrova.metadata.api.relation
       - org.pangrova.metadata.assembly.generation
       - org.pangrova.metadata.assembly.security
       - org.pangrova.metadata.cache
@@ -1063,19 +1988,85 @@ artifacts:
       - org.pangrova.metadata.catalog.handle.federation
       - org.pangrova.metadata.catalog.handle.internal
       - org.pangrova.metadata.catalog.registry
+      - org.pangrova.metadata.core.resolution
       - org.pangrova.metadata.event
-      - org.pangrova.metadata.exception
-      - org.pangrova.metadata.exception.catalog
       - org.pangrova.metadata.generation
       - org.pangrova.metadata.generation.jdbc
       - org.pangrova.metadata.outbox
       - org.pangrova.metadata.schema
       - org.pangrova.metadata.service
       - org.pangrova.metadata.source.jdbc
-      - org.pangrova.metadata.store.jdbc.cache
       - org.pangrova.metadata.store.jdbc.catalog
-      - org.pangrova.metadata.tenant
       - org.pangrova.metadata.testinfra
+    providers:
+      {}
+  pangrova-observability-api:
+    path: pangrova-observability/pangrova-observability-api
+    mainPackages:
+      - org.pangrova.observability.api.logging
+      - org.pangrova.observability.api.metrics
+      - org.pangrova.observability.api.profiling
+      - org.pangrova.observability.api.tracing
+      - org.pangrova.observability.spi.context
+      - org.pangrova.observability.spi.logging
+      - org.pangrova.observability.spi.metrics
+      - org.pangrova.observability.spi.profiling
+      - org.pangrova.observability.spi.tracing
+    pomDependencies:
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.observability.api.logging
+      - org.pangrova.observability.api.metrics
+      - org.pangrova.observability.api.profiling
+      - org.pangrova.observability.api.tracing
+      - org.pangrova.observability.spi.context
+      - org.pangrova.observability.spi.logging
+      - org.pangrova.observability.spi.metrics
+      - org.pangrova.observability.spi.profiling
+      - org.pangrova.observability.spi.tracing
+    providers:
+      {}
+  pangrova-observability-core:
+    path: pangrova-observability/pangrova-observability-core
+    mainPackages:
+      - org.pangrova.observability.core.logging
+      - org.pangrova.observability.core.metrics
+      - org.pangrova.observability.core.profiling
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-observability-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-observability-api
+      test:
+        - pangrova-observability-api
+    exportedPackages:
+      - org.pangrova.observability.core.logging
+      - org.pangrova.observability.core.metrics
+      - org.pangrova.observability.core.profiling
+    providers:
+      {}
+  pangrova-observability-noop:
+    path: pangrova-observability/pangrova-observability-noop
+    mainPackages:
+      - org.pangrova.observability.noop
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-observability-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-observability-api
+      test:
+        - pangrova-observability-api
+    exportedPackages:
+      - org.pangrova.observability.noop
     providers:
       {}
   pangrova-observability-sdk:
@@ -1084,13 +2075,11 @@ artifacts:
       - org.pangrova.observability.sdk.alerting
       - org.pangrova.observability.sdk.config
       - org.pangrova.observability.sdk.logging
-      - org.pangrova.observability.sdk.logging.mdc
       - org.pangrova.observability.sdk.logging.otel
       - org.pangrova.observability.sdk.metrics
       - org.pangrova.observability.sdk.metrics.jvm
       - org.pangrova.observability.sdk.metrics.nativebridge
       - org.pangrova.observability.sdk.metrics.otel
-      - org.pangrova.observability.sdk.noop
       - org.pangrova.observability.sdk.profiling
       - org.pangrova.observability.sdk.tracing
       - org.pangrova.observability.sdk.tracing.grpc
@@ -1100,31 +2089,33 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-config: compile
-      pangrova-spi: compile
+      pangrova-observability-api: compile
+      pangrova-observability-core: compile
+      pangrova-observability-noop: test
     imports:
       main:
         - pangrova-common
         - pangrova-config
-        - pangrova-spi
+        - pangrova-observability-api
+        - pangrova-observability-core
       test:
         - pangrova-config
-        - pangrova-spi
+        - pangrova-observability-api
+        - pangrova-observability-core
+        - pangrova-observability-noop
     exportedPackages:
       - org.pangrova.observability.sdk.config
-      - org.pangrova.observability.sdk.logging.mdc
       - org.pangrova.observability.sdk.logging.otel
       - org.pangrova.observability.sdk.metrics
       - org.pangrova.observability.sdk.metrics.nativebridge
       - org.pangrova.observability.sdk.metrics.otel
-      - org.pangrova.observability.sdk.noop
       - org.pangrova.observability.sdk.tracing
       - org.pangrova.observability.sdk.tracing.grpc
       - org.pangrova.observability.sdk.tracing.http
       - org.pangrova.observability.sdk.tracing.nativebridge
       - org.pangrova.observability.sdk.tracing.otel
     providers:
-      "org.pangrova.spi.observability.Context$TaskWrapping":
-        - org.pangrova.observability.sdk.logging.mdc.MdcTaskWrapping
+      {}
   pangrova-operations:
     path: pangrova-operations
     mainPackages:
@@ -1138,12 +2129,12 @@ artifacts:
       - org.pangrova.operations.upgrade
     pomDependencies:
       pangrova-common: compile
-      pangrova-shuffle-core: compile
-      pangrova-spi: compile
+      pangrova-observability-api: compile
+      pangrova-shuffle-api: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-spi
+        - pangrova-observability-api
       test: []
     exportedPackages:
       - org.pangrova.operations.recovery
@@ -1151,288 +2142,944 @@ artifacts:
       - org.pangrova.operations.upgrade
     providers:
       {}
-  pangrova-parser:
-    path: pangrova-parser
+  pangrova-parser-api:
+    path: pangrova-parser/pangrova-parser-api
     mainPackages:
-      - org.pangrova.parser
-      - org.pangrova.parser.ast
-      - org.pangrova.parser.ast.expression
-      - org.pangrova.parser.ast.statement
-      - org.pangrova.parser.ast.statement.dml
-      - org.pangrova.parser.ast.statement.maintenance
-      - org.pangrova.parser.ast.statement.stream
-      - org.pangrova.parser.ast.type
+      - org.pangrova.parser.api.ast
+      - org.pangrova.parser.api.ast.expression
+      - org.pangrova.parser.api.ast.statement
+      - org.pangrova.parser.api.ast.statement.dml
+      - org.pangrova.parser.api.ast.statement.maintenance
+      - org.pangrova.parser.api.ast.statement.stream
+      - org.pangrova.parser.api.ast.type
+      - org.pangrova.parser.api.diagnostic
+      - org.pangrova.parser.api.parse
+      - org.pangrova.parser.spi.parse
     pomDependencies:
       pangrova-common: compile
-      pangrova-spi: compile
+      pangrova-types: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-spi
+        - pangrova-types
       test:
         - pangrova-common
-        - pangrova-spi
+        - pangrova-types
     exportedPackages:
-      - org.pangrova.parser
-      - org.pangrova.parser.ast
-      - org.pangrova.parser.ast.expression
-      - org.pangrova.parser.ast.statement
-      - org.pangrova.parser.ast.statement.dml
-      - org.pangrova.parser.ast.statement.maintenance
-      - org.pangrova.parser.ast.statement.stream
-      - org.pangrova.parser.ast.type
+      - org.pangrova.parser.api.ast
+      - org.pangrova.parser.api.ast.expression
+      - org.pangrova.parser.api.ast.statement
+      - org.pangrova.parser.api.ast.statement.dml
+      - org.pangrova.parser.api.ast.statement.maintenance
+      - org.pangrova.parser.api.ast.statement.stream
+      - org.pangrova.parser.api.ast.type
+      - org.pangrova.parser.api.diagnostic
+      - org.pangrova.parser.api.parse
+      - org.pangrova.parser.spi.parse
     providers:
       {}
-  pangrova-persistence-api:
-    path: pangrova-persistence/pangrova-persistence-api
+  pangrova-parser-core:
+    path: pangrova-parser/pangrova-parser-core
     mainPackages:
-      - org.pangrova.persistence.api.coordination
-      - org.pangrova.persistence.api.file.claim
-      - org.pangrova.persistence.api.file.directory
-      - org.pangrova.persistence.api.file.profile
-      - org.pangrova.persistence.api.file.space
-      - org.pangrova.persistence.api.generation
-      - org.pangrova.persistence.api.generation.exchange
-      - org.pangrova.persistence.api.generation.execution
-      - org.pangrova.persistence.api.generation.job
-      - org.pangrova.persistence.api.generation.publication
-      - org.pangrova.persistence.api.generation.transaction.jdbc
-      - org.pangrova.persistence.api.query.audit
-      - org.pangrova.persistence.api.query.coordination
-      - org.pangrova.persistence.api.query.lineage
-      - org.pangrova.persistence.api.query.state
-      - org.pangrova.persistence.api.query.transaction
-      - org.pangrova.persistence.api.security.audit
-      - org.pangrova.persistence.api.security.mask
-      - org.pangrova.persistence.api.security.policy
-      - org.pangrova.persistence.api.security.rowfilter
-      - org.pangrova.persistence.api.security.tenant
+      - org.pangrova.parser.core.build
+      - org.pangrova.parser.core.build.type
+      - org.pangrova.parser.core.diagnostic
+      - org.pangrova.parser.core.format
+      - org.pangrova.parser.core.lexical
+      - org.pangrova.parser.core.parse
     pomDependencies:
       pangrova-common: compile
-      pangrova-filesystem-api: compile
-      pangrova-spi: compile
+      pangrova-parser-api: compile
+      pangrova-types: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-filesystem-api
-        - pangrova-spi
+        - pangrova-parser-api
+        - pangrova-types
       test:
         - pangrova-common
-        - pangrova-filesystem-api
-        - pangrova-spi
+        - pangrova-parser-api
+        - pangrova-types
     exportedPackages:
-      - org.pangrova.persistence.api.coordination
-      - org.pangrova.persistence.api.file.claim
-      - org.pangrova.persistence.api.file.directory
-      - org.pangrova.persistence.api.file.profile
-      - org.pangrova.persistence.api.file.space
-      - org.pangrova.persistence.api.generation
-      - org.pangrova.persistence.api.generation.exchange
-      - org.pangrova.persistence.api.generation.execution
-      - org.pangrova.persistence.api.generation.job
-      - org.pangrova.persistence.api.generation.publication
-      - org.pangrova.persistence.api.generation.transaction.jdbc
-      - org.pangrova.persistence.api.query.audit
-      - org.pangrova.persistence.api.query.coordination
-      - org.pangrova.persistence.api.query.lineage
-      - org.pangrova.persistence.api.query.state
-      - org.pangrova.persistence.api.query.transaction
-      - org.pangrova.persistence.api.security.audit
-      - org.pangrova.persistence.api.security.mask
-      - org.pangrova.persistence.api.security.policy
-      - org.pangrova.persistence.api.security.rowfilter
-      - org.pangrova.persistence.api.security.tenant
+      - org.pangrova.parser.core.build
+      - org.pangrova.parser.core.build.type
+      - org.pangrova.parser.core.format
+      - org.pangrova.parser.core.parse
     providers:
       {}
-  pangrova-persistence-jdbc:
-    path: pangrova-persistence/pangrova-persistence-jdbc
+  pangrova-persistence-catalog-api:
+    path: pangrova-persistence/pangrova-persistence-catalog-api
     mainPackages:
-      - org.pangrova.persistence.jdbc.coordination
-      - org.pangrova.persistence.jdbc.file.claim
-      - org.pangrova.persistence.jdbc.file.copy
-      - org.pangrova.persistence.jdbc.file.directory
-      - org.pangrova.persistence.jdbc.file.profile
-      - org.pangrova.persistence.jdbc.file.space
-      - org.pangrova.persistence.jdbc.generation.exchange
-      - org.pangrova.persistence.jdbc.generation.execution
-      - org.pangrova.persistence.jdbc.generation.job
-      - org.pangrova.persistence.jdbc.generation.query
-      - org.pangrova.persistence.jdbc.query.coordination
-      - org.pangrova.persistence.jdbc.query.event
-      - org.pangrova.persistence.jdbc.query.lineage
-      - org.pangrova.persistence.jdbc.query.state
-      - org.pangrova.persistence.jdbc.query.transaction
-      - org.pangrova.persistence.jdbc.security.audit
-      - org.pangrova.persistence.jdbc.security.codec
-      - org.pangrova.persistence.jdbc.security.mask
-      - org.pangrova.persistence.jdbc.security.policy
-      - org.pangrova.persistence.jdbc.security.rowfilter
-      - org.pangrova.persistence.jdbc.security.support
-      - org.pangrova.persistence.jdbc.security.tenant
-      - org.pangrova.persistence.jdbc.security.transaction
+      - org.pangrova.persistence.catalog.api.catalog
+      - org.pangrova.persistence.catalog.api.dependency
+      - org.pangrova.persistence.catalog.api.error
+      - org.pangrova.persistence.catalog.api.invalidation
+      - org.pangrova.persistence.catalog.api.projection
+      - org.pangrova.persistence.catalog.api.synchronization
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: test
+      pangrova-metadata-api: compile
+      pangrova-table-api: test
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-metadata-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-metadata-api
+        - pangrova-table-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.persistence.catalog.api.catalog
+      - org.pangrova.persistence.catalog.api.dependency
+      - org.pangrova.persistence.catalog.api.error
+      - org.pangrova.persistence.catalog.api.invalidation
+      - org.pangrova.persistence.catalog.api.projection
+      - org.pangrova.persistence.catalog.api.synchronization
+    providers:
+      {}
+  pangrova-persistence-catalog-postgresql:
+    path: pangrova-persistence/pangrova-persistence-catalog-postgresql
+    mainPackages:
+      - org.pangrova.persistence.catalog.postgresql.catalog
+      - org.pangrova.persistence.catalog.postgresql.invalidation
+      - org.pangrova.persistence.catalog.postgresql.projection
+      - org.pangrova.persistence.catalog.postgresql.synchronization
+      - org.pangrova.persistence.catalog.postgresql.transaction
     pomDependencies:
       pangrova-common: compile
-      pangrova-filesystem-api: compile
-      pangrova-generation-core: compile
-      pangrova-persistence-api: compile
-      pangrova-spi: compile
+      pangrova-metadata-api: compile
+      pangrova-metadata-codec: compile
+      pangrova-persistence-catalog-api: compile
+      pangrova-persistence-jdbc-support: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
-        - pangrova-filesystem-api
-        - pangrova-generation-core
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-metadata-api
+        - pangrova-metadata-codec
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-jdbc-support
       test:
-        - pangrova-common
-        - pangrova-filesystem-api
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-metadata-api
+        - pangrova-persistence-catalog-api
         - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.persistence.jdbc.coordination
-      - org.pangrova.persistence.jdbc.file.claim
-      - org.pangrova.persistence.jdbc.file.copy
-      - org.pangrova.persistence.jdbc.file.directory
-      - org.pangrova.persistence.jdbc.file.profile
-      - org.pangrova.persistence.jdbc.file.space
-      - org.pangrova.persistence.jdbc.generation.exchange
-      - org.pangrova.persistence.jdbc.generation.execution
-      - org.pangrova.persistence.jdbc.generation.job
-      - org.pangrova.persistence.jdbc.generation.query
-      - org.pangrova.persistence.jdbc.query.coordination
-      - org.pangrova.persistence.jdbc.query.lineage
-      - org.pangrova.persistence.jdbc.query.state
-      - org.pangrova.persistence.jdbc.query.transaction
-      - org.pangrova.persistence.jdbc.security.audit
-      - org.pangrova.persistence.jdbc.security.codec
-      - org.pangrova.persistence.jdbc.security.mask
-      - org.pangrova.persistence.jdbc.security.policy
-      - org.pangrova.persistence.jdbc.security.rowfilter
-      - org.pangrova.persistence.jdbc.security.transaction
+      - org.pangrova.persistence.catalog.postgresql.catalog
+      - org.pangrova.persistence.catalog.postgresql.invalidation
+      - org.pangrova.persistence.catalog.postgresql.projection
+      - org.pangrova.persistence.catalog.postgresql.synchronization
     providers:
       {}
-  pangrova-persistence-memory:
-    path: pangrova-persistence/pangrova-persistence-memory
+  pangrova-persistence-coordination-api:
+    path: pangrova-persistence/pangrova-persistence-coordination-api
     mainPackages:
-      - org.pangrova.persistence.memory.coordination
-      - org.pangrova.persistence.memory.query.audit
-      - org.pangrova.persistence.memory.query.coordination
-      - org.pangrova.persistence.memory.query.state
-      - org.pangrova.persistence.memory.query.transaction
+      - org.pangrova.persistence.coordination.api.admission
+      - org.pangrova.persistence.coordination.api.error
+      - org.pangrova.persistence.coordination.api.lease
+      - org.pangrova.persistence.coordination.api.membership
+      - org.pangrova.persistence.coordination.spi.provider
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-api: compile
-      pangrova-spi: compile
+      pangrova-coordination-api: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-coordination-api
       test:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-spi
+        - pangrova-coordination-api
     exportedPackages:
-      - org.pangrova.persistence.memory.coordination
-      - org.pangrova.persistence.memory.query.audit
-      - org.pangrova.persistence.memory.query.coordination
-      - org.pangrova.persistence.memory.query.state
-      - org.pangrova.persistence.memory.query.transaction
+      - org.pangrova.persistence.coordination.api.admission
+      - org.pangrova.persistence.coordination.api.error
+      - org.pangrova.persistence.coordination.api.lease
+      - org.pangrova.persistence.coordination.api.membership
+      - org.pangrova.persistence.coordination.spi.provider
     providers:
       {}
-  pangrova-planner:
-    path: pangrova-planner
+  pangrova-persistence-coordination-memory:
+    path: pangrova-persistence/pangrova-persistence-coordination-memory
     mainPackages:
-      - org.pangrova.planner
-      - org.pangrova.planner.adaptive
-      - org.pangrova.planner.advisor
-      - org.pangrova.planner.branch
-      - org.pangrova.planner.cache
-      - org.pangrova.planner.cost
-      - org.pangrova.planner.cost.aggregate
-      - org.pangrova.planner.cost.convention
-      - org.pangrova.planner.cost.distribution
-      - org.pangrova.planner.cost.join
-      - org.pangrova.planner.cost.sort
-      - org.pangrova.planner.declaration
-      - org.pangrova.planner.embedding
-      - org.pangrova.planner.exchange
-      - org.pangrova.planner.extension
-      - org.pangrova.planner.generation
-      - org.pangrova.planner.incremental
-      - org.pangrova.planner.lineage
-      - org.pangrova.planner.metadata
-      - org.pangrova.planner.mv
-      - org.pangrova.planner.optimization
-      - org.pangrova.planner.parse
-      - org.pangrova.planner.rerank
-      - org.pangrova.planner.retrieval
-      - org.pangrova.planner.rewrite
-      - org.pangrova.planner.rule
-      - org.pangrova.planner.runtimefilter
-      - org.pangrova.planner.security
-      - org.pangrova.planner.security.expression
-      - org.pangrova.planner.stability
-      - org.pangrova.planner.stats
-      - org.pangrova.planner.substrait
-      - org.pangrova.planner.throttle
-      - org.pangrova.planner.type
-      - org.pangrova.planner.validation
+      - org.pangrova.persistence.coordination.memory.lease
+      - org.pangrova.persistence.coordination.memory.membership
     pomDependencies:
       pangrova-common: compile
-      pangrova-parser: compile
-      pangrova-persistence-api: test
-      pangrova-protocol: compile
-      pangrova-security: compile
-      pangrova-shuffle-core: compile
-      pangrova-spi: compile
+      pangrova-coordination-api: compile
+      pangrova-persistence-coordination-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-coordination-api
+        - pangrova-persistence-coordination-api
+      test:
+        - pangrova-common
+        - pangrova-coordination-api
+        - pangrova-persistence-coordination-api
+    exportedPackages:
+      - org.pangrova.persistence.coordination.memory.lease
+      - org.pangrova.persistence.coordination.memory.membership
+    providers:
+      {}
+  pangrova-persistence-coordination-postgresql:
+    path: pangrova-persistence/pangrova-persistence-coordination-postgresql
+    mainPackages:
+      - org.pangrova.persistence.coordination.postgresql.admission
+      - org.pangrova.persistence.coordination.postgresql.lease
+      - org.pangrova.persistence.coordination.postgresql.membership
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-coordination-api: compile
+      pangrova-persistence-coordination-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-coordination-api
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-jdbc-support
+      test:
+        - pangrova-common
+        - pangrova-coordination-api
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.persistence.coordination.postgresql.admission
+      - org.pangrova.persistence.coordination.postgresql.lease
+      - org.pangrova.persistence.coordination.postgresql.membership
+    providers:
+      {}
+  pangrova-persistence-file-api:
+    path: pangrova-persistence/pangrova-persistence-file-api
+    mainPackages:
+      - org.pangrova.persistence.file.api.claim
+      - org.pangrova.persistence.file.api.copy
+      - org.pangrova.persistence.file.api.directory
+      - org.pangrova.persistence.file.api.profile
+      - org.pangrova.persistence.file.api.space
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
+      pangrova-filesystem-api: compile
+      pangrova-query-api: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-file-api
+        - pangrova-filesystem-api
+        - pangrova-query-api
+        - pangrova-security-api
+      test:
+        - pangrova-common
+        - pangrova-file-api
+        - pangrova-filesystem-api
+        - pangrova-query-api
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.persistence.file.api.claim
+      - org.pangrova.persistence.file.api.copy
+      - org.pangrova.persistence.file.api.directory
+      - org.pangrova.persistence.file.api.profile
+      - org.pangrova.persistence.file.api.space
+    providers:
+      {}
+  pangrova-persistence-file-postgresql:
+    path: pangrova-persistence/pangrova-persistence-file-postgresql
+    mainPackages:
+      - org.pangrova.persistence.file.postgresql.claim
+      - org.pangrova.persistence.file.postgresql.copy
+      - org.pangrova.persistence.file.postgresql.directory
+      - org.pangrova.persistence.file.postgresql.profile
+      - org.pangrova.persistence.file.postgresql.space
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
+      pangrova-filesystem-api: compile
+      pangrova-persistence-file-api: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-postgresql: compile
+      pangrova-query-api: compile
+      pangrova-security-api: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
-        - pangrova-parser
-        - pangrova-protocol
-        - pangrova-shuffle-core
-        - pangrova-spi
+        - pangrova-file-api
+        - pangrova-filesystem-api
+        - pangrova-persistence-file-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-postgresql
+        - pangrova-query-api
+        - pangrova-security-api
       test:
         - pangrova-common
-        - pangrova-parser
-        - pangrova-persistence-api
-        - pangrova-protocol
-        - pangrova-security
-        - pangrova-shuffle-core
-        - pangrova-spi
+        - pangrova-file-api
+        - pangrova-filesystem-api
+        - pangrova-persistence-file-api
+        - pangrova-persistence-security-postgresql
+        - pangrova-security-api
+        - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.planner
-      - org.pangrova.planner.adaptive
-      - org.pangrova.planner.advisor
-      - org.pangrova.planner.cache
-      - org.pangrova.planner.cost
-      - org.pangrova.planner.cost.distribution
-      - org.pangrova.planner.generation
-      - org.pangrova.planner.lineage
-      - org.pangrova.planner.mv
-      - org.pangrova.planner.optimization
-      - org.pangrova.planner.parse
-      - org.pangrova.planner.rerank
-      - org.pangrova.planner.retrieval
-      - org.pangrova.planner.rewrite
-      - org.pangrova.planner.runtimefilter
-      - org.pangrova.planner.security
-      - org.pangrova.planner.security.expression
-      - org.pangrova.planner.stats
-      - org.pangrova.planner.substrait
-      - org.pangrova.planner.throttle
-      - org.pangrova.planner.type
-      - org.pangrova.planner.validation
+      - org.pangrova.persistence.file.postgresql.claim
+      - org.pangrova.persistence.file.postgresql.copy
+      - org.pangrova.persistence.file.postgresql.directory
+      - org.pangrova.persistence.file.postgresql.profile
+      - org.pangrova.persistence.file.postgresql.space
+    providers:
+      {}
+  pangrova-persistence-generation-api:
+    path: pangrova-persistence/pangrova-persistence-generation-api
+    mainPackages:
+      - org.pangrova.persistence.generation.api
+      - org.pangrova.persistence.generation.api.exchange
+      - org.pangrova.persistence.generation.api.execution
+      - org.pangrova.persistence.generation.api.job
+      - org.pangrova.persistence.generation.api.publication
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: test
+      pangrova-generation-api: compile
+      pangrova-query-api: compile
+      pangrova-security-api: test
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-generation-api
+        - pangrova-query-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-api
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.persistence.generation.api
+      - org.pangrova.persistence.generation.api.exchange
+      - org.pangrova.persistence.generation.api.execution
+      - org.pangrova.persistence.generation.api.job
+      - org.pangrova.persistence.generation.api.publication
+    providers:
+      {}
+  pangrova-persistence-generation-postgresql:
+    path: pangrova-persistence/pangrova-persistence-generation-postgresql
+    mainPackages:
+      - org.pangrova.persistence.generation.postgresql.exchange
+      - org.pangrova.persistence.generation.postgresql.execution
+      - org.pangrova.persistence.generation.postgresql.job
+      - org.pangrova.persistence.generation.postgresql.query
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-generation-api: compile
+      pangrova-generation-codec: compile
+      pangrova-observability-api: compile
+      pangrova-persistence-generation-api: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-postgresql: compile
+      pangrova-query-api: compile
+      pangrova-security-api: compile
+      pangrova-security-codec: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-generation-api
+        - pangrova-generation-codec
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-query-api
+        - pangrova-security-codec
+      test:
+        - pangrova-common
+        - pangrova-generation-api
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-query-api
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.persistence.generation.postgresql.exchange
+      - org.pangrova.persistence.generation.postgresql.execution
+      - org.pangrova.persistence.generation.postgresql.job
+      - org.pangrova.persistence.generation.postgresql.query
+    providers:
+      {}
+  pangrova-persistence-indexing-api:
+    path: pangrova-persistence/pangrova-persistence-indexing-api
+    mainPackages:
+      - org.pangrova.persistence.indexing.api.build
+      - org.pangrova.persistence.indexing.api.metadata
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-indexing-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-indexing-api
+      test: []
+    exportedPackages:
+      - org.pangrova.persistence.indexing.api.build
+      - org.pangrova.persistence.indexing.api.metadata
+    providers:
+      {}
+  pangrova-persistence-indexing-postgresql:
+    path: pangrova-persistence/pangrova-persistence-indexing-postgresql
+    mainPackages:
+      - org.pangrova.persistence.indexing.postgresql.build
+      - org.pangrova.persistence.indexing.postgresql.metadata
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-generation-api: test
+      pangrova-generation-core: test
+      pangrova-indexing-api: compile
+      pangrova-indexing-core: test
+      pangrova-metadata-codec: compile
+      pangrova-metadata-core: test
+      pangrova-persistence-catalog-api: compile
+      pangrova-persistence-generation-api: test
+      pangrova-persistence-generation-postgresql: test
+      pangrova-persistence-indexing-api: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-persistence-query-postgresql: test
+      pangrova-persistence-security-postgresql: compile
+      pangrova-query-api: test
+      pangrova-query-core: test
+      pangrova-security-api: compile
+      pangrova-security-codec: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-indexing-api
+        - pangrova-metadata-codec
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-indexing-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-persistence-security-postgresql
+        - pangrova-security-api
+        - pangrova-security-codec
+      test:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-api
+        - pangrova-generation-core
+        - pangrova-indexing-api
+        - pangrova-indexing-core
+        - pangrova-metadata-core
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-generation-postgresql
+        - pangrova-persistence-indexing-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-persistence-query-postgresql
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.persistence.indexing.postgresql.build
+      - org.pangrova.persistence.indexing.postgresql.metadata
+    providers:
+      {}
+  pangrova-persistence-jdbc-api:
+    path: pangrova-persistence/pangrova-persistence-jdbc-api
+    mainPackages:
+      - org.pangrova.persistence.jdbc.api.generation
+      - org.pangrova.persistence.jdbc.api.query
+      - org.pangrova.persistence.jdbc.api.security.model
+      - org.pangrova.persistence.jdbc.api.security.policy
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: test
+      pangrova-generation-api: compile
+      pangrova-query-api: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-generation-api
+        - pangrova-query-api
+        - pangrova-security-api
+      test:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-api
+        - pangrova-query-api
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.persistence.jdbc.api.generation
+      - org.pangrova.persistence.jdbc.api.query
+      - org.pangrova.persistence.jdbc.api.security.model
+      - org.pangrova.persistence.jdbc.api.security.policy
+    providers:
+      {}
+  pangrova-persistence-jdbc-support:
+    path: pangrova-persistence/pangrova-persistence-jdbc-support
+    mainPackages:
+      - org.pangrova.persistence.jdbc.support
+    pomDependencies: []
+    imports:
+      main: []
+      test: []
+    exportedPackages:
+      - org.pangrova.persistence.jdbc.support
+    providers:
+      {}
+  pangrova-persistence-query-api:
+    path: pangrova-persistence/pangrova-persistence-query-api
+    mainPackages:
+      - org.pangrova.persistence.query.api.audit
+      - org.pangrova.persistence.query.api.commit
+      - org.pangrova.persistence.query.api.coordination
+      - org.pangrova.persistence.query.api.lineage
+      - org.pangrova.persistence.query.api.state
+      - org.pangrova.persistence.query.api.transaction
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-query-api: compile
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-query-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-query-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.persistence.query.api.audit
+      - org.pangrova.persistence.query.api.commit
+      - org.pangrova.persistence.query.api.coordination
+      - org.pangrova.persistence.query.api.lineage
+      - org.pangrova.persistence.query.api.state
+      - org.pangrova.persistence.query.api.transaction
+    providers:
+      {}
+  pangrova-persistence-query-memory:
+    path: pangrova-persistence/pangrova-persistence-query-memory
+    mainPackages:
+      - org.pangrova.persistence.query.memory.audit
+      - org.pangrova.persistence.query.memory.coordination
+      - org.pangrova.persistence.query.memory.state
+      - org.pangrova.persistence.query.memory.transaction
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-persistence-query-api: compile
+      pangrova-query-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-persistence-query-api
+        - pangrova-query-api
+      test:
+        - pangrova-connector-api
+        - pangrova-persistence-query-api
+        - pangrova-query-api
+    exportedPackages:
+      - org.pangrova.persistence.query.memory.audit
+      - org.pangrova.persistence.query.memory.coordination
+      - org.pangrova.persistence.query.memory.state
+      - org.pangrova.persistence.query.memory.transaction
+    providers:
+      {}
+  pangrova-persistence-query-postgresql:
+    path: pangrova-persistence/pangrova-persistence-query-postgresql
+    mainPackages:
+      - org.pangrova.persistence.query.postgresql.coordination
+      - org.pangrova.persistence.query.postgresql.event
+      - org.pangrova.persistence.query.postgresql.lineage
+      - org.pangrova.persistence.query.postgresql.state
+      - org.pangrova.persistence.query.postgresql.transaction
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-query-api: compile
+      pangrova-query-api: compile
+      pangrova-query-core: test
+      pangrova-security-codec: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-query-api
+        - pangrova-query-api
+        - pangrova-security-codec
+      test:
+        - pangrova-persistence-query-api
+        - pangrova-query-api
+        - pangrova-query-core
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.persistence.query.postgresql.coordination
+      - org.pangrova.persistence.query.postgresql.lineage
+      - org.pangrova.persistence.query.postgresql.state
+      - org.pangrova.persistence.query.postgresql.transaction
+    providers:
+      {}
+  pangrova-persistence-security-api:
+    path: pangrova-persistence/pangrova-persistence-security-api
+    mainPackages:
+      - org.pangrova.persistence.security.api.audit
+      - org.pangrova.persistence.security.api.grant
+      - org.pangrova.persistence.security.api.mask
+      - org.pangrova.persistence.security.api.policy
+      - org.pangrova.persistence.security.api.rowfilter
+      - org.pangrova.persistence.security.api.tenant
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: test
+      pangrova-security-api: compile
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-security-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-security-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.persistence.security.api.audit
+      - org.pangrova.persistence.security.api.grant
+      - org.pangrova.persistence.security.api.mask
+      - org.pangrova.persistence.security.api.policy
+      - org.pangrova.persistence.security.api.rowfilter
+      - org.pangrova.persistence.security.api.tenant
+    providers:
+      {}
+  pangrova-persistence-security-memory:
+    path: pangrova-persistence/pangrova-persistence-security-memory
+    mainPackages:
+      - org.pangrova.persistence.security.memory.tenant
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-persistence-security-api: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-persistence-security-api
+        - pangrova-security-api
+      test:
+        - pangrova-persistence-security-api
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.persistence.security.memory.tenant
+    providers:
+      {}
+  pangrova-persistence-security-postgresql:
+    path: pangrova-persistence/pangrova-persistence-security-postgresql
+    mainPackages:
+      - org.pangrova.persistence.security.postgresql.audit
+      - org.pangrova.persistence.security.postgresql.codec
+      - org.pangrova.persistence.security.postgresql.grant
+      - org.pangrova.persistence.security.postgresql.mask
+      - org.pangrova.persistence.security.postgresql.policy
+      - org.pangrova.persistence.security.postgresql.rowfilter
+      - org.pangrova.persistence.security.postgresql.support
+      - org.pangrova.persistence.security.postgresql.tenant
+      - org.pangrova.persistence.security.postgresql.transaction
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-security-api: compile
+      pangrova-security-api: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-security-api
+        - pangrova-security-api
+      test:
+        - pangrova-persistence-security-api
+        - pangrova-security-api
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.persistence.security.postgresql.audit
+      - org.pangrova.persistence.security.postgresql.grant
+      - org.pangrova.persistence.security.postgresql.mask
+      - org.pangrova.persistence.security.postgresql.policy
+      - org.pangrova.persistence.security.postgresql.rowfilter
+      - org.pangrova.persistence.security.postgresql.tenant
+      - org.pangrova.persistence.security.postgresql.transaction
+    providers:
+      {}
+  pangrova-persistence-table-api:
+    path: pangrova-persistence/pangrova-persistence-table-api
+    mainPackages:
+      - org.pangrova.persistence.table.api.control
+      - org.pangrova.persistence.table.api.governancebinding
+      - org.pangrova.persistence.table.api.maintenance
+      - org.pangrova.persistence.table.api.statistics
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: test
+      pangrova-table-api: compile
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-table-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-table-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.persistence.table.api.control
+      - org.pangrova.persistence.table.api.governancebinding
+      - org.pangrova.persistence.table.api.maintenance
+      - org.pangrova.persistence.table.api.statistics
+    providers:
+      {}
+  pangrova-persistence-table-memory:
+    path: pangrova-persistence/pangrova-persistence-table-memory
+    mainPackages:
+      - org.pangrova.persistence.table.memory.control
+      - org.pangrova.persistence.table.memory.governancebinding
+      - org.pangrova.persistence.table.memory.maintenance
+      - org.pangrova.persistence.table.memory.statistics
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-persistence-table-api: compile
+      pangrova-table-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-persistence-table-api
+        - pangrova-table-api
+      test:
+        - pangrova-common
+        - pangrova-persistence-table-api
+        - pangrova-table-api
+    exportedPackages:
+      - org.pangrova.persistence.table.memory.control
+      - org.pangrova.persistence.table.memory.governancebinding
+      - org.pangrova.persistence.table.memory.maintenance
+      - org.pangrova.persistence.table.memory.statistics
+    providers:
+      {}
+  pangrova-persistence-table-postgresql:
+    path: pangrova-persistence/pangrova-persistence-table-postgresql
+    mainPackages:
+      - org.pangrova.persistence.table.postgresql.control
+      - org.pangrova.persistence.table.postgresql.governancebinding
+      - org.pangrova.persistence.table.postgresql.maintenance
+      - org.pangrova.persistence.table.postgresql.statistics
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-persistence-security-postgresql: compile
+      pangrova-persistence-table-api: compile
+      pangrova-table-api: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-api
+        - pangrova-table-api
+      test:
+        - pangrova-connector-api
+        - pangrova-persistence-table-api
+        - pangrova-table-api
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.persistence.table.postgresql.control
+      - org.pangrova.persistence.table.postgresql.governancebinding
+      - org.pangrova.persistence.table.postgresql.maintenance
+      - org.pangrova.persistence.table.postgresql.statistics
+    providers:
+      {}
+  pangrova-planner-api:
+    path: pangrova-planner/pangrova-planner-api
+    mainPackages:
+      - org.pangrova.planner.api.adaptive
+      - org.pangrova.planner.api.error
+      - org.pangrova.planner.api.fragment
+      - org.pangrova.planner.api.invocation
+      - org.pangrova.planner.api.lineage
+      - org.pangrova.planner.api.result
+      - org.pangrova.planner.api.retrieval
+      - org.pangrova.planner.api.statistics
+      - org.pangrova.planner.spi.adaptive
+      - org.pangrova.planner.spi.metadata
+      - org.pangrova.planner.spi.statistics
+    pomDependencies:
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.planner.api.adaptive
+      - org.pangrova.planner.api.error
+      - org.pangrova.planner.api.fragment
+      - org.pangrova.planner.api.invocation
+      - org.pangrova.planner.api.lineage
+      - org.pangrova.planner.api.result
+      - org.pangrova.planner.api.retrieval
+      - org.pangrova.planner.api.statistics
+      - org.pangrova.planner.spi.adaptive
+      - org.pangrova.planner.spi.metadata
+    providers:
+      {}
+  pangrova-planner-core:
+    path: pangrova-planner/pangrova-planner-core
+    mainPackages:
+      - org.pangrova.planner.core.adaptive
+      - org.pangrova.planner.core.advisor
+      - org.pangrova.planner.core.analysis
+      - org.pangrova.planner.core.branch
+      - org.pangrova.planner.core.cache
+      - org.pangrova.planner.core.cost
+      - org.pangrova.planner.core.cost.aggregate
+      - org.pangrova.planner.core.cost.convention
+      - org.pangrova.planner.core.cost.distribution
+      - org.pangrova.planner.core.cost.join
+      - org.pangrova.planner.core.cost.sort
+      - org.pangrova.planner.core.declaration
+      - org.pangrova.planner.core.embedding
+      - org.pangrova.planner.core.exchange
+      - org.pangrova.planner.core.extension
+      - org.pangrova.planner.core.generation
+      - org.pangrova.planner.core.incremental
+      - org.pangrova.planner.core.lineage
+      - org.pangrova.planner.core.metadata
+      - org.pangrova.planner.core.mv
+      - org.pangrova.planner.core.optimization
+      - org.pangrova.planner.core.parse
+      - org.pangrova.planner.core.rerank
+      - org.pangrova.planner.core.retrieval
+      - org.pangrova.planner.core.rewrite
+      - org.pangrova.planner.core.rule
+      - org.pangrova.planner.core.runtimefilter
+      - org.pangrova.planner.core.security
+      - org.pangrova.planner.core.security.expression
+      - org.pangrova.planner.core.stability
+      - org.pangrova.planner.core.statistics
+      - org.pangrova.planner.core.substrait
+      - org.pangrova.planner.core.throttle
+      - org.pangrova.planner.core.type
+      - org.pangrova.planner.core.validation
+    pomDependencies:
+      pangrova-ai-api: compile
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-function-api: compile
+      pangrova-generation-codec: compile
+      pangrova-parser-api: compile
+      pangrova-parser-core: compile
+      pangrova-persistence-security-api: test
+      pangrova-planner-api: compile
+      pangrova-protocol: compile
+      pangrova-security-api: compile
+      pangrova-security-core: test
+      pangrova-security-policy-builtin: test
+      pangrova-shuffle-api: compile
+      pangrova-shuffle-core: test
+      pangrova-testing-kit: test
+      pangrova-types: compile
+    imports:
+      main:
+        - pangrova-ai-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-function-api
+        - pangrova-generation-codec
+        - pangrova-parser-api
+        - pangrova-parser-core
+        - pangrova-planner-api
+        - pangrova-protocol
+        - pangrova-security-api
+        - pangrova-shuffle-api
+        - pangrova-types
+      test:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-codec
+        - pangrova-parser-api
+        - pangrova-parser-core
+        - pangrova-persistence-security-api
+        - pangrova-planner-api
+        - pangrova-protocol
+        - pangrova-security-api
+        - pangrova-security-core
+        - pangrova-security-policy-builtin
+        - pangrova-shuffle-api
+        - pangrova-shuffle-core
+        - pangrova-testing-kit
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.planner.core.adaptive
+      - org.pangrova.planner.core.advisor
+      - org.pangrova.planner.core.analysis
+      - org.pangrova.planner.core.cache
+      - org.pangrova.planner.core.cost
+      - org.pangrova.planner.core.cost.distribution
+      - org.pangrova.planner.core.generation
+      - org.pangrova.planner.core.metadata
+      - org.pangrova.planner.core.mv
+      - org.pangrova.planner.core.optimization
+      - org.pangrova.planner.core.parse
+      - org.pangrova.planner.core.rerank
+      - org.pangrova.planner.core.retrieval
+      - org.pangrova.planner.core.rewrite
+      - org.pangrova.planner.core.runtimefilter
+      - org.pangrova.planner.core.security
+      - org.pangrova.planner.core.statistics
+      - org.pangrova.planner.core.substrait
+      - org.pangrova.planner.core.throttle
+      - org.pangrova.planner.core.type
+      - org.pangrova.planner.core.validation
     providers:
       {}
   pangrova-protocol:
     path: pangrova-protocol
     mainPackages:
-      - org.pangrova.protocol.batch
       - org.pangrova.protocol.capability
       - org.pangrova.protocol.capability.inventory
       - org.pangrova.protocol.catalog
@@ -1447,7 +3094,6 @@ artifacts:
       - org.pangrova.protocol.function.selection
       - org.pangrova.protocol.generation
       - org.pangrova.protocol.index
-      - org.pangrova.protocol.metadata
       - org.pangrova.protocol.resource
       - org.pangrova.protocol.rest.catalog
       - org.pangrova.protocol.rest.config
@@ -1461,6 +3107,7 @@ artifacts:
       - org.pangrova.protocol.rest.version
       - org.pangrova.protocol.rest.worker
       - org.pangrova.protocol.retrieval
+      - org.pangrova.protocol.shuffle.codec
       - org.pangrova.protocol.source
       - org.pangrova.protocol.substrait
       - org.pangrova.protocol.task
@@ -1471,19 +3118,29 @@ artifacts:
     pomDependencies:
       pangrova-client-core: compile
       pangrova-common: compile
-      pangrova-spi: compile
+      pangrova-connector-api: compile
+      pangrova-function-api: compile
+      pangrova-indexing-api: compile
+      pangrova-query-api: compile
+      pangrova-transport-api: compile
+      pangrova-types: compile
     imports:
       main:
         - pangrova-client-core
         - pangrova-common
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-function-api
+        - pangrova-indexing-api
+        - pangrova-query-api
+        - pangrova-transport-api
+        - pangrova-types
       test:
         - pangrova-client-core
         - pangrova-common
-        - pangrova-spi
+        - pangrova-transport-api
+        - pangrova-types
     exportedPackages:
       - org.pangrova.protocol
-      - org.pangrova.protocol.batch
       - org.pangrova.protocol.capability
       - org.pangrova.protocol.capability.inventory
       - org.pangrova.protocol.catalog
@@ -1496,7 +3153,6 @@ artifacts:
       - org.pangrova.protocol.function.declaration
       - org.pangrova.protocol.generation
       - org.pangrova.protocol.index
-      - org.pangrova.protocol.metadata
       - org.pangrova.protocol.resource
       - org.pangrova.protocol.rest.catalog
       - org.pangrova.protocol.rest.config
@@ -1510,6 +3166,7 @@ artifacts:
       - org.pangrova.protocol.rest.version
       - org.pangrova.protocol.rest.worker
       - org.pangrova.protocol.retrieval
+      - org.pangrova.protocol.shuffle.codec
       - org.pangrova.protocol.source
       - org.pangrova.protocol.substrait
       - org.pangrova.protocol.task
@@ -1518,83 +3175,230 @@ artifacts:
       - org.pangrova.protocol.write
     providers:
       {}
-  pangrova-query:
-    path: pangrova-query
+  pangrova-query-api:
+    path: pangrova-query/pangrova-query-api
     mainPackages:
-      - org.pangrova.query.assembly.audit
-      - org.pangrova.query.assembly.state
-      - org.pangrova.query.audit
-      - org.pangrova.query.profiling
+      - org.pangrova.query.api.audit
+      - org.pangrova.query.api.error
+      - org.pangrova.query.api.event
+      - org.pangrova.query.api.identity
+      - org.pangrova.query.api.journal
+      - org.pangrova.query.api.lifecycle
+      - org.pangrova.query.api.lineage
+      - org.pangrova.query.api.ownership
+      - org.pangrova.query.api.session
+      - org.pangrova.query.api.stage
+      - org.pangrova.query.api.statement
+      - org.pangrova.query.api.submission
+      - org.pangrova.query.api.task
+      - org.pangrova.query.api.write
+      - org.pangrova.query.spi.audit
+      - org.pangrova.query.spi.event
+      - org.pangrova.query.spi.lifecycle
+      - org.pangrova.query.spi.retention
+      - org.pangrova.query.spi.stage
+      - org.pangrova.query.spi.task
+      - org.pangrova.query.spi.write
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-persistence-memory: compile
-      pangrova-spi: compile
-      pangrova-testing-kit: test
+      pangrova-connector-api: compile
+      pangrova-observability-api: compile
+      pangrova-security-api: compile
+      pangrova-transport-api: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-persistence-memory
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-observability-api
+        - pangrova-security-api
+        - pangrova-transport-api
       test:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-persistence-memory
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-observability-api
+        - pangrova-security-api
+        - pangrova-transport-api
     exportedPackages:
-      - org.pangrova.query.assembly.audit
-      - org.pangrova.query.assembly.state
-      - org.pangrova.query.audit
-      - org.pangrova.query.profiling
+      - org.pangrova.query.api.audit
+      - org.pangrova.query.api.error
+      - org.pangrova.query.api.event
+      - org.pangrova.query.api.identity
+      - org.pangrova.query.api.journal
+      - org.pangrova.query.api.lifecycle
+      - org.pangrova.query.api.lineage
+      - org.pangrova.query.api.ownership
+      - org.pangrova.query.api.session
+      - org.pangrova.query.api.stage
+      - org.pangrova.query.api.statement
+      - org.pangrova.query.api.submission
+      - org.pangrova.query.api.task
+      - org.pangrova.query.api.write
+      - org.pangrova.query.spi.audit
+      - org.pangrova.query.spi.event
+      - org.pangrova.query.spi.lifecycle
+      - org.pangrova.query.spi.retention
+      - org.pangrova.query.spi.stage
+      - org.pangrova.query.spi.task
+      - org.pangrova.query.spi.write
     providers:
       {}
-  pangrova-scheduler:
-    path: pangrova-scheduler
+  pangrova-query-core:
+    path: pangrova-query/pangrova-query-core
     mainPackages:
-      - org.pangrova.scheduler.admission
+      - org.pangrova.query.core.audit
+      - org.pangrova.query.core.event
+      - org.pangrova.query.core.lifecycle
+      - org.pangrova.query.core.profiling
+      - org.pangrova.query.core.retention
+      - org.pangrova.query.core.session
+      - org.pangrova.query.core.stage
+      - org.pangrova.query.core.stage.binding
+      - org.pangrova.query.core.statement
+      - org.pangrova.query.core.task
+      - org.pangrova.query.core.write
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-execution-core: compile
+      pangrova-generation-codec: compile
+      pangrova-observability-api: test
+      pangrova-parser-api: compile
+      pangrova-parser-core: test
+      pangrova-persistence-query-api: compile
+      pangrova-persistence-query-memory: test
+      pangrova-protocol: compile
+      pangrova-query-api: compile
+      pangrova-security-api: compile
+      pangrova-testing-kit: test
+      pangrova-transport-api: compile
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-execution-core
+        - pangrova-generation-codec
+        - pangrova-parser-api
+        - pangrova-persistence-query-api
+        - pangrova-protocol
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-transport-api
+      test:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-generation-codec
+        - pangrova-observability-api
+        - pangrova-parser-api
+        - pangrova-parser-core
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-memory
+        - pangrova-protocol
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-transport-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.query.core.audit
+      - org.pangrova.query.core.event
+      - org.pangrova.query.core.lifecycle
+      - org.pangrova.query.core.profiling
+      - org.pangrova.query.core.retention
+      - org.pangrova.query.core.session
+      - org.pangrova.query.core.stage
+      - org.pangrova.query.core.stage.binding
+      - org.pangrova.query.core.statement
+      - org.pangrova.query.core.task
+      - org.pangrova.query.core.write
+    providers:
+      {}
+  pangrova-scheduler-api:
+    path: pangrova-scheduler/pangrova-scheduler-api
+    mainPackages:
+      - org.pangrova.scheduler.api.error
       - org.pangrova.scheduler.api.placement
       - org.pangrova.scheduler.api.quota
       - org.pangrova.scheduler.api.resource
-      - org.pangrova.scheduler.failure
-      - org.pangrova.scheduler.placement
-      - org.pangrova.scheduler.resource
-      - org.pangrova.scheduler.scoring
-      - org.pangrova.scheduler.speculation
-      - org.pangrova.scheduler.store.jdbc.admission
-      - org.pangrova.scheduler.strategy.fair
-      - org.pangrova.scheduler.strategy.loadbalanced
+      - org.pangrova.scheduler.spi.admission
+      - org.pangrova.scheduler.spi.control
+      - org.pangrova.scheduler.spi.health
+      - org.pangrova.scheduler.spi.placement
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-api: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.scheduler.api.error
+      - org.pangrova.scheduler.api.placement
+      - org.pangrova.scheduler.api.quota
+      - org.pangrova.scheduler.api.resource
+      - org.pangrova.scheduler.spi.admission
+      - org.pangrova.scheduler.spi.control
+      - org.pangrova.scheduler.spi.health
+      - org.pangrova.scheduler.spi.placement
+    providers:
+      {}
+  pangrova-scheduler-core:
+    path: pangrova-scheduler/pangrova-scheduler-core
+    mainPackages:
+      - org.pangrova.scheduler.core.admission
+      - org.pangrova.scheduler.core.control
+      - org.pangrova.scheduler.core.placement
+      - org.pangrova.scheduler.core.resource
+      - org.pangrova.scheduler.core.retry
+      - org.pangrova.scheduler.core.speculation
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-persistence-coordination-api: compile
+      pangrova-persistence-coordination-postgresql: test
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-memory: test
       pangrova-protocol: compile
-      pangrova-security: compile
-      pangrova-spi: compile
+      pangrova-scheduler-api: compile
+      pangrova-security-api: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
-        - pangrova-persistence-api
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-security-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-scheduler-api
+        - pangrova-security-api
       test:
-        - pangrova-security
-        - pangrova-spi
+        - pangrova-common
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-coordination-postgresql
+        - pangrova-persistence-security-memory
+        - pangrova-protocol
+        - pangrova-scheduler-api
+        - pangrova-security-api
         - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.scheduler.admission
-      - org.pangrova.scheduler.api.placement
-      - org.pangrova.scheduler.api.quota
-      - org.pangrova.scheduler.api.resource
-      - org.pangrova.scheduler.failure
-      - org.pangrova.scheduler.placement
-      - org.pangrova.scheduler.resource
-      - org.pangrova.scheduler.scoring
-      - org.pangrova.scheduler.speculation
-      - org.pangrova.scheduler.store.jdbc.admission
+      - org.pangrova.scheduler.core.admission
+      - org.pangrova.scheduler.core.control
+      - org.pangrova.scheduler.core.placement
+      - org.pangrova.scheduler.core.resource
+      - org.pangrova.scheduler.core.speculation
+    providers:
+      {}
+  pangrova-scheduler-strategies-builtin:
+    path: pangrova-scheduler/pangrova-scheduler-strategies-builtin
+    mainPackages:
+      - org.pangrova.scheduler.builtin.placement
+      - org.pangrova.scheduler.builtin.scoring
+    pomDependencies:
+      pangrova-scheduler-api: compile
+    imports:
+      main:
+        - pangrova-scheduler-api
+      test:
+        - pangrova-scheduler-api
+    exportedPackages:
+      - org.pangrova.scheduler.builtin.placement
     providers:
       {}
   pangrova-schema-migrations:
@@ -1607,65 +3411,261 @@ artifacts:
     exportedPackages: []
     providers:
       {}
-  pangrova-security:
-    path: pangrova-security
+  pangrova-security-api:
+    path: pangrova-security/pangrova-security-api
     mainPackages:
-      - org.pangrova.security.assembly.audit
-      - org.pangrova.security.audit
-      - org.pangrova.security.authn
-      - org.pangrova.security.authn.bypass
-      - org.pangrova.security.authn.ldap
-      - org.pangrova.security.authn.oauth2
-      - org.pangrova.security.authz
-      - org.pangrova.security.authz.deferred
-      - org.pangrova.security.crypto
-      - org.pangrova.security.kms
-      - org.pangrova.security.mask
-      - org.pangrova.security.mask.empty
-      - org.pangrova.security.mask.memory
-      - org.pangrova.security.rowfilter
-      - org.pangrova.security.secret
-      - org.pangrova.security.secret.env
-      - org.pangrova.security.secret.file
-      - org.pangrova.security.session
-      - org.pangrova.security.spi.jdbc
-      - org.pangrova.security.tenant
+      - org.pangrova.security.api.audit
+      - org.pangrova.security.api.authentication
+      - org.pangrova.security.api.authorization
+      - org.pangrova.security.api.crypto
+      - org.pangrova.security.api.error
+      - org.pangrova.security.api.event
+      - org.pangrova.security.api.grant
+      - org.pangrova.security.api.identity
+      - org.pangrova.security.api.mask
+      - org.pangrova.security.api.policy
+      - org.pangrova.security.api.rowfilter
+      - org.pangrova.security.api.secret
+      - org.pangrova.security.api.session
+      - org.pangrova.security.api.tenant
+      - org.pangrova.security.spi.audit
+      - org.pangrova.security.spi.authentication
+      - org.pangrova.security.spi.authorization
+      - org.pangrova.security.spi.crypto
+      - org.pangrova.security.spi.mask
+      - org.pangrova.security.spi.rowfilter
+      - org.pangrova.security.spi.secret
+    pomDependencies:
+      pangrova-batch-api: test
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-types: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+      test:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-types
+    exportedPackages:
+      - org.pangrova.security.api.audit
+      - org.pangrova.security.api.authentication
+      - org.pangrova.security.api.authorization
+      - org.pangrova.security.api.crypto
+      - org.pangrova.security.api.error
+      - org.pangrova.security.api.event
+      - org.pangrova.security.api.grant
+      - org.pangrova.security.api.identity
+      - org.pangrova.security.api.mask
+      - org.pangrova.security.api.policy
+      - org.pangrova.security.api.rowfilter
+      - org.pangrova.security.api.secret
+      - org.pangrova.security.api.session
+      - org.pangrova.security.api.tenant
+      - org.pangrova.security.spi.audit
+      - org.pangrova.security.spi.authentication
+      - org.pangrova.security.spi.authorization
+      - org.pangrova.security.spi.crypto
+      - org.pangrova.security.spi.mask
+      - org.pangrova.security.spi.rowfilter
+      - org.pangrova.security.spi.secret
+    providers:
+      {}
+  pangrova-security-auth-builtin:
+    path: pangrova-security/pangrova-security-auth-builtin
+    mainPackages:
+      - org.pangrova.security.auth.builtin
+    pomDependencies:
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-security-api
+      test: []
+    exportedPackages:
+      - org.pangrova.security.auth.builtin
+    providers:
+      {}
+  pangrova-security-auth-ldap:
+    path: pangrova-security/pangrova-security-auth-ldap
+    mainPackages:
+      - org.pangrova.security.auth.ldap
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-spi: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-security-api
+      test:
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.security.auth.ldap
+    providers:
+      {}
+  pangrova-security-auth-oauth2:
+    path: pangrova-security/pangrova-security-auth-oauth2
+    mainPackages:
+      - org.pangrova.security.auth.oauth2
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-security-api
+      test:
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.security.auth.oauth2
+    providers:
+      {}
+  pangrova-security-codec:
+    path: pangrova-security/pangrova-security-codec
+    mainPackages:
+      - org.pangrova.security.codec.authorization
+    pomDependencies:
+      pangrova-connector-api: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-connector-api
+        - pangrova-security-api
+      test:
+        - pangrova-connector-api
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.security.codec.authorization
+    providers:
+      {}
+  pangrova-security-core:
+    path: pangrova-security/pangrova-security-core
+    mainPackages:
+      - org.pangrova.security.core.audit
+      - org.pangrova.security.core.authentication
+      - org.pangrova.security.core.authorization
+      - org.pangrova.security.core.authorization.deferred
+      - org.pangrova.security.core.crypto
+      - org.pangrova.security.core.mask
+      - org.pangrova.security.core.rowfilter
+      - org.pangrova.security.core.secret
+      - org.pangrova.security.core.session
+      - org.pangrova.security.core.tenant
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-postgresql: test
+      pangrova-security-api: compile
+      pangrova-security-auth-builtin: test
+      pangrova-security-auth-ldap: test
+      pangrova-security-auth-oauth2: test
+      pangrova-security-codec: test
+      pangrova-security-policy-builtin: test
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-spi
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-security-api
+        - pangrova-security-api
       test:
         - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-postgresql
+        - pangrova-security-api
+        - pangrova-security-auth-builtin
+        - pangrova-security-auth-ldap
+        - pangrova-security-auth-oauth2
+        - pangrova-security-codec
+        - pangrova-security-policy-builtin
         - pangrova-testing-kit
     exportedPackages:
-      - org.pangrova.security.assembly.audit
-      - org.pangrova.security.audit
-      - org.pangrova.security.authn
-      - org.pangrova.security.authn.bypass
-      - org.pangrova.security.authn.ldap
-      - org.pangrova.security.authn.oauth2
-      - org.pangrova.security.authz
-      - org.pangrova.security.authz.deferred
-      - org.pangrova.security.mask
-      - org.pangrova.security.mask.empty
-      - org.pangrova.security.mask.memory
-      - org.pangrova.security.rowfilter
-      - org.pangrova.security.secret
+      - org.pangrova.security.core.audit
+      - org.pangrova.security.core.authentication
+      - org.pangrova.security.core.authorization.deferred
+      - org.pangrova.security.core.crypto
+      - org.pangrova.security.core.mask
+      - org.pangrova.security.core.rowfilter
+      - org.pangrova.security.core.secret
+      - org.pangrova.security.core.tenant
+    providers:
+      {}
+  pangrova-security-kms-aws:
+    path: pangrova-security/pangrova-security-kms-aws
+    mainPackages:
+      - org.pangrova.security.kms.aws
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-security-api: compile
+      pangrova-security-core: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-security-api
+      test:
+        - pangrova-security-api
+        - pangrova-security-core
+    exportedPackages: []
+    providers:
+      {}
+  pangrova-security-policy-builtin:
+    path: pangrova-security/pangrova-security-policy-builtin
+    mainPackages:
+      - org.pangrova.security.policy.builtin.authorization
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
+      pangrova-persistence-security-api: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-file-api
+        - pangrova-persistence-security-api
+        - pangrova-security-api
+      test:
+        - pangrova-file-api
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.security.policy.builtin.authorization
+    providers:
+      {}
+  pangrova-security-secret-env:
+    path: pangrova-security/pangrova-security-secret-env
+    mainPackages:
       - org.pangrova.security.secret.env
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-security-api
+      test: []
+    exportedPackages:
+      - org.pangrova.security.secret.env
+    providers:
+      {}
+  pangrova-security-secret-file:
+    path: pangrova-security/pangrova-security-secret-file
+    mainPackages:
       - org.pangrova.security.secret.file
-      - org.pangrova.security.spi.jdbc
-      - org.pangrova.security.tenant
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-security-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-security-api
+      test:
+        - pangrova-common
+        - pangrova-security-api
+    exportedPackages:
+      - org.pangrova.security.secret.file
     providers:
       {}
   pangrova-semantic:
@@ -1676,12 +3676,14 @@ artifacts:
       - org.pangrova.semantic.view
     pomDependencies:
       pangrova-common: compile
-      pangrova-metadata: test
-      pangrova-spi: compile
+      pangrova-connector-api: compile
+      pangrova-persistence-jdbc-support: compile
+      pangrova-schema-migrations: test
     imports:
       main:
         - pangrova-common
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-persistence-jdbc-support
       test:
         - pangrova-common
     exportedPackages:
@@ -1690,33 +3692,356 @@ artifacts:
       - org.pangrova.semantic.view
     providers:
       {}
-  pangrova-shuffle-core:
-    path: pangrova-shuffle/pangrova-shuffle-core
+  pangrova-server-coordinator:
+    path: pangrova-server/pangrova-server-coordinator
+    mainPackages:
+      - org.pangrova.server.coordinator.assembly.security.audit
+      - org.pangrova.server.coordinator.bootstrap
+      - org.pangrova.server.coordinator.bootstrap.lifecycle
+      - org.pangrova.server.coordinator.bootstrap.query.audit
+      - org.pangrova.server.coordinator.bootstrap.query.state
+      - org.pangrova.server.coordinator.embedding
+      - org.pangrova.server.coordinator.http
+      - org.pangrova.server.coordinator.lifecycle
+      - org.pangrova.server.coordinator.sql.security
+      - org.pangrova.server.coordinator.sql.tenant
+    pomDependencies:
+      pangrova-ai-api: compile
+      pangrova-ai-control: compile
+      pangrova-batch-api: compile
+      pangrova-client-core: compile
+      pangrova-common: compile
+      pangrova-config: compile
+      pangrova-connector-api: compile
+      pangrova-connector-iceberg: test
+      pangrova-connector-lance: runtime
+      pangrova-connector-paimon: test
+      pangrova-connector-runtime: compile
+      pangrova-coordination-api: compile
+      pangrova-coordination-core: compile
+      pangrova-file-api: compile
+      pangrova-file-core: compile
+      pangrova-file-worker-adapter: compile
+      pangrova-filesystem-api: compile
+      pangrova-generation-api: compile
+      pangrova-generation-core: compile
+      pangrova-governance: compile
+      pangrova-indexing-api: compile
+      pangrova-indexing-codec: compile
+      pangrova-indexing-core: compile
+      pangrova-indexing-strategies-builtin: compile
+      pangrova-materialization-core: compile
+      pangrova-materialization-store-jdbc: compile
+      pangrova-metadata-api: compile
+      pangrova-metadata-core: compile
+      pangrova-observability-api: compile
+      pangrova-observability-core: compile
+      pangrova-observability-noop: compile
+      pangrova-observability-sdk: compile
+      pangrova-operations: compile
+      pangrova-parser-api: compile
+      pangrova-parser-core: compile
+      pangrova-persistence-catalog-api: compile
+      pangrova-persistence-catalog-postgresql: compile
+      pangrova-persistence-coordination-api: compile
+      pangrova-persistence-coordination-memory: compile
+      pangrova-persistence-coordination-postgresql: compile
+      pangrova-persistence-file-api: compile
+      pangrova-persistence-file-postgresql: compile
+      pangrova-persistence-generation-api: compile
+      pangrova-persistence-generation-postgresql: compile
+      pangrova-persistence-indexing-api: compile
+      pangrova-persistence-indexing-postgresql: compile
+      pangrova-persistence-jdbc-api: compile
+      pangrova-persistence-query-api: compile
+      pangrova-persistence-query-memory: compile
+      pangrova-persistence-query-postgresql: compile
+      pangrova-persistence-security-api: compile
+      pangrova-persistence-security-memory: compile
+      pangrova-persistence-security-postgresql: compile
+      pangrova-persistence-table-memory: compile
+      pangrova-persistence-table-postgresql: compile
+      pangrova-planner-core: compile
+      pangrova-protocol: compile
+      pangrova-query-api: compile
+      pangrova-query-core: compile
+      pangrova-scheduler-api: compile
+      pangrova-scheduler-core: compile
+      pangrova-scheduler-strategies-builtin: compile
+      pangrova-security-api: compile
+      pangrova-security-auth-builtin: compile
+      pangrova-security-auth-ldap: compile
+      pangrova-security-auth-oauth2: compile
+      pangrova-security-core: compile
+      pangrova-security-policy-builtin: compile
+      pangrova-security-secret-env: compile
+      pangrova-security-secret-file: compile
+      pangrova-semantic: compile
+      pangrova-shuffle-api: compile
+      pangrova-shuffle-core: compile
+      pangrova-streaming: compile
+      pangrova-table-api: compile
+      pangrova-table-core: compile
+      pangrova-testing-kit: test
+      pangrova-transport-api: compile
+      pangrova-transport-client: test
+      pangrova-transport-flight: compile
+      pangrova-types: compile
+      pangrova-worker-core: test
+      pangrova-worker-native-bridge: test
+    imports:
+      main:
+        - pangrova-ai-control
+        - pangrova-client-core
+        - pangrova-common
+        - pangrova-config
+        - pangrova-connector-api
+        - pangrova-coordination-api
+        - pangrova-coordination-core
+        - pangrova-file-core
+        - pangrova-file-worker-adapter
+        - pangrova-generation-api
+        - pangrova-generation-core
+        - pangrova-governance
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
+        - pangrova-indexing-core
+        - pangrova-indexing-strategies-builtin
+        - pangrova-materialization-core
+        - pangrova-metadata-api
+        - pangrova-metadata-core
+        - pangrova-observability-api
+        - pangrova-observability-core
+        - pangrova-observability-noop
+        - pangrova-observability-sdk
+        - pangrova-operations
+        - pangrova-parser-api
+        - pangrova-parser-core
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-coordination-memory
+        - pangrova-persistence-coordination-postgresql
+        - pangrova-persistence-file-api
+        - pangrova-persistence-file-postgresql
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-indexing-api
+        - pangrova-persistence-indexing-postgresql
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-memory
+        - pangrova-persistence-query-postgresql
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-memory
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-memory
+        - pangrova-persistence-table-postgresql
+        - pangrova-planner-core
+        - pangrova-protocol
+        - pangrova-query-api
+        - pangrova-query-core
+        - pangrova-scheduler-api
+        - pangrova-scheduler-core
+        - pangrova-scheduler-strategies-builtin
+        - pangrova-security-api
+        - pangrova-security-auth-builtin
+        - pangrova-security-auth-ldap
+        - pangrova-security-auth-oauth2
+        - pangrova-security-core
+        - pangrova-security-policy-builtin
+        - pangrova-security-secret-env
+        - pangrova-security-secret-file
+        - pangrova-semantic
+        - pangrova-shuffle-api
+        - pangrova-shuffle-core
+        - pangrova-streaming
+        - pangrova-table-core
+        - pangrova-transport-api
+        - pangrova-transport-flight
+        - pangrova-types
+      test:
+        - pangrova-batch-api
+        - pangrova-client-core
+        - pangrova-common
+        - pangrova-config
+        - pangrova-connector-api
+        - pangrova-connector-lance
+        - pangrova-coordination-api
+        - pangrova-coordination-core
+        - pangrova-filesystem-api
+        - pangrova-generation-api
+        - pangrova-generation-core
+        - pangrova-governance
+        - pangrova-indexing-api
+        - pangrova-materialization-core
+        - pangrova-metadata-api
+        - pangrova-metadata-core
+        - pangrova-observability-api
+        - pangrova-observability-noop
+        - pangrova-observability-sdk
+        - pangrova-operations
+        - pangrova-parser-api
+        - pangrova-parser-core
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-coordination-memory
+        - pangrova-persistence-coordination-postgresql
+        - pangrova-persistence-file-postgresql
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-indexing-api
+        - pangrova-persistence-indexing-postgresql
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-memory
+        - pangrova-persistence-query-postgresql
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-memory
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-postgresql
+        - pangrova-planner-core
+        - pangrova-protocol
+        - pangrova-query-api
+        - pangrova-query-core
+        - pangrova-scheduler-api
+        - pangrova-scheduler-core
+        - pangrova-scheduler-strategies-builtin
+        - pangrova-security-api
+        - pangrova-security-auth-oauth2
+        - pangrova-security-core
+        - pangrova-security-policy-builtin
+        - pangrova-streaming
+        - pangrova-table-api
+        - pangrova-table-core
+        - pangrova-testing-kit
+        - pangrova-transport-api
+        - pangrova-transport-client
+        - pangrova-transport-flight
+        - pangrova-types
+        - pangrova-worker-core
+        - pangrova-worker-native-bridge
+    exportedPackages:
+      - org.pangrova.server.coordinator.bootstrap
+      - org.pangrova.server.coordinator.embedding
+      - org.pangrova.server.coordinator.http
+      - org.pangrova.server.coordinator.sql.security
+      - org.pangrova.server.coordinator.sql.tenant
+    providers:
+      {}
+  pangrova-shuffle-api:
+    path: pangrova-shuffle/pangrova-shuffle-api
     mainPackages:
       - org.pangrova.shuffle.api
-      - org.pangrova.shuffle.core
-      - org.pangrova.shuffle.exchange
-      - org.pangrova.shuffle.scheduling
-      - org.pangrova.shuffle.spool
-      - org.pangrova.shuffle.spool.localfs
+      - org.pangrova.shuffle.api.capability
+      - org.pangrova.shuffle.api.identity
+      - org.pangrova.shuffle.api.spool
+      - org.pangrova.shuffle.spi.spool
+      - org.pangrova.shuffle.spi.worker
     pomDependencies:
       pangrova-common: compile
-      pangrova-spi: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-spi
       test:
-        - pangrova-spi
+        - pangrova-common
     exportedPackages:
       - org.pangrova.shuffle.api
+      - org.pangrova.shuffle.api.capability
+      - org.pangrova.shuffle.api.identity
+      - org.pangrova.shuffle.api.spool
+      - org.pangrova.shuffle.spi.spool
+      - org.pangrova.shuffle.spi.worker
+    providers:
+      {}
+  pangrova-shuffle-core:
+    path: pangrova-shuffle/pangrova-shuffle-core
+    mainPackages:
       - org.pangrova.shuffle.core
+      - org.pangrova.shuffle.core.skew
       - org.pangrova.shuffle.exchange
       - org.pangrova.shuffle.scheduling
-      - org.pangrova.shuffle.spool
+    pomDependencies:
+      pangrova-batch-api: compile
+      pangrova-common: compile
+      pangrova-shuffle-api: compile
+      pangrova-shuffle-local: test
+    imports:
+      main:
+        - pangrova-batch-api
+        - pangrova-common
+        - pangrova-shuffle-api
+      test:
+        - pangrova-batch-api
+        - pangrova-shuffle-api
+        - pangrova-shuffle-local
+    exportedPackages:
+      - org.pangrova.shuffle.core.skew
+      - org.pangrova.shuffle.exchange
+      - org.pangrova.shuffle.scheduling
     providers:
-      "org.pangrova.shuffle.spool.SpoolStoreFactory":
-        - org.pangrova.shuffle.spool.localfs.LocalFsSpoolStoreFactory
+      {}
+  pangrova-shuffle-local:
+    path: pangrova-shuffle/pangrova-shuffle-local
+    mainPackages:
+      - org.pangrova.shuffle.local.spool
+    pomDependencies:
+      pangrova-common: test
+      pangrova-shuffle-api: compile
+    imports:
+      main:
+        - pangrova-shuffle-api
+      test:
+        - pangrova-common
+        - pangrova-shuffle-api
+    exportedPackages:
+      - org.pangrova.shuffle.local.spool
+    providers:
+      "org.pangrova.shuffle.spi.spool.SpoolStoreFactory":
+        - org.pangrova.shuffle.local.spool.LocalFsSpoolStoreFactory
+  pangrova-shuffle-native-adapter:
+    path: pangrova-shuffle/pangrova-shuffle-native-adapter
+    mainPackages:
+      - org.pangrova.shuffle.adapter.nativebridge
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-protocol: compile
+      pangrova-shuffle-api: compile
+      pangrova-worker-native-bridge: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-protocol
+        - pangrova-shuffle-api
+        - pangrova-worker-native-bridge
+      test:
+        - pangrova-common
+        - pangrova-protocol
+        - pangrova-shuffle-api
+        - pangrova-worker-native-bridge
+    exportedPackages:
+      - org.pangrova.shuffle.adapter.nativebridge
+    providers:
+      {}
+  pangrova-shuffle-pangrova:
+    path: pangrova-shuffle/pangrova-shuffle-pangrova
+    mainPackages:
+      - org.pangrova.shuffle.pangrova.client
+      - org.pangrova.shuffle.pangrova.client.security
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-protocol: compile
+      pangrova-shuffle-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-protocol
+        - pangrova-shuffle-api
+      test:
+        - pangrova-protocol
+        - pangrova-shuffle-api
+    exportedPackages:
+      - org.pangrova.shuffle.pangrova.client
+    providers:
+      {}
   pangrova-shuffle-service:
     path: pangrova-shuffle/pangrova-shuffle-service
     mainPackages:
@@ -1732,191 +4057,17 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-protocol: compile
-      pangrova-shuffle-core: compile
+      pangrova-shuffle-api: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-protocol
-        - pangrova-shuffle-core
       test:
         - pangrova-protocol
-        - pangrova-shuffle-core
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.shuffle.config
       - org.pangrova.shuffle.server
-    providers:
-      {}
-  pangrova-spi:
-    path: pangrova-spi
-    mainPackages:
-      - org.pangrova.spi.ai.capability
-      - org.pangrova.spi.ai.embedding
-      - org.pangrova.spi.ai.error
-      - org.pangrova.spi.ai.invocation
-      - org.pangrova.spi.ai.model
-      - org.pangrova.spi.ai.runtime
-      - org.pangrova.spi.connector
-      - org.pangrova.spi.connector.base
-      - org.pangrova.spi.connector.base.protocol
-      - org.pangrova.spi.connector.base.split
-      - org.pangrova.spi.connector.clustering
-      - org.pangrova.spi.connector.coordination
-      - org.pangrova.spi.connector.data
-      - org.pangrova.spi.connector.data.block
-      - org.pangrova.spi.connector.data.page
-      - org.pangrova.spi.connector.data.type
-      - org.pangrova.spi.connector.data.type.mapping
-      - org.pangrova.spi.connector.data.type.primitive
-      - org.pangrova.spi.connector.data.type.primitive.temporal
-      - org.pangrova.spi.connector.data.value
-      - org.pangrova.spi.connector.data.write
-      - org.pangrova.spi.connector.data.write.model
-      - org.pangrova.spi.connector.index
-      - org.pangrova.spi.connector.index.predicate
-      - org.pangrova.spi.connector.index.statistics
-      - org.pangrova.spi.connector.materialization
-      - org.pangrova.spi.connector.metadata
-      - org.pangrova.spi.connector.metadata.table
-      - org.pangrova.spi.connector.plugin
-      - org.pangrova.spi.coordination
-      - org.pangrova.spi.file.access
-      - org.pangrova.spi.file.authority
-      - org.pangrova.spi.file.copy
-      - org.pangrova.spi.file.directory
-      - org.pangrova.spi.file.space
-      - org.pangrova.spi.file.storage
-      - org.pangrova.spi.function.aggregate
-      - org.pangrova.spi.function.metadata
-      - org.pangrova.spi.function.registry
-      - org.pangrova.spi.function.runtime
-      - org.pangrova.spi.function.scalar
-      - org.pangrova.spi.function.table
-      - org.pangrova.spi.generation
-      - org.pangrova.spi.generation.execution
-      - org.pangrova.spi.generation.execution.template
-      - org.pangrova.spi.generation.format
-      - org.pangrova.spi.generation.job
-      - org.pangrova.spi.generation.manifest
-      - org.pangrova.spi.indexing
-      - org.pangrova.spi.indexing.data
-      - org.pangrova.spi.indexing.data.bitmap
-      - org.pangrova.spi.indexing.data.spatial
-      - org.pangrova.spi.indexing.data.text
-      - org.pangrova.spi.indexing.descriptor
-      - org.pangrova.spi.indexing.eval
-      - org.pangrova.spi.indexing.pruning
-      - org.pangrova.spi.indexing.publish
-      - org.pangrova.spi.indexing.state
-      - org.pangrova.spi.indexing.statistics
-      - org.pangrova.spi.indexing.vector
-      - org.pangrova.spi.observability
-      - org.pangrova.spi.observability.event
-      - org.pangrova.spi.observability.profiling
-      - org.pangrova.spi.query.audit
-      - org.pangrova.spi.query.coordination
-      - org.pangrova.spi.query.identity
-      - org.pangrova.spi.query.lineage
-      - org.pangrova.spi.query.state
-      - org.pangrova.spi.query.transaction
-      - org.pangrova.spi.security
-      - org.pangrova.spi.security.audit
-      - org.pangrova.spi.security.authn
-      - org.pangrova.spi.security.authz
-      - org.pangrova.spi.security.event
-      - org.pangrova.spi.security.mask
-      - org.pangrova.spi.security.policy
-      - org.pangrova.spi.security.rowfilter
-      - org.pangrova.spi.security.secret
-      - org.pangrova.spi.security.session
-      - org.pangrova.spi.security.tenant
-    pomDependencies:
-      pangrova-common: compile
-      pangrova-filesystem-api: compile
-    imports:
-      main:
-        - pangrova-common
-        - pangrova-filesystem-api
-      test:
-        - pangrova-common
-        - pangrova-filesystem-api
-    exportedPackages:
-      - org.pangrova.spi.ai.capability
-      - org.pangrova.spi.ai.embedding
-      - org.pangrova.spi.ai.error
-      - org.pangrova.spi.ai.invocation
-      - org.pangrova.spi.ai.model
-      - org.pangrova.spi.ai.runtime
-      - org.pangrova.spi.connector
-      - org.pangrova.spi.connector.base
-      - org.pangrova.spi.connector.clustering
-      - org.pangrova.spi.connector.coordination
-      - org.pangrova.spi.connector.data
-      - org.pangrova.spi.connector.data.page
-      - org.pangrova.spi.connector.data.type
-      - org.pangrova.spi.connector.data.type.mapping
-      - org.pangrova.spi.connector.data.type.primitive
-      - org.pangrova.spi.connector.data.type.primitive.temporal
-      - org.pangrova.spi.connector.data.value
-      - org.pangrova.spi.connector.data.write
-      - org.pangrova.spi.connector.data.write.model
-      - org.pangrova.spi.connector.index
-      - org.pangrova.spi.connector.index.predicate
-      - org.pangrova.spi.connector.index.statistics
-      - org.pangrova.spi.connector.materialization
-      - org.pangrova.spi.connector.metadata
-      - org.pangrova.spi.connector.metadata.table
-      - org.pangrova.spi.connector.plugin
-      - org.pangrova.spi.coordination
-      - org.pangrova.spi.file.access
-      - org.pangrova.spi.file.authority
-      - org.pangrova.spi.file.copy
-      - org.pangrova.spi.file.directory
-      - org.pangrova.spi.file.space
-      - org.pangrova.spi.file.storage
-      - org.pangrova.spi.function.aggregate
-      - org.pangrova.spi.function.metadata
-      - org.pangrova.spi.function.registry
-      - org.pangrova.spi.function.runtime
-      - org.pangrova.spi.function.scalar
-      - org.pangrova.spi.generation
-      - org.pangrova.spi.generation.execution
-      - org.pangrova.spi.generation.execution.template
-      - org.pangrova.spi.generation.format
-      - org.pangrova.spi.generation.job
-      - org.pangrova.spi.generation.manifest
-      - org.pangrova.spi.indexing
-      - org.pangrova.spi.indexing.data
-      - org.pangrova.spi.indexing.data.bitmap
-      - org.pangrova.spi.indexing.data.spatial
-      - org.pangrova.spi.indexing.data.text
-      - org.pangrova.spi.indexing.descriptor
-      - org.pangrova.spi.indexing.eval
-      - org.pangrova.spi.indexing.pruning
-      - org.pangrova.spi.indexing.publish
-      - org.pangrova.spi.indexing.state
-      - org.pangrova.spi.indexing.statistics
-      - org.pangrova.spi.indexing.vector
-      - org.pangrova.spi.observability
-      - org.pangrova.spi.observability.event
-      - org.pangrova.spi.observability.profiling
-      - org.pangrova.spi.query.audit
-      - org.pangrova.spi.query.coordination
-      - org.pangrova.spi.query.identity
-      - org.pangrova.spi.query.lineage
-      - org.pangrova.spi.query.state
-      - org.pangrova.spi.query.transaction
-      - org.pangrova.spi.security
-      - org.pangrova.spi.security.audit
-      - org.pangrova.spi.security.authn
-      - org.pangrova.spi.security.authz
-      - org.pangrova.spi.security.event
-      - org.pangrova.spi.security.mask
-      - org.pangrova.spi.security.policy
-      - org.pangrova.spi.security.rowfilter
-      - org.pangrova.spi.security.secret
-      - org.pangrova.spi.security.session
-      - org.pangrova.spi.security.tenant
     providers:
       {}
   pangrova-standalone:
@@ -1928,11 +4079,12 @@ artifacts:
       pangrova-config: compile
       pangrova-coordination-core: compile
       pangrova-coordination-zookeeper: compile
+      pangrova-server-coordinator: compile
       pangrova-worker-core: compile
     imports:
       main:
         - pangrova-config
-        - pangrova-coordination-core
+        - pangrova-server-coordinator
         - pangrova-worker-core
       test: []
     exportedPackages: []
@@ -1966,19 +4118,29 @@ artifacts:
       - org.pangrova.streaming.writer.lake
       - org.pangrova.streaming.writer.mergetree
     pomDependencies:
+      pangrova-batch-api: compile
       pangrova-common: compile
-      pangrova-parser: compile
-      pangrova-spi: compile
+      pangrova-connector-api: compile
+      pangrova-observability-api: compile
+      pangrova-parser-api: compile
+      pangrova-persistence-jdbc-support: compile
       pangrova-testing-kit: test
+      pangrova-types: compile
     imports:
       main:
+        - pangrova-batch-api
         - pangrova-common
-        - pangrova-parser
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-observability-api
+        - pangrova-parser-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-types
       test:
         - pangrova-common
-        - pangrova-spi
+        - pangrova-connector-api
+        - pangrova-observability-api
         - pangrova-testing-kit
+        - pangrova-types
     exportedPackages:
       - org.pangrova.streaming.api.cdc
       - org.pangrova.streaming.api.checkpoint
@@ -2001,45 +4163,69 @@ artifacts:
       - org.pangrova.streaming.writer.lake
     providers:
       {}
-  pangrova-table:
-    path: pangrova-table
+  pangrova-table-api:
+    path: pangrova-table/pangrova-table-api
     mainPackages:
-      - org.pangrova.table.api.control
-      - org.pangrova.table.api.governancebinding
+      - org.pangrova.table.api.identity
       - org.pangrova.table.api.maintenance
-      - org.pangrova.table.api.policy
+      - org.pangrova.table.api.observation
+      - org.pangrova.table.api.ownership
+      - org.pangrova.table.api.policybinding
+      - org.pangrova.table.api.rename
       - org.pangrova.table.api.statistics
-      - org.pangrova.table.control
-      - org.pangrova.table.maintenance
-      - org.pangrova.table.statistics
-      - org.pangrova.table.store.jdbc.control
-      - org.pangrova.table.store.memory.control
     pomDependencies:
       pangrova-common: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-security: compile
-      pangrova-spi: compile
-      pangrova-testing-kit: test
+      pangrova-connector-api: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-persistence-jdbc
-        - pangrova-spi
+        - pangrova-connector-api
+      test: []
+    exportedPackages:
+      - org.pangrova.table.api.identity
+      - org.pangrova.table.api.maintenance
+      - org.pangrova.table.api.observation
+      - org.pangrova.table.api.ownership
+      - org.pangrova.table.api.policybinding
+      - org.pangrova.table.api.rename
+      - org.pangrova.table.api.statistics
+    providers:
+      {}
+  pangrova-table-core:
+    path: pangrova-table/pangrova-table-core
+    mainPackages:
+      - org.pangrova.table.core.config
+      - org.pangrova.table.core.maintenance
+      - org.pangrova.table.core.ownership
+      - org.pangrova.table.core.policybinding
+      - org.pangrova.table.core.statistics
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-persistence-table-api: compile
+      pangrova-persistence-table-memory: test
+      pangrova-security-api: compile
+      pangrova-table-api: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-connector-api
+        - pangrova-persistence-table-api
+        - pangrova-security-api
+        - pangrova-table-api
       test:
         - pangrova-common
-        - pangrova-spi
-        - pangrova-testing-kit
+        - pangrova-connector-api
+        - pangrova-persistence-table-api
+        - pangrova-persistence-table-memory
+        - pangrova-security-api
+        - pangrova-table-api
     exportedPackages:
-      - org.pangrova.table.api.control
-      - org.pangrova.table.api.governancebinding
-      - org.pangrova.table.api.maintenance
-      - org.pangrova.table.api.policy
-      - org.pangrova.table.api.statistics
-      - org.pangrova.table.control
-      - org.pangrova.table.maintenance
-      - org.pangrova.table.statistics
-      - org.pangrova.table.store.jdbc.control
-      - org.pangrova.table.store.memory.control
+      - org.pangrova.table.core.config
+      - org.pangrova.table.core.maintenance
+      - org.pangrova.table.core.ownership
+      - org.pangrova.table.core.policybinding
+      - org.pangrova.table.core.statistics
     providers:
       {}
   pangrova-testing-benchmark:
@@ -2049,12 +4235,13 @@ artifacts:
       - org.pangrova.testing.benchmark.jmh
     pomDependencies:
       pangrova-common: compile
-      pangrova-parser: compile
+      pangrova-parser-api: compile
+      pangrova-parser-core: compile
       pangrova-testing-kit: compile
     imports:
       main:
         - pangrova-common
-        - pangrova-parser
+        - pangrova-parser-core
       test: []
     exportedPackages: []
     providers:
@@ -2083,90 +4270,189 @@ artifacts:
       - org.pangrova.testing.integration.e2e.runner
       - org.pangrova.testing.integration.e2e.setup
     pomDependencies:
+      pangrova-ai-api: test
       pangrova-ai-control: compile
       pangrova-ai-worker: test
+      pangrova-batch-api: compile
       pangrova-client-cli: test
       pangrova-client-core: test
       pangrova-client-jdbc: test
       pangrova-common: compile
       pangrova-config: compile
+      pangrova-connector-api: compile
       pangrova-connector-iceberg: test
       pangrova-connector-lance: test
       pangrova-connector-paimon: test
       pangrova-connector-runtime: test
+      pangrova-coordination-api: test
       pangrova-coordination-core: test
-      pangrova-file: compile
+      pangrova-file-api: test
+      pangrova-file-core: compile
+      pangrova-file-worker-adapter: test
       pangrova-filesystem-api: test
       pangrova-filesystem-local: test
       pangrova-filesystem-s3: test
+      pangrova-function-api: test
+      pangrova-generation-api: test
+      pangrova-generation-codec: test
       pangrova-generation-core: compile
       pangrova-governance: test
+      pangrova-indexing-api: test
+      pangrova-indexing-codec: test
       pangrova-indexing-core: test
+      pangrova-indexing-strategies-builtin: test
       pangrova-materialization-core: compile
       pangrova-materialization-store-jdbc: compile
-      pangrova-metadata: compile
+      pangrova-metadata-api: compile
+      pangrova-metadata-core: compile
+      pangrova-observability-api: test
+      pangrova-observability-core: test
+      pangrova-observability-noop: test
       pangrova-observability-sdk: compile
       pangrova-operations: compile
-      pangrova-parser: test
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-persistence-memory: test
-      pangrova-planner: test
+      pangrova-parser-api: test
+      pangrova-persistence-catalog-api: test
+      pangrova-persistence-catalog-postgresql: test
+      pangrova-persistence-coordination-api: test
+      pangrova-persistence-coordination-memory: test
+      pangrova-persistence-coordination-postgresql: test
+      pangrova-persistence-file-api: test
+      pangrova-persistence-file-postgresql: test
+      pangrova-persistence-generation-api: test
+      pangrova-persistence-generation-postgresql: test
+      pangrova-persistence-indexing-api: test
+      pangrova-persistence-indexing-postgresql: test
+      pangrova-persistence-jdbc-api: test
+      pangrova-persistence-jdbc-support: test
+      pangrova-persistence-query-api: test
+      pangrova-persistence-query-memory: test
+      pangrova-persistence-query-postgresql: test
+      pangrova-persistence-security-api: test
+      pangrova-persistence-security-memory: test
+      pangrova-persistence-security-postgresql: test
+      pangrova-persistence-table-postgresql: test
+      pangrova-planner-core: test
       pangrova-protocol: test
-      pangrova-query: compile
-      pangrova-scheduler: compile
-      pangrova-security: test
+      pangrova-query-api: test
+      pangrova-query-core: compile
+      pangrova-scheduler-api: test
+      pangrova-scheduler-core: compile
+      pangrova-scheduler-strategies-builtin: test
+      pangrova-security-api: test
+      pangrova-security-auth-builtin: test
+      pangrova-security-auth-ldap: test
+      pangrova-security-auth-oauth2: test
+      pangrova-security-codec: test
+      pangrova-security-core: test
+      pangrova-security-policy-builtin: test
+      pangrova-server-coordinator: test
+      pangrova-shuffle-api: test
       pangrova-shuffle-core: compile
+      pangrova-shuffle-native-adapter: test
+      pangrova-shuffle-pangrova: test
       pangrova-shuffle-service: test
-      pangrova-spi: compile
       pangrova-streaming: test
-      pangrova-table: compile
+      pangrova-table-api: test
+      pangrova-table-core: compile
       pangrova-testing-kit: compile
-      pangrova-transport: test
+      pangrova-transport-api: test
+      pangrova-transport-client: test
+      pangrova-transport-flight: test
+      pangrova-types: compile
       pangrova-worker-core: test
       pangrova-worker-native-bridge: test
     imports:
       main:
-        - pangrova-metadata
-        - pangrova-spi
+        - pangrova-batch-api
+        - pangrova-connector-api
+        - pangrova-metadata-api
+        - pangrova-metadata-core
         - pangrova-testing-kit
+        - pangrova-types
       test:
+        - pangrova-ai-api
         - pangrova-ai-control
         - pangrova-ai-worker
         - pangrova-client-cli
         - pangrova-client-core
         - pangrova-common
         - pangrova-config
+        - pangrova-connector-api
         - pangrova-connector-iceberg
         - pangrova-connector-lance
         - pangrova-connector-runtime
+        - pangrova-coordination-api
         - pangrova-coordination-core
-        - pangrova-file
+        - pangrova-file-api
+        - pangrova-file-core
+        - pangrova-file-worker-adapter
         - pangrova-filesystem-api
         - pangrova-filesystem-local
         - pangrova-filesystem-s3
+        - pangrova-function-api
+        - pangrova-generation-api
+        - pangrova-generation-codec
         - pangrova-generation-core
         - pangrova-governance
+        - pangrova-indexing-api
+        - pangrova-indexing-codec
         - pangrova-indexing-core
+        - pangrova-indexing-strategies-builtin
         - pangrova-materialization-core
         - pangrova-materialization-store-jdbc
-        - pangrova-metadata
+        - pangrova-metadata-api
+        - pangrova-metadata-core
+        - pangrova-observability-api
+        - pangrova-observability-noop
         - pangrova-observability-sdk
-        - pangrova-parser
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-persistence-memory
-        - pangrova-planner
+        - pangrova-parser-api
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-coordination-memory
+        - pangrova-persistence-coordination-postgresql
+        - pangrova-persistence-file-api
+        - pangrova-persistence-file-postgresql
+        - pangrova-persistence-generation-api
+        - pangrova-persistence-generation-postgresql
+        - pangrova-persistence-indexing-api
+        - pangrova-persistence-indexing-postgresql
+        - pangrova-persistence-jdbc-api
+        - pangrova-persistence-jdbc-support
+        - pangrova-persistence-query-api
+        - pangrova-persistence-query-memory
+        - pangrova-persistence-query-postgresql
+        - pangrova-persistence-security-api
+        - pangrova-persistence-security-memory
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-postgresql
+        - pangrova-planner-core
         - pangrova-protocol
-        - pangrova-scheduler
-        - pangrova-security
+        - pangrova-query-api
+        - pangrova-scheduler-api
+        - pangrova-scheduler-core
+        - pangrova-scheduler-strategies-builtin
+        - pangrova-security-api
+        - pangrova-security-auth-builtin
+        - pangrova-security-auth-ldap
+        - pangrova-security-auth-oauth2
+        - pangrova-security-codec
+        - pangrova-security-core
+        - pangrova-security-policy-builtin
+        - pangrova-server-coordinator
+        - pangrova-shuffle-api
         - pangrova-shuffle-core
+        - pangrova-shuffle-native-adapter
+        - pangrova-shuffle-pangrova
         - pangrova-shuffle-service
-        - pangrova-spi
         - pangrova-streaming
-        - pangrova-table
+        - pangrova-table-api
+        - pangrova-table-core
         - pangrova-testing-kit
-        - pangrova-transport
+        - pangrova-transport-api
+        - pangrova-transport-client
+        - pangrova-transport-flight
+        - pangrova-types
         - pangrova-worker-core
         - pangrova-worker-native-bridge
     exportedPackages: []
@@ -2177,70 +4463,177 @@ artifacts:
     mainPackages:
       - org.pangrova.testing.testkit
       - org.pangrova.testing.testkit.architecture
+      - org.pangrova.testing.testkit.coordination.admission
+      - org.pangrova.testing.testkit.file
       - org.pangrova.testing.testkit.function
       - org.pangrova.testing.testkit.lineage
+      - org.pangrova.testing.testkit.metadata
       - org.pangrova.testing.testkit.network
       - org.pangrova.testing.testkit.postgres
       - org.pangrova.testing.testkit.result
       - org.pangrova.testing.testkit.security
+      - org.pangrova.testing.testkit.security.event
+      - org.pangrova.testing.testkit.security.mask
+      - org.pangrova.testing.testkit.security.policy
+      - org.pangrova.testing.testkit.security.rowfilter
     pomDependencies:
       pangrova-client-core: compile
       pangrova-common: compile
+      pangrova-connector-api: compile
+      pangrova-file-api: compile
+      pangrova-filesystem-api: compile
+      pangrova-metadata-api: compile
+      pangrova-observability-api: compile
+      pangrova-observability-noop: compile
       pangrova-observability-sdk: compile
+      pangrova-persistence-catalog-api: compile
+      pangrova-persistence-coordination-api: compile
+      pangrova-persistence-file-api: compile
+      pangrova-persistence-security-api: compile
       pangrova-protocol: compile
+      pangrova-query-api: test
       pangrova-schema-migrations: runtime
+      pangrova-security-api: compile
+      pangrova-shuffle-api: compile
       pangrova-shuffle-core: compile
-      pangrova-spi: compile
+      pangrova-transport-api: compile
+      pangrova-types: compile
     imports:
       main:
         - pangrova-client-core
         - pangrova-common
+        - pangrova-connector-api
+        - pangrova-file-api
+        - pangrova-filesystem-api
+        - pangrova-metadata-api
+        - pangrova-observability-api
+        - pangrova-observability-noop
         - pangrova-observability-sdk
+        - pangrova-persistence-catalog-api
+        - pangrova-persistence-coordination-api
+        - pangrova-persistence-file-api
+        - pangrova-persistence-security-api
         - pangrova-protocol
+        - pangrova-security-api
+        - pangrova-shuffle-api
         - pangrova-shuffle-core
-        - pangrova-spi
+        - pangrova-transport-api
+        - pangrova-types
       test:
         - pangrova-common
+        - pangrova-file-api
+        - pangrova-filesystem-api
+        - pangrova-persistence-security-api
+        - pangrova-security-api
     exportedPackages:
       - org.pangrova.testing.testkit
+      - org.pangrova.testing.testkit.coordination.admission
+      - org.pangrova.testing.testkit.file
       - org.pangrova.testing.testkit.function
       - org.pangrova.testing.testkit.lineage
+      - org.pangrova.testing.testkit.metadata
       - org.pangrova.testing.testkit.network
       - org.pangrova.testing.testkit.postgres
       - org.pangrova.testing.testkit.result
       - org.pangrova.testing.testkit.security
+      - org.pangrova.testing.testkit.security.event
+      - org.pangrova.testing.testkit.security.mask
+      - org.pangrova.testing.testkit.security.policy
+      - org.pangrova.testing.testkit.security.rowfilter
     providers:
       {}
-  pangrova-transport:
-    path: pangrova-transport
+  pangrova-transport-api:
+    path: pangrova-transport/pangrova-transport-api
     mainPackages:
-      - org.pangrova.client.transport.http
-      - org.pangrova.client.transport.security
-      - org.pangrova.transport
-      - org.pangrova.transport.security
+      - org.pangrova.transport.api.result
     pomDependencies:
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.transport.api.result
+    providers:
+      {}
+  pangrova-transport-client:
+    path: pangrova-transport/pangrova-transport-client
+    mainPackages:
+      - org.pangrova.transport.client
+      - org.pangrova.transport.client.authentication
+      - org.pangrova.transport.client.http
+      - org.pangrova.transport.client.security
+    pomDependencies:
+      pangrova-batch-api: compile
       pangrova-client-core: compile
       pangrova-common: compile
       pangrova-protocol: compile
-      pangrova-spi: compile
       pangrova-testing-kit: test
+      pangrova-transport-api: compile
+      pangrova-types: compile
     imports:
       main:
+        - pangrova-batch-api
         - pangrova-client-core
         - pangrova-common
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-transport-api
+        - pangrova-types
       test:
+        - pangrova-batch-api
         - pangrova-client-core
         - pangrova-common
         - pangrova-protocol
-        - pangrova-spi
         - pangrova-testing-kit
+        - pangrova-transport-api
+        - pangrova-types
     exportedPackages:
-      - org.pangrova.client.transport.http
-      - org.pangrova.client.transport.security
-      - org.pangrova.transport
-      - org.pangrova.transport.security
+      - org.pangrova.transport.client
+      - org.pangrova.transport.client.authentication
+      - org.pangrova.transport.client.http
+      - org.pangrova.transport.client.security
+    providers:
+      {}
+  pangrova-transport-flight:
+    path: pangrova-transport/pangrova-transport-flight
+    mainPackages:
+      - org.pangrova.transport.flight
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-protocol: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-protocol
+      test:
+        - pangrova-common
+        - pangrova-protocol
+    exportedPackages:
+      - org.pangrova.transport.flight
+    providers:
+      {}
+  pangrova-types:
+    path: pangrova-types
+    mainPackages:
+      - org.pangrova.types
+      - org.pangrova.types.mapping
+      - org.pangrova.types.primitive
+      - org.pangrova.types.primitive.temporal
+      - org.pangrova.types.value
+    pomDependencies:
+      pangrova-common: compile
+    imports:
+      main:
+        - pangrova-common
+      test:
+        - pangrova-common
+    exportedPackages:
+      - org.pangrova.types
+      - org.pangrova.types.mapping
+      - org.pangrova.types.primitive
+      - org.pangrova.types.primitive.temporal
+      - org.pangrova.types.value
     providers:
       {}
   pangrova-worker-core:
@@ -2260,9 +4653,6 @@ artifacts:
       - org.pangrova.worker.dataset
       - org.pangrova.worker.embedding
       - org.pangrova.worker.exchange
-      - org.pangrova.worker.exchange.codec
-      - org.pangrova.worker.exchange.remote
-      - org.pangrova.worker.exchange.remote.security
       - org.pangrova.worker.exchange.source
       - org.pangrova.worker.exchange.transport
       - org.pangrova.worker.execution
@@ -2282,56 +4672,94 @@ artifacts:
       - org.pangrova.worker.shuffle
       - org.pangrova.worker.split
       - org.pangrova.worker.task
-      - org.pangrova.worker.task.index
       - org.pangrova.worker.task.memory
       - org.pangrova.worker.task.report
       - org.pangrova.worker.task.state
       - org.pangrova.worker.transport
     pomDependencies:
+      pangrova-ai-api: compile
+      pangrova-ai-control: test
+      pangrova-batch-api: compile
       pangrova-client-core: compile
       pangrova-common: compile
       pangrova-config: compile
+      pangrova-connector-api: compile
       pangrova-connector-lance: runtime
       pangrova-connector-runtime: compile
+      pangrova-file-api: compile
       pangrova-filesystem-api: compile
       pangrova-filesystem-local: compile
       pangrova-filesystem-s3: compile
+      pangrova-function-api: compile
+      pangrova-indexing-api: compile
+      pangrova-observability-api: compile
+      pangrova-observability-core: compile
+      pangrova-observability-noop: compile
       pangrova-observability-sdk: compile
       pangrova-operations: compile
-      pangrova-persistence-api: compile
       pangrova-protocol: compile
-      pangrova-security: compile
+      pangrova-query-api: compile
+      pangrova-security-api: compile
+      pangrova-shuffle-api: compile
       pangrova-shuffle-core: compile
-      pangrova-spi: compile
+      pangrova-shuffle-native-adapter: compile
+      pangrova-shuffle-pangrova: compile
       pangrova-testing-kit: test
+      pangrova-transport-api: compile
+      pangrova-transport-flight: test
+      pangrova-types: compile
       pangrova-worker-native-bridge: compile
     imports:
       main:
+        - pangrova-ai-api
+        - pangrova-batch-api
         - pangrova-client-core
         - pangrova-common
         - pangrova-config
+        - pangrova-connector-api
+        - pangrova-file-api
         - pangrova-filesystem-api
         - pangrova-filesystem-local
         - pangrova-filesystem-s3
+        - pangrova-function-api
+        - pangrova-observability-api
+        - pangrova-observability-core
+        - pangrova-observability-noop
         - pangrova-observability-sdk
-        - pangrova-persistence-api
         - pangrova-protocol
+        - pangrova-security-api
+        - pangrova-shuffle-api
         - pangrova-shuffle-core
-        - pangrova-spi
+        - pangrova-shuffle-native-adapter
+        - pangrova-shuffle-pangrova
+        - pangrova-transport-api
+        - pangrova-types
         - pangrova-worker-native-bridge
       test:
+        - pangrova-ai-api
+        - pangrova-ai-control
+        - pangrova-batch-api
         - pangrova-client-core
         - pangrova-common
         - pangrova-config
+        - pangrova-connector-api
         - pangrova-filesystem-api
         - pangrova-filesystem-local
         - pangrova-filesystem-s3
+        - pangrova-function-api
+        - pangrova-observability-api
+        - pangrova-observability-noop
         - pangrova-observability-sdk
-        - pangrova-persistence-api
         - pangrova-protocol
+        - pangrova-query-api
+        - pangrova-security-api
+        - pangrova-shuffle-api
         - pangrova-shuffle-core
-        - pangrova-spi
+        - pangrova-shuffle-native-adapter
+        - pangrova-shuffle-pangrova
         - pangrova-testing-kit
+        - pangrova-transport-flight
+        - pangrova-types
         - pangrova-worker-native-bridge
     exportedPackages:
       - org.pangrova.testing.nativefixture
@@ -2339,12 +4767,11 @@ artifacts:
       - org.pangrova.worker.bootstrap.config
       - org.pangrova.worker.bootstrap.ownership
       - org.pangrova.worker.bootstrap.phase
+      - org.pangrova.worker.bootstrap.registration
       - org.pangrova.worker.copy
       - org.pangrova.worker.dataset
       - org.pangrova.worker.embedding
       - org.pangrova.worker.exchange
-      - org.pangrova.worker.exchange.codec
-      - org.pangrova.worker.exchange.remote
       - org.pangrova.worker.execution
       - org.pangrova.worker.file
       - org.pangrova.worker.heartbeat
@@ -2357,7 +4784,6 @@ artifacts:
       - org.pangrova.worker.resource.tenant
       - org.pangrova.worker.resource.thread
       - org.pangrova.worker.result
-      - org.pangrova.worker.shuffle
       - org.pangrova.worker.task
       - org.pangrova.worker.task.memory
       - org.pangrova.worker.task.state
@@ -2375,25 +4801,42 @@ artifacts:
       - org.pangrova.worker.nativebridge.jni.write.secret.env
       - org.pangrova.worker.nativebridge.memory
     pomDependencies:
+      pangrova-batch-api: compile
+      pangrova-batch-arrow: compile
       pangrova-common: compile
+      pangrova-connector-api: compile
       pangrova-connector-runtime: compile
+      pangrova-function-api: compile
+      pangrova-observability-api: compile
+      pangrova-observability-noop: test
       pangrova-observability-sdk: test
       pangrova-protocol: compile
-      pangrova-security: compile
-      pangrova-spi: compile
+      pangrova-security-api: compile
       pangrova-testing-kit: test
+      pangrova-types: compile
     imports:
       main:
+        - pangrova-batch-api
+        - pangrova-batch-arrow
         - pangrova-common
+        - pangrova-connector-api
         - pangrova-connector-runtime
+        - pangrova-function-api
+        - pangrova-observability-api
         - pangrova-protocol
-        - pangrova-spi
+        - pangrova-security-api
+        - pangrova-types
       test:
+        - pangrova-batch-api
+        - pangrova-batch-arrow
         - pangrova-common
-        - pangrova-observability-sdk
+        - pangrova-connector-api
+        - pangrova-function-api
+        - pangrova-observability-api
+        - pangrova-observability-noop
         - pangrova-protocol
-        - pangrova-spi
         - pangrova-testing-kit
+        - pangrova-types
     exportedPackages:
       - org.pangrova.worker.nativebridge.connector.spi
       - org.pangrova.worker.nativebridge.jni

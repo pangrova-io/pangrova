@@ -6,7 +6,7 @@ import java.util.Map;
 
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.YamlConfigLoader;
-import org.pangrova.coordinator.embedding.EmbeddedCoordinator;
+import org.pangrova.server.coordinator.embedding.EmbeddedCoordinator;
 import org.pangrova.worker.embedding.EmbeddedWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

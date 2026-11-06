@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.generation.runtime;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
-import org.pangrova.spi.generation.job.GenerationJobKey;
-import org.pangrova.persistence.api.generation.job.GenerationJobStore;
-import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.generation.api.identity.GenerationJobKey;
+import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
 
 import java.time.Clock;
 import java.time.Duration;

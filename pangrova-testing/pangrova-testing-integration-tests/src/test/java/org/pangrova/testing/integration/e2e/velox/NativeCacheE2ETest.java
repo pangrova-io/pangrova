@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.velox;
 import org.pangrova.protocol.v2.NativeMetricsSnapshot;
 import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;

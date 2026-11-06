@@ -1,11 +1,11 @@
 package org.pangrova.testing.integration.e2e.index;
 
-import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.index.SnapshotPinProvider;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.index.SnapshotPinProvider;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
@@ -215,7 +215,7 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_drop2 ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
             IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_drop2");
-            JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(stateStoreDataSource());
+            JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
             IndexDescriptor initial = requireIndex(store, "idx_drop2");
             long initialSnapshot = Long.parseLong(initial.buildSnapshotId());
             SnapshotPinProvider pins = snapshotPins();

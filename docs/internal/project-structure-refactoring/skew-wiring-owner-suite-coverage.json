@@ -1,0 +1,17 @@
+{
+  "pangrova-shuffle/pangrova-shuffle-api": {
+    "cases": 86,
+    "production_test_sources": 7,
+    "unexecuted_test_sources": []
+  },
+  "pangrova-shuffle/pangrova-shuffle-core": {
+    "cases": 51,
+    "production_test_sources": 8,
+    "unexecuted_test_sources": []
+  },
+  "pangrova-planner/pangrova-planner-core": {
+    "cases": 1550,
+    "production_test_sources": 176,
+    "unexecuted_test_sources": []
+  }
+}

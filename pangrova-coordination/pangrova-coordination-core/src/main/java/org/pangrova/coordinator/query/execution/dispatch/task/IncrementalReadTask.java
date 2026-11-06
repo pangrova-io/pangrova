@@ -13,6 +13,9 @@
  */
 package org.pangrova.coordinator.query.execution.dispatch.task;
 
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -20,31 +23,30 @@ import java.util.List;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.split.SplitDrainer;
-import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.LiteralValue;
-import org.pangrova.parser.ast.SortItem;
-import org.pangrova.parser.ast.statement.IncrementalReadStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.SortItem;
+import org.pangrova.parser.api.ast.statement.IncrementalReadStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 /**
  * Executes {@code SELECT ... FROM table CHANGES BETWEEN SNAPSHOT x AND y}.
@@ -63,18 +65,18 @@ public final class IncrementalReadTask implements MetadataTask<IncrementalReadSt
 
     @Override
     public StatementResult execute(IncrementalReadStatement statement, StatementExecutionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(statement.tableName(), context.session());
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(statement.tableName(), context.session());
 
         long fromSnapshot = extractSnapshotId(statement.fromSnapshot(), "fromSnapshot");
         long toSnapshot = extractSnapshotId(statement.toSnapshot(), "toSnapshot");
 
-        ConnectorSession session = TableResolver.buildSession(context.session(), ref.catalog(), ref.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context.session(), ref.catalog(), ref.schema());
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(ref.catalog());
         ConnectorMetadata metadata = session.getQueryAuthority()
-                .map(org.pangrova.spi.connector.metadata.ConnectorMetadataScope::require)
+                .map(org.pangrova.connector.spi.metadata.ConnectorMetadataScope::require)
                 .map(authority -> authority.beginMetadata(ref.catalog(), () -> catalogHandle.getMetadata(session)))
                 .orElseGet(() -> catalogHandle.getMetadata(session));
-        ConnectorTableHandle tableHandle = TableResolver.requireTableHandle(metadata, session, ref);
+        ConnectorTableHandle tableHandle = ConnectorTableLookup.requireTableHandle(metadata, session, ref);
 
         if (fromSnapshot == toSnapshot) {
             return new StatementResult(List.of(), List.of(), null, StatementCategory.QUERY);

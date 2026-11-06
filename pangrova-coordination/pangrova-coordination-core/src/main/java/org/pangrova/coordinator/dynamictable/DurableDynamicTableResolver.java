@@ -4,8 +4,8 @@ import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
-import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.planner.core.mv.DynamicTableRewriter;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,12 +25,6 @@ public final class DurableDynamicTableResolver implements DynamicTableRewriter.P
     private final String defaultSchema;
     private final java.util.function.Consumer<
             org.pangrova.materialization.port.PublishedMaterialization> readerPins;
-
-    /** Creates a resolver that reads the current durable head on each compilation. */
-    public DurableDynamicTableResolver(MaterializationCatalog catalog, String tenantId,
-            String defaultCatalog, String defaultSchema) {
-        this(catalog, tenantId, defaultCatalog, defaultSchema, published -> { });
-    }
 
     /**
      * Creates a resolver that leases every published generation it exposes to planning.

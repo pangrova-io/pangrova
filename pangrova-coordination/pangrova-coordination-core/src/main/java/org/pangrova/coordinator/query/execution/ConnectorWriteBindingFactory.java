@@ -14,10 +14,10 @@ import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.protocol.v2.LanceWriteBinding;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.NativeWriteAllocation;
+import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
 import org.pangrova.protocol.write.PhysicalFileWriteBindings;
 
 /** Builds the immutable connector write contract dispatched to Workers. */
@@ -64,7 +64,7 @@ public final class ConnectorWriteBindingFactory {
 
     private static WriteOutputBinding lance(CatalogExecutionBinding catalog,
             SerializedConnectorOutputHandle serialized, NativeWriteAllocation nativeOutput,
-            java.util.Optional<org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot> baseSnapshot) {
+            java.util.Optional<org.pangrova.connector.api.metadata.AcceptedSourceSnapshot> baseSnapshot) {
         if (!nativeOutput.writeColumnNames().equals(serialized.getWriteColumnNamesList())) {
             throw new IllegalArgumentException("Native allocation columns differ from connector handle");
         }

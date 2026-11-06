@@ -9,11 +9,11 @@ import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.task.UnregisteredWorkerException;
-import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.AuthenticationRequiredException;
-import org.pangrova.security.tenant.TenantQuotaExceededException;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.error.AuthenticationRequiredException;
+import org.pangrova.security.core.tenant.TenantQuotaExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

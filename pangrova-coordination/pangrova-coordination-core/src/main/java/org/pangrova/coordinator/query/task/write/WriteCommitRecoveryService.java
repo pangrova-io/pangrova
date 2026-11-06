@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.task.write;
 
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.spi.connector.coordination.WriteCommitJournal;
-import org.pangrova.spi.query.transaction.QuarantinedWriteCommit;
-import org.pangrova.persistence.api.query.transaction.WriteCommitQuarantineStore;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.query.api.write.QuarantinedWriteCommit;
+import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

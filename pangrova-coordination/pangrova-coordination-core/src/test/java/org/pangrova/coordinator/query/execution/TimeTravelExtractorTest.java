@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 
 import java.util.Map;
 
@@ -10,8 +10,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real parser and trusted-session selector validation; no execution or ref-resolution stand-ins. */
 class TimeTravelExtractorTest {
-    private static final CoordinatorSessionContext SESSION = new CoordinatorSessionContext(
-            "query", Map.of("catalog", "Catalog", "schema", "Schema"), null, "tenant");
+    private static final QuerySession SESSION = new QuerySession(
+            "query", Map.of("catalog", "Catalog", "schema", "Schema"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     @Test
     void resolvesOneTwoAndThreePartNamesFromTheTrustedSession() {
@@ -25,7 +25,7 @@ class TimeTravelExtractorTest {
 
     @Test
     void rejectsMissingDefaultsAndNonpositiveOrNonliteralSnapshots() {
-        var noDefaults = new CoordinatorSessionContext("query", Map.of(), null, "tenant");
+        var noDefaults = new QuerySession("query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         assertThatThrownBy(() -> TimeTravelExtractor.extract("SELECT id FROM rows FOR VERSION AS OF 2", noDefaults, null))
                 .hasMessageContaining("default catalog");
         assertThatThrownBy(() -> TimeTravelExtractor.extract("SELECT id FROM rows FOR VERSION AS OF 0", SESSION, null))
@@ -71,6 +71,6 @@ class TimeTravelExtractorTest {
         assertThatThrownBy(() -> TimeTravelExtractor.extract(
                 "SELECT id FROM rows VERSION AS OF BRANCH 'missing'", SESSION, null)).hasMessageContaining("ref resolver");
         assertThatThrownBy(() -> TimeTravelExtractor.extract(
-                "SELECT id FROM rows FOR VERSION AS OF", SESSION, null)).isInstanceOf(org.pangrova.parser.ParseException.class);
+                "SELECT id FROM rows FOR VERSION AS OF", SESSION, null)).isInstanceOf(org.pangrova.parser.api.diagnostic.ParseException.class);
     }
 }

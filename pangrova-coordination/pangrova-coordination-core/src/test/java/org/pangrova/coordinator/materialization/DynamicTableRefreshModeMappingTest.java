@@ -9,11 +9,11 @@ import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.pangrova.materialization.domain.RefreshMode;
-import org.pangrova.parser.ast.AllColumns;
-import org.pangrova.parser.ast.CreateDynamicTableStatement;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Query;
-import org.pangrova.parser.ast.TableRef;
+import org.pangrova.parser.api.ast.AllColumns;
+import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.TableRef;
 
 class DynamicTableRefreshModeMappingTest {
 
@@ -28,24 +28,24 @@ class DynamicTableRefreshModeMappingTest {
     @Test
     void snapshotModeMapsToFull() {
         assertThat(KernelDynamicTableService.refreshMode(
-                statement(Optional.of(org.pangrova.parser.ast.RefreshMode.SNAPSHOT))))
+                statement(Optional.of(org.pangrova.parser.api.ast.RefreshMode.SNAPSHOT))))
                 .isEqualTo(RefreshMode.FULL);
     }
 
     @Test
     void autoModeMapsToIncremental() {
         assertThat(KernelDynamicTableService.refreshMode(
-                statement(Optional.of(org.pangrova.parser.ast.RefreshMode.AUTO))))
+                statement(Optional.of(org.pangrova.parser.api.ast.RefreshMode.AUTO))))
                 .isEqualTo(RefreshMode.INCREMENTAL);
     }
 
     @Test
     void fullAndIncrementalModesMapDirectly() {
         assertThat(KernelDynamicTableService.refreshMode(
-                statement(Optional.of(org.pangrova.parser.ast.RefreshMode.FULL))))
+                statement(Optional.of(org.pangrova.parser.api.ast.RefreshMode.FULL))))
                 .isEqualTo(RefreshMode.FULL);
         assertThat(KernelDynamicTableService.refreshMode(
-                statement(Optional.of(org.pangrova.parser.ast.RefreshMode.INCREMENTAL))))
+                statement(Optional.of(org.pangrova.parser.api.ast.RefreshMode.INCREMENTAL))))
                 .isEqualTo(RefreshMode.INCREMENTAL);
     }
 
@@ -53,26 +53,26 @@ class DynamicTableRefreshModeMappingTest {
     void absentStrategyMeansAutomaticSelection() {
         assertThat(KernelDynamicTableService.incrementalStrategy(Optional.empty())).isEmpty();
         assertThat(KernelDynamicTableService.incrementalStrategy(
-                Optional.of(org.pangrova.parser.ast.IncrementalStrategy.AUTO))).isEmpty();
+                Optional.of(org.pangrova.parser.api.ast.IncrementalStrategy.AUTO))).isEmpty();
     }
 
     @Test
     void pinnedStrategiesMapToKernelStrategies() {
         assertThat(KernelDynamicTableService.incrementalStrategy(
-                Optional.of(org.pangrova.parser.ast.IncrementalStrategy.APPEND_ONLY)))
+                Optional.of(org.pangrova.parser.api.ast.IncrementalStrategy.APPEND_ONLY)))
                 .contains(org.pangrova.materialization.domain.StrategyId.APPEND_ONLY);
         assertThat(KernelDynamicTableService.incrementalStrategy(
-                Optional.of(org.pangrova.parser.ast.IncrementalStrategy.PARTITION_REPLACE)))
+                Optional.of(org.pangrova.parser.api.ast.IncrementalStrategy.PARTITION_REPLACE)))
                 .contains(org.pangrova.materialization.domain.StrategyId.PARTITION_REPLACE);
         assertThat(KernelDynamicTableService.incrementalStrategy(
-                Optional.of(org.pangrova.parser.ast.IncrementalStrategy.AFFECTED_KEY)))
+                Optional.of(org.pangrova.parser.api.ast.IncrementalStrategy.AFFECTED_KEY)))
                 .contains(org.pangrova.materialization.domain.StrategyId.AFFECTED_KEY);
     }
 
     @Test
     void cdcStrategyIsRejected() {
         assertThatThrownBy(() -> KernelDynamicTableService.incrementalStrategy(
-                Optional.of(org.pangrova.parser.ast.IncrementalStrategy.CDC)))
+                Optional.of(org.pangrova.parser.api.ast.IncrementalStrategy.CDC)))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("CDC");
     }
@@ -80,13 +80,13 @@ class DynamicTableRefreshModeMappingTest {
     @Test
     void cdcModeIsRejected() {
         assertThatThrownBy(() -> KernelDynamicTableService.refreshMode(
-                statement(Optional.of(org.pangrova.parser.ast.RefreshMode.CDC))))
+                statement(Optional.of(org.pangrova.parser.api.ast.RefreshMode.CDC))))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("CDC");
     }
 
     private static CreateDynamicTableStatement statement(
-            Optional<org.pangrova.parser.ast.RefreshMode> mode) {
+            Optional<org.pangrova.parser.api.ast.RefreshMode> mode) {
         return new CreateDynamicTableStatement(NAME, query(), Duration.ofMinutes(5),
                 mode, Optional.empty(), Map.of());
     }

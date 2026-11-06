@@ -77,55 +77,63 @@ public final class WorkerResource {
     @Path("/worker/heartbeat")
     public Response heartbeat(HeartbeatRequest request, @Context ContainerRequestContext context) {
         AuthenticationFilter.requireInternalServiceIdentity(context);
-        if (workerManager.getWorker(request.workerId()) == null) {
-            // C-WK-01/C-WK-03: After coordinator failover, the new leader's
-            // in-memory WorkerManager may not have this worker yet. Attempt to
-            // recover from the persistent registry before rejecting.
-            // If the worker is not in the registry either (truly unknown),
-            // return 409 with re-register action hint.
-            if (!workerManager.tryRecoverFromRegistry(request.workerId())) {
-                LOG.warn("event=heartbeat_rejected_unregistered workerId={}", request.workerId());
-                return Response.status(HTTP_STATUS_CONFLICT)
-                        .entity(Map.of("status", "error",
-                                "action", "re-register",
-                                "message", "Worker not registered: " + request.workerId()))
-                        .build();
-            }
-            LOG.info("event=heartbeat_recovered_from_registry workerId={}", request.workerId());
+        var identity = request.workerExecutionIdentity();
+        var result = workerManager.onHeartbeat(
+                new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(
+                        request.workerId(), identity.admissionDomainId(), identity.incarnationId()),
+                toHeartbeatData(request));
+        if (result != org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus.ACCEPTED) {
+            String action = result == org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus.FENCED
+                    ? "fenced" : "re-register";
+            return Response.status(HTTP_STATUS_CONFLICT)
+                    .entity(new org.pangrova.protocol.rest.worker.WorkerControlResponse(
+                            "error", action, "Worker registration is not owned by this process: " + request.workerId(), null)).build();
         }
-        HeartbeatData data = toHeartbeatData(request);
-        workerManager.onHeartbeat(request.workerId(), data);
         return Response.ok(controlResponse("ok")).build();
     }
 
     /**
      * Registers a worker. WorkerId is taken from the request body.
      * This is the canonical registration endpoint matching
-     * {@link org.pangrova.worker.bootstrap.WorkerRegistrationClient#REGISTER_PATH}.
+     * {@code WorkerRegistrationClient}.
      */
     @POST
     @Path("/workers/register")
     public Response register(WorkerRegistrationRequest request, @Context ContainerRequestContext context) {
         AuthenticationFilter.requireInternalServiceIdentity(context);
-        return doRegister(request);
+        return doRegister(request, false);
+    }
+
+    /** Conditional repair of a previously attempted registration. */
+    @POST
+    @Path("/workers/refresh")
+    public Response refresh(WorkerRegistrationRequest request, @Context ContainerRequestContext context) {
+        AuthenticationFilter.requireInternalServiceIdentity(context);
+        return doRegister(request, true);
     }
 
     /**
-     * Deregisters a worker by workerId.
+     * Withdraws the exact process identified by the DELETE JSON body; logical ID reuse is safe.
      * Matches {@code DELETE /v1/workers/{workerId}} sent by
-     * {@link org.pangrova.worker.bootstrap.WorkerRegistrationClient#deregister}.
+     * {@code WorkerRegistrationClient.deregister}.
      */
     @DELETE
     @Path("/workers/{workerId}")
     public Response deregisterWorker(@PathParam("workerId") String workerId,
+                                     org.pangrova.protocol.execution.identity.WorkerExecutionIdentity identity,
                                      @Context ContainerRequestContext context) {
         AuthenticationFilter.requireInternalServiceIdentity(context);
-        workerManager.removeWorker(workerId);
+        if (identity == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("message", "Worker withdrawal requires execution identity")).build();
+        }
+        workerManager.removeWorker(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(
+                workerId, identity.admissionDomainId(), identity.incarnationId()));
         LOG.info("event=worker_deregistered workerId={}", workerId);
         return Response.ok(Map.of("status", "deregistered")).build();
     }
 
-    private Response doRegister(WorkerRegistrationRequest request) {
+    private Response doRegister(WorkerRegistrationRequest request, boolean refresh) {
         try {
             request.requireBoundedMetadata(JsonMapperFactory.shared());
         } catch (IllegalArgumentException failure) {
@@ -161,7 +169,15 @@ public final class WorkerResource {
                     .build();
         }
         WorkerInfo info = toWorkerInfo(request, capabilityInventory);
-        workerManager.registerWorker(info);
+        if (refresh) {
+            if (!workerManager.refreshWorker(info)) {
+                return Response.status(HTTP_STATUS_CONFLICT)
+                        .entity(new org.pangrova.protocol.rest.worker.WorkerControlResponse(
+                                "error", "fenced", "Another process owns the Worker registration", null)).build();
+            }
+        } else {
+            workerManager.registerWorker(info);
+        }
         warnIfShuffleModeMismatch(request);
         LOG.info("event=worker_registered workerId={} host={}:{} transportPort={} resultServerPort={} "
                         + "protocolVersion={} capabilityCount={} modelCount={}",
@@ -213,9 +229,9 @@ public final class WorkerResource {
                 || request.cacheMaxBytes() > 0
                 || request.cacheHitCount() > 0
                 || request.cacheMissCount() > 0;
-        org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary =
+        org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary =
                 hasCacheReport
-                        ? new org.pangrova.spi.coordination.CacheCatalogSummary(
+                        ? new org.pangrova.coordination.api.heartbeat.CacheCatalogSummary(
                                 request.cachedFilePaths(),
                                 request.cacheUsedBytes(),
                                 request.cacheMaxBytes(),

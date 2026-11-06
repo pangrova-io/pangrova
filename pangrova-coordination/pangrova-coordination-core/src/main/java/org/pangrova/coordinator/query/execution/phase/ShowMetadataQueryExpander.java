@@ -4,12 +4,12 @@ import java.util.List;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.ShowBranchesStatement;
-import org.pangrova.parser.ast.statement.ShowMetadataStatement;
-import org.pangrova.parser.ast.statement.ShowTagsStatement;
-import org.pangrova.planner.MetadataTableQuery;
-import org.pangrova.spi.connector.metadata.MetadataTableKind;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.ShowBranchesStatement;
+import org.pangrova.parser.api.ast.statement.ShowMetadataStatement;
+import org.pangrova.parser.api.ast.statement.ShowTagsStatement;
+import org.pangrova.planner.core.analysis.MetadataTableQuery;
+import org.pangrova.connector.api.metadata.MetadataTableKind;
 
 /** Expands SHOW into a typed query over the connector's declared Native metadata source. */
 final class ShowMetadataQueryExpander {

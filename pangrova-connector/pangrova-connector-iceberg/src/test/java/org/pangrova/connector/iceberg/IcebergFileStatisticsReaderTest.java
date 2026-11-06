@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;

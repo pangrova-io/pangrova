@@ -19,10 +19,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.ai.api.error.AiInvocationException;
 import org.pangrova.ai.worker.context.AiHttpTransport;
-import org.pangrova.spi.ai.invocation.RerankingBatchResult;
-import org.pangrova.spi.ai.invocation.RerankingProvider;
+import org.pangrova.ai.api.invocation.RerankingBatchResult;
+import org.pangrova.ai.spi.reranking.RerankingProvider;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 
 import java.io.Closeable;

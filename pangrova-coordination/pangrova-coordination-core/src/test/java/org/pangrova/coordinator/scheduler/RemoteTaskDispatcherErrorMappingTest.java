@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
+import org.pangrova.scheduler.api.error.CircuitBreakerOpenException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -12,7 +12,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -77,7 +77,7 @@ class RemoteTaskDispatcherErrorMappingTest {
     }
 
     private static TracingProvider noopTracingProvider() {
-        return new org.pangrova.observability.sdk.noop.NoOpTracingProvider();
+        return new org.pangrova.observability.noop.NoOpTracingProvider();
     }
 
     /** Circuit breaker that always rejects (OPEN state). */

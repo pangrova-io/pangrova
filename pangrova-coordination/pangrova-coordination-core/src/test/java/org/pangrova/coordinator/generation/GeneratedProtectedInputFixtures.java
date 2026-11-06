@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.generation;
 
 import io.substrait.proto.Plan;
-import org.pangrova.coordinator.query.execution.AuthorizedRelation;
-import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.SerializedPlanFragment;
-import org.pangrova.planner.SplitSourceDescriptor;
-import org.pangrova.planner.substrait.SubstraitProtocolVersion;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.planner.core.analysis.SplitSourceDescriptor;
+import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.connector.api.metadata.Constraint;
 
 import java.util.List;
 import java.util.Map;
@@ -24,7 +24,7 @@ final class GeneratedProtectedInputFixtures {
 
     static AuthorizedRelation compiled() {
         List<String> columns = List.of("title", "body", "embedding");
-        var schema = org.pangrova.planner.substrait.NativeDatasetSchemaCompiler
+        var schema = org.pangrova.planner.core.substrait.NativeDatasetSchemaCompiler
                 .compile(GeneratedBuildTestConnectors.sdkColumns()).schema();
         var read = io.substrait.proto.ReadRel.newBuilder().setBaseSchema(schema).setNamedTable(
                 io.substrait.proto.ReadRel.NamedTable.newBuilder().addAllNames(List.of("lake", "sales", "documents")));

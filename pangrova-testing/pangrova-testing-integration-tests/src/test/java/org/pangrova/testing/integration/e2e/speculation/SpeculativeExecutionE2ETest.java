@@ -1,17 +1,20 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
-import org.pangrova.scheduler.speculation.SpeculationConfig;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.speculation.StragglerDetector;
-import org.pangrova.coordinator.scheduler.SpeculationAdapters;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.scheduler.core.speculation.SpeculationConfig;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.core.speculation.StragglerDetector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.TaskDuration;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;
@@ -147,11 +150,11 @@ class SpeculativeExecutionE2ETest extends SqlE2ETestBase {
             RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
                     CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
             launcher.setDispatchDependencies(
-                    SpeculationAdapters.dispatcher(dispatcher),
-                    SpeculationAdapters.workerInventory(new WorkerManager(20_000, 60_000,
-                            new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry())),
-                    SpeculationAdapters.taskRegistry(tracker));
-            launcher.setCancelRetrier(SpeculationAdapters.canceller(
+                    new CoordinatorSpeculativeAttemptDispatcher(dispatcher),
+                    new CoordinatorSpeculativeWorkerInventory(new WorkerManager(20_000, 60_000,
+                            new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry())),
+                    new CoordinatorSpeculativeTaskRegistry(tracker));
+            launcher.setCancelRetrier(new CoordinatorSpeculativeAttemptCanceller(
                     new org.pangrova.coordinator.task.TaskCancelRetrier(dispatcher, tracker)));
 
             assertThat(launcher.launchSpeculative("task-1", "worker-A", "query-1"))
@@ -174,7 +177,7 @@ class SpeculativeExecutionE2ETest extends SqlE2ETestBase {
                     SpeculationConfig.DISABLED,
                     new StragglerDetector(),
                     new SpeculativeTaskLauncher(),
-                    SpeculationAdapters.taskRegistry(tracker));
+                    new CoordinatorSpeculativeTaskRegistry(tracker));
 
             assertThat(handler.isEnabled()).isFalse();
             // evaluateStragglers should not throw even with no tasks
@@ -190,7 +193,7 @@ class SpeculativeExecutionE2ETest extends SqlE2ETestBase {
                     config,
                     new StragglerDetector(),
                     new SpeculativeTaskLauncher(),
-                    SpeculationAdapters.taskRegistry(tracker));
+                    new CoordinatorSpeculativeTaskRegistry(tracker));
 
             assertThat(handler.isEnabled()).isTrue();
             // evaluateStragglers with empty tracker should not throw
@@ -203,7 +206,7 @@ class SpeculativeExecutionE2ETest extends SqlE2ETestBase {
             CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
             SpeculationConfig config = new SpeculationConfig(true, 10_000L);
             SpeculativeStageHandler handler = new SpeculativeStageHandler(
-                    config, null, null, SpeculationAdapters.taskRegistry(tracker));
+                    config, null, null, new CoordinatorSpeculativeTaskRegistry(tracker));
 
             assertThat(handler.isEnabled()).isTrue();
             handler.evaluateStragglers("q-1", "stage-0");

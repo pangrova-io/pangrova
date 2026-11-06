@@ -2,15 +2,15 @@ package org.pangrova.coordinator.maintenance;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.table.store.memory.control.InMemoryTableControlMaintenanceStore;
-import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
-import org.pangrova.table.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.table.control.TableControlSettings;
-import org.pangrova.table.api.control.TableControlState;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.persistence.table.memory.maintenance.InMemoryTableControlMaintenanceStore;
+import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
+import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.api.ownership.TableControlRecord;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.table.core.config.TableControlSettings;
+import org.pangrova.table.api.ownership.TableControlState;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
 
 import java.util.Map;
 import java.util.Optional;
@@ -28,7 +28,7 @@ class ControlledTableSourceTest {
     @BeforeEach
     void setUp() {
         store = new InMemoryTableControlStore();
-        control = new TableControlService(store, name -> new org.pangrova.table.api.control.CatalogDeploymentIdentity("test-deployment", 1),
+        control = new TableControlService(store, name -> new org.pangrova.table.api.identity.CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, Set.of()));
         policies = new TableControlMaintenanceService(
                 new InMemoryTableControlMaintenanceStore());
@@ -67,7 +67,7 @@ class ControlledTableSourceTest {
 
     @Test
     void disabledControlPlaneNeverSuppliesTables() {
-        TableControlService disabled = new TableControlService(store, name -> new org.pangrova.table.api.control.CatalogDeploymentIdentity("test-deployment", 1),
+        TableControlService disabled = new TableControlService(store, name -> new org.pangrova.table.api.identity.CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(false, false, Set.of()));
         disabled.registerCreated("cat", "s", "managed", "alice",
                 Optional.of(identity("managed")), Optional.of(version()));

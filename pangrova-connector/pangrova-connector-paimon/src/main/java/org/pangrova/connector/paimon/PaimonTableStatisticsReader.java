@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.table.FileStoreTable;
 

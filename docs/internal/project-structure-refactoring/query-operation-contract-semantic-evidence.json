@@ -1,0 +1,16 @@
+{
+  "operation_fields_constructor_close_unchanged": true,
+  "tracker_only_import_and_public_return_types_changed": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/task/TaskIdentityRegistry.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryConnectorAuthority.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalCleanup.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/task/TaskQueryCompletion.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryStateMachine.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalFrontendOwnershipTest.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalNativeFixture.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryDispatcher.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java": true,
+  "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTerminalControlFixture.java": true
+}

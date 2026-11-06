@@ -1,0 +1,30 @@
+{
+  "Native": {
+    "baseline_text_files": 744,
+    "changed": [],
+    "added_source_files": []
+  },
+  "Schema": {
+    "baseline_text_files": 99,
+    "changed": [],
+    "added_source_files": []
+  },
+  "Persistence": {
+    "baseline_text_files": 210,
+    "changed": [],
+    "added_source_files": []
+  },
+  "Protocol": {
+    "baseline_text_files": 266,
+    "changed": [],
+    "added_source_files": [
+      "pangrova-protocol/src/main/java/org/pangrova/protocol/capability/CapabilityIdentities.java",
+      "pangrova-protocol/src/test/java/org/pangrova/protocol/capability/CapabilityIdentitiesTest.java"
+    ]
+  },
+  "Client": {
+    "baseline_text_files": 81,
+    "changed": [],
+    "added_source_files": []
+  }
+}

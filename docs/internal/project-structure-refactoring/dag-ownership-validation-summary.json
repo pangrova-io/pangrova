@@ -1,0 +1,122 @@
+{
+  "stages": [
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am '-Dtest=*DAG*Test*,*WorkerSelector*Test,StageBarrierSchedulingTest,TaskStageBridgeIntegrationTest,AuthorizedStageReplayTest,StageSplitFetcherTest,RetrievalIntentCollectorTest,GeneratedValueReadResolverIntegrationTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 14.25,
+      "cases": 1,
+      "passed": 0,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused-complete",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am '-Dtest=*DAG*Test*,*WorkerSelector*Test,StageBarrierSchedulingTest,TaskStageBridgeIntegrationTest,AuthorizedStageReplayTest,StageSplitFetcherTest,RetrievalIntentCollectorTest,GeneratedValueReadResolverIntegrationTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 62.38,
+      "cases": 115,
+      "passed": 115,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused-inputs",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am '-Dtest=*DAG*Test*,*WorkerSelector*Test,StageBarrierSchedulingTest,TaskStageBridgeIntegrationTest,AuthorizedStageReplayTest,StageSplitFetcherTest,RetrievalIntentCollectorTest,GeneratedValueReadResolverIntegrationTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 40.97,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused-inputs-fixed",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am '-Dtest=*DAG*Test*,*WorkerSelector*Test,StageBarrierSchedulingTest,TaskStageBridgeIntegrationTest,AuthorizedStageReplayTest,StageSplitFetcherTest,RetrievalIntentCollectorTest,GeneratedValueReadResolverIntegrationTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 62.88,
+      "cases": 116,
+      "passed": 116,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "full-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression clean verify",
+      "exit": 1,
+      "seconds": 481.81,
+      "cases": 5476,
+      "passed": 5475,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "generation-isolation",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-generation-core -am -Dtest=GenerationCoreDependencyIsolationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 13.4,
+      "cases": 1,
+      "passed": 1,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "full-regression-isolated",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression clean verify",
+      "exit": 1,
+      "seconds": 2738.61,
+      "cases": 12881,
+      "passed": 12880,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "affinity-fix",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am '-Dtest=SchedulerAbstractionLayerTest,*WorkerSelector*Test,CacheAffinity*Test,ThreeTierSplitAssignmentTest,StealDelayMechanismTest,SplitResourceTest,Phase4ConfigValidationTest,Phase4IntegrationTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 57.0,
+      "cases": 80,
+      "passed": 80,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "integration-affinity",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=*DAG*Test*,*WorkerSelector*Test,SchedulerAbstractionLayerTest,CacheAffinity*Test,StageBarrierSchedulingTest,StageSplitFetcherTest,RetrievalIntentCollectorTest,GeneratedValueReadResolverIntegrationTest,GenerationCoreDependencyIsolationTest,PackageDependencyAcyclicityPropertyTest,PhysicalTwoWorkerShuffleE2ETest,ActivationSmokeE2ETest,DynamicTableDagE2ETest*,VirtualWorkerDagRoutingIntegrationTest,GenerationIsolationE2ETest*,ModuleDependencyPropertyTest,PackageStructurePropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 194.1,
+      "cases": 182,
+      "passed": 181,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact-final",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -Dtest=ExecutionContractIsolationTest,ShuffleContractIsolationTest,DeferredAuthorizationEncodingTest,ModuleDependencyPropertyTest -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 93.1,
+      "cases": 27,
+      "passed": 27,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 232,
+    "passed": 231,
+    "failure": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

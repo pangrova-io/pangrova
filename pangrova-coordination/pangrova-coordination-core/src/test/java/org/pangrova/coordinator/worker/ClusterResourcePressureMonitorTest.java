@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.worker;
 
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -168,9 +168,9 @@ class ClusterResourcePressureMonitorTest {
         assertThat(monitor.shouldAdmit()).isTrue();
 
         // Simulate heartbeat reporting CRITICAL on both workers
-        workerManager.onHeartbeat("w1",
+        workerManager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("w1", workerManager.getWorker("w1").workerExecutionIdentity().admissionDomainId(), workerManager.getWorker("w1").workerExecutionIdentity().incarnationId()),
                 new WorkerManager.HeartbeatData(MemoryPressure.CRITICAL, 0.95, 10, 100));
-        workerManager.onHeartbeat("w2",
+        workerManager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("w2", workerManager.getWorker("w2").workerExecutionIdentity().admissionDomainId(), workerManager.getWorker("w2").workerExecutionIdentity().incarnationId()),
                 new WorkerManager.HeartbeatData(MemoryPressure.CRITICAL, 0.90, 8, 200));
 
         // Now should reject
@@ -191,12 +191,12 @@ class ClusterResourcePressureMonitorTest {
         assertThat(monitor.shouldAdmit()).isTrue();
 
         // Worker enters CRITICAL
-        workerManager.onHeartbeat("w1",
+        workerManager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("w1", workerManager.getWorker("w1").workerExecutionIdentity().admissionDomainId(), workerManager.getWorker("w1").workerExecutionIdentity().incarnationId()),
                 new WorkerManager.HeartbeatData(MemoryPressure.CRITICAL, 0.99, 20, 50));
         assertThat(monitor.shouldAdmit()).isFalse();
 
         // Worker recovers
-        workerManager.onHeartbeat("w1",
+        workerManager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("w1", workerManager.getWorker("w1").workerExecutionIdentity().admissionDomainId(), workerManager.getWorker("w1").workerExecutionIdentity().incarnationId()),
                 new WorkerManager.HeartbeatData(MemoryPressure.LOW, 0.3, 2, 500_000));
         assertThat(monitor.shouldAdmit()).isTrue();
     }

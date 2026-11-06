@@ -4,10 +4,8 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
-import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.indexing.data.BloomFilterIndexData;
-import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.indexing.api.data.IndexData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -95,9 +93,8 @@ public final class IndexCache {
     /**
      * Inserts or updates index data in the cache.
      *
-     * <p>When the data is a {@link BloomFilterIndexData}, pre-deserializes the
-     * {@link SplitBlockBloomFilter} and wraps it in a {@link CachedBloomFilterIndexData}
-     * to eliminate per-evaluation deserialization on the hot query path.</p>
+     * <p>The caller supplies provider-prepared data and transfers read-only
+     * retention to the cache. Weight includes its additional retained buffers.</p>
      *
      * <p>Caffeine handles eviction automatically via maximumWeight policy.</p>
      */
@@ -108,33 +105,11 @@ public final class IndexCache {
             return;
         }
         CacheKey key = new CacheKey(indexId, dataFilePath, generation);
-        IndexData enriched = enrichBloomFilter(data);
         indexIdIndex.computeIfAbsent(indexId,
                 ignored -> ConcurrentHashMap.newKeySet()).add(key);
         dataFileIndex.computeIfAbsent(dataFilePath,
                 ignored -> ConcurrentHashMap.newKeySet()).add(key);
-        cache.put(key, enriched);
-    }
-
-    /**
-     * Wraps {@link BloomFilterIndexData} with a pre-deserialized filter.
-     * Returns the original data unchanged for all other index types or
-     * if deserialization fails (e.g., malformed filter bytes).
-     */
-    private static IndexData enrichBloomFilter(IndexData data) {
-        if (data instanceof CachedBloomFilterIndexData) {
-            return data; // already enriched
-        }
-        if (data instanceof BloomFilterIndexData bloom) {
-            try {
-                SplitBlockBloomFilter filter = SplitBlockBloomFilter.readFrom(bloom.filterData());
-                return new CachedBloomFilterIndexData(bloom, filter);
-            } catch (IllegalArgumentException e) {
-                LOG.debug("event=bloom_filter_pre_deserialize_skip reason={}", e.getMessage());
-                return data;
-            }
-        }
-        return data;
+        cache.put(key, data);
     }
 
     /**

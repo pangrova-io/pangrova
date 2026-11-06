@@ -1,9 +1,9 @@
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.spi.ai.invocation.EmbeddingProvider;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
-import org.pangrova.spi.ai.invocation.RerankingProvider;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.ai.spi.embedding.EmbeddingProvider;
+import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.spi.reranking.RerankingProvider;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 import org.pangrova.ai.worker.blob.GovernedBlobStore;
 import org.pangrova.ai.worker.blob.HttpsBlobImporter;
 import org.pangrova.ai.worker.function.file.FileFromBytesFunction;

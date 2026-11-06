@@ -1,32 +1,36 @@
 package org.pangrova.coordinator.query;
-import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.client.protocol.SubmitQueryResponse;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.throttle.QueryThrottlingService;
-import org.pangrova.spi.security.tenant.ResourceQuota;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.security.tenant.QuotaChecker;
-import org.pangrova.security.tenant.TenantQuotaExceededException;
-import org.pangrova.security.tenant.TenantResolver;
-import org.pangrova.security.tenant.InMemoryTenantStore;
+import org.pangrova.query.api.submission.QuerySubmissionResult;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.throttle.QueryThrottlingService;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.core.tenant.QuotaChecker;
+import org.pangrova.security.core.tenant.TenantQuotaExceededException;
+import org.pangrova.security.core.tenant.TenantResolver;
+import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +55,8 @@ class QueryManagerTenantTest {
     private QuotaChecker quotaChecker;
     private QueryManager queryManager;
     private QueryDispatcher orchestrator;
+    private final java.util.concurrent.atomic.AtomicReference<QuerySession> dispatchedSession =
+            new java.util.concurrent.atomic.AtomicReference<>();
     private WorkerHttpServer workerHttpServer;
 
     @BeforeEach
@@ -67,16 +73,16 @@ class QueryManagerTenantTest {
         workerHttpServer.start();
 
         orchestrator = buildOrchestrator(workerHttpServer.getPort(),
-                workerTaskManager.workerExecutionIdentity());
+                workerTaskManager.workerExecutionIdentity(), dispatchedSession::set);
 
         var dagEngine = orchestrator.dagEngine();
         workerTaskManager.setAutoFinishReporter(report ->
                 dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                        report.state(), report.error()));
+                        report.state(), org.pangrova.coordinator.query.task.TaskReportQueryAdapter.failure(report)));
 
         queryManager = new QueryManager(new QueryManagerContext(
                 orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker, null, null, null, null, null,
-                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(), null));
+                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
     }
 
     @AfterEach
@@ -93,23 +99,52 @@ class QueryManagerTenantTest {
         tenantStore.addUserToTenant("t1", "alice", TenantRole.MEMBER);
 
         UserIdentity identity = createIdentity("alice");
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                UUID.randomUUID().toString(), Map.of(), identity, null);
+        QuerySession session = new QuerySession(
+                UUID.randomUUID().toString(), Map.of(), identity, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
-        SubmitQueryResponse response = queryManager.submitQuery(
+        QuerySubmissionResult response = queryManager.submitQuery(
                 session.queryId(), "SELECT 1", session);
 
         assertThat(response).isNotNull();
         // Unified path: constant queries dispatch to worker, reaching RUNNING
         assertThat(response.resultEndpoint()).isNotNull();
-        assertThat(response.state()).isEqualTo("RUNNING");
+        assertThat(response.state()).isEqualTo(org.pangrova.query.api.lifecycle.QueryState.RUNNING);
+    }
+
+    @Test
+    void tenantAdmissionRetainsTrustedInputsAndTheActualIssuedLifetimeAtDispatch() {
+        tenantStore.createTenant(createTenant("tenant-selected", 10));
+        tenantStore.addUserToTenant("tenant-selected", "pinned-reader", TenantRole.MEMBER);
+        var supplied = new QuerySession(UUID.randomUUID().toString(), Map.of(),
+                createIdentity("pinned-reader"), null, java.util.Optional.empty(),
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())
+                .withSourceSnapshots(Map.of("catalog.schema.exact", 31L))
+                .withSourceIncrementalRanges(Map.of("catalog.schema.delta",
+                        new org.pangrova.connector.api.metadata.table.SnapshotRange(19, 7)))
+                .withInternalMaterializationExecution();
+        try {
+            queryManager.submitQuery(supplied.queryId(), "SELECT 1", supplied);
+            var dispatched = dispatchedSession.get();
+            assertThat(dispatched).isNotNull();
+            assertThat(dispatched.tenantId()).isEqualTo("tenant-selected");
+            assertThat(dispatched.sourceSnapshots()).isEqualTo(supplied.sourceSnapshots());
+            assertThat(dispatched.sourceIncrementalRanges()).isEqualTo(supplied.sourceIncrementalRanges());
+            assertThat(dispatched.internalMaterializationExecution()).isTrue();
+            assertThat(dispatched.userIdentity()).isSameAs(supplied.userIdentity());
+            assertThat(dispatched.queryAuthority()).containsSame(
+                    queryManager.getStateMachine(supplied.queryId()).connectorAuthority());
+            assertThat(dispatched.traceContext().traceId()).isEqualTo(supplied.traceContext().traceId());
+            assertThat(supplied.queryAuthority()).isEmpty();
+        } finally {
+            queryManager.cancelQuery(supplied.queryId());
+        }
     }
 
     @Test
     void submitQueryWithoutTenantMembershipDenied() {
         UserIdentity identity = createIdentity("bob");
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                UUID.randomUUID().toString(), Map.of(), identity, null);
+        QuerySession session = new QuerySession(
+                UUID.randomUUID().toString(), Map.of(), identity, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         assertThatThrownBy(() ->
                 queryManager.submitQuery(session.queryId(), "SELECT 1", session))
@@ -120,8 +155,8 @@ class QueryManagerTenantTest {
 
     @Test
     void submitQueryWithNullIdentityIsDeniedWhenTenancyEnabled() {
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                UUID.randomUUID().toString(), Map.of(), null, null);
+        QuerySession session = new QuerySession(
+                UUID.randomUUID().toString(), Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         assertThatThrownBy(() -> queryManager.submitQuery(
                 session.queryId(), "SELECT 1", session))
@@ -137,8 +172,8 @@ class QueryManagerTenantTest {
         tenantStore.addUserToTenant("t-limited", "charlie", TenantRole.MEMBER);
 
         UserIdentity identity = createIdentity("charlie");
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                UUID.randomUUID().toString(), Map.of(), identity, null);
+        QuerySession session = new QuerySession(
+                UUID.randomUUID().toString(), Map.of(), identity, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         assertThatThrownBy(() ->
                 queryManager.submitQuery(session.queryId(), "SELECT 1", session))
@@ -156,13 +191,13 @@ class QueryManagerTenantTest {
                 orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker,
                 null, null, null, null,
                 new QueryThrottlingService(2, 0.001, 100.0),
-                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(),
-                null));
+                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(),
+                null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
 
         for (String tenantId : List.of("tenant-a", "tenant-b")) {
-            CoordinatorSessionContext session = new CoordinatorSessionContext(
+            QuerySession session = new QuerySession(
                     UUID.randomUUID().toString(), Map.of(),
-                    createIdentity(tenantId + "-user"), null);
+                    createIdentity(tenantId + "-user"), null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
             assertThat(throttled.submitQuery(session.queryId(), "SELECT 1", session))
                     .isNotNull();
         }
@@ -182,20 +217,20 @@ class QueryManagerTenantTest {
             var dagEngine = orchestrator.dagEngine();
             localTaskManager.setAutoFinishReporter(report ->
                     dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                            report.state(), report.error()));
+                            report.state(), org.pangrova.coordinator.query.task.TaskReportQueryAdapter.failure(report)));
 
             QueryManager noTenantManager = new QueryManager(
-                    QueryManagerContext.minimal(orchestrator, TestObservability.TRACING));
+                    QueryManagerTestContexts.minimal(orchestrator, TestObservability.TRACING));
 
             UserIdentity identity = createIdentity("dave");
-            CoordinatorSessionContext session = new CoordinatorSessionContext(
-                    UUID.randomUUID().toString(), Map.of(), identity, null);
+            QuerySession session = new QuerySession(
+                    UUID.randomUUID().toString(), Map.of(), identity, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
-            SubmitQueryResponse response = noTenantManager.submitQuery(
+            QuerySubmissionResult response = noTenantManager.submitQuery(
                     session.queryId(), "SELECT 1", session);
 
             assertThat(response).isNotNull();
-            assertThat(response.state()).isEqualTo("RUNNING");
+            assertThat(response.state()).isEqualTo(org.pangrova.query.api.lifecycle.QueryState.RUNNING);
         } finally {
             localServer.stop();
         }
@@ -203,8 +238,14 @@ class QueryManagerTenantTest {
 
     private static QueryDispatcher buildOrchestrator(int workerPort,
             org.pangrova.protocol.execution.identity.WorkerExecutionIdentity workerIdentity) {
+        return buildOrchestrator(workerPort, workerIdentity, ignored -> { });
+    }
+
+    private static QueryDispatcher buildOrchestrator(int workerPort,
+            org.pangrova.protocol.execution.identity.WorkerExecutionIdentity workerIdentity,
+            java.util.function.Consumer<QuerySession> observer) {
         SqlCompiler compiler = new SqlCompiler();
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         wm.registerWorker(TestWorkerInfoBuilder.active(
                 "test-w", "localhost", workerPort, 0, workerIdentity));
@@ -219,7 +260,14 @@ class QueryManagerTenantTest {
                 QueryDispatcherContext.withDefaults(
                         compiler, null, null, null, dispatcher, scheduler,
                         wm, new CoordinatorTaskTracker(), null, null, null, 0L)),
-                null, null);
+                null, null) {
+            @Override
+            public org.pangrova.query.core.task.DispatchResult execute(
+                    QueryStateMachine state, String sql, QuerySession session) {
+                observer.accept(session);
+                return super.execute(state, sql, session);
+            }
+        };
     }
 
     private static Tenant createTenant(String tenantId, int maxConcurrentQueries) {

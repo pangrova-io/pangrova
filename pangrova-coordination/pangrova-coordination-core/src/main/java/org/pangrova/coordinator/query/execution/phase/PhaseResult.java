@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.phase;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 
 /**
  * Result of a query execution phase.

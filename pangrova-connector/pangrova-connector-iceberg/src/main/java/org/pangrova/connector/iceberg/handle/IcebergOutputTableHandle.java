@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg.handle;
 
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.util.Map;
 import java.util.TreeMap;

@@ -1,0 +1,20 @@
+{
+  "command": [
+    "rg",
+    "-n",
+    "\\bMetadataStore\\b|\\bPostgresMetadataStore\\b",
+    "--hidden",
+    "--glob",
+    "!.git/**",
+    "--glob",
+    "!docs/**",
+    "--glob",
+    "!**/target/**",
+    "--glob",
+    "!**/build*/**",
+    "."
+  ],
+  "rg_exit": 0,
+  "output": "./.pangrova/rules/architecture.md:494:The composite `MetadataStore`/`PostgresMetadataStore` have been removed. Deployment consumers use `CatalogDeploymentRepository`; synchronization additionally borrows `TableProjectionRepository`, `SchemaProjectionRepository`, and `MetadataSyncRepository`. Server selects the independent PostgreSQL providers against its owned DataSource. The `.postgresql.transaction` package is internal to the Catalog PostgreSQL artifact and is not a consumer export. Per-mutation outbox atomicity is preserved; do not infer a whole-scan transaction or source-version fencing from these ports.\n",
+  "scope": "Exact retired class names in live source/config/tooling outside docs and build outputs; historical evidence is retained in docs."
+}

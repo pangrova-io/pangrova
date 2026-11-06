@@ -9,9 +9,9 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.DynamicFilterBinder;
-import org.pangrova.planner.runtimefilter.RuntimeFilter;
-import org.pangrova.planner.runtimefilter.RuntimeFilterGenerator;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilter;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterGenerator;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,7 +75,7 @@ public final class RuntimeFilterStageHandler implements StageLifecycleHandler {
      */
     public void registerFilterTarget(String buildStageId, String probeStageId,
                                      String buildColumn, String probeColumn,
-                                     org.pangrova.spi.connector.data.type.PangrovaType buildColumnType) {
+                                     org.pangrova.types.PangrovaType buildColumnType) {
         filterTargets.put(buildStageId, new FilterTarget(probeStageId, buildColumn, probeColumn, buildColumnType));
         LOG.debug("event=runtime_filter_target_registered buildStageId={} probeStageId={} "
                         + "buildColumn={} probeColumn={}",
@@ -176,7 +176,7 @@ public final class RuntimeFilterStageHandler implements StageLifecycleHandler {
      * Immutable target descriptor for a runtime filter propagation path.
      */
     record FilterTarget(String probeStageId, String buildColumn, String probeColumn,
-                        org.pangrova.spi.connector.data.type.PangrovaType buildColumnType) {
+                        org.pangrova.types.PangrovaType buildColumnType) {
 
         FilterTarget {
             checkNotNull(probeStageId, "probeStageId must not be null");

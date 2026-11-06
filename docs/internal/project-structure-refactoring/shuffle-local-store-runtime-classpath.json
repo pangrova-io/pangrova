@@ -1,0 +1,37 @@
+{
+  "roles": [
+    {
+      "role": "coordinator",
+      "launcher_exit": 0,
+      "classpath_entries": 249,
+      "api_entries": [
+        "pangrova-shuffle/pangrova-shuffle-api/target/pangrova-shuffle-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_descriptor": true,
+      "local_provider_entries": []
+    },
+    {
+      "role": "worker",
+      "launcher_exit": 0,
+      "classpath_entries": 187,
+      "api_entries": [
+        "pangrova-shuffle/pangrova-shuffle-api/target/pangrova-shuffle-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_descriptor": true,
+      "local_provider_entries": []
+    },
+    {
+      "role": "standalone",
+      "launcher_exit": 0,
+      "classpath_entries": 312,
+      "api_entries": [
+        "pangrova-shuffle/pangrova-shuffle-api/target/pangrova-shuffle-api-0.1.0-SNAPSHOT.jar"
+      ],
+      "contains_descriptor": true,
+      "local_provider_entries": []
+    }
+  ],
+  "api_sha256": "c93be8a859ec583fdbed9b05f658b648c951914655b9d265cbd2efafe1184d36",
+  "failures": [],
+  "scope": "Actual packaged local launcher closures; Local provider intentionally not yet assembled into runtime roles. No image build, role isolation completion or deployment claimed."
+}

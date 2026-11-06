@@ -17,13 +17,13 @@ import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.RefreshKind;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
@@ -61,6 +61,86 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         if (restrictedAuthority) {
             restoreDefaultSqlAuthority();
             restrictedAuthority = false;
+        }
+    }
+
+    @Test
+    void publishedGenerationRemainsPinnedUntilPhysicalQueryDrain() throws Exception {
+        String suffix = Long.toHexString(System.nanoTime());
+        String source = CATALOG + "." + SCHEMA + ".pin_source_" + suffix;
+        String logical = CATALOG + "." + SCHEMA + ".pin_rollup_" + suffix;
+        dataSetup.createTestTable(CATALOG, SCHEMA, "pin_source_" + suffix, "id BIGINT");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (17)");
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + logical
+                + " REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + source);
+        PublishedMaterialization published = published(logical);
+        Set<String> before = Set.copyOf(queryManager.getStateMachines().keySet());
+        var client = java.util.concurrent.Executors.newSingleThreadExecutor();
+        org.pangrova.connector.api.query.ConnectorQueryOperation heldOperation = null;
+        String queryId = null;
+        try (var lock = stateStoreDataSource().getConnection()) {
+            lock.setAutoCommit(false);
+            int lockPid;
+            try (var statement = lock.createStatement(); var rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+                assertThat(rows.next()).isTrue();
+                lockPid = rows.getInt(1);
+            }
+            try (var statement = lock.prepareStatement(
+                    "SELECT generation_id FROM materialization.generations WHERE generation_id=? FOR UPDATE")) {
+                statement.setObject(1, published.generation().value());
+                try (var rows = statement.executeQuery()) {
+                    assertThat(rows.next()).isTrue();
+                }
+            }
+            var result = client.submit(() -> sqlRunner.execute("SELECT id FROM " + logical));
+            // Observe the production pin transaction waiting on our real generation row lock.
+            // A compiler using a no-op pinner never reaches this PostgreSQL wait.
+            Awaitility.await("published generation pin acquisition").atMost(Duration.ofSeconds(20))
+                    .until(() -> pinTransactionBlockedBy(lockPid));
+            Set<String> issued = new HashSet<>(queryManager.getStateMachines().keySet());
+            issued.removeAll(before);
+            assertThat(issued).hasSize(1);
+            queryId = issued.iterator().next();
+            var state = queryManager.getStateMachines().get(queryId);
+            heldOperation = state.connectorAuthority().enterOperation();
+            lock.commit();
+            assertThat(result.get(30, java.util.concurrent.TimeUnit.SECONDS))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("id")).isEqualTo(17L));
+            String admittedQuery = queryId;
+            Awaitility.await("logical query completion before physical drain").atMost(Duration.ofSeconds(20))
+                    .untilAsserted(() -> assertThat(state.getState())
+                            .isEqualTo(org.pangrova.query.api.lifecycle.QueryState.FINISHED));
+            assertThat(queryManager.getActiveQueryIds()).contains(admittedQuery);
+            assertThat(authority.repository().findReaderPins(published.generation()))
+                    .singleElement().satisfies(pin -> {
+                        assertThat(pin.query().value()).isEqualTo(admittedQuery);
+                        assertThat(pin.owner()).isEqualTo(e2eUserIdentity().principal());
+                    });
+            heldOperation.close();
+            heldOperation = null;
+            Awaitility.await("physical drain releases published generation pin")
+                    .atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+                        assertThat(queryManager.getActiveQueryIds()).doesNotContain(admittedQuery);
+                        assertThat(authority.repository().findReaderPins(published.generation())).isEmpty();
+                    });
+        } finally {
+            if (heldOperation != null) heldOperation.close();
+            if (queryId != null) queryManager.cancelQuery(queryId);
+            client.shutdownNow();
+            assertThat(client.awaitTermination(20, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private boolean pinTransactionBlockedBy(int lockPid) throws java.sql.SQLException {
+        try (var connection = stateStoreDataSource().getConnection();
+             var statement = connection.prepareStatement(
+                     "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                             + "WHERE ? = ANY(pg_blocking_pids(pid)) "
+                             + "AND query LIKE 'SELECT state FROM materialization.generations %')")) {
+            statement.setInt(1, lockPid);
+            try (var rows = statement.executeQuery()) {
+                return rows.next() && rows.getBoolean(1);
+            }
         }
     }
 
@@ -419,7 +499,6 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
 
         String role = "dt_scoped_" + suffix;
         var roles = new JdbcRoleStore(stateStoreDataSource());
-        roles.initSchema();
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(UserRoleAssignment.of(authenticatedCatalogSession(CATALOG).getUser(), role));
         var grants = new JdbcGrantStore(stateStoreDataSource());

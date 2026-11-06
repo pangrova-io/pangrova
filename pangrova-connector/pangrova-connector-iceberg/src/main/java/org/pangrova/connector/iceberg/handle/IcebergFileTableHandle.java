@@ -3,8 +3,8 @@ package org.pangrova.connector.iceberg.handle;
 import java.util.List;
 import java.util.Objects;
 
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /** A read-only Iceberg $files selection pinned to one manifest object graph. */
 public record IcebergFileTableHandle(

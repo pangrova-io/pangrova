@@ -1,12 +1,12 @@
 package org.pangrova.connector.paimon.index;
 
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexEvaluator;
-import org.pangrova.spi.connector.index.NativeIndexType;
-import org.pangrova.spi.connector.index.IndexEvalResult;
-import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.spi.connector.index.predicate.IndexPredicate;
-import org.pangrova.spi.connector.index.predicate.RangeQuery;
+import org.pangrova.connector.api.index.NativeIndexCapability;
+import org.pangrova.connector.spi.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.index.NativeIndexType;
+import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.index.predicate.EqualTo;
+import org.pangrova.connector.api.index.predicate.IndexPredicate;
+import org.pangrova.connector.api.index.predicate.RangeQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

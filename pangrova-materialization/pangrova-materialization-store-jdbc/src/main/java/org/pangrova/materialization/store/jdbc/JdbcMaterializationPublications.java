@@ -22,11 +22,11 @@ import org.pangrova.materialization.port.MaterializationEvent;
 import org.pangrova.materialization.port.MaterializationRepository;
 import org.pangrova.materialization.port.PublicationResult;
 import org.pangrova.materialization.port.PublishCommand;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.CommitEvidence;
 
-import static org.pangrova.common.jdbc.JdbcSupport.canonicalInstant;
-import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
-import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 
 /**
  * Commit-evidence and publication authority of the materialization kernel.

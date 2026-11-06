@@ -144,7 +144,7 @@ class CopyStageLeasesTest {
             return PROOF;
         }, (nonce, scope, proof) -> {
             if (!authorized.get()) {
-                throw new org.pangrova.spi.security.AccessDeniedException(
+                throw new org.pangrova.security.api.error.AccessDeniedException(
                         "COPY permission revoked");
             }
             return proof;
@@ -153,7 +153,7 @@ class CopyStageLeasesTest {
             assertThat(proof(leases.stage(task))).isEqualTo(PROOF);
             authorized.set(false);
             assertThatThrownBy(() -> leases.stage(task))
-                    .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
+                    .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class);
             assertThat(calls.get()).isEqualTo(1);
         }
     }

@@ -15,7 +15,7 @@ final class PaimonBranchTagOperations {
     private PaimonBranchTagOperations() {}
 
     static void createBranch(Table table, PaimonTableHandle handle, String branchName,
-            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
+            org.pangrova.connector.api.metadata.BranchCreationOptions options) {
         java.util.Objects.requireNonNull(options, "options");
         if (options.sourceSnapshotId().isPresent() || options.maxReferenceAgeMillis().isPresent()) {
             throw new UnsupportedOperationException(

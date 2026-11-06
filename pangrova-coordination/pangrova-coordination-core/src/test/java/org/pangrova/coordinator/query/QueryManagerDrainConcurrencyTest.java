@@ -1,7 +1,13 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.coordinator.query.admission.QueryRejectedException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -18,16 +24,16 @@ import java.util.ArrayList;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.testing.testkit.TestObservability;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,7 +53,7 @@ class QueryManagerDrainConcurrencyTest {
     void setUp() {
         QueryDispatcher dispatcher = buildDispatcher();
         queryManager = new QueryManager(
-                QueryManagerContext.minimal(dispatcher, TestObservability.TRACING));
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
         executor = Executors.newFixedThreadPool(4);
     }
 
@@ -60,9 +66,9 @@ class QueryManagerDrainConcurrencyTest {
     @DisplayName("drain blocks new submissions while allowing in-flight completion")
     void drainBlocksNewSubmissionsWhileInFlightComplete() {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine("inflight-1", sm);
 
         queryManager.setAcceptingQueries(false);
@@ -72,16 +78,16 @@ class QueryManagerDrainConcurrencyTest {
                 .isInstanceOf(QueryRejectedException.class);
 
         queryManager.onAllTasksFinished("inflight-1");
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
 
     @Test
     @DisplayName("awaitAllQueries returns true when all queries complete within timeout")
     void awaitAllQueriesReturnsWhenQueriesComplete() throws Exception {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine("await-1", sm);
 
         CountDownLatch drainEntered = new CountDownLatch(1);
@@ -100,7 +106,7 @@ class QueryManagerDrainConcurrencyTest {
     @DisplayName("awaitAllQueries returns false on timeout with active queries")
     void awaitAllQueriesTimesOutWithActiveQueries() {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
+        sm.tryTransition(QueryState.PLANNING);
         queryManager.registerStateMachine("timeout-1", sm);
 
         boolean drained = queryManager.awaitAllQueries(100);
@@ -111,7 +117,7 @@ class QueryManagerDrainConcurrencyTest {
     @DisplayName("dispatcher-finished queries decrement active count before drain")
     void dispatcherFinishedQueryDrainsWithoutTimeout() {
         QueryManager localQueryManager = new QueryManager(
-                QueryManagerContext.minimal(new FinishingDispatcher(), TestObservability.TRACING));
+                QueryManagerTestContexts.minimal(new FinishingDispatcher(), TestObservability.TRACING));
 
         localQueryManager.submitQuery("local-finished-1", "SELECT 1", testSession());
 
@@ -125,9 +131,9 @@ class QueryManagerDrainConcurrencyTest {
         int queryCount = 10;
         for (int i = 0; i < queryCount; i++) {
             QueryStateMachine sm = new QueryStateMachine();
-            sm.tryTransition(QueryStateMachine.State.PLANNING);
-            sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-            sm.tryTransition(QueryStateMachine.State.RUNNING);
+            sm.tryTransition(QueryState.PLANNING);
+            sm.tryTransition(QueryState.SCHEDULING);
+            sm.tryTransition(QueryState.RUNNING);
             queryManager.registerStateMachine("concurrent-" + i, sm);
         }
 
@@ -148,7 +154,7 @@ class QueryManagerDrainConcurrencyTest {
                     queryManager.onAllTasksFinished("concurrent-" + idx);
                 } else {
                     queryManager.onTaskFailed("concurrent-" + idx,
-                            new ErrorDetail("TEST", "TEST", "simulated failure"));
+                            new QueryFailure("TEST", "TEST", "simulated failure"));
                 }
             });
         }
@@ -168,12 +174,12 @@ class QueryManagerDrainConcurrencyTest {
             final int idx = i;
             submissions.add(executor.submit(() -> assertThatThrownBy(() -> queryManager.submitQuery(
                     "parallel-" + idx, "SELECT " + idx, testSession()))
-                    .isInstanceOf(org.pangrova.scheduler.failure.NoAvailableWorkerException.class)));
+                    .isInstanceOf(org.pangrova.scheduler.api.error.NoAvailableWorkerException.class)));
         }
         for (Future<?> submission : submissions) submission.get(5, TimeUnit.SECONDS);
         assertThat(queryManager.getActiveQueryCount()).isZero();
         for (int i = 0; i < threadCount; i++) {
-            assertThat(queryManager.getQueryState("parallel-" + i)).hasValue(QueryStateMachine.State.FAILED);
+            assertThat(queryManager.getQueryState("parallel-" + i)).hasValue(QueryState.FAILED);
         }
     }
 
@@ -181,7 +187,7 @@ class QueryManagerDrainConcurrencyTest {
     void cancellationWaitsForExecutionAnchorBeforeRecordingTerminalCleanup() throws Exception {
         BlockingOwnershipDispatcher dispatcher = new BlockingOwnershipDispatcher();
         QueryManager manager = new QueryManager(
-                QueryManagerContext.minimal(dispatcher, TestObservability.TRACING));
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
         CountDownLatch terminalRecorded = new CountDownLatch(1);
         manager.setShuffleCleanupPending(queryId -> {
             assertThat(dispatcher.ownerAcquired.get()).isTrue();
@@ -205,7 +211,7 @@ class QueryManagerDrainConcurrencyTest {
         assertThat(cancellation.get(3, TimeUnit.SECONDS)).isTrue();
         submission.get(3, TimeUnit.SECONDS);
         assertThat(manager.getQueryState("anchor-race"))
-                .contains(QueryStateMachine.State.CANCELLED);
+                .contains(QueryState.CANCELLED);
         assertThat(dispatcher.cleanupCount.get()).isEqualTo(1);
     }
 
@@ -213,7 +219,7 @@ class QueryManagerDrainConcurrencyTest {
     void deniedOwnershipUnblocksCancellationWithoutCleanup() throws Exception {
         BlockingOwnershipDispatcher dispatcher = new BlockingOwnershipDispatcher(false);
         QueryManager manager = new QueryManager(
-                QueryManagerContext.minimal(dispatcher, TestObservability.TRACING));
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
         AtomicInteger terminalRecords = new AtomicInteger();
         manager.setShuffleCleanupPending(queryId -> terminalRecords.incrementAndGet());
 
@@ -235,9 +241,9 @@ class QueryManagerDrainConcurrencyTest {
     @Test
     void terminalIntentWriteDoesNotHoldStateMachineMonitor() throws Exception {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine("slow-intent", sm);
         CountDownLatch recorderEntered = new CountDownLatch(1);
         CountDownLatch releaseRecorder = new CountDownLatch(1);
@@ -256,7 +262,7 @@ class QueryManagerDrainConcurrencyTest {
         });
 
         Future<?> failed = executor.submit(() -> queryManager.onTaskFailed(
-                "slow-intent", new ErrorDetail("INTERNAL", "task failed", null)));
+                "slow-intent", new QueryFailure("INTERNAL", "task failed", null)));
         Future<Boolean> cancelled = null;
         try {
             assertThat(recorderEntered.await(3, TimeUnit.SECONDS)).isTrue();
@@ -265,7 +271,7 @@ class QueryManagerDrainConcurrencyTest {
             Future<?> rewired = executor.submit(
                     () -> queryManager.setShuffleCleanupPending(queryId -> { }));
             rewired.get(1, TimeUnit.SECONDS);
-            assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
+            assertThat(sm.getState()).isEqualTo(QueryState.RUNNING);
             assertThat(monitorHeld.get()).isFalse();
             cancelled = executor.submit(() -> queryManager.cancelQuery("slow-intent"));
             Future<Boolean> waitingCancellation = cancelled;
@@ -276,16 +282,16 @@ class QueryManagerDrainConcurrencyTest {
         }
         failed.get(3, TimeUnit.SECONDS);
         assertThat(cancelled.get(3, TimeUnit.SECONDS)).isFalse();
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FAILED);
+        assertThat(sm.getState()).isEqualTo(QueryState.FAILED);
     }
 
     @Test
     void losingFailureDoesNotPublishAnErrorOnFinishedQuery() throws Exception {
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.tryTransition(QueryStateMachine.State.FINISHING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
+        sm.tryTransition(QueryState.FINISHING);
         CountDownLatch recorderEntered = new CountDownLatch(1);
         CountDownLatch releaseRecorder = new CountDownLatch(1);
         sm.setBeforeTerminalTransition(() -> {
@@ -300,11 +306,11 @@ class QueryManagerDrainConcurrencyTest {
             }
         });
         Future<Boolean> finished = executor.submit(
-                () -> sm.tryTransition(QueryStateMachine.State.FINISHED));
+                () -> sm.tryTransition(QueryState.FINISHED));
         try {
             assertThat(recorderEntered.await(3, TimeUnit.SECONDS)).isTrue();
             Future<Boolean> failed = executor.submit(() -> sm.tryTransitionToFailed(
-                    new ErrorDetail("INTERNAL", "losing failure", null)));
+                    new QueryFailure("INTERNAL", "losing failure", null)));
             assertThatThrownBy(() -> failed.get(100, TimeUnit.MILLISECONDS))
                     .isInstanceOf(TimeoutException.class);
             assertThat(sm.getError()).isEmpty();
@@ -334,13 +340,13 @@ class QueryManagerDrainConcurrencyTest {
         }
     }
 
-    private static CoordinatorSessionContext testSession() {
+    private static QuerySession testSession() {
         return org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("test-query");
     }
 
     private static QueryDispatcher buildDispatcher() {
         SqlCompiler compiler = new SqlCompiler();
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         return new QueryDispatcher(
                 org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies(
                 QueryDispatcherContext.withDefaults(
@@ -349,7 +355,7 @@ class QueryManagerDrainConcurrencyTest {
                                 CircuitBreakerPolicy.noOp(),
                                 TestObservability.TRACING),
                         scheduler,
-                        new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
+                        new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry()),
                         new CoordinatorTaskTracker(),
                         null, null, null, 0L)),
                 null, null);
@@ -363,9 +369,9 @@ class QueryManagerDrainConcurrencyTest {
                         new RemoteTaskDispatcher(
                                 CircuitBreakerPolicy.noOp(),
                                 TestObservability.TRACING),
-                    new TaskScheduler(new WorkerPerformanceScorer()),
+                    new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                     new WorkerManager(20_000, 60_000,
-                            new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
+                            new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry()),
                     new CoordinatorTaskTracker(),
                     null, null, null, 0L),
                     null, null);
@@ -373,7 +379,7 @@ class QueryManagerDrainConcurrencyTest {
 
         @Override
         public DispatchResult execute(QueryStateMachine sm, String sql,
-                                      CoordinatorSessionContext session) {
+                                      QuerySession session) {
             sm.toFinisher().run();
             return new DispatchResult(
                     "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "http"));
@@ -412,7 +418,7 @@ class QueryManagerDrainConcurrencyTest {
 
         @Override
         public DispatchResult execute(QueryStateMachine sm, String sql,
-                                      CoordinatorSessionContext session) {
+                                      QuerySession session) {
             return null;
         }
 

@@ -2,8 +2,8 @@ package org.pangrova.worker.bootstrap.ownership;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
-import org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.List;
@@ -13,7 +14,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.protobuf.ByteString;
 import io.grpc.Server;
-import io.grpc.ServerBuilder;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
@@ -44,7 +44,7 @@ import org.pangrova.protocol.v2.shuffle.RenewAccessResponse;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
-import org.pangrova.shuffle.core.ShuffleProducerSetChecksum;
+import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 
@@ -454,7 +454,8 @@ class CoordinatorShuffleLifecycleManagerTest {
         }
 
         static RunningService start(RecordingShuffleService service) throws IOException {
-            Server server = ServerBuilder.forPort(0).addService(service).build().start();
+            Server server = NettyServerBuilder.forAddress(new InetSocketAddress("127.0.0.1", 0))
+                    .addService(service).build().start();
             service.port = server.getPort();
             return new RunningService(server);
         }
@@ -468,7 +469,7 @@ class CoordinatorShuffleLifecycleManagerTest {
                     .trustManager(tlsConfig.rootCa().toFile())
                     .clientAuth(ClientAuth.REQUIRE)
                     .build();
-            Server server = NettyServerBuilder.forPort(0)
+            Server server = NettyServerBuilder.forAddress(new InetSocketAddress("127.0.0.1", 0))
                     .sslContext(sslContext)
                     .addService(service)
                     .build()

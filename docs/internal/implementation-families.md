@@ -22,6 +22,17 @@ Status vocabulary:
 - **zero-impl** — the contract has no production implementor at all.
 - **unwired** — a loader exists, but no production caller reaches it.
 
+## Generation persistence verification note (2026-11-03)
+
+Generation storage contracts and PostgreSQL implementations now belong to
+`pangrova-persistence-generation-api` and `pangrova-persistence-generation-postgresql`.
+The five same-connection participant interfaces belong to `pangrova-persistence-jdbc-api`.
+`GenerationStores` still explicitly constructs the providers from Metadata assembly;
+this is a reachable production path, but final Workflow/Server separation remains open.
+No Generation Memory provider or empty factory was added. Generic Persistence API/JDBC
+artifacts are retired. See [the ownership and evidence record](project-structure-refactoring/generation-persistence-ownership.md).
+Historical milestone rows below are not evidence that the full target architecture is complete.
+
 ## Current verification note (2026-10-31)
 
 The empty `pangrova-observability-core` artifact has been removed: Query audit/event
@@ -42,7 +53,7 @@ remaining boundary gaps and verified build results.
 | `org.pangrova.function.api.runtime.FunctionFailureProjector` | `pangrova-function` | `AiFunctionFailureProjector` | `NativeFunctionBootstrap` | wired | M12 R done |
 | `org.pangrova.indexing.api.IndexStrategyProvider` | `pangrova-indexing-api` | 9 providers under `indexing.engine.*` | `IndexEngineRegistry` | wired | M1 |
 | `org.pangrova.indexing.api.eval.IndexFileEvaluatorFactory` | `pangrova-indexing-api` | `DefaultIndexFileEvaluatorFactory` | `IndexEvalSplitFilter` | wired | M1 |
-| `org.pangrova.shuffle.spool.SpoolStoreFactory` | `pangrova-shuffle-core` | `LocalFsSpoolStoreFactory` | `SpoolingExchangeManager` | wired | M7 |
+| `org.pangrova.shuffle.spi.spool.SpoolStoreFactory` | `pangrova-shuffle-api` | `pangrova-shuffle-local` / `LocalFsSpoolStoreFactory` | Actual Local factory discovery/I/O is tested; production Local runtime remains unassembled (no-op wrappers retired) | unwired | P7 incomplete |
 | `org.pangrova.observability.api.Context$TaskWrapping` | `pangrova-observability-api` | `sdk.logging.provider.mdc.MdcTaskWrapping` | `TaskWrappingLoader` | wired | M2 done |
 | ~~`org.pangrova.shuffle.api.ShuffleManagerFactory`~~ | deleted in M7 | — | — | the resolver and all three factory providers had no production caller; the provider SPI, descriptor, resolver and factory classes were deleted rather than kept as an unreachable selection path | M7 done |
 | `java.sql.Driver` | JDK contract | `PangrovaDriver` | JDBC `DriverManager` | wired | — |
@@ -61,8 +72,11 @@ remaining boundary gaps and verified build results.
   `ShuffleManagerFactory` providers, `ShuffleContext`, `ShuffleProvider`,
   `DefaultShuffleProvider`, the `ShuffleManagerFactory` descriptor and its
   `modules.yaml` provider entry were deleted. `ShuffleDurability`,
-  `ShuffleCapabilities` and `ShuffleTransportMode` remain because scheduler and
-  retry-policy code consume them.
+  and `ShuffleTransportMode` remain as storage/transport vocabulary. The old
+  implicit-guarantee capability interface was replaced on 2026-11-03 by
+  `org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor`; the FTE helper
+  and retry validator still have no production dispatch caller. See
+  [current capability evidence](project-structure-refactoring/shuffle-capabilities-ownership.md).
 - **M2 (done)** — Observability is split by dependency weight. `pangrova-observability-api`
   (`org.pangrova.observability.api.{noop,profiling,event}`) owns null objects and the
   profiling/event API surface and depends only on `pangrova-common`. `pangrova-observability-sdk`

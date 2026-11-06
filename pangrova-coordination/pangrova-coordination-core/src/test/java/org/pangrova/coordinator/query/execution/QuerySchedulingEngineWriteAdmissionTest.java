@@ -1,6 +1,10 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.query.api.write.WriteAuthorityRequest;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.util.List;
 import java.util.Map;
@@ -16,26 +20,26 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -80,7 +84,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
             fixture.metadata.capabilities =
-                    org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
+                    org.pangrova.connector.api.metadata.table.TableCapabilities.UNSUPPORTED;
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
                     session("undeclared-write"), fixture.context()))
@@ -99,9 +103,9 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
             fixture.metadata.capabilities =
-                    new org.pangrova.spi.connector.metadata.table.TableCapabilities(
+                    new org.pangrova.connector.api.metadata.table.TableCapabilities(
                             true, false, false, true, true, true, Set.of(), Set.of(),
-                            org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
+                            org.pangrova.connector.api.metadata.table.TableCapabilities.WriterFenceKind
                                     .FORMAT_IDENTITY);
             var context = new DmlWriteContext(
                     new QualifiedTableName("catalog", "schema", "documents"), "DELETE", List.of(),
@@ -126,7 +130,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             fixture.installOrdinaryAuthority();
             fixture.registry.tableControl().registerCreated(
                     "catalog", "schema", "documents", "alice",
-                    Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
+                    Optional.of(new org.pangrova.connector.api.metadata.table.TableIdentity(
                             "ICEBERG", "stale-uuid", "s3://stale", "schema")),
                     Optional.empty());
 
@@ -137,8 +141,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
             assertNoAllocation(fixture, "recreated-write");
             assertThat(fixture.registry.tableControl().find("catalog", "schema", "documents")).get()
-                    .extracting(org.pangrova.table.api.control.TableControlRecord::state)
-                    .isEqualTo(org.pangrova.table.api.control.TableControlState.QUARANTINED);
+                    .extracting(org.pangrova.table.api.ownership.TableControlRecord::state)
+                    .isEqualTo(org.pangrova.table.api.ownership.TableControlState.QUARANTINED);
         }
     }
 
@@ -164,7 +168,6 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     void currentPostgresRevocationBlocksOrdinaryAndGeneratedAllocation(boolean generated) throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("write_admission");
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of("writer"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "writer"));
         var grants = new JdbcGrantStore(dataSource);
@@ -176,7 +179,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         grants.revokeGrants("writer", Privilege.INSERT, "catalog", "schema", "documents");
 
         try (var fixture = new SchedulingWriteFixture(warehouse, generated)) {
-            fixture.engine.setGeneratedWriteAuthoritySupplier(request -> {
+            fixture.createEngineWithAuthority(request -> {
                 fixture.observations.add(request);
                 authority.checkCanInsertIntoTable(session("revoked").userIdentity(),
                         request.table().catalog(), request.table().schema(), request.table().table());
@@ -207,7 +210,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     @Test
     void aReceiptForAnotherTableCannotAllocateTheActualSdkTable() throws Exception {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
-            fixture.engine.setGeneratedWriteAuthoritySupplier(request ->
+            fixture.createEngineWithAuthority(request ->
                     fixture.receipt(requestForOtherTable(request)));
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
@@ -374,8 +377,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             var context = fixture.context();
             fixture.engine.ensureWriteContextRegistered(session("identity-change"), context);
             var original = fixture.tracker.peekWriteState("identity-change");
-            var changed = new CoordinatorSessionContext("identity-change", Map.of(),
-                    new UserIdentity(principal, Set.of(), Map.of(), Instant.EPOCH), tenant);
+            var changed = new QuerySession("identity-change", Map.of(),
+                    new UserIdentity(principal, Set.of(), Map.of(), Instant.EPOCH), tenant, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(changed, context))
                     .isInstanceOf(AccessDeniedException.class)
@@ -434,7 +437,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         engine.setWriteCommitTracker(new NativeWriteCommitTracker());
 
         assertThatThrownBy(() -> engine.ensureWriteContextRegistered(
-                new CoordinatorSessionContext("query-no-tenant", java.util.Map.of(), null, null),
+                new QuerySession("query-no-tenant", java.util.Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()),
                 context(new QualifiedTableName("catalog", "schema", "table"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("resolved tenant");
@@ -475,7 +478,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
         QuerySchedulingEngine.onTaskReady(write, writeContext, nativeEndpoint);
 
-        assertThat(write.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        assertThat(write.getState()).isEqualTo(QueryState.RUNNING);
         assertThat(write.getResultEndpoint()).isEmpty();
     }
 
@@ -493,38 +496,38 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
     private static QueryStateMachine schedulingState() {
         QueryStateMachine state = new QueryStateMachine();
-        state.tryTransition(QueryStateMachine.State.PLANNING);
-        state.tryTransition(QueryStateMachine.State.SCHEDULING);
+        state.tryTransition(QueryState.PLANNING);
+        state.tryTransition(QueryState.SCHEDULING);
         return state;
     }
 
     private static QuerySchedulingEngine engine(CatalogRegistry catalogs) {
         return new QuerySchedulingEngine(new QuerySchedulingEngine.SchedulingDependencies(
-                null, null, null, null, catalogs, null, null, 0));
+                null, null, null, null, catalogs, null, null, 0), null);
     }
 
     private static DmlWriteContext context(QualifiedTableName table) {
         return new DmlWriteContext(table,
                 "INSERT", List.of(), java.util.Optional.of(
                 new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT),
-                        new org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot(SchedulingWriteFixture.TABLE,
+                        new org.pangrova.connector.api.commit.WriteDeclarationSnapshot(SchedulingWriteFixture.TABLE,
                                 "a".repeat(64), "b".repeat(64), false))));
     }
 
-    private static GeneratedWriteAuthoritySupplier.WriteAuthorityRequest requestForOtherTable(
-            GeneratedWriteAuthoritySupplier.WriteAuthorityRequest request) {
+    private static WriteAuthorityRequest requestForOtherTable(
+            WriteAuthorityRequest request) {
         var other = new QualifiedTableName("catalog", "schema", "other");
         var declaration = request.compiledDeclaration();
-        return new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(other, request.session(), request.writeMode(),
+        return new WriteAuthorityRequest(other, request.session(), request.writeMode(),
                 request.observedReadPermissions(), request.requiredWritePrivileges(),
-                new org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot(other, declaration.schemaSha256(),
+                new org.pangrova.connector.api.commit.WriteDeclarationSnapshot(other, declaration.schemaSha256(),
                         declaration.generatedColumnsSha256(), declaration.hasGeneratedColumns()),
                 request.internalMaterializationExecution());
     }
 
-    private static CoordinatorSessionContext session(String queryId) {
-        return new CoordinatorSessionContext(queryId, Map.of(),
-                new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-1");
+    private static QuerySession session(String queryId) {
+        return new QuerySession(queryId, Map.of(),
+                new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static void assertNoAllocation(SchedulingWriteFixture fixture, String queryId) {

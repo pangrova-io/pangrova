@@ -54,7 +54,7 @@ final class NativeCreationRecovery {
 
     static byte[] recoverTracked(
             NativeCreationOwners owners,
-            org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress egress,
+            org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress egress,
             RuntimeCommand command) {
         try {
             var identity = command.getPayload().unpack(ExecutorCreationRecoveryRequest.class);

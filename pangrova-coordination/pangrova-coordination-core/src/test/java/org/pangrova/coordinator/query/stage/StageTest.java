@@ -1,6 +1,11 @@
 package org.pangrova.coordinator.query.stage;
 
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.stage.StageState;
+
+import org.pangrova.query.api.stage.StageRetryPolicy;
+import org.pangrova.query.core.stage.StageStateMachine;
+
+import org.pangrova.query.api.error.QueryFailure;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
@@ -26,7 +31,7 @@ class StageTest {
 
     private StageNode dummyNode(int id) {
         RelNode plan = LogicalValues.createOneRow(CLUSTER);
-        return new StageNode(id, new org.pangrova.planner.PlanFragment(plan, -1L, -1L), 2, "COMPUTE", List.of());
+        return new StageNode(id, new org.pangrova.planner.core.analysis.PlanFragment(plan, -1L, -1L), 2, "COMPUTE", List.of());
     }
 
     @Test
@@ -34,7 +39,7 @@ class StageTest {
         Stage stage = Stage.create(dummyNode(0), "q1");
         assertThat(stage.stageId()).isEqualTo(0);
         assertThat(stage.plan().stageId()).isEqualTo(0);
-        assertThat(stage.stateMachine().getState()).isEqualTo(StageStateMachine.State.PLANNED);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.PLANNED);
         assertThat(stage.retryPolicy()).isEqualTo(StageRetryPolicy.DEFAULT);
         assertThat(stage.taskIds()).isEmpty();
     }
@@ -42,31 +47,31 @@ class StageTest {
     @Test
     void onTaskFinishedTransitionsToFinishedWhenAllDone() {
         Stage stage = Stage.create(dummyNode(0), "q1");
-        stage.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
 
         stage.addTaskId("t1");
         stage.addTaskId("t2");
 
         stage.onTaskFinished("t1");
-        assertThat(stage.stateMachine().getState()).isEqualTo(StageStateMachine.State.RUNNING);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.RUNNING);
 
         stage.onTaskFinished("t2");
-        assertThat(stage.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
     }
 
     @Test
     void onTaskFailedTransitionsToFailedWhenRetryExhausted() {
         Stage stage = new Stage(dummyNode(0),
                 new StageStateMachine("0", "q1"), StageRetryPolicy.NO_RETRY);
-        stage.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
 
         stage.addTaskId("t1");
-        ErrorDetail error = new ErrorDetail("INTERNAL", "INTERNAL", "boom");
+        QueryFailure error = new QueryFailure("INTERNAL", "INTERNAL", "boom");
         stage.onTaskFailed("t1", error);
 
-        assertThat(stage.stateMachine().getState()).isEqualTo(StageStateMachine.State.FAILED);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FAILED);
         assertThat(stage.lastError()).isEqualTo(error);
     }
 
@@ -102,14 +107,14 @@ class StageTest {
     @Test
     void taskFailedTransitionsToFailedWithRetryHandledExternally() {
         Stage stage = Stage.create(dummyNode(0), "q1");
-        stage.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        stage.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
 
         stage.addTaskId("t1");
-        stage.onTaskFailed("t1", new ErrorDetail("INTERNAL", "INTERNAL", "boom"));
+        stage.onTaskFailed("t1", new QueryFailure("INTERNAL", "INTERNAL", "boom"));
 
         // Stage always transitions to FAILED; RetryStageHandler decides retry externally
-        assertThat(stage.stateMachine().getState()).isEqualTo(StageStateMachine.State.FAILED);
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FAILED);
     }
 
     @Test

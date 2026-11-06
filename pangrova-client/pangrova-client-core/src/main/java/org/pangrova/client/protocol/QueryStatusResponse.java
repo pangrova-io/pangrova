@@ -1,5 +1,7 @@
 package org.pangrova.client.protocol;
 
+import org.pangrova.transport.api.result.ResultEndpoint;
+
 import org.pangrova.client.error.ErrorDetail;
 
 import com.fasterxml.jackson.annotation.JsonInclude;

@@ -1,16 +1,16 @@
 package org.pangrova.streaming.cdc;
 
-import org.pangrova.spi.connector.data.write.model.WriteContext;
-import org.pangrova.spi.connector.data.write.model.WriteMode;
-import org.pangrova.spi.connector.data.write.model.WriteResult;
-import org.pangrova.spi.connector.data.write.model.TableFormat;
-import org.pangrova.spi.connector.data.write.TableWriter;
-import org.pangrova.spi.connector.data.write.model.WriteRecord;
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.connector.api.write.WriteContext;
+import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.api.write.WriteResult;
+import org.pangrova.connector.api.write.TableFormat;
+import org.pangrova.connector.spi.write.TableWriter;
+import org.pangrova.connector.api.write.WriteRecord;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.junit.jupiter.api.Test;
 
@@ -117,7 +117,7 @@ class CdcConsumerPartialFailureTest {
         @Override
         public ObservableDoubleGauge createGauge(String name, String desc,
                                                   String unit, Supplier<Double> supplier) {
-            return new ObservableDoubleGauge() {};
+            return () -> { /* This recording fixture retains no callback. */ };
         }
 
         @Override

@@ -1,0 +1,710 @@
+{
+  "stage": "catalog-static",
+  "exit": 0,
+  "scope": "Complete -am static analysis; tests selected separately. Analyzer missing-class diagnostics retained; not a claim of perfect analysis coverage.",
+  "reports": [
+    {
+      "path": "pangrova-batch/pangrova-batch-api/target/spotbugsXml.xml",
+      "sha256": "2021dee378fa4c604b57a55cc3152ceb2956f2d66b94e174023af9196c6db737",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-client/pangrova-client-core/target/spotbugsXml.xml",
+      "sha256": "96d39e5e47f7bc1d1c04c8abc5dc7e268de7f6a8f2f7903b1fb8bb1420e7b908",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-common/target/spotbugsXml.xml",
+      "sha256": "068917bdd25c16815e2443842b5ddcf56928d608315c43fbca460a21efee2eb5",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-config/target/spotbugsXml.xml",
+      "sha256": "46660a96100deb7f103a077a913a7a1c6ec7ef4b247cac4141b4bf97f771d7ba",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-connector/pangrova-connector-api/target/spotbugsXml.xml",
+      "sha256": "7baa27c1dbf3cf9fb629b3ebad715c3697692fce179377721144dec85016b519",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "getDomains",
+        "hashCode",
+        "makeConcatWithConstants",
+        "onFilesRemoved",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-coordination/pangrova-coordination-api/target/spotbugsXml.xml",
+      "sha256": "5e276996a02432a518ce42a5b9280ab72390b0545d0b0becadf5b5c91ba6039a",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-file/pangrova-file-api/target/spotbugsXml.xml",
+      "sha256": "49865dfa7ed31a97b50e2c9f5ecdbdd8c92cc75d5681904f39eac92880e20339",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-filesystem/pangrova-filesystem-api/target/spotbugsXml.xml",
+      "sha256": "45f05e3bfd8834d5c3d06178e649a739c708b6ed15aabca9458d18dfbe95be05",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-function/pangrova-function-api/target/spotbugsXml.xml",
+      "sha256": "77c9d75948b9f5d1e650a981bb39b644efffa26b04d547ccbb2a008d98e5d56c",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "equals",
+        "hashCode",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/target/spotbugsXml.xml",
+      "sha256": "2d7bae064a9d687d6f9cf96d515b5acea13bc3640d8db0d233886029f7976eb3",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "applyAsLong",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-api/target/spotbugsXml.xml",
+      "sha256": "00ba6eaf322f19d8845786a6e356357c48ee1e6759c7ae59657f64c9b1bd236f",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-codec/target/spotbugsXml.xml",
+      "sha256": "b82a8765e0289eedf2b18a5dd8c24cc597d2a3237326e970526ff403a8fe60ff",
+      "bugs": [],
+      "missing_classes": [],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-api/target/spotbugsXml.xml",
+      "sha256": "e25f6df0e06f9ffa9fe263744ca5cc7bba05aecd90c95df6960f9c7d8623b507",
+      "bugs": [],
+      "missing_classes": [
+        "close",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-core/target/spotbugsXml.xml",
+      "sha256": "9653f797d0062f42ef19c9495987bb42ed49dabd2bff32ba4248b49bc13b9773",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "call",
+        "execute",
+        "run"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-noop/target/spotbugsXml.xml",
+      "sha256": "2fe43094055fca131b855ce47cea8e942ad5a7201d329e9258b44a06b95485ce",
+      "bugs": [],
+      "missing_classes": [],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-sdk/target/spotbugsXml.xml",
+      "sha256": "1de65e7b39a0e6b4ea46a4730dae84559327ea97e347441dd6329ae4149b512f",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsLong",
+        "close",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "set",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-api/target/spotbugsXml.xml",
+      "sha256": "2a3872ef97e0a1c2e998b187db0a833a1ca6d6d92b2c0978d7b70bb12d49bf3d",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/target/spotbugsXml.xml",
+      "sha256": "99d9f46aacb19b25271c6d4ecc0b0c458f674819fbbc9927bdf835e4c8303b82",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "newThread",
+        "run",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-coordination-api/target/spotbugsXml.xml",
+      "sha256": "215bcb352cb620e58bae6780bb537a0266e070ccc7839aa58dfff022d3fcfc2f",
+      "bugs": [],
+      "missing_classes": [],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-file-api/target/spotbugsXml.xml",
+      "sha256": "af762cc9c9eddf505e39316971dd41ab11fcddf07865e165a3e6fee287af40ff",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-jdbc-support/target/spotbugsXml.xml",
+      "sha256": "5cab20b8b42e57fe8e5fb45d7bcb275cbee3702a424cb86000d3246cb386b836",
+      "bugs": [],
+      "missing_classes": [
+        "makeConcatWithConstants"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-security-api/target/spotbugsXml.xml",
+      "sha256": "1c8cee64ce5122e31e009375893c014aff6a2082742595c5c886e9fa09262da4",
+      "bugs": [],
+      "missing_classes": [
+        "apply",
+        "test"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-protocol/target/spotbugsXml.xml",
+      "sha256": "36a147f0c60c4b82b7a750e2d0b1a83c7f42c5cb66f48c60fe855b48bfdae781",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "applyAsInt",
+        "applyAsLong",
+        "equals",
+        "get",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-query/pangrova-query-api/target/spotbugsXml.xml",
+      "sha256": "424bd706638476cc7b336320fb102285072b41a70bbfbb7b15f5c56bc5ea6bcd",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-api/target/spotbugsXml.xml",
+      "sha256": "450ba0a418223e4120f81e06e943f291d7886b2749b93c7e2b2d406832ef9153",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-api/target/spotbugsXml.xml",
+      "sha256": "e5d000d48882fff01483131f332cb938cde0a3f5932ee43983780bd1cb8aa0ec",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "applyAsInt",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/target/spotbugsXml.xml",
+      "sha256": "d62f9b762436345ba686bd4391686118c2882095f80471a885139950f7359a08",
+      "bugs": [],
+      "missing_classes": [
+        "applyAsInt",
+        "applyAsLong",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-local/target/spotbugsXml.xml",
+      "sha256": "095c2fbde9c1afabd9f190be1dd441a32bb5f597ec942860b383c09125657df4",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-table/pangrova-table-api/target/spotbugsXml.xml",
+      "sha256": "b375bfc3bbeb4832df671d7a3641d7cb16b7ab0613a59f3fd651b8c26f6e3399",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-testing/pangrova-testing-kit/target/spotbugsXml.xml",
+      "sha256": "dde2081c27a396c494195c2fd96cb3933d2cbee5309be76c0b34448ef40e91c5",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "compare",
+        "equals",
+        "execute",
+        "get",
+        "handle",
+        "hashCode",
+        "invoke",
+        "makeConcatWithConstants",
+        "run",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-transport/pangrova-transport-api/target/spotbugsXml.xml",
+      "sha256": "484b76a0b9a7a2999f3010ac6fe15cc88527b277921973368bcdaee16bb7e385",
+      "bugs": [],
+      "missing_classes": [
+        "equals",
+        "hashCode",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-types/target/spotbugsXml.xml",
+      "sha256": "53f619e44d6602559cf0f3040b9553c13d9a71cd6f3c08055f54f96a2e867723",
+      "bugs": [],
+      "missing_classes": [
+        "accept",
+        "apply",
+        "equals",
+        "hashCode",
+        "makeConcatWithConstants",
+        "test",
+        "toString"
+      ],
+      "analysis_errors": []
+    },
+    {
+      "path": "pangrova-batch/pangrova-batch-api/target/checkstyle-result.xml",
+      "sha256": "93978f44f3fbe37178e9a04b7e64cd356d313144ffebaf3f4fdca9a7c87a9282",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-batch/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-client/pangrova-client-core/target/checkstyle-result.xml",
+      "sha256": "9d82f60b11d032e9176bb9ba64adef5fbb21406f21d73699dee3a8b60afc801e",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-client/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-common/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-config/target/checkstyle-result.xml",
+      "sha256": "b151e6ea5712107fd7f8abd1aeb14db10a1e7b36943dacd3f5a8dfce6116cab8",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-connector/pangrova-connector-api/target/checkstyle-result.xml",
+      "sha256": "1e631ae72abc9a7abfb64e289fc0423a60ab9e38c4eb08c9a786eb6ce7d31238",
+      "diagnostics": [
+        {
+          "file": "pangrova-connector/pangrova-connector-api/src/main/java/org/pangrova/connector/api/metadata/table/ConnectorReadBinding.java",
+          "line": "28",
+          "column": "5",
+          "severity": "warning",
+          "message": "\u5708\u590d\u6742\u5ea6\uff1a 16 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-connector/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-coordination/pangrova-coordination-api/target/checkstyle-result.xml",
+      "sha256": "814823d2ba4480f9799bdc66ccc1ce466d97b876e4bb8b45fd12f97b20fa7a39",
+      "diagnostics": [
+        {
+          "file": "pangrova-coordination/pangrova-coordination-api/src/main/java/org/pangrova/coordination/api/membership/WorkerSnapshot.java",
+          "line": "42",
+          "column": "12",
+          "severity": "warning",
+          "message": "\u53c2\u6570\u5171\uff1a 18\u4e2a\uff0c\u6700\u591a\uff1a10\u4e2a\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.sizes.ParameterNumberCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-coordination/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-file/pangrova-file-api/target/checkstyle-result.xml",
+      "sha256": "e28540e8912d9fabd49c28144bc30209eb14bac62907048b2f2e9e125d707810",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-file/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-filesystem/pangrova-filesystem-api/target/checkstyle-result.xml",
+      "sha256": "bfbe68a4ce70fbea728e5bbecb05d713a82be726fae9af402170d6a4034dbce4",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-filesystem/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-function/pangrova-function-api/target/checkstyle-result.xml",
+      "sha256": "115748124078a17582fb9920b87bb5eaa2fbcb06e88369eb04710f77a622c1cf",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-function/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-indexing/pangrova-indexing-api/target/checkstyle-result.xml",
+      "sha256": "ba6a5be4856926e4e71c9f56b63bebf2bd79475ce16fa5c135d68cc35a8f2e1e",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-indexing/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-api/target/checkstyle-result.xml",
+      "sha256": "54be94cd7f0ff9c6bf4b141d6d665e7525de84ac55ad8d1454b941f163980959",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-metadata/pangrova-metadata-codec/target/checkstyle-result.xml",
+      "sha256": "c17c933e9795f759d27a7aaae443c95359cacc8f28a74e74e321db685e4b8716",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-metadata/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-api/target/checkstyle-result.xml",
+      "sha256": "b205611c6effd534e06729b2d762c44699c37db986ce9d92565433ca8af402e5",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-core/target/checkstyle-result.xml",
+      "sha256": "96b9c342e6da225b8bd169d81017df9be5f843e2a0a2f4b652ca395ffb4ad5b7",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-noop/target/checkstyle-result.xml",
+      "sha256": "532e94903af4631b5fdf976ade3debb815fa2195dda9a233cbfd50f38f1c3cae",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/pangrova-observability-sdk/target/checkstyle-result.xml",
+      "sha256": "429171d2b93c37bbd0814ed065c14ee5764dacbcb9a46a168ef696bb76e71f24",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-observability/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-api/target/checkstyle-result.xml",
+      "sha256": "cca66fca7e44fb92fe6f3dd9eab57c018e45c39ffab6437f8976b4b7b168ac70",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/target/checkstyle-result.xml",
+      "sha256": "53233da8591d0051fdbab08caabf8e1f8dfe394ea7fea6b9fecbe73022000356",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-coordination-api/target/checkstyle-result.xml",
+      "sha256": "e541c74323693671282f70476e4aff7dbf43a418f60440dfcecb74d63268704e",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-file-api/target/checkstyle-result.xml",
+      "sha256": "eaa95620dae9210215010730d5c014749bf5ec1c71a2f7e3d572d22191bc659e",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-jdbc-support/target/checkstyle-result.xml",
+      "sha256": "0bfc17993d032fe758ba16d8f5020c4b560a89c166f7b8d63c1f75d425e05e37",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/pangrova-persistence-security-api/target/checkstyle-result.xml",
+      "sha256": "078963516a961ed7a73c99d768f3a1f7ca587ff5b85c2a95f6e119815891d532",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-persistence/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-protocol/target/checkstyle-result.xml",
+      "sha256": "e3d65333402a87d76899fe90e3e5312c18d9841e42b0b7929719b608977ed77d",
+      "diagnostics": [
+        {
+          "file": "pangrova-protocol/src/main/java/org/pangrova/protocol/task/CanonicalTaskAdmissionSeals.java",
+          "line": "159",
+          "column": "5",
+          "severity": "warning",
+          "message": "\u5708\u590d\u6742\u5ea6\uff1a 19 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+        },
+        {
+          "file": "pangrova-protocol/src/main/java/org/pangrova/protocol/rest/worker/WorkerRegistrationRequest.java",
+          "line": "37",
+          "column": "12",
+          "severity": "warning",
+          "message": "\u53c2\u6570\u5171\uff1a 11\u4e2a\uff0c\u6700\u591a\uff1a10\u4e2a\u3002",
+          "source": "com.puppycrawl.tools.checkstyle.checks.sizes.ParameterNumberCheck"
+        }
+      ]
+    },
+    {
+      "path": "pangrova-query/pangrova-query-api/target/checkstyle-result.xml",
+      "sha256": "50131c64ec1d6e01dbb624c4ed4c8108ec3df8453a16f937ed483f90ddb99c52",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-query/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-schema-migrations/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/pangrova-security-api/target/checkstyle-result.xml",
+      "sha256": "fd065580a3c7016f444e359777227e2d145d74fd75fe0a18f0059c22cea2f54b",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-security/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-api/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/target/checkstyle-result.xml",
+      "sha256": "f1294a8cfdfbea0b9fb9fc2915a0e739564ac89b07c7b3b6b44a4e7dec6156bb",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-local/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-shuffle/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-table/pangrova-table-api/target/checkstyle-result.xml",
+      "sha256": "a96a2ec500b055a087f6411b101d8cf7f0ca90eb97aba248dffedf19427472b8",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-table/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-testing/pangrova-testing-kit/target/checkstyle-result.xml",
+      "sha256": "4cb0a0e6bbcd82c33553b02f12101ea9e2a185965d6dc9744b9f66c187b7d5cd",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-testing/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-transport/pangrova-transport-api/target/checkstyle-result.xml",
+      "sha256": "9b1f1e11a0ffee9d410bc0ffd63e33a29d0b6072e77418ef34aca18ebb8e7acd",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-transport/target/checkstyle-result.xml",
+      "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+      "diagnostics": []
+    },
+    {
+      "path": "pangrova-types/target/checkstyle-result.xml",
+      "sha256": "3f34354a595905f5ed87caddafb5d922fb334891154b8ffee4dd136e4472bef1",
+      "diagnostics": []
+    }
+  ]
+}

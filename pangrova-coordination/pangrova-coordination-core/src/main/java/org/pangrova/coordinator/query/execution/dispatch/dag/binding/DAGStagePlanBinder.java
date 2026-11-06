@@ -1,16 +1,19 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
-import org.pangrova.coordinator.generation.GeneratedValueReadResolver;
-import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
+import org.pangrova.query.api.task.QuerySplit;
+
+import org.pangrova.planner.api.result.ResultColumnModel;
+
+import org.pangrova.coordinator.generation.read.GeneratedValueReadResolver;
+import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.ResolvedRetrievalGeneration;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.stage.QueryExecutionScope;
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalGenerationResolver;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder.DistributedRetrieval;
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.planner.SerializedPlanFragment;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.LogicalType;
@@ -35,8 +38,8 @@ public final class DAGStagePlanBinder {
 
     /** Authenticated live compilation metadata for one exact stage. */
     public record Input(SerializedPlanFragment serialized, StageNode plan,
-            List<SplitFetcher.SplitWithPaths> splits, DAGQueryContext queryContext,
-            CoordinatorSessionContext session, WorkerSelector workerSelector, boolean outputStage) {
+            List<QuerySplit> splits, QueryExecutionScope queryContext,
+            QuerySession session, WorkerSelector workerSelector, boolean outputStage) {
         public Input {
             splits = List.copyOf(splits);
         }
@@ -51,12 +54,13 @@ public final class DAGStagePlanBinder {
         BoundExecutionPlan generated = generatedValueReadResolver == null
                 ? new BoundExecutionPlan(serialized.planBytes(), List.of())
                 : generatedValueReadResolver.bindReadOverlays(serialized.planBytes(), input.session(),
-                        splits.stream().map(SplitFetcher.SplitWithPaths::serializedData).toList(),
+                        splits.stream().map(QuerySplit::serializedData).toList(),
                         queryContext.snapshotOverrides());
         SerializedPlanFragment readable = new SerializedPlanFragment(generated.planBytes(),
                 serialized.retrievalTopKHints(), serialized.aiInvocationHints());
         Map<String, ResolvedRetrievalGeneration> artifacts =
-                retrievalArtifactResolver.resolve(readable, queryContext, splits);
+                queryContext == null ? Map.of() : retrievalArtifactResolver.resolve(readable,
+                        queryContext.retrievalArtifacts(), queryContext.retrievalMerge(), splits);
         boolean outputStage = input.outputStage();
         BoundExecutionPlan retrievalPlan = bindRetrieval(
                 readable, input.session().queryId(), plan.stageId(), outputStage,
@@ -69,7 +73,7 @@ public final class DAGStagePlanBinder {
             var binding = AiInvocationOperatorBinder.bindQuery(
                     hint, input.workerSelector(), input.session().userIdentity());
             operators.add(binding);
-            if (hint.operation() == org.pangrova.planner.AiInvocationPlanHint.Operation.EMBEDDING) {
+            if (hint.operation() == org.pangrova.planner.api.invocation.AiInvocationPlanHint.Operation.EMBEDDING) {
                 modelOutputTypes.put(hint.modelName(), binding.getModel().getOutputType());
             }
         });
@@ -82,7 +86,7 @@ public final class DAGStagePlanBinder {
 
     /** Retains declared storage vectors and binds only exact-model vector output intents. */
     public static List<ResultColumnLogicalType> bindResultColumnTypes(
-            org.pangrova.planner.StagePlanAccess fragment,
+            org.pangrova.planner.core.analysis.StagePlanAccess fragment,
             Map<String, LogicalType> modelOutputTypes) {
         Map<Integer, ResultColumnLogicalType> columns = new java.util.TreeMap<>();
         for (var column : fragment.resultColumnTypes()) {
@@ -104,7 +108,7 @@ public final class DAGStagePlanBinder {
     }
 
     private static ResultColumnLogicalType resultColumnType(
-            org.pangrova.planner.PlanFragment.ResultColumnModel column,
+            ResultColumnModel column,
             Map<String, LogicalType> modelOutputTypes) {
         LogicalType type = modelOutputTypes.get(column.modelName());
         if (type == null) {
@@ -124,7 +128,7 @@ public final class DAGStagePlanBinder {
             int stageId,
             boolean outputStage,
             boolean hasNoSplits,
-            DAGQueryContext context,
+            QueryExecutionScope context,
             Map<String, ResolvedRetrievalGeneration> artifacts) {
         boolean hasPipeline = context != null
                 && (context.retrievalMerge().isPresent()

@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.pangrova.coordinator.query.execution.split.CacheAffinityConfig;
-import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.execution.split.SplitAssignment;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentConfig;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;

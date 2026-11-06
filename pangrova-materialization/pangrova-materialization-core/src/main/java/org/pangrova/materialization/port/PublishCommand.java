@@ -6,7 +6,7 @@ import org.pangrova.materialization.domain.ExecutionFence;
 import org.pangrova.materialization.domain.Generation;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.RefreshAttempt;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.CommitEvidence;
 
 /**
  * Atomic publication command.

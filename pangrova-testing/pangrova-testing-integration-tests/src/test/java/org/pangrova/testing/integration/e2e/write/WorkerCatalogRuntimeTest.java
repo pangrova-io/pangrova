@@ -5,11 +5,11 @@ import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.protocol.v2.SecurityContext;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
 import java.time.Instant;

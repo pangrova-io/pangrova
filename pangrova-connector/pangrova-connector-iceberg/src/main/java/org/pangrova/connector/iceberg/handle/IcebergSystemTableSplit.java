@@ -7,7 +7,7 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
 
 /** One pinned Iceberg metadata object scanned by a Native Worker. */
 public record IcebergSystemTableSplit(

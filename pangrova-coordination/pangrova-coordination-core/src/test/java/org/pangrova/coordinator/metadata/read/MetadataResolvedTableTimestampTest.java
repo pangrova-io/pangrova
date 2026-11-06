@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,7 +22,7 @@ class MetadataResolvedTableTimestampTest {
                 new ConnectorTableMetadata.Column("tz", PangrovaType.TIMESTAMP_TZ,
                         OptionalInt.empty(), null));
         var metadata = new ConnectorTableMetadata(
-                new org.pangrova.spi.connector.metadata.table.SchemaTableName("schema", "timestamps"),
+                new org.pangrova.connector.api.metadata.table.SchemaTableName("schema", "timestamps"),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, java.util.Map.of());
         var table = new MetadataResolvedTable(metadata);
         var factory = new PangrovaPlanner().plan("SELECT 1").plan()

@@ -1,5 +1,8 @@
 package org.pangrova.ai.worker.context;
 
+import org.pangrova.ai.spi.invocation.PhysicalAttempt;
+import org.pangrova.ai.spi.invocation.ClientExchange;
+
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -8,14 +11,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 
 /** Joins actual client ownership; Future cancellation alone is never an exit proof. */
-final class AiHttpExchange implements AiProviderCallContext.LocalExchange {
+final class AiHttpExchange implements ClientExchange {
     private final Thread sender = Thread.currentThread();
     private final AiBoundedBodySubscriber body;
     private final CountDownLatch terminated = new CountDownLatch(1);
     private CompletableFuture<HttpResponse<String>> response;
     private boolean cancelled;
 
-    AiHttpExchange(AiProviderCallContext.PhysicalAttempt attempt) {
+    AiHttpExchange(PhysicalAttempt attempt) {
         body = new AiBoundedBodySubscriber(attempt);
     }
 

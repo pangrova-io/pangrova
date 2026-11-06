@@ -16,10 +16,10 @@ import org.pangrova.shuffle.exchange.ExchangeInput;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
+import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
-import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
-import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
 
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
@@ -97,7 +97,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         var binding = service.delegateRead(producer, consumer);
         var chunks = new ArrayList<org.pangrova.protocol.v2.BatchChunk>();
         try (var pool = service.clientPool();
-             var source = new RemoteShuffleExchangeSource(binding, pool.borrow(binding.selectedEndpoint()))) {
+             var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), pool.borrow(binding.selectedEndpoint()))) {
             org.pangrova.protocol.v2.BatchChunk chunk;
             while ((chunk = source.nextVerifiedChunk()) != null) chunks.add(chunk);
             assertThat(source.isFinished()).isTrue();

@@ -1,0 +1,134 @@
+{
+  "retired_baseline_classes": [],
+  "stages": [
+    {
+      "stage": "regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata -am -Pnative-runtime,full-regression '-Dtest=PostgresGenerationJobStoreTest#failedJobInsertionPreservesWholeCohortAndPrimaryFailure,PostgresGenerationStageExchangeStoreTest#failedRegistrationCannotLeaveAllocationAndPreservesPrimary+failedFinalizationCannotOpenConsumerBarrierAndPreservesPrimary+failedPartitionClaimRestoresAttemptAndPreservesPrimary' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 61.8,
+      "cases": 28,
+      "passed": 20,
+      "failure": 8,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata -am -Pnative-runtime,full-regression '-Dtest=PostgresGenerationJobStoreTest#failedJobInsertionPreservesWholeCohortAndPrimaryFailure,PostgresGenerationStageExchangeStoreTest#failedRegistrationCannotLeaveAllocationAndPreservesPrimary+failedFinalizationCannotOpenConsumerBarrierAndPreservesPrimary+failedPartitionClaimRestoresAttemptAndPreservesPrimary' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 64.59,
+      "cases": 28,
+      "passed": 28,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=*Generation*Test,JdbcApiClasspathTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest,PhysicalTwoWorkerShuffleE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 347.23,
+      "cases": 268,
+      "passed": 255,
+      "failure": 2,
+      "error": 11,
+      "skipped": 0
+    },
+    {
+      "stage": "socket-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-common -am -Dtest=EmbeddedHttpServerPortOwnershipTest,EmbeddedHttpServerFactoryThreadPoolTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 3.48,
+      "cases": 8,
+      "passed": 7,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "socket-owner-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression -Dtest=CoordinatorHttpStartupCleanupTest,EmbeddedHttpServerPortOwnershipTest,EmbeddedHttpServerFactoryThreadPoolTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 2.48,
+      "cases": 8,
+      "passed": 7,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "owner-regression",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression -Dtest=CoordinatorHttpStartupCleanupTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 48.69,
+      "cases": 1,
+      "passed": 0,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "socket-owner-focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression -Dtest=CoordinatorHttpStartupCleanupTest,EmbeddedHttpServerPortOwnershipTest,EmbeddedHttpServerFactoryThreadPoolTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 57.16,
+      "cases": 9,
+      "passed": 9,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "http-corrected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=EmbeddedHttpServer*Test,CoordinatorHttpStartupCleanupTest,InternalAuthSecretWiringTest,CatalogRestResourceTest,ActivationSmokeE2ETest,PhysicalTwoWorkerShuffleE2ETest,GenerationIsolationE2ETest*,IndexGenerationRollbackE2ETest*,GcGenerationFencingE2ETest*,StageFileUrlHttpIntegrationTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 1,
+      "seconds": 140.24,
+      "cases": 66,
+      "passed": 56,
+      "failure": 0,
+      "error": 10,
+      "skipped": 0
+    },
+    {
+      "stage": "socket-address-focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-server-coordinator -am -Pnative-runtime,full-regression -Dtest=CoordinatorHttpStartupCleanupTest,EmbeddedHttpServerPortOwnershipTest,EmbeddedHttpServerFactoryThreadPoolTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 57.54,
+      "cases": 11,
+      "passed": 11,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "http-address-corrected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=EmbeddedHttpServer*Test,CoordinatorHttpStartupCleanupTest,InternalAuthSecretWiringTest,CatalogRestResourceTest,ActivationSmokeE2ETest,PhysicalTwoWorkerShuffleE2ETest,WorkerCrashQueryTerminationTest,GenerationIsolationE2ETest*,IndexGenerationRollbackE2ETest*,GcGenerationFencingE2ETest*,StageFileUrlHttpIntegrationTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 0,
+      "seconds": 178.65,
+      "cases": 73,
+      "passed": 73,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-copy",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=CopySourceReadHttpE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 78.41,
+      "cases": 4,
+      "passed": 4,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 309,
+    "passed": 309,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest selected test reports with moved FQNs normalized. First failures retained separately. Full regression is not implied."
+}

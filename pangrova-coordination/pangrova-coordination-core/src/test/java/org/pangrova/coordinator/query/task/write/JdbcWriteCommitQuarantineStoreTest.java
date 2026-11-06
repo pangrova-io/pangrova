@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query.task.write;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.query.transaction.QuarantinedWriteCommit;
-import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitQuarantineStore;
+import org.pangrova.query.api.write.QuarantinedWriteCommit;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitQuarantineStore;
 
 import java.sql.Connection;
 import java.sql.ResultSet;

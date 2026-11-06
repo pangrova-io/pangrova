@@ -13,11 +13,11 @@
  */
 package org.pangrova.coordinator.indexing.ai.lifecycle;
 
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.LeaseEntry;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.lease.LeaseEntry;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

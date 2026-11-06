@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.observability;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,17 +19,11 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * E2E test for trace propagation across the full query pipeline.
- *
- * <p>Validates that a traceId injected via W3C traceparent header propagates
- * through: Client HTTP → Coordinator TracingFilter → Worker dispatch →
- * NativeTaskExecutor (JNI) → response. The trace context must survive
- * the entire pipeline without being lost.
- *
- * <p>Merged from EndToEndTracePropagationE2ETest and TraceIdPropagationE2ETest.
- *
- * <p>Covers: T-0.5.1 QueryTracer parent context, T-0.5.2 NativeTaskExecutor
- * trace propagation, T-0.5.3 LogContext wiring.
+ * Native SQL execution with disabled telemetry and valid execution correlation.
+ * The canonical-request test verifies generated identities at real dispatch and
+ * consumes actual Native results. HTTP header smoke cases do not prove parent
+ * propagation: this fixture selects NoOp tracing. SDK parent/activation and JNI
+ * boundary tests cover their respective segments; no exported-span claim is made.
  */
 @DisplayName("Trace Propagation E2E")
 class TracePropagationE2ETest extends SqlE2ETestBase {
@@ -56,8 +50,38 @@ class TracePropagationE2ETest extends SqlE2ETestBase {
                 + " VALUES (1, 'alpha', 10.0), (2, 'beta', 20.0), (3, 'gamma', 30.0)");
     }
 
+    @Test
+    void disabledTelemetryStillIssuesDistinctValidNativeExecutionIdentities() throws Exception {
+        var traces = new java.util.HashSet<String>();
+        for (int iteration = 0; iteration < 2; iteration++) {
+            var submitted = submitQueryViaHttp("SELECT CAST(1 AS BIGINT) AS trace_probe");
+            try {
+                org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(30))
+                        .until(() -> taskTracker.getTaskIds(submitted.queryId()).stream()
+                                .anyMatch(id -> taskTracker.getTaskRequest(id) != null));
+                var requests = taskTracker.getTaskIds(submitted.queryId()).stream()
+                        .map(taskTracker::getTaskRequest).filter(java.util.Objects::nonNull).toList();
+                assertThat(requests).isNotEmpty();
+                var firstTrace = requests.get(0).taskRequest().getTraceContext().getTraceId();
+                assertThat(traces.add(firstTrace)).as("different query roots").isTrue();
+                for (var request : requests) {
+                    var trace = request.taskRequest().getTraceContext();
+                    assertThat(trace.getTraceId()).matches("[0-9a-f]{32}")
+                            .isNotEqualTo("0".repeat(32)).isEqualTo(firstTrace);
+                    assertThat(trace.getSpanId()).matches("[0-9a-f]{16}")
+                            .isNotEqualTo("0".repeat(16));
+                    assertThat(trace.getTraceFlags()).isZero();
+                }
+                assertThat(consumeSubmittedQuery(submitted)).singleElement()
+                        .satisfies(row -> assertThat(row.getLong("trace_probe")).isEqualTo(1));
+            } finally {
+                queryManager.cancelQuery(submitted.queryId());
+            }
+        }
+    }
+
     @Nested
-    @DisplayName("HTTP Trace Header Propagation")
+    @DisplayName("HTTP Trace Header Compatibility")
     class HttpTraceHeaderTest {
 
         @Test
@@ -140,7 +164,7 @@ class TracePropagationE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Full query with traceparent returns all rows correctly")
+        @DisplayName("Native query returns all rows with disabled telemetry")
         void fullQueryWithTraceparentReturnsResults() {
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT id, name, value FROM " + CATALOG + "." + SCHEMA
@@ -153,7 +177,7 @@ class TracePropagationE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Multiple sequential queries with different trace IDs succeed")
+        @DisplayName("Sequential Native aggregates succeed with disabled telemetry")
         void multipleQueriesWithDifferentTraceIds() {
             String fqn = CATALOG + "." + SCHEMA + "." + testTable;
 

@@ -1,0 +1,9 @@
+{
+  "scope": "Read-only deterministic probe against completed current Core classes during selected reactor regression; no production change.",
+  "source_sha256": "4b9c8125846f9977c526d9a1bf0b4a5ec03c15c3fbcc067ed015ce4d73073ca8",
+  "exit": 1,
+  "observed": [
+    "cancelled_build_result=IndexBuildResult{outcome=COMPLETED, successCount=0, failureCount=0}",
+    "Exception in thread \"main\" java.lang.AssertionError: Cancelled build must not authorize publication"
+  ]
+}

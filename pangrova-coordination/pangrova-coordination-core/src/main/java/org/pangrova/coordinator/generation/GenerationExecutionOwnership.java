@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.generation;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.spi.generation.job.GenerationJobKey;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.generation.api.identity.GenerationJobKey;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
 
 import java.util.Objects;
 import java.util.Optional;

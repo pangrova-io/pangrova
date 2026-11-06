@@ -1,0 +1,23 @@
+{
+  "packaging": "Full reactor clean package completed; tests separately proven by consumers2, owners and projection-analysis, not counted as rerun in packaging.",
+  "artifact_audit": {
+    "artifacts": 110,
+    "module_names": 110,
+    "packages": 852,
+    "violations": []
+  },
+  "class_parity": {
+    "artifacts": 6,
+    "classes": 240
+  },
+  "source_graph": {
+    "packages": 846,
+    "cycles": 0
+  },
+  "docs": {
+    "exit": 0,
+    "output": "=== Documentation-Code Class Reference Check ===\n\nChecked 311 class references.\n\n\u2705 All 311 class references in docs/architecture/ exist in codebase.\n"
+  },
+  "diff_check_exit": 0,
+  "scope": "Local same-source Java packaging and previously verified unchanged native inputs. Full production regression/static dependency closure is not claimed."
+}

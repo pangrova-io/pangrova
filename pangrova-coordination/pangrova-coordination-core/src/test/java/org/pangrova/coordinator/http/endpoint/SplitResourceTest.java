@@ -8,7 +8,7 @@ import java.util.List;
 
 import jakarta.ws.rs.core.Response;
 
-import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.execution.split.SplitAssignment;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentConfig;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;

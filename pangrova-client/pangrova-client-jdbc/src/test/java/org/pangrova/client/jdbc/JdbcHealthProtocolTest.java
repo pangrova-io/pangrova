@@ -3,7 +3,7 @@ package org.pangrova.client.jdbc;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.transport.client.http.PangrovaRestClient;
 import org.pangrova.client.session.RetryPolicy;
 import com.sun.net.httpserver.HttpServer;
 import org.pangrova.common.concurrent.ExecutorDrain;

@@ -13,9 +13,9 @@ import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,7 +76,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         this.tracingProvider = tracingProvider;
         this.internalAuthSecret = normalizeSecret(internalAuthSecret);
         this.reportFailedCounter =
-                new org.pangrova.observability.sdk.noop.NoOpMetricsProvider()
+                new org.pangrova.observability.noop.NoOpMetricsProvider()
                         .createCounter("noop", "noop", "1");
     }
 
@@ -319,6 +319,11 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     /** No-op counter for when no MetricsProvider is supplied. */
     private enum NoOpCounter implements LongCounter {
         INSTANCE;
+
+        @Override
+        public void add(long value, org.pangrova.observability.api.metrics.MetricAttributes attributes) {
+            java.util.Objects.requireNonNull(attributes, "attributes");
+        }
 
         @Override
         public void add(long value) {

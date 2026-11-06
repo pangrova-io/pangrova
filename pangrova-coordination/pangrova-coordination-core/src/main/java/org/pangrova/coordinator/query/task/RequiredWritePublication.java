@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.task;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.DistributedWritePublicationMetadata;
-import org.pangrova.spi.connector.coordination.NativeWriteFinalization;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.spi.connector.coordination.WriteCommitJournal;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.DistributedWritePublicationMetadata;
+import org.pangrova.connector.api.commit.NativeWriteFinalization;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 
 /** Commits through the connector's actual publication authority for a durable downstream consumer. */
 final class RequiredWritePublication {

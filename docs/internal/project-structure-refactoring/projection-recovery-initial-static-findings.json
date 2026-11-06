@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "type": "SQL_INJECTION_JDBC",
+      "priority": "2",
+      "message": "This use of java/sql/Connection.prepareStatement(Ljava/lang/String;)Ljava/sql/PreparedStatement; can be vulnerable to SQL injection (with JDBC)",
+      "class": "org.pangrova.persistence.catalog.postgresql.synchronization.SyncCompletionRows",
+      "lines": [
+        {
+          "endBytecode": "10",
+          "classname": "org.pangrova.persistence.catalog.postgresql.synchronization.SyncCompletionRows",
+          "start": "31",
+          "end": "31",
+          "sourcepath": "org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+          "sourcefile": "SyncCompletionRows.java",
+          "startBytecode": "10",
+          "primary": "true"
+        }
+      ]
+    },
+    {
+      "type": "SQL_INJECTION_JDBC",
+      "priority": "2",
+      "message": "This use of java/sql/Connection.prepareStatement(Ljava/lang/String;)Ljava/sql/PreparedStatement; can be vulnerable to SQL injection (with JDBC)",
+      "class": "org.pangrova.persistence.catalog.postgresql.synchronization.SyncCompletionRows",
+      "lines": [
+        {
+          "endBytecode": "10",
+          "classname": "org.pangrova.persistence.catalog.postgresql.synchronization.SyncCompletionRows",
+          "start": "58",
+          "end": "58",
+          "sourcepath": "org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+          "sourcefile": "SyncCompletionRows.java",
+          "startBytecode": "10",
+          "primary": "true"
+        }
+      ]
+    }
+  ],
+  "review": "Both expressions select from a closed internal enum, with all values bound as parameters. Replace runtime relation concatenation with compile-time SQL constants, no suppression or new filter."
+}

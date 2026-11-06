@@ -3,15 +3,16 @@ package org.pangrova.coordinator.scheduler.ft;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.scheduler.admission.StageScheduler;
+import org.pangrova.scheduler.core.admission.StageScheduler;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.FailureAction;
 import org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler.FailureActionType;
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger;
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger.RepartitionDecision;
 import org.pangrova.scheduler.api.placement.FaultTolerancePolicy;
 import org.pangrova.scheduler.api.placement.RetryBudget;
-import org.pangrova.shuffle.api.ShuffleCapabilities;
-import org.pangrova.shuffle.api.ShuffleDurability;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
+
+import static org.pangrova.shuffle.api.capability.ShuffleCapability.CONSUMER_RETRY;
 import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.junit.jupiter.api.Test;
 
@@ -33,10 +34,10 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.NONE,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL),
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY),
                 null);
 
-        FailureAction action = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction action = scheduler.handleConsumerFailure("task-1", "stage-0");
 
         assertThat(action.type()).isEqualTo(FailureActionType.FAIL_QUERY);
         assertThat(action.reason()).contains("NONE");
@@ -45,31 +46,42 @@ class FaultTolerantStageSchedulerTest {
     // ---- TASK_RETRY policy tests ----
 
     @Test
-    void taskRetryPolicy_retriesWhenShuffleSupportsDurability() {
+    void taskRetryPolicy_retriesWhenConsumerRetryIsExplicit() {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL),
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY),
                 null);
 
-        FailureAction action = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction action = scheduler.handleConsumerFailure("task-1", "stage-0");
 
         assertThat(action.type()).isEqualTo(FailureActionType.RETRY_TASK);
         assertThat(action.attemptNumber()).isEqualTo(1);
     }
 
     @Test
-    void taskRetryPolicy_failsWhenShuffleIsEphemeral() {
+    void taskRetryPolicy_failsWithoutConsumerRetry() {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.EPHEMERAL),
+                ShuffleCapabilityDescriptor.none(),
                 null);
 
-        FailureAction action = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction action = scheduler.handleConsumerFailure("task-1", "stage-0");
 
         assertThat(action.type()).isEqualTo(FailureActionType.FAIL_QUERY);
-        assertThat(action.reason()).contains("EPHEMERAL");
+        assertThat(action.reason()).contains("does not support task retry");
+    }
+
+    @Test
+    void survivalAndProducerRetryDoNotAuthorizeConsumerRetry() {
+        for (var capability : org.pangrova.shuffle.api.capability.ShuffleCapability.values()) {
+            if (capability == CONSUMER_RETRY) continue;
+            var scheduler = create(FaultTolerancePolicy.TASK_RETRY, RetryBudget.withDefaults(),
+                    ShuffleCapabilityDescriptor.of(capability), null);
+            assertThat(scheduler.handleConsumerFailure("task-1", "stage-0").type())
+                    .as("%s is not consumer retry", capability).isEqualTo(FailureActionType.FAIL_QUERY);
+        }
     }
 
     @Test
@@ -77,12 +89,12 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.DURABLE),
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY),
                 null);
 
-        FailureAction first = scheduler.handleTaskFailure("task-1", "stage-0");
-        FailureAction second = scheduler.handleTaskFailure("task-1", "stage-0");
-        FailureAction third = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction first = scheduler.handleConsumerFailure("task-1", "stage-0");
+        FailureAction second = scheduler.handleConsumerFailure("task-1", "stage-0");
+        FailureAction third = scheduler.handleConsumerFailure("task-1", "stage-0");
 
         assertThat(first.attemptNumber()).isEqualTo(1);
         assertThat(second.attemptNumber()).isEqualTo(2);
@@ -99,16 +111,16 @@ class FaultTolerantStageSchedulerTest {
 
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL), null);
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY), null);
 
         // 2 retries succeed
-        assertThat(scheduler.handleTaskFailure("task-1", "stage-0").type())
+        assertThat(scheduler.handleConsumerFailure("task-1", "stage-0").type())
                 .isEqualTo(FailureActionType.RETRY_TASK);
-        assertThat(scheduler.handleTaskFailure("task-1", "stage-0").type())
+        assertThat(scheduler.handleConsumerFailure("task-1", "stage-0").type())
                 .isEqualTo(FailureActionType.RETRY_TASK);
 
         // 3rd exceeds budget
-        FailureAction third = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction third = scheduler.handleConsumerFailure("task-1", "stage-0");
         assertThat(third.type()).isEqualTo(FailureActionType.FAIL_QUERY);
         assertThat(third.reason()).contains("Task retry budget exhausted");
     }
@@ -123,16 +135,16 @@ class FaultTolerantStageSchedulerTest {
 
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL), null);
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY), null);
 
         // Different tasks in same stage
-        assertThat(scheduler.handleTaskFailure("task-1", "stage-0").type())
+        assertThat(scheduler.handleConsumerFailure("task-1", "stage-0").type())
                 .isEqualTo(FailureActionType.RETRY_TASK);
-        assertThat(scheduler.handleTaskFailure("task-2", "stage-0").type())
+        assertThat(scheduler.handleConsumerFailure("task-2", "stage-0").type())
                 .isEqualTo(FailureActionType.RETRY_TASK);
 
         // 3rd retry in same stage exceeds stage budget
-        FailureAction third = scheduler.handleTaskFailure("task-3", "stage-0");
+        FailureAction third = scheduler.handleConsumerFailure("task-3", "stage-0");
         assertThat(third.type()).isEqualTo(FailureActionType.FAIL_QUERY);
         assertThat(third.reason()).contains("Stage retry budget exhausted");
     }
@@ -147,16 +159,16 @@ class FaultTolerantStageSchedulerTest {
 
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL), null);
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY), null);
 
         // Retries in different stages
-        assertThat(scheduler.handleTaskFailure("task-1", "stage-0").type())
+        assertThat(scheduler.handleConsumerFailure("task-1", "stage-0").type())
                 .isEqualTo(FailureActionType.RETRY_TASK);
-        assertThat(scheduler.handleTaskFailure("task-2", "stage-1").type())
+        assertThat(scheduler.handleConsumerFailure("task-2", "stage-1").type())
                 .isEqualTo(FailureActionType.RETRY_TASK);
 
         // 3rd retry across query exceeds query budget
-        FailureAction third = scheduler.handleTaskFailure("task-3", "stage-2");
+        FailureAction third = scheduler.handleConsumerFailure("task-3", "stage-2");
         assertThat(third.type()).isEqualTo(FailureActionType.FAIL_QUERY);
         assertThat(third.reason()).contains("Query retry budget exhausted");
     }
@@ -171,16 +183,16 @@ class FaultTolerantStageSchedulerTest {
 
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL), null);
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY), null);
 
         // Each task has its own counter
-        scheduler.handleTaskFailure("task-1", "stage-0");
-        scheduler.handleTaskFailure("task-1", "stage-0");
-        scheduler.handleTaskFailure("task-2", "stage-0");
-        scheduler.handleTaskFailure("task-2", "stage-0");
+        scheduler.handleConsumerFailure("task-1", "stage-0");
+        scheduler.handleConsumerFailure("task-1", "stage-0");
+        scheduler.handleConsumerFailure("task-2", "stage-0");
+        scheduler.handleConsumerFailure("task-2", "stage-0");
 
         // task-1 budget exhausted, but task-2 still has room at exactly 2
-        FailureAction task1 = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction task1 = scheduler.handleConsumerFailure("task-1", "stage-0");
         assertThat(task1.type()).isEqualTo(FailureActionType.FAIL_QUERY);
     }
 
@@ -191,10 +203,10 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.STAGE_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL),
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY),
                 null);
 
-        FailureAction action = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction action = scheduler.handleConsumerFailure("task-1", "stage-0");
 
         assertThat(action.type()).isEqualTo(FailureActionType.RETRY_TASK);
     }
@@ -204,10 +216,10 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.STAGE_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.EPHEMERAL),
+                ShuffleCapabilityDescriptor.none(),
                 null);
 
-        FailureAction action = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction action = scheduler.handleConsumerFailure("task-1", "stage-0");
 
         assertThat(action.type()).isEqualTo(FailureActionType.RETRY_STAGE);
     }
@@ -222,14 +234,14 @@ class FaultTolerantStageSchedulerTest {
 
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.STAGE_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL), null);
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY), null);
 
         // First retry: task retry
-        FailureAction first = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction first = scheduler.handleConsumerFailure("task-1", "stage-0");
         assertThat(first.type()).isEqualTo(FailureActionType.RETRY_TASK);
 
         // Second retry: task budget exhausted -> stage retry
-        FailureAction second = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction second = scheduler.handleConsumerFailure("task-1", "stage-0");
         assertThat(second.type()).isEqualTo(FailureActionType.RETRY_STAGE);
     }
 
@@ -243,14 +255,14 @@ class FaultTolerantStageSchedulerTest {
 
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.STAGE_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.EPHEMERAL), null);
+                ShuffleCapabilityDescriptor.none(), null);
 
         // First: stage retry
-        FailureAction first = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction first = scheduler.handleConsumerFailure("task-1", "stage-0");
         assertThat(first.type()).isEqualTo(FailureActionType.RETRY_STAGE);
 
         // Second: stage budget exhausted
-        FailureAction second = scheduler.handleTaskFailure("task-2", "stage-0");
+        FailureAction second = scheduler.handleConsumerFailure("task-2", "stage-0");
         assertThat(second.type()).isEqualTo(FailureActionType.FAIL_QUERY);
         assertThat(second.reason()).contains("Stage recompute budget exhausted");
     }
@@ -267,16 +279,16 @@ class FaultTolerantStageSchedulerTest {
 
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL), null);
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY), null);
 
-        scheduler.handleTaskFailure("task-1", "stage-0");
+        scheduler.handleConsumerFailure("task-1", "stage-0");
         // Budget exhausted now
-        assertThat(scheduler.handleTaskFailure("task-1", "stage-0").type())
+        assertThat(scheduler.handleConsumerFailure("task-1", "stage-0").type())
                 .isEqualTo(FailureActionType.FAIL_QUERY);
 
         // Reset and retry
         scheduler.resetCounters();
-        FailureAction afterReset = scheduler.handleTaskFailure("task-1", "stage-0");
+        FailureAction afterReset = scheduler.handleConsumerFailure("task-1", "stage-0");
         assertThat(afterReset.type()).isEqualTo(FailureActionType.RETRY_TASK);
     }
 
@@ -287,7 +299,7 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.NONE,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.EPHEMERAL),
+                ShuffleCapabilityDescriptor.none(),
                 null);
 
         Optional<RepartitionDecision> result = scheduler.evaluateRepartition(
@@ -306,7 +318,7 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL),
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY),
                 trigger);
 
         Optional<RepartitionDecision> result = scheduler.evaluateRepartition(
@@ -326,7 +338,7 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL),
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY),
                 trigger);
 
         Optional<RepartitionDecision> result = scheduler.evaluateRepartition(
@@ -344,7 +356,7 @@ class FaultTolerantStageSchedulerTest {
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY,
                 RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL),
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY),
                 null);
 
         List<StageScheduler.StageInfo> stages = List.of(
@@ -363,7 +375,7 @@ class FaultTolerantStageSchedulerTest {
     void constructorRejectsNullPolicy() {
         assertThatThrownBy(() -> new FaultTolerantStageScheduler(
                 baseScheduler, null, RetryBudget.withDefaults(),
-                ShuffleCapabilities.of(ShuffleDurability.EPHEMERAL), null))
+                ShuffleCapabilityDescriptor.none(), null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -371,7 +383,7 @@ class FaultTolerantStageSchedulerTest {
     void constructorRejectsNullBudget() {
         assertThatThrownBy(() -> new FaultTolerantStageScheduler(
                 baseScheduler, FaultTolerancePolicy.NONE, null,
-                ShuffleCapabilities.of(ShuffleDurability.EPHEMERAL), null))
+                ShuffleCapabilityDescriptor.none(), null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -388,7 +400,7 @@ class FaultTolerantStageSchedulerTest {
         RetryBudget budget = RetryBudget.withDefaults();
         FaultTolerantStageScheduler scheduler = create(
                 FaultTolerancePolicy.TASK_RETRY, budget,
-                ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL), null);
+                ShuffleCapabilityDescriptor.of(CONSUMER_RETRY), null);
 
         assertThat(scheduler.policy()).isEqualTo(FaultTolerancePolicy.TASK_RETRY);
         assertThat(scheduler.retryBudget()).isSameAs(budget);
@@ -399,7 +411,7 @@ class FaultTolerantStageSchedulerTest {
     private FaultTolerantStageScheduler create(
             FaultTolerancePolicy policy,
             RetryBudget budget,
-            ShuffleCapabilities capabilities,
+            ShuffleCapabilityDescriptor capabilities,
             AdaptiveRepartitionTrigger trigger) {
         return new FaultTolerantStageScheduler(
                 baseScheduler, policy, budget, capabilities, trigger);

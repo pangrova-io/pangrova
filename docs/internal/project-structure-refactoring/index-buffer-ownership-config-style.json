@@ -1,0 +1,13 @@
+[
+  {
+    "path": "pangrova-config/src/main/java/org/pangrova/config/WorkerOptions.java",
+    "diagnostics": [
+      {
+        "line": "121",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 157\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      }
+    ]
+  }
+]

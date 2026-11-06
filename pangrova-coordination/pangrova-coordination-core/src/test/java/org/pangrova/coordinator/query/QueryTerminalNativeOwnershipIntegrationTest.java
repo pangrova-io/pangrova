@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -8,7 +10,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.security.api.audit.AuditEventType;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Actual task exit receipts, not simulated dispatch or cleanup exceptions; one real Worker process. */
@@ -23,7 +25,7 @@ class QueryTerminalNativeOwnershipIntegrationTest {
         try (var fixture = new QueryTerminalNativeFixture(directory)) {
             fixture.submit("SELECT 42");
             fixture.consume();
-            fixture.awaitLogicalTerminal(QueryStateMachine.State.FINISHED);
+            fixture.awaitLogicalTerminal(QueryState.FINISHED);
             fixture.releaseActualWorkerOwners();
             assertPending(fixture, "FINISHED");
             assertThat(fixture.rows()).isEqualTo(List.of(List.of(42)));
@@ -46,7 +48,7 @@ class QueryTerminalNativeOwnershipIntegrationTest {
                     assertThat(failure).hasMessageContaining("consumption");
                 }
             }
-            fixture.awaitLogicalTerminal(QueryStateMachine.State.FAILED);
+            fixture.awaitLogicalTerminal(QueryState.FAILED);
             fixture.releaseActualWorkerOwners();
             fixture.requireActualNativeFailure("division by zero");
             assertThat(fixture.manager.getStateMachine(fixture.queryId).getError()).isPresent();
@@ -68,7 +70,7 @@ class QueryTerminalNativeOwnershipIntegrationTest {
             // literal across every VALUES row in Calcite's intermediate plans.
             fixture.submit("SELECT '" + "x".repeat(64) + "' FROM (VALUES " + rows + ") AS t(n)");
             assertThat(fixture.manager.cancelQuery(fixture.queryId)).isTrue();
-            fixture.awaitLogicalTerminal(QueryStateMachine.State.CANCELLED);
+            fixture.awaitLogicalTerminal(QueryState.CANCELLED);
             fixture.releaseActualWorkerOwners();
             assertPending(fixture, "CANCELLED");
             fixture.exitFrontend();

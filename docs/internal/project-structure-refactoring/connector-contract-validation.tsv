@@ -1,0 +1,14 @@
+scope	command_or_method	result	evidence
+contract extraction	mvn -q -pl :pangrova-connector-api,:pangrova-connector-runtime,:pangrova-persistence-query-api,:pangrova-persistence-jdbc-api,:pangrova-indexing-codec -am test	PASS	API and Runtime tests; first failures and fixes described in progress
+consumer compilation	mvn -q -DskipTests test	PASS	All reactor production and test sources compiled; compilation only, not test success
+clean focused production chain	mvn -q -Pnative-runtime,full-regression -Dtest=<connector-contract-selected-tests.txt joined with commas> -Dsurefire.failIfNoSpecifiedTests=false clean package	PASS	1382 actual JUnit cases; 0 failures, errors or skips; 480.2 seconds
+annotation/metadata follow-up	mvn -q -pl :pangrova-testing-kit,:pangrova-scheduler-api,:pangrova-persistence-api,:pangrova-observability-api,:pangrova-batch-api,:pangrova-connector-runtime,:pangrova-transport-client -am -Dtest=*Classpath*Test,*IsolationTest,ModuleDependencyPropertyTest,SharedPackagePolicyTest,PluginClassLoaderTest,ConnectorFactoryRegistryTest,RowPageConverterBinaryTest,ConnectorBinaryPageCodecTest -Dsurefire.failIfNoSpecifiedTests=false package	PASS	52 actual cases; 0 failures, errors or skips; annotations and current JARs revalidated
+full regression	mvn -q -Pnative-runtime,full-regression verify	FAIL	Testing Kit: 120 cases, 1 failure: PackageDependencyAcyclicityPropertyTest; existing single 18-package Coordinator component; subsequent reactor modules not reached
+module ownership	.pangrova/scripts/check-module-manifest.sh	PASS	72 code/resource artifacts, 22 aggregators; no undeclared/split ownership
+SPI annotations	.pangrova/scripts/check-spi-annotations.sh	PASS	181 annotated public SPI types; zero baseline gaps
+SPI stability	.pangrova/scripts/check-spi-stability.sh	PASS	24 stable contracts checked; moved Scope/TextMapSetter exact exceptions retain original semantics
+gate regression	python3 .pangrova/scripts/tests/test_spi_contract_gates.py; python3 .pangrova/scripts/tests/test_module_manifest.py	PASS	2 SPI gate cases; 8 module-manifest cases
+SpotBugs filter boundaries	python3 .pangrova/scripts/tests/spotbugs-immutable-filter-test.py	PASS	New constructor/descriptor signatures match; changed boundaries remain unsuppressed; old connector exclusions not expanded to Runtime
+JAR audit	Scan every reactor main JAR and META-INF/services after clean packaging	PASS	72 unique Automatic-Module-Name values; 760 owned Pangrova packages; no split package, old Connector/Query Persistence references, old nested source-model classes, or duplicate Connector descriptors
+source comparison	Normalize comments/imports/FQN relocation against this-batch source snapshot	PASS	175 of 179 relocated production bodies unchanged; four changed bodies explicitly listed in progress; 4 independent source models extracted
+whitespace	git diff --check	PASS	No whitespace errors

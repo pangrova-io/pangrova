@@ -1,0 +1,18 @@
+[
+  {
+    "path": "pangrova-worker-native/build/libpangrova_native.dylib",
+    "bytes": 322851109,
+    "sha256": "345564f6283b57e90fd605ff42a71233ed34707d8e4f80ebcc7229c1ff75bfec"
+  },
+  {
+    "path": "pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/osx/aarch64/libpangrova_native.dylib",
+    "bytes": 322851109,
+    "sha256": "345564f6283b57e90fd605ff42a71233ed34707d8e4f80ebcc7229c1ff75bfec"
+  },
+  {
+    "path": "${MAVEN_LOCAL_REPOSITORY}/org/pangrova/pangrova-native-bundle/0.1.0-SNAPSHOT/pangrova-native-bundle-0.1.0-SNAPSHOT-osx-aarch_64.jar",
+    "entry": "META-INF/native/osx/aarch64/libpangrova_native.dylib",
+    "bytes": 322851109,
+    "sha256": "345564f6283b57e90fd605ff42a71233ed34707d8e4f80ebcc7229c1ff75bfec"
+  }
+]

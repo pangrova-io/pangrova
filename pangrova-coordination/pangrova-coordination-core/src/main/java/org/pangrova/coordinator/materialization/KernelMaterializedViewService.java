@@ -4,10 +4,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.materialization.domain.CommandId;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
@@ -28,16 +28,16 @@ import org.pangrova.materialization.usecase.ResumeMaterialization;
 import org.pangrova.materialization.usecase.SetRefreshMode;
 import org.pangrova.materialization.usecase.SetTargetLag;
 import org.pangrova.materialization.usecase.SuspendMaterialization;
-import org.pangrova.parser.AstPrinter;
-import org.pangrova.parser.ast.CreateMaterializedViewStatement;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.AlterMaterializedViewAction;
-import org.pangrova.parser.ast.statement.AlterMaterializedViewStatement;
-import org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement;
-import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
-import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
-import org.pangrova.parser.ast.statement.ShowMaterializedViewsStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.core.format.AstPrinter;
+import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.AlterMaterializedViewAction;
+import org.pangrova.parser.api.ast.statement.AlterMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.DescribeMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.DropMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.RefreshMaterializedViewStatement;
+import org.pangrova.parser.api.ast.statement.ShowMaterializedViewsStatement;
+import org.pangrova.types.value.TypedRow;
 
 /**
  * Materialized View DDL served exclusively by the unified materialization
@@ -293,7 +293,7 @@ public final class KernelMaterializedViewService {
         return new CommandId("materialization:" + context.queryId());
     }
 
-    private static Map<String, String> boundProperties(CoordinatorSessionContext session,
+    private static Map<String, String> boundProperties(QuerySession session,
             MaterializationId object) {
         Map<String, String> properties = new HashMap<>(session.sessionProperties());
         properties.remove("catalog");

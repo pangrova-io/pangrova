@@ -1,0 +1,97 @@
+[
+  {
+    "report": "pangrova-indexing/pangrova-indexing-core/target/spotbugsXml.xml",
+    "sha256": "8374cfe4e073142a62d4df931ad6a81277263e01ff2bfdaa09a7c045cb25ae34",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "applyAsInt",
+      "equals",
+      "get",
+      "hashCode",
+      "makeConcatWithConstants",
+      "onRemoval",
+      "run",
+      "test",
+      "toString",
+      "weigh"
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-indexing-api/target/spotbugsXml.xml",
+    "sha256": "ca3eaebe77415d8fc1bc77ad25c38abfa24ddf752335654ba49ed9d68c88c4ab",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "equals",
+      "hashCode",
+      "makeConcatWithConstants",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-jdbc-api/target/spotbugsXml.xml",
+    "sha256": "da3b443454be10913e36d893579ddc13c2a698ee1fec88f319b548c32a25b2a7",
+    "findings": [],
+    "missing_classes": []
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-indexing-postgresql/target/spotbugsXml.xml",
+    "sha256": "59e42ed657b46dbf33bea3e3c190ba4d1140bb85702d04b963b4b72f96696fa0",
+    "findings": [
+      {
+        "type": "SQL_INJECTION_JDBC",
+        "priority": "2",
+        "class": "org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexFileMappingStore",
+        "message": "This use of java/sql/Connection.prepareStatement(Ljava/lang/String;)Ljava/sql/PreparedStatement; can be vulnerable to SQL injection (with JDBC)"
+      },
+      {
+        "type": "SQL_INJECTION_JDBC",
+        "priority": "2",
+        "class": "org.pangrova.persistence.indexing.postgresql.metadata.JdbcStoreSupport",
+        "message": "This use of java/sql/Connection.prepareStatement(Ljava/lang/String;)Ljava/sql/PreparedStatement; can be vulnerable to SQL injection (with JDBC)"
+      },
+      {
+        "type": "SQL_INJECTION_JDBC",
+        "priority": "2",
+        "class": "org.pangrova.persistence.indexing.postgresql.metadata.JdbcStoreSupport",
+        "message": "This use of java/sql/Connection.prepareStatement(Ljava/lang/String;)Ljava/sql/PreparedStatement; can be vulnerable to SQL injection (with JDBC)"
+      }
+    ],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "applyAsLong",
+      "equals",
+      "get",
+      "hashCode",
+      "makeConcatWithConstants",
+      "run",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-indexing/pangrova-indexing-core/target/checkstyle-result.xml",
+    "sha256": "b71e705194b253de294ea1f097bf13534405e079eb2acae62fb39dfa6978ca0a",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-indexing-api/target/checkstyle-result.xml",
+    "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-jdbc-api/target/checkstyle-result.xml",
+    "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-indexing-postgresql/target/checkstyle-result.xml",
+    "sha256": "0fd191e52b4c41b7b199d9670973f7f471f9fea07aae520806c39b61d268b077",
+    "diagnostics": []
+  }
+]

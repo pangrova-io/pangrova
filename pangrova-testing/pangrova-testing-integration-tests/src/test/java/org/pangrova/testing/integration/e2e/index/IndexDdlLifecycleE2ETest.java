@@ -3,7 +3,11 @@ package org.pangrova.testing.integration.e2e.index;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.indexing.api.data.BTreeIndexData;
+import org.pangrova.indexing.api.data.CompositeIndexKey;
+import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
+import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.runner.QueryError;
@@ -330,6 +334,48 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
     @Nested
     @DisplayName("Multi-Column Index Validation")
     class MultiColumnValidation {
+
+        @Test
+        @DisplayName("BTREE publishes readable multi-column artifacts and preserves NULL query results")
+        void btreePublishesCompositeArtifacts() throws Exception {
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (user_id, description, amount, status) VALUES (5, 'partial null', 500.0, NULL)");
+            sqlRunner.executeDdl("CREATE INDEX idx_mc_btree ON " + fqn() + "(user_id, status) USING BTREE");
+            awaitReadyIndex("idx_mc_btree");
+            var serializer = new IndexSerializer(BuiltinIndexSerializers.createRegistry());
+            var keys = new java.util.ArrayList<Comparable<?>>();
+            try (var connection = stateStoreDataSource().getConnection();
+                    var statement = connection.prepareStatement("""
+                            SELECT mapping.index_file_path
+                            FROM index_file_mappings AS mapping
+                            JOIN index_descriptors AS descriptor
+                              ON mapping.index_id = descriptor.index_id AND mapping.generation = descriptor.generation
+                            WHERE descriptor.table_name = ? AND descriptor.index_name = ? AND descriptor.state = 'READY'
+                            """)) {
+                statement.setString(1, tableName);
+                statement.setString(2, "idx_mc_btree");
+                int artifacts = 0;
+                try (var rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        var file = new org.apache.hadoop.fs.Path(rows.getString(1));
+                        try (var input = file.getFileSystem(new Configuration()).open(file)) {
+                            var data = (BTreeIndexData) serializer.deserialize(input.readAllBytes()).orElseThrow();
+                            data.leafPages().forEach(page -> keys.addAll(page.keys()));
+                        }
+                        artifacts++;
+                    }
+                }
+                assertThat(artifacts).isPositive();
+            }
+            assertThat(keys).containsExactlyInAnyOrder(new CompositeIndexKey(List.of(1L, "ACTIVE")),
+                    new CompositeIndexKey(List.of(2L, "INACTIVE")));
+            // Native currently prunes this envelope only for Bloom. These checks
+            // prove query correctness after publication, not BTree pruning.
+            assertThat(sqlRunner.execute("SELECT user_id FROM " + fqn() + " WHERE status IS NULL"))
+                    .extracting(row -> ((Number) row.getRaw("user_id")).longValue()).containsExactly(5L);
+            assertThat(sqlRunner.execute("SELECT user_id FROM " + fqn() + " WHERE user_id = 5"))
+                    .extracting(row -> ((Number) row.getRaw("user_id")).longValue()).containsExactly(5L);
+        }
 
         @Test
         @DisplayName("BLOOM_FILTER rejects multi-column index")

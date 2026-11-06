@@ -22,7 +22,7 @@ Before installation, create a PostgreSQL database named `pangrova_meta` with
 an account allowed to create and migrate tables. Expose it as
 `pangrova-postgresql:5432` in the release namespace, or override
 `metadata.host`, `metadata.port`, and `metadata.database`. Create a
-`pangrova-metadata` Secret with `username` and `password` keys; override
+`pangrova-metadata-core` Secret with `username` and `password` keys; override
 `metadata.existingSecret` if it has a different name. Missing Secret keys cause
 Kubernetes to reject the Coordinator container at startup, while an unreachable
 database causes Coordinator metadata bootstrap to fail. Also create a
@@ -53,7 +53,7 @@ chart mounts `/opt/pangrova/data` even when persistent volumes are disabled.
 kubectl create namespace pangrova
 kubectl create secret generic pangrova-internal-auth -n pangrova \
     --from-literal=internal-auth-secret="$(openssl rand -base64 48)"
-kubectl create secret generic pangrova-metadata -n pangrova \
+kubectl create secret generic pangrova-metadata-core -n pangrova \
     --from-literal=username='<database-user>' \
     --from-literal=password='<database-password>'
 
@@ -101,7 +101,7 @@ metadata:
   host: pg-meta.example.internal
   port: 5432
   database: pangrova_meta
-  existingSecret: pangrova-metadata
+  existingSecret: pangrova-metadata-core
 
 coordinator:
   replicas: 1

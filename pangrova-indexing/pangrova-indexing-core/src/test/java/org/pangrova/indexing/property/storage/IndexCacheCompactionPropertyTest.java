@@ -5,8 +5,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.indexing.storage.IndexCache;
-import org.pangrova.spi.indexing.data.BloomFilterIndexData;
-import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.indexing.api.data.BloomFilterIndexData;
+import org.pangrova.indexing.api.data.IndexData;
 
 import java.util.ArrayList;
 import java.util.List;

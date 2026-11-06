@@ -2,9 +2,9 @@ package org.pangrova.coordinator.resilience.breaker;
 
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.common.resilience.policy.CircuitBreakerConfig;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

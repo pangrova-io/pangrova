@@ -3,12 +3,12 @@ package org.pangrova.coordinator.query.execution.dispatch.task.stream;
 import java.util.List;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.streaming.coordinator.StreamDdlExecutor;
-import org.pangrova.parser.ast.statement.stream.DropStreamStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.statement.stream.DropStreamStatement;
+import org.pangrova.types.value.TypedRow;
 
 /**
  * Executes DROP STREAM by delegating to {@link StreamDdlExecutor#drop}.

@@ -19,14 +19,41 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-api</artifactId>
-        </dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-native-adapter</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-pangrova</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
 
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-core</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-noop</artifactId></dependency>
+
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-flight</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-ai-control</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-function-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-batch-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
         </dependency>
 
         <dependency>
@@ -75,10 +102,7 @@
             <artifactId>pangrova-config</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
-        </dependency>
+
 
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -263,6 +287,20 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions><execution>
+                    <id>role-runtime-classpath</id>
+                    <phase>package</phase>
+                    <goals><goal>build-classpath</goal></goals>
+                    <configuration>
+                        <includeScope>runtime</includeScope>
+                        <outputFile>${project.build.directory}/runtime-classpath.txt</outputFile>
+                    </configuration>
+                </execution></executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <executions>
                     <execution>
@@ -273,7 +311,6 @@
                             <classifier>native-fixtures</classifier>
                             <includes>
                                 <include>org/pangrova/testing/nativefixture/**</include>
-                                <include>org/pangrova/worker/transport/TransportServerAllocatorFixture.class</include>
                                 <include>org/pangrova/worker/task/WorkerIncarnationControlFixture.class</include>
                             </includes>
                             <archive>

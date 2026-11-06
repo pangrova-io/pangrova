@@ -1,15 +1,17 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.query.core.task.DispatchResult;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
-import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleStageHandler;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.stage.StageDAG;
@@ -18,9 +20,9 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
 import org.pangrova.shuffle.api.ShuffleHandle;
@@ -42,8 +44,8 @@ class DAGDispatchEngineShuffleCleanupTest {
         RecordingShuffleManager recorder = new RecordingShuffleManager();
         DAGDispatchEngine engine = buildEngine(new FailingTaskDispatcher(), recorder);
 
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "q-d29", Map.of(), null, null);
+        QuerySession session = new QuerySession(
+                "q-d29", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         StageDAG dag = buildSingleStageDAG("q-d29");
         SqlCompiler compiler = new SqlCompiler();
 
@@ -72,7 +74,7 @@ class DAGDispatchEngineShuffleCleanupTest {
 
         @Override
         public ShuffleHandle registerShuffle(ShuffleRegistration registration) {
-            return ShuffleHandle.LOCAL;
+            throw new AssertionError("This Direct-path fixture must not register an external shuffle");
         }
 
         @Override
@@ -130,7 +132,7 @@ class DAGDispatchEngineShuffleCleanupTest {
                 null,  // resilienceRegistry
                 null); // stateJournal
         return new DAGDispatchEngine(
-                deps, List.of(new ShuffleStageHandler(shuffleManager)), null);
+                deps, List.of(new ShuffleStageHandler(shuffleManager)), null, null, null);
     }
 
     private static StageDAG buildSingleStageDAG(String queryId) {
@@ -157,12 +159,12 @@ class DAGDispatchEngineShuffleCleanupTest {
         };
     }
 
-    private static org.pangrova.planner.PlanFragment dummyPlan() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyPlan() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

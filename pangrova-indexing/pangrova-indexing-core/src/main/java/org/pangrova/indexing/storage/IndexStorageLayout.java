@@ -1,7 +1,7 @@
 package org.pangrova.indexing.storage;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 
 import java.nio.charset.StandardCharsets;
 

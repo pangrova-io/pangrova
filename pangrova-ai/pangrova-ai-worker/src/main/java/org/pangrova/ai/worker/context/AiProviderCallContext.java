@@ -1,6 +1,9 @@
 package org.pangrova.ai.worker.context;
 
-import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.ai.spi.invocation.AttemptAdmission;
+import org.pangrova.ai.spi.invocation.PhysicalAttempt;
+
+import org.pangrova.ai.api.error.AiInvocationException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -153,27 +156,4 @@ public final class AiProviderCallContext {
     private record Call(
             String idempotencyKey, Instant deadline, AttemptAdmission attemptAdmission) {}
 
-    /** Worker-owned per-send authorization propagated into provider batch threads. */
-    @FunctionalInterface
-    public interface AttemptAdmission {
-        PhysicalAttempt open(long encodedRequestBytes);
-    }
-
-    /** A client exchange owns its callbacks until actual sending-thread finalization. */
-    public interface LocalExchange {
-        void cancel();
-        void awaitTermination();
-    }
-
-    /** Exact-task registration removed only after client delivery has ended. */
-    public interface ExchangeRegistration extends AutoCloseable {
-        @Override void close();
-    }
-
-    /** A live transport's concurrency ownership and encoded response-byte admission. */
-    public interface PhysicalAttempt extends AutoCloseable {
-        void acceptResponseBytes(long bytes);
-        ExchangeRegistration registerExchange(LocalExchange exchange);
-        @Override void close();
-    }
 }

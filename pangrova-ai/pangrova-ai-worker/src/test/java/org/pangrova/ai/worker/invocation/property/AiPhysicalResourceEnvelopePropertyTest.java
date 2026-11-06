@@ -3,9 +3,9 @@ package org.pangrova.ai.worker.invocation.property;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.capability.AiRequestConstraints;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.capability.AiRequestConstraints;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
 
 import java.time.Instant;

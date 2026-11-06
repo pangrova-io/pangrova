@@ -17,12 +17,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,7 +42,7 @@ final class ViewExpander {
         this.catalogRegistry = catalogRegistry;
     }
 
-    String expand(String sql, SqlCompiler compiler, CoordinatorSessionContext context) {
+    String expand(String sql, SqlCompiler compiler, QuerySession context) {
         if (catalogRegistry == null) {
             return sql;
         }
@@ -57,8 +57,8 @@ final class ViewExpander {
         return expanded;
     }
 
-    private String expandOnce(String sql, SqlCompiler compiler, CoordinatorSessionContext context) {
-        org.pangrova.parser.ast.Statement ast;
+    private String expandOnce(String sql, SqlCompiler compiler, QuerySession context) {
+        org.pangrova.parser.api.ast.Statement ast;
         try {
             ast = compiler.parseToAst(sql);
         } catch (Exception e) {
@@ -67,12 +67,12 @@ final class ViewExpander {
         if (ast == null) {
             return sql;
         }
-        List<org.pangrova.parser.ast.TableRef> refs = collectAllNamedRefs(ast);
+        List<org.pangrova.parser.api.ast.TableRef> refs = collectAllNamedRefs(ast);
         if (refs.isEmpty()) {
             return sql;
         }
         String expanded = sql;
-        for (org.pangrova.parser.ast.TableRef ref : refs) {
+        for (org.pangrova.parser.api.ast.TableRef ref : refs) {
             List<String> parts = ref.name().parts();
             if (parts.size() < 3) {
                 continue;
@@ -93,44 +93,44 @@ final class ViewExpander {
     }
 
     private Optional<String> lookupView(
-            String catalog, String schema, String table, CoordinatorSessionContext context) {
+            String catalog, String schema, String table, QuerySession context) {
         CatalogHandle handle = catalogRegistry.getCatalog(catalog);
         var session = SessionContextConverter.toConnectorSession(context, catalog, schema);
         return handle.getMetadata(session).getViewDefinition(session, new SchemaTableName(schema, table));
     }
 
-    private static List<org.pangrova.parser.ast.TableRef> collectAllNamedRefs(
-            org.pangrova.parser.ast.Statement ast) {
-        List<org.pangrova.parser.ast.TableRef> result = new ArrayList<>();
+    private static List<org.pangrova.parser.api.ast.TableRef> collectAllNamedRefs(
+            org.pangrova.parser.api.ast.Statement ast) {
+        List<org.pangrova.parser.api.ast.TableRef> result = new ArrayList<>();
         collectRefsFromStatement(ast, result);
         return result;
     }
 
     private static void collectRefsFromStatement(
-            org.pangrova.parser.ast.Statement ast,
-            List<org.pangrova.parser.ast.TableRef> result) {
-        if (ast instanceof org.pangrova.parser.ast.Query query) {
+            org.pangrova.parser.api.ast.Statement ast,
+            List<org.pangrova.parser.api.ast.TableRef> result) {
+        if (ast instanceof org.pangrova.parser.api.ast.Query query) {
             collectRefsFromQuery(query, result);
-        } else if (ast instanceof org.pangrova.parser.ast.CteQuery cte) {
-            if (cte.body() instanceof org.pangrova.parser.ast.Query query) {
+        } else if (ast instanceof org.pangrova.parser.api.ast.CteQuery cte) {
+            if (cte.body() instanceof org.pangrova.parser.api.ast.Query query) {
                 collectRefsFromQuery(query, result);
             }
         }
     }
 
     private static void collectRefsFromQuery(
-            org.pangrova.parser.ast.Query query,
-            List<org.pangrova.parser.ast.TableRef> result) {
-        for (org.pangrova.parser.ast.TableRef ref : query.from()) {
-            if (ref.kind() == org.pangrova.parser.ast.TableRefKind.NAMED) {
+            org.pangrova.parser.api.ast.Query query,
+            List<org.pangrova.parser.api.ast.TableRef> result) {
+        for (org.pangrova.parser.api.ast.TableRef ref : query.from()) {
+            if (ref.kind() == org.pangrova.parser.api.ast.TableRefKind.NAMED) {
                 result.add(ref);
             } else if (ref.subquery().isPresent()) {
                 collectRefsFromStatement(ref.subquery().get(), result);
             }
         }
-        for (org.pangrova.parser.ast.JoinClause join : query.joins()) {
-            org.pangrova.parser.ast.TableRef right = join.right();
-            if (right.kind() == org.pangrova.parser.ast.TableRefKind.NAMED) {
+        for (org.pangrova.parser.api.ast.JoinClause join : query.joins()) {
+            org.pangrova.parser.api.ast.TableRef right = join.right();
+            if (right.kind() == org.pangrova.parser.api.ast.TableRefKind.NAMED) {
                 result.add(right);
             } else if (right.subquery().isPresent()) {
                 collectRefsFromStatement(right.subquery().get(), result);

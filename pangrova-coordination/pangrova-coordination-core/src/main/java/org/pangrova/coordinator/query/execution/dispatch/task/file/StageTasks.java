@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.task.file;
 
+import org.pangrova.metadata.core.resolution.QualifiedTableNames;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -8,26 +9,25 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.statement.TableResolver;
-import org.pangrova.parser.ast.statement.AlterStageAction;
-import org.pangrova.parser.ast.statement.AlterStageStatement;
-import org.pangrova.parser.ast.statement.CreateStageStatement;
-import org.pangrova.parser.ast.statement.DescribeStageStatement;
-import org.pangrova.parser.ast.statement.DropStageStatement;
-import org.pangrova.parser.ast.statement.ShowStagesStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.spi.file.space.FileSpaceMutation;
-import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.api.ast.statement.AlterStageAction;
+import org.pangrova.parser.api.ast.statement.AlterStageStatement;
+import org.pangrova.parser.api.ast.statement.CreateStageStatement;
+import org.pangrova.parser.api.ast.statement.DescribeStageStatement;
+import org.pangrova.parser.api.ast.statement.DropStageStatement;
+import org.pangrova.parser.api.ast.statement.ShowStagesStatement;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.persistence.file.api.space.FileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpaceType;
 
 /** Registers the Stage metadata tasks; all operations share one registry row model. */
 public final class StageTasks {
@@ -50,7 +50,7 @@ public final class StageTasks {
     /** Installs directory refresh when the file plane and durable index are configured. */
     public static void register(MetadataExecutionFactory factory, FileSpaceRegistry registry,
             AccessControl accessControl, FileSpaceAuditEmitter audit,
-            org.pangrova.file.directory.StageDirectoryRefreshService refresh) {
+            org.pangrova.file.core.directory.StageDirectoryRefreshService refresh) {
         factory.registerTask(CreateStageStatement.class,
                 (statement, context) -> create(registry, audit, statement, context));
         factory.registerTask(AlterStageStatement.class,
@@ -65,7 +65,7 @@ public final class StageTasks {
 
     private static StatementResult create(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             CreateStageStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
         FileSpaceDefinition definition = new FileSpaceDefinition(FileSpaceType.STAGE,
                 ref.catalog(), ref.schema(), ref.table(), statement.external(),
@@ -76,7 +76,7 @@ public final class StageTasks {
                 ref.table()).isPresent();
         FileSpace space = registry.create(definition, statement.ifNotExists());
         if (!existed) {
-            audit.created(context, space);
+            audit.created(context.auditAttribution(), space);
         }
         String message = existed && statement.ifNotExists()
                 ? "Stage already exists: " + space.qualifiedName()
@@ -85,9 +85,9 @@ public final class StageTasks {
     }
 
     private static StatementResult alter(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
-            org.pangrova.file.directory.StageDirectoryRefreshService refresh,
+            org.pangrova.file.core.directory.StageDirectoryRefreshService refresh,
             AlterStageStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
         FileSpace current = FileSpaceTaskSupport.require(registry, FileSpaceType.STAGE, ref);
         AlterStageAction action = statement.action();
@@ -101,7 +101,7 @@ public final class StageTasks {
             }
             long files = refresh.refresh(FileSpaceTaskSupport.requireUser(session), current,
                     requested.subpath().orElse(""));
-            audit.altered(context, current, "REFRESH", Map.of("files", Long.toString(files),
+            audit.altered(context.auditAttribution(), current, "REFRESH", Map.of("files", Long.toString(files),
                     "subpath", requested.subpath().orElse("")));
             return new StatementResult(List.of(), List.of(),
                     "Stage directory refreshed: " + files + " files", StatementCategory.DDL);
@@ -129,7 +129,7 @@ public final class StageTasks {
         }
         FileSpace updated = registry.mutate(FileSpaceType.STAGE, ref.catalog(), ref.schema(),
                 ref.table(), mutation);
-        audit.altered(context, updated, actionName, extra);
+        audit.altered(context.auditAttribution(), updated, actionName, extra);
         return new StatementResult(List.of(), List.of(),
                 "Stage altered: " + updated.qualifiedName(), StatementCategory.DDL);
     }
@@ -137,14 +137,14 @@ public final class StageTasks {
     private static StatementResult rename(FileSpaceRegistry registry, FileSpaceAuditEmitter audit,
             StatementExecutionContext context, QualifiedTableName ref, FileSpace current,
             AlterStageAction.Rename rename) {
-        QualifiedTableName target = TableResolver.resolveRenameTarget(rename.newName().parts(), ref);
+        QualifiedTableName target = QualifiedTableNames.resolveRenameTarget(rename.newName().parts(), ref);
         if (!target.schema().equals(ref.schema())) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "ALTER STAGE RENAME cannot move a stage between schemas");
         }
         FileSpace renamed = registry.rename(FileSpaceType.STAGE, ref.catalog(), ref.schema(),
                 ref.table(), target.table());
-        audit.altered(context, renamed, "RENAME", Map.of("previous_name", current.name()));
+        audit.altered(context.auditAttribution(), renamed, "RENAME", Map.of("previous_name", current.name()));
         return new StatementResult(List.of(), List.of(),
                 "Stage renamed: " + renamed.qualifiedName(), StatementCategory.DDL);
     }
@@ -162,14 +162,14 @@ public final class StageTasks {
                     "Stage does not exist: " + ref, StatementCategory.DDL);
         }
         registry.drop(FileSpaceType.STAGE, ref.catalog(), ref.schema(), ref.table(), false);
-        audit.dropped(context, existing.get());
+        audit.dropped(context.auditAttribution(), existing.get());
         return new StatementResult(List.of(), List.of(),
                 "Stage dropped: " + existing.get().qualifiedName(), StatementCategory.DDL);
     }
 
     private static StatementResult show(FileSpaceRegistry registry, AccessControl accessControl,
             ShowStagesStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         UserIdentity user = FileSpaceTaskSupport.requireUser(session);
         AccessControl ac = FileSpaceTaskSupport.requireAccessControl(accessControl);
         FileSpaceTaskSupport.Scope scope =
@@ -194,7 +194,7 @@ public final class StageTasks {
 
     private static StatementResult describe(FileSpaceRegistry registry, AccessControl accessControl,
             DescribeStageStatement statement, StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
+        QuerySession session = context.session();
         QualifiedTableName ref = FileSpaceTaskSupport.resolve(statement.name(), session);
         FileSpace space = FileSpaceTaskSupport.require(registry, FileSpaceType.STAGE, ref);
         UserIdentity user = FileSpaceTaskSupport.requireUser(session);

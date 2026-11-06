@@ -1,7 +1,7 @@
 package org.pangrova.protocol.rest.task;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
 
 /**

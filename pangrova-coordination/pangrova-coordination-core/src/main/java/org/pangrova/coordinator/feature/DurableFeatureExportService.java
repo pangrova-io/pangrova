@@ -18,9 +18,9 @@
  */
 package org.pangrova.coordinator.feature;
 
-import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
+import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
-import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -28,31 +28,31 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.generation.ProtectedSourceSchemaVerifier;
-import org.pangrova.coordinator.query.execution.AuthorizedRelation;
+import org.pangrova.planner.core.analysis.AuthorizedRelation;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
-import org.pangrova.spi.generation.GenerationDependencySet;
-import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
-import org.pangrova.spi.generation.GenerationExecutionKind;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
+import org.pangrova.generation.api.dependency.GenerationDependencySet;
+import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewVersion;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
 import org.pangrova.ai.control.feature.CatalogExportRequest.ObjectKind;
-import org.pangrova.planner.generation.GenerationPlan;
-import org.pangrova.planner.generation.TabularExportPlanBuilder;
+import org.pangrova.planner.core.generation.GenerationPlan;
+import org.pangrova.planner.core.generation.TabularExportPlanBuilder;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.security.api.policy.Privilege;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -106,7 +106,7 @@ public final class DurableFeatureExportService {
                 || !requestedBy.equals(connectorSession.getUser())
                 || compiled.sources().size() != 1
                 || !compiled.sources().get(0).qualifiedName().equals(source.toString())) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "Feature export must bind the current authenticated principal, tenant and exact compiled source");
         }
         sourceSchemaVerifier.verify(source, sourceSnapshot, connectorSession, compiled);
@@ -201,7 +201,7 @@ public final class DurableFeatureExportService {
         Set<String> columns = Set.copyOf(source.tableColumns());
         var observed = compiled.observedPolicies().get(source.qualifiedName());
         if (columns.isEmpty() || observed == null || !observed.columnMasks().keySet().containsAll(columns)) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "Feature export requires the actual complete policy observation from secure compilation");
         }
         var read = new DeferredAuthorizationScope.TablePermission(
@@ -256,13 +256,13 @@ public final class DurableFeatureExportService {
         return output.build();
     }
 
-    private static org.pangrova.spi.connector.metadata.table.QualifiedTableName parseSource(
+    private static org.pangrova.connector.api.metadata.table.QualifiedTableName parseSource(
             String source) {
         String[] parts = source.split("\\.", -1);
         if (parts.length != 3 || java.util.Arrays.stream(parts).anyMatch(String::isBlank)) {
             throw validation("Feature source must be catalog.schema.table");
         }
-        return new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+        return new org.pangrova.connector.api.metadata.table.QualifiedTableName(
                 parts[0], parts[1], parts[2]);
     }
 

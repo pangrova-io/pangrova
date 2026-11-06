@@ -16,8 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.paimon.PaimonMetadata;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.coordinator.task.TestConnectorQuery;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;

@@ -18,7 +18,7 @@ import java.util.Set;
  * <ul>
  *   <li>{@link #BROAD} — current default, maximum compatibility with
  *       connectors that rely on engine-provided libraries.</li>
- *   <li>{@link #NARROW} — shares only {@code org.pangrova.spi},
+ *   <li>{@link #NARROW} — shares only domain API/SPI packages,
  *       {@code org.pangrova.common}, {@code org.pangrova.protocol}, plus
  *       logging and Arrow/Substrait (required for the data plane). Connectors
  *       must bundle their own Guava/Hadoop/etc.</li>
@@ -50,8 +50,11 @@ public enum SharedPackagePolicy {
 
     /** Packages always shared regardless of policy (the SPI contract). */
     public static final Set<String> SPI_PACKAGES = Set.of(
-            "org.pangrova.spi", "org.pangrova.filesystem.api", "org.pangrova.persistence.api",
-            "org.pangrova.common", "org.pangrova.protocol");
+            "org.pangrova.indexing.api", "org.pangrova.indexing.spi", "org.pangrova.security.api", "org.pangrova.security.spi", "org.pangrova.connector.api", "org.pangrova.connector.spi", "org.pangrova.coordination.api", "org.pangrova.coordination.spi",
+                "org.pangrova.function.api", "org.pangrova.function.spi",
+                "org.pangrova.query.api", "org.pangrova.query.spi",
+                "org.pangrova.ai.api", "org.pangrova.ai.spi", "org.pangrova.filesystem.api", "org.pangrova.persistence.generation.api",
+            "org.pangrova.common", "org.pangrova.types", "org.pangrova.batch.api", "org.pangrova.protocol");
 
     /** Packages shared by both BROAD and NARROW (engine data-plane essentials). */
     public static final Set<String> BASELINE_SHARED_PACKAGES = Set.of(

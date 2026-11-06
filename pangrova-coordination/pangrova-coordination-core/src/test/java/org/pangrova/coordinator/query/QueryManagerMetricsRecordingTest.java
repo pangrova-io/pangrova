@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
@@ -13,18 +17,18 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.pangrova.testing.testkit.TestObservability;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,7 +53,7 @@ class QueryManagerMetricsRecordingTest {
         queryManager.onAllTasksFinished(queryId);
 
         assertThat(queryManager.getQueryState(queryId))
-                .hasValue(QueryStateMachine.State.FINISHED);
+                .hasValue(QueryState.FINISHED);
         assertThat(provider.counter("pangrova.coordinator.queries.completed")).isEqualTo(1L);
     }
 
@@ -60,10 +64,10 @@ class QueryManagerMetricsRecordingTest {
         QueryManager queryManager = newQueryManager(provider);
 
         String queryId = registerRunningQuery(queryManager);
-        queryManager.onTaskFailed(queryId, new ErrorDetail("RUNTIME_INTERNAL", "boom", null));
+        queryManager.onTaskFailed(queryId, new QueryFailure("RUNTIME_INTERNAL", "boom", null));
 
         assertThat(queryManager.getQueryState(queryId))
-                .hasValue(QueryStateMachine.State.FAILED);
+                .hasValue(QueryState.FAILED);
         assertThat(provider.counter("pangrova.coordinator.queries.failed")).isEqualTo(1L);
     }
 
@@ -88,30 +92,30 @@ class QueryManagerMetricsRecordingTest {
         assertThatCode(() -> queryManager.onAllTasksFinished(queryId))
                 .doesNotThrowAnyException();
         assertThat(queryManager.getQueryState(queryId))
-                .hasValue(QueryStateMachine.State.FINISHED);
+                .hasValue(QueryState.FINISHED);
     }
 
     private static QueryManager newQueryManager(MetricsProvider metricsProvider) {
         QueryManagerContext ctx = new QueryManagerContext(
                 buildDispatcher(), TestObservability.TRACING,
                 metricsProvider, null, null, null, null, null, null, null,
-                null, null);
+                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         return new QueryManager(ctx);
     }
 
     private static String registerRunningQuery(QueryManager queryManager) {
         String queryId = "test-" + UUID.randomUUID();
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine(queryId, sm);
         return queryId;
     }
 
     private static QueryDispatcher buildDispatcher() {
         SqlCompiler compiler = new SqlCompiler();
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         return new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(
@@ -165,7 +169,7 @@ class QueryManagerMetricsRecordingTest {
         @Override
         public ObservableDoubleGauge createGauge(String name, String description,
                                                  String unit, Supplier<Double> supplier) {
-            return new ObservableDoubleGauge() {};
+            return () -> { /* This recording fixture retains no callback. */ };
         }
     }
 }

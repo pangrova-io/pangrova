@@ -3,12 +3,12 @@ package org.pangrova.coordinator.indexing.lifecycle.gc;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.coordinator.indexing.lifecycle.IndexLifecycleMetrics;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.connector.index.SnapshotPinProvider;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.connector.spi.index.SnapshotPinProvider;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -3,13 +3,13 @@ package org.pangrova.client.jdbc;
 import org.pangrova.client.error.PangrovaClientException;
 import org.pangrova.client.error.PangrovaConnectionException;
 import org.pangrova.client.error.PangrovaProtocolException;
-import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.transport.client.http.PangrovaRestClient;
 import org.pangrova.client.error.PangrovaServerException;
 import org.pangrova.client.protocol.QueryStatusResponse;
 import org.pangrova.client.protocol.SubmitQueryResponse;
-import org.pangrova.transport.ArrowBatchDecoder;
-import org.pangrova.transport.ResultBatch;
-import org.pangrova.transport.TransportException;
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ResultBatch;
+import org.pangrova.transport.client.TransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,17 +1,17 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
-import org.pangrova.shuffle.spool.LocalShuffleLifecycleManager;
+import org.pangrova.coordinator.query.execution.dispatch.shuffle.UnavailableExternalShuffleLifecycle;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.planner.core.adaptive.AdaptiveQueryConfig;
+import org.pangrova.planner.core.adaptive.AdaptiveQueryExecutor;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -50,7 +50,7 @@ public record DAGDispatchContext(
         taskTimeoutSeconds = taskTimeoutSeconds == 0 ? DEFAULT_TASK_TIMEOUT_SECONDS : taskTimeoutSeconds;
         pipelineConfig = pipelineConfig != null ? pipelineConfig : PipelineConfig.DISABLED;
         shuffleLifecycleManager = shuffleLifecycleManager != null
-                ? shuffleLifecycleManager : LocalShuffleLifecycleManager.INSTANCE;
+                ? shuffleLifecycleManager : UnavailableExternalShuffleLifecycle.INSTANCE;
         // resilienceRegistry: nullable — absent when resilience module is disabled
         // stateJournal: nullable — absent when HA journaling is disabled
     }

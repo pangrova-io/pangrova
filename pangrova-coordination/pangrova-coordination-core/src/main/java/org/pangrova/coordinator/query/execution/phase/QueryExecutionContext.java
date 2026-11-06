@@ -3,10 +3,10 @@ package org.pangrova.coordinator.query.execution.phase;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterDescriptor;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -17,7 +17,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public record QueryExecutionContext(
         QueryStateMachine stateMachine,
         String sql,
-        CoordinatorSessionContext session,
+        QuerySession session,
         SqlCompiler compiler,
         Object compiledPlan,
         List<String> preOptColumnNames,
@@ -25,7 +25,7 @@ public record QueryExecutionContext(
         Map<String, Long> snapshotOverrides,
         String originalSql,
         List<RuntimeFilterDescriptor> runtimeFilterDescriptors,
-        org.pangrova.planner.MetadataTableQuery metadataQuery) {
+        org.pangrova.planner.core.analysis.MetadataTableQuery metadataQuery) {
 
     public QueryExecutionContext {
         checkNotNull(stateMachine, "stateMachine");
@@ -40,7 +40,7 @@ public record QueryExecutionContext(
     /** Creates initial context at pipeline entry. */
     public static QueryExecutionContext initial(
             QueryStateMachine sm, String sql,
-            CoordinatorSessionContext session, SqlCompiler compiler) {
+            QuerySession session, SqlCompiler compiler) {
         return new QueryExecutionContext(sm, sql, session, compiler,
                 null, List.of(), null, Map.of(), sql, List.of(), null);
     }
@@ -73,7 +73,7 @@ public record QueryExecutionContext(
     }
 
     /** Expands utility syntax without changing names, literal values or audit SQL. */
-    public QueryExecutionContext withMetadataQuery(org.pangrova.planner.MetadataTableQuery query) {
+    public QueryExecutionContext withMetadataQuery(org.pangrova.planner.core.analysis.MetadataTableQuery query) {
         return new QueryExecutionContext(stateMachine, sql, session, compiler,
                 compiledPlan, preOptColumnNames, cacheKey, snapshotOverrides,
                 originalSql, runtimeFilterDescriptors, checkNotNull(query, "metadataQuery"));

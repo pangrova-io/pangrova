@@ -12,9 +12,9 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.servlet.http.HttpServletRequest;
-import org.pangrova.observability.sdk.logging.mdc.LogContext;
+import org.pangrova.observability.core.logging.LogContext;
 import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.client.protocol.ResultProtocol;
 import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
 import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
@@ -53,7 +53,7 @@ public final class TaskResource implements Closeable {
     private final int transportPort;
     private final String resultProtocol;
     private final org.pangrova.worker.result.ResultReadTickets resultTickets;
-    private final org.pangrova.spi.observability.TracingProvider tracingProvider;
+    private final org.pangrova.observability.spi.tracing.TracingProvider tracingProvider;
 
     public record ResultBinding(
             String protocol, org.pangrova.worker.result.ResultReadTickets tickets) {}
@@ -80,7 +80,7 @@ public final class TaskResource implements Closeable {
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
-            org.pangrova.spi.observability.TracingProvider tracingProvider) {
+            org.pangrova.observability.spi.tracing.TracingProvider tracingProvider) {
         this(
                 taskManager,
                 exchangeTransport,
@@ -99,7 +99,7 @@ public final class TaskResource implements Closeable {
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
-            org.pangrova.spi.observability.TracingProvider tracingProvider,
+            org.pangrova.observability.spi.tracing.TracingProvider tracingProvider,
             String resultProtocol) {
         this(
                 taskManager,
@@ -119,7 +119,7 @@ public final class TaskResource implements Closeable {
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
-            org.pangrova.spi.observability.TracingProvider tracingProvider,
+            org.pangrova.observability.spi.tracing.TracingProvider tracingProvider,
             ResultBinding resultBinding) {
         this.taskManager = checkNotNull(taskManager, "taskManager must not be null");
         this.exchangeTransport =
@@ -151,7 +151,7 @@ public final class TaskResource implements Closeable {
                     .build();
         }
         LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
-        org.pangrova.spi.observability.Span span = startSpan("task.submit");
+        org.pangrova.observability.api.tracing.Span span = startSpan("task.submit");
         try {
             return executeSubmit(request);
         } catch (Exception e) {
@@ -409,15 +409,15 @@ public final class TaskResource implements Closeable {
         return Response.ok().build();
     }
 
-    private org.pangrova.spi.observability.Span startSpan(String operationName) {
+    private org.pangrova.observability.api.tracing.Span startSpan(String operationName) {
         if (tracingProvider == null) {
             return null;
         }
         return tracingProvider.startSpan(
-                operationName, org.pangrova.spi.observability.SpanKind.SERVER);
+                operationName, org.pangrova.observability.api.tracing.SpanKind.SERVER);
     }
 
-    private static void endSpan(org.pangrova.spi.observability.Span span) {
+    private static void endSpan(org.pangrova.observability.api.tracing.Span span) {
         if (span != null) {
             span.end();
         }

@@ -5,8 +5,8 @@ import org.pangrova.connector.paimon.schema.PaimonPhysicalSchemas;
 import org.pangrova.protocol.write.PhysicalFileWriteBindings;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.PhysicalFileWriteBinding;
-import org.pangrova.spi.connector.metadata.NativePhysicalFileAllocation;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.connector.api.metadata.NativePhysicalFileAllocation;
+import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
 
 /** Persisted canonical allocation is cross-checked against the complete persisted SDK row declaration. */
 final class PaimonPhysicalAllocationCodec {

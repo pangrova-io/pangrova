@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.api.stage.StageState;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -9,7 +11,6 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
 import org.junit.jupiter.api.Test;
 
@@ -42,8 +43,8 @@ class PipelineSchedulingTest {
 
     @Test
     void stageEdgeReadModeFromDAG() {
-        StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
-        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST,
+        StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.HASH);
+        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.core.analysis.ShuffleType.BROADCAST,
                 List.of(), "exchange-2-to-1", 1,
                 org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
         StageDAG dag = StageDAG.fromNodes(List.of(), Map.of(), List.of(hashEdge, broadcastEdge));
@@ -67,8 +68,8 @@ class PipelineSchedulingTest {
         ).withStages("q-active");
 
         // Advance s0 to RUNNING
-        dag.stageEntities().get(0).stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        dag.stageEntities().get(0).stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        dag.stageEntities().get(0).stateMachine().transitionTo(StageState.SCHEDULING);
+        dag.stageEntities().get(0).stateMachine().transitionTo(StageState.RUNNING);
 
         // s1 still PLANNED, s2 still PLANNED
         Set<Integer> activeIds = collectActiveIds(dag);
@@ -95,8 +96,8 @@ class PipelineSchedulingTest {
         ).withStages("q-multi");
 
         // Only s0 is RUNNING
-        dag.stageEntities().get(0).stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        dag.stageEntities().get(0).stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        dag.stageEntities().get(0).stateMachine().transitionTo(StageState.SCHEDULING);
+        dag.stageEntities().get(0).stateMachine().transitionTo(StageState.RUNNING);
 
         Set<Integer> activeIds = collectActiveIds(dag);
         List<Stage> ready = dag.readyStageEntities(activeIds);
@@ -104,8 +105,8 @@ class PipelineSchedulingTest {
         assertTrue(ready.stream().noneMatch(s -> s.stageId() == 2));
 
         // Now advance s1 to RUNNING too
-        dag.stageEntities().get(1).stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        dag.stageEntities().get(1).stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        dag.stageEntities().get(1).stateMachine().transitionTo(StageState.SCHEDULING);
+        dag.stageEntities().get(1).stateMachine().transitionTo(StageState.RUNNING);
 
         activeIds = collectActiveIds(dag);
         ready = dag.readyStageEntities(activeIds);
@@ -120,22 +121,22 @@ class PipelineSchedulingTest {
     private static Set<Integer> collectActiveIds(StageDAG dag) {
         java.util.Set<Integer> ids = new java.util.HashSet<>();
         for (Stage s : dag.stageEntities()) {
-            StageStateMachine.State st = s.stateMachine().getState();
-            if (st == StageStateMachine.State.RUNNING
-                    || st == StageStateMachine.State.FLUSHING
-                    || st == StageStateMachine.State.FINISHED) {
+            StageState st = s.stateMachine().getState();
+            if (st == StageState.RUNNING
+                    || st == StageState.FLUSHING
+                    || st == StageState.FINISHED) {
                 ids.add(s.stageId());
             }
         }
         return ids;
     }
 
-    private static org.pangrova.planner.PlanFragment dummyFragment() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyFragment() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

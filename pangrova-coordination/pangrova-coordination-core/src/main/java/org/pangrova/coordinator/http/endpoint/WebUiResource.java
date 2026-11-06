@@ -9,10 +9,10 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.query.profiling.QueryProfileService;
+import org.pangrova.query.core.profiling.QueryProfileService;
 
 import java.time.Instant;
 import java.util.List;

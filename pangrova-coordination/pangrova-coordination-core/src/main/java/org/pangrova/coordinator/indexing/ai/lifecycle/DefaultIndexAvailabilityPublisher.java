@@ -15,7 +15,7 @@ package org.pangrova.coordinator.indexing.ai.lifecycle;
 
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.spi.indexing.publish.IndexAvailabilityPublisher;
+import org.pangrova.indexing.spi.publication.IndexAvailabilityPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

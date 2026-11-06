@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.indexing.ddl;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;

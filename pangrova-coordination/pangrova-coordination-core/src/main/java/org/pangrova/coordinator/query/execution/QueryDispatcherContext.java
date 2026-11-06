@@ -3,23 +3,23 @@ package org.pangrova.coordinator.query.execution;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
-import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.adaptive.AdaptiveQueryConfig;
+import org.pangrova.planner.core.adaptive.AdaptiveQueryExecutor;
+import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
-import org.pangrova.planner.security.ColumnMaskApplier;
-import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
-import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
+import org.pangrova.planner.core.security.ColumnMaskApplier;
+import org.pangrova.planner.core.security.RowFilterApplier;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -28,9 +28,10 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * Groups QueryDispatcher dependencies into a single parameter object.
  * Fields are organized into sub-context bundles for readability:
  * {@link SecurityContextBundle} and {@link SchedulingContextBundle}.
- * Keeps the constructor within the ≤4 param governance limit when combined with StageFragmenter.
+ * Publication read services are explicit borrowed dependencies, independent of index pruning.
  */
 public record QueryDispatcherContext(
+        org.pangrova.shuffle.api.SkewDetector skewDetector,
         SqlCompiler compiler,
         SecurityContextBundle security,
         SchedulingContextBundle scheduling,
@@ -46,12 +47,17 @@ public record QueryDispatcherContext(
         QueryStateJournal stateJournal,
         IndexAwareSplitFetcher indexAwareSplitFetcher,
         org.pangrova.ai.control.embedding.EmbeddingModelRegistry
-                embeddingModelRegistry) {
+                embeddingModelRegistry,
+        org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver artifactBindingResolver,
+        org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReadResolver) {
 
     /** Compact constructor — validates required dependencies. */
     public QueryDispatcherContext {
         checkNotNull(compiler, "compiler must not be null");
         checkNotNull(scheduling, "scheduling must not be null");
+        if (adaptiveQueryConfig != null && adaptiveQueryExecutor != null) {
+            checkNotNull(skewDetector, "AQE requires an explicitly configured skewDetector");
+        }
     }
 
     // ── Convenience accessors — delegate to sub-bundles ──
@@ -124,8 +130,9 @@ public record QueryDispatcherContext(
                 dispatcher, taskScheduler, workerManager, taskTracker,
                 null, null, null, resilienceRegistry);
         return new QueryDispatcherContext(
+                null,
                 compiler, security, scheduling,
                 catalogRegistry, lineageEmitter, taskTimeoutSeconds,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null);
     }
 }

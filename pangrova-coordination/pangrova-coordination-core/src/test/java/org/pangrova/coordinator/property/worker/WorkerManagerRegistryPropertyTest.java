@@ -15,8 +15,8 @@ import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
-import org.pangrova.spi.coordination.WorkerSnapshot;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
+import org.pangrova.coordination.api.membership.WorkerSnapshot;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -131,7 +131,7 @@ class WorkerManagerRegistryPropertyTest {
         var manager = new WorkerManager(SUSPECT_MS, DEAD_MS, registry);
 
         manager.registerWorker(info);
-        manager.onHeartbeat(info.workerId(), heartbeat);
+        manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(info.workerId(), manager.getWorker(info.workerId()).workerExecutionIdentity().admissionDomainId(), manager.getWorker(info.workerId()).workerExecutionIdentity().incarnationId()), heartbeat);
 
         WorkerSnapshot snapshot = registry.getWorker(info.workerId()).orElseThrow();
         assertThat(snapshot.memoryPressure()).isEqualTo(heartbeat.pressure().name());

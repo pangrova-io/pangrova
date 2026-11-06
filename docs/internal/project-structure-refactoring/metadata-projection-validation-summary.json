@@ -1,0 +1,127 @@
+{
+  "baseline": "Current working tree before this batch, 89 selected tests passed. Baseline cases are not inherited as post-change passes.",
+  "normalized_test_moves": {
+    "org.pangrova.persistence.catalog.postgresql.projection.JdbcMetadataStoreIntegrationTest": "org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepositoryTest",
+    "org.pangrova.persistence.catalog.postgresql.projection.JdbcMetadataInvalidationIntegrationTest": "org.pangrova.persistence.catalog.postgresql.projection.PostgresProjectionInvalidationIntegrationTest"
+  },
+  "stages": [
+    {
+      "stage": "baseline",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression '-Dtest=JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,MetadataSync*Test,MetadataBorrowedOwnershipIntegrationTest,MetadataDriftSamplingIntegrationTest,CatalogPersistenceApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 181.91,
+      "cases": 89,
+      "passed": 89,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression '-Dtest=JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,MetadataSync*Test,MetadataBorrowedOwnershipIntegrationTest,MetadataDriftSamplingIntegrationTest,CatalogPersistenceApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 82.6,
+      "cases": 49,
+      "passed": 49,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "focused2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-metadata-core -am -Pnative-runtime,full-regression '-Dtest=JdbcMetadataStoreIntegrationTest,JdbcMetadataInvalidationIntegrationTest,JdbcInvalidationPoller*Test,MetadataSync*Test,MetadataBorrowedOwnershipIntegrationTest,MetadataDriftSamplingIntegrationTest,CatalogPersistenceApiClasspathTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 182.95,
+      "cases": 89,
+      "passed": 89,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "cleanup-before",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Dtest=PostgresCatalogCleanupFailureTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 20.13,
+      "cases": 2,
+      "passed": 0,
+      "failure": 2,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "cleanup-after",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Dtest=PostgresCatalogCleanupFailureTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 18.89,
+      "cases": 2,
+      "passed": 2,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=PostgresCatalogCleanupFailureTest,JdbcMetadataMutationCommitIntegrationTest,PostgresCatalogDeploymentRepositoryTest,PostgresProjectionInvalidationIntegrationTest,JdbcInvalidationPoller*Test,MetadataSync*Test,MetadataBorrowedOwnershipIntegrationTest,MetadataDriftSamplingIntegrationTest,CatalogPersistenceApiClasspathTest,MetadataBootstrapTest,PluginConnectorHandleFactoryTest,PluginFederationHandleFactoryTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest,CrossCatalogConsistencyE2ETest,MetadataSyncPropagationE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 28.65,
+      "cases": 23,
+      "passed": 22,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=PostgresCatalogCleanupFailureTest,JdbcMetadataMutationCommitIntegrationTest,PostgresCatalogDeploymentRepositoryTest,PostgresProjectionInvalidationIntegrationTest,JdbcInvalidationPoller*Test,MetadataSync*Test,MetadataBorrowedOwnershipIntegrationTest,MetadataDriftSamplingIntegrationTest,CatalogPersistenceApiClasspathTest,MetadataBootstrapTest,PluginConnectorHandleFactoryTest,PluginFederationHandleFactoryTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest,CrossCatalogConsistencyE2ETest,MetadataSyncPropagationE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 0,
+      "seconds": 294.37,
+      "cases": 149,
+      "passed": 149,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "owners",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=AnalyzeExecutorTest*,BranchTtlCleanupTaskLeaderGateTest*,BranchTtlCleanupTaskTest*,CacheWarmupServiceTest*,CachingFederatedCatalogTest*,CallProcedureWarmupDispatchTest*,CanonicalWorkerInventoryMigrationTest*,CatalogDeploymentResourceIntegrationTest*,CatalogDescriptorRevisionMigrationTest*,CatalogDivergenceReportTest*,CatalogRegistryConstructorInjectionTest*,CatalogRegistryEventDispatchTest*,CatalogRegistryReconcileFromStoreTest*,CdcCommitRetryMigrationTest*,CdcCompleteCheckpointMigrationTest*,ConnectorAccessorResolverDataFileInfoTest*,ControlledTableMaintenanceSpiTest*,ControlledTableMaintenanceTest*,CoordinatorPhysicalGenerationStoreTest*,CoordinatorSourcePinningTest*,CopyFileCommitRecoveryIntegrationTest*,CopyFilePublicationMigrationTest*,DdlExecutorAlterTableTest*,DdlExecutorGeneratedColumnTest*,DdlExecutorOwnershipTest*,DefaultConnectorSessionTest*,DefaultMetadataServiceAlterTableTest*,DefaultMetadataServiceCacheTest*,DefaultMetadataServiceControlTest*,DefaultMetadataServiceQueryEndCleanupTest*,DefaultMetadataServiceResolveTest*,DefaultMetadataServiceTransactionTest*,DefaultWriteCommitReconcilerTest*,FeatureViewSqlIntegrationTest*,GeneratedValueReadResolverIntegrationTest*,GenerationExchangeBarrierMigrationTest*,GenerationExecutionFenceMigrationTest*,GenerationStageGraphMigrationTest*,InMemoryObjectDependencyStoreTest*,IndexCommitHandlerLeaderGateTest*,IndexCommitHandlerStatisticsTest*,IndexConsistencyCheckerStaleRebuildTest*,IndexGarbageCollectorLeaderGateTest*,IndexGcGenerationFencingTest*,IndexGcIcebergPinIntegrationTest*,IndexingBootstrapStartOrderingTest*,JdbcCopyFilePublicationPostgresTest*,JdbcExecutionAnchorOrderingTest*,JdbcExecutionAnchorStoreTest*,JdbcFileSpaceAuthorityTest*,JdbcGeneratedValueBuildSubmissionStoreTest*,JdbcObjectDependencyStoreIntegrationTest*,JdbcQualityResultIdentityIntegrationTest*,JdbcQualityRuleStoreIntegrationTest*,JdbcQualityRuleStoreRecoveryIntegrationTest*,JdbcQualityRuleStoreTest*,JdbcQueryLineageOutboxIntegrationTest*,JdbcTabularExportPublicationStoreTest*,JdbcWriteCommitJournalPostgresTest*,JdbcWriteCommitJournalTest*,LazyMetadataSchemaResolutionFailureTest*,LazyMetadataSchemaSystemTableLookupTest*,ManagedLancePublicationIntegrationTest*,MaterializationDependencyGuardMigrationTest*,MetadataAbstractionLayerAuditTest*,MetadataApiClasspathTest*,MetadataCleanupSchedulerTest*,MetadataCollectionOwnershipTest*,MetadataColumnDeclarationsTest*,MetadataGenerationTransactionAuthorityIntegrationTest*,MetadataMigrationClasspathTest*,MetadataTagOperationsTest*,MetadataToSqlCompilerChainPropertyTest*,MetadataTransactionPropertyTest*,MultiCoordinatorArchE2ETest*,MultiCoordinatorRoleRoutingE2ETest*,NativeDatasetControlBootstrapTest*,ObjectDependencyServiceTest*,PlannerWiringSessionIntegrationTest*,PostgresGenerationJobStoreTest*,PostgresGenerationStageExchangeStoreTest*,PostgresMetadataSyncFailureTest*,PostgresMetadataSyncRepositoryTest*,ProviderClasspathIsolationTest*,QualityAuthorityMigrationIntegrationTest*,QualityExecutionIdentityMigrationIntegrationTest*,QueryAssemblyWiringTest*,QueryDispatcherCleanupOnFailureTest*,QueryLifecycleFailureAggregationTest*,QueryLineageHttpRecoveryIntegrationTest*,QueryOnlyWriteAuthorityIntegrationTest*,SchemaEvolutionValidatorTest*,ShowTableControlsTest*,StableColumnTagMigrationTest*,StableQualityRuleMigrationTest*,StableRowPolicyMigrationTest*,StreamCheckpointIdentityMigrationTest*,StreamEpochFencingPropertyTest*,StreamStateStoreRoundTripPropertyTest*,StreamingBootstrapWriteSinkWiringTest*,TableControlCatalogDeploymentIntegrationTest*,TableControlQualityRuleStoreTest*,TableControlRowPolicyStoreTest*,TableVersionObserverTest*,TableWarmupExecutorTest*,TagImmutabilityPropertyTest*,TaskStatusReceiverCommitFinalizationRaceTest*,TaskStatusReceiverWriteCommitTest*,TieredMetadataCacheConcurrencyTest*,TieredMetadataCacheEventTest*,TieredMetadataCacheInvalidationOrderTest*,TieredMetadataCacheStatsTest*,UnifiedMaterializationMigrationTest*,WriteCommitIdentityMigrationTest*,WriteCommitJournalIdempotencyTest*,WritePolicyObservationTest*' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 749.35,
+      "cases": 815,
+      "passed": 815,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "projection-analysis",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis '-Dtest=PostgresCatalogCleanupFailureTest,PostgresCatalogDeploymentRepositoryTest,PostgresProjectionInvalidationIntegrationTest,PostgresMetadataSyncRepositoryTest,JdbcInvalidationPoller*Test' -Dsurefire.failIfNoSpecifiedTests=false package spotbugs:spotbugs",
+      "exit": 0,
+      "seconds": 185.24,
+      "cases": 60,
+      "passed": 60,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "packaging",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression -DskipTests clean package",
+      "exit": 0,
+      "seconds": 89.27,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 964,
+    "passed": 964,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "scope": "Latest reports from this batch; JUnit/jqwik testcase counts, not randomized trial counts. Selected full-reactor packages are not full production regression."
+}

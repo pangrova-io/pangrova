@@ -1,7 +1,7 @@
 package org.pangrova.ai.worker.inference.openai;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.ai.api.error.AiInvocationException;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;

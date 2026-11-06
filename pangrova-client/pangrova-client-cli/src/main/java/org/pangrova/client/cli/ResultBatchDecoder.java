@@ -13,9 +13,9 @@
  */
 package org.pangrova.client.cli;
 
-import org.pangrova.transport.ArrowBatchDecoder;
-import org.pangrova.transport.ResultBatch;
-import org.pangrova.transport.TransportException;
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ResultBatch;
+import org.pangrova.transport.client.TransportException;
 
 import java.util.ArrayList;
 import java.util.Arrays;

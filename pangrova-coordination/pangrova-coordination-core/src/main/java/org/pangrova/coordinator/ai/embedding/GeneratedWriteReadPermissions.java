@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.util.HashMap;
 import java.util.List;

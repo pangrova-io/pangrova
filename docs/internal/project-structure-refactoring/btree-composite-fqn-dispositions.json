@@ -1,0 +1,86 @@
+[
+  {
+    "old_fqn": "",
+    "target_fqn": "org.pangrova.indexing.api.data.CompositeIndexKey",
+    "artifact": "pangrova-indexing-api",
+    "path": "pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/CompositeIndexKey.java",
+    "disposition": "New contract owner",
+    "responsibility_and_resource_ownership": "Owns immutable complete tuple components of exact supported scalar classes, type/arity validation and lexicographic comparison. No resource or persistent authority.",
+    "callers_wiring": "BTree builder, generic codec, evaluator and actual CREATE INDEX persisted artifact.",
+    "persistent_authority": "rebuildable index payload; publication authority remains existing Indexing/Generation workflow",
+    "semantic_review": "btree-composite.md",
+    "verification": "btree-composite-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.codec.data.SerdeCodec",
+    "target_fqn": "org.pangrova.indexing.codec.data.SerdeCodec",
+    "artifact": "pangrova-indexing-codec",
+    "path": "pangrova-indexing/pangrova-indexing-codec/src/main/java/org/pangrova/indexing/codec/data/SerdeCodec.java",
+    "disposition": "Typed bounded tuple encoding",
+    "responsibility_and_resource_ownership": "Adds tag 11, bounded arity, rejects null/nested/unknown/truncated components. Existing scalar tag encodings unchanged. No SDK or native object serialization.",
+    "callers_wiring": "Builtin BTree serializer and direct codec callers; no Core or Provider imports.",
+    "persistent_authority": "rebuildable index payload; publication authority remains existing Indexing/Generation workflow",
+    "semantic_review": "btree-composite.md",
+    "verification": "btree-composite-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.codec.data.TypeSerializerRegistry",
+    "target_fqn": "org.pangrova.indexing.codec.data.TypeSerializerRegistry",
+    "artifact": "pangrova-indexing-codec",
+    "path": "pangrova-indexing/pangrova-indexing-codec/src/main/java/org/pangrova/indexing/codec/data/TypeSerializerRegistry.java",
+    "disposition": "Document registration contract",
+    "responsibility_and_resource_ownership": "Javadoc only; duplicate registration semantics and executable code unchanged.",
+    "callers_wiring": "Existing codec/builtin registration callers.",
+    "persistent_authority": "rebuildable index payload; publication authority remains existing Indexing/Generation workflow",
+    "semantic_review": "btree-composite.md",
+    "verification": "btree-composite-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.builtin.btree.evaluator.BTreeSearcher",
+    "target_fqn": "org.pangrova.indexing.builtin.btree.evaluator.BTreeSearcher",
+    "artifact": "pangrova-indexing-strategies-builtin",
+    "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/evaluator/BTreeSearcher.java",
+    "disposition": "Safe comparison and incomplete coverage",
+    "responsibility_and_resource_ownership": "Checks tuple/scalar shape before comparison; empty key set remains UNKNOWN because null-row and arity coverage is absent. No false negative for omitted null rows.",
+    "callers_wiring": "Provider component evaluations; Java IndexEvaluationService still has no production business caller.",
+    "persistent_authority": "rebuildable index payload; publication authority remains existing Indexing/Generation workflow",
+    "semantic_review": "btree-composite.md",
+    "verification": "btree-composite-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.builtin.btree.evaluator.CompositeKey",
+    "target_fqn": "org.pangrova.indexing.api.data.CompositeIndexKey",
+    "artifact": "pangrova-indexing-strategies-builtin",
+    "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/evaluator/CompositeKey.java",
+    "disposition": "Retire provider-private public-data representation",
+    "responsibility_and_resource_ownership": "Replace with org.pangrova.indexing.api.data.CompositeIndexKey; no forwarding shell. Former type could not be serialized by shared codec.",
+    "callers_wiring": "Original BTree builder updated; source and final artifact references checked.",
+    "persistent_authority": "rebuildable index payload; publication authority remains existing Indexing/Generation workflow",
+    "semantic_review": "btree-composite.md",
+    "verification": "btree-composite-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider",
+    "target_fqn": "org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider",
+    "artifact": "pangrova-indexing-strategies-builtin",
+    "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/provider/BTreeStrategyProvider.java",
+    "disposition": "Validate complete build input",
+    "responsibility_and_resource_ownership": "Constructs API tuple, validates positive page size, row arity and comparable shape; overflow-safe page iteration and row counter. Does not publish authority itself.",
+    "callers_wiring": "IndexFileBuilder uses declared descriptor columns; serializer/storage/publication remain existing owners.",
+    "persistent_authority": "rebuildable index payload; publication authority remains existing Indexing/Generation workflow",
+    "semantic_review": "btree-composite.md",
+    "verification": "btree-composite-validation-summary.json and per-test evidence"
+  },
+  {
+    "old_fqn": "org.pangrova.indexing.builtin.btree.serializer.BTreeSerializer",
+    "target_fqn": "org.pangrova.indexing.builtin.btree.serializer.BTreeSerializer",
+    "artifact": "pangrova-indexing-strategies-builtin",
+    "path": "pangrova-indexing/pangrova-indexing-strategies-builtin/src/main/java/org/pangrova/indexing/builtin/btree/serializer/BTreeSerializer.java",
+    "disposition": "Complete tuple payload and bounded collections",
+    "responsibility_and_resource_ownership": "Encodes through shared codec; validates row-position alignment, checks impossible collection counts before allocations, rejects trailing bytes.",
+    "callers_wiring": "Registered builtin serializer; real index build/write/publication and E2E reload.",
+    "persistent_authority": "rebuildable index payload; publication authority remains existing Indexing/Generation workflow",
+    "semantic_review": "btree-composite.md",
+    "verification": "btree-composite-validation-summary.json and per-test evidence"
+  }
+]

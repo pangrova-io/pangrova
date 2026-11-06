@@ -59,7 +59,8 @@ final class TaskSubmissionHandler {
             }
         }
         if (owner.drainExecutor.isDraining()) {
-            throw new IllegalStateException("Worker is draining — new tasks are rejected");
+            throw new TaskAdmissionException(TaskAdmissionException.Reason.CLOSED,
+                    "Worker is draining — new tasks are rejected");
         }
         String taskId =
                 descriptor.queryId().toString() + "-" + owner.taskIdCounter.incrementAndGet();

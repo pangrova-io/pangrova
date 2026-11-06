@@ -4,7 +4,7 @@ import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 

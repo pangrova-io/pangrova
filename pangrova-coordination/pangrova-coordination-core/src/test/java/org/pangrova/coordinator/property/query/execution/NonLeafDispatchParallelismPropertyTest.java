@@ -10,13 +10,13 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine.StageDispatchRecord;
+import org.pangrova.query.core.task.DispatchResult;
+import org.pangrova.query.core.task.StageDispatchRecord;
 import org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAccess;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
 import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -124,7 +124,7 @@ class NonLeafDispatchParallelismPropertyTest {
         StageNode up = node(0, upPar, "COMPUTE");
         StageNode dn = node(1, downPar, "OUTPUT");
         StageEdge edge = new StageEdge(0, 1,
-                org.pangrova.planner.ShuffleType.HASH, List.of(0));
+                org.pangrova.planner.core.analysis.ShuffleType.HASH, List.of(0));
         return StageDAG.fromNodes(List.of(up, dn),
                 Map.of(1, List.of(0)), List.of(edge));
     }
@@ -134,6 +134,6 @@ class NonLeafDispatchParallelismPropertyTest {
         RelOptCluster cl = RelOptCluster.create(
                 new VolcanoPlanner(), new RexBuilder(tf));
         RelNode rel = LogicalValues.createEmpty(cl, tf.builder().build());
-        return new StageNode(id, new org.pangrova.planner.PlanFragment(rel, -1L, -1L), par, type, List.of());
+        return new StageNode(id, new org.pangrova.planner.core.analysis.PlanFragment(rel, -1L, -1L), par, type, List.of());
     }
 }

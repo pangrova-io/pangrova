@@ -6,11 +6,9 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Combinators;
-import org.pangrova.spi.connector.index.predicate.EqualTo;
-import org.pangrova.spi.connector.index.predicate.InList;
-import org.pangrova.spi.connector.index.predicate.RangeQuery;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
-import org.pangrova.spi.connector.index.statistics.FileColumnStatistics.ComparisonOp;
+import org.pangrova.connector.api.index.predicate.InList;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.api.index.statistics.FileColumnStatistics.ComparisonOp;
 
 import java.util.List;
 

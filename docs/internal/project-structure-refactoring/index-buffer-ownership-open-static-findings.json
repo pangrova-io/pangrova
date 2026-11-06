@@ -1,0 +1,126 @@
+{
+  "module": "pangrova-shuffle-local",
+  "stage": "catalog-static3",
+  "findings": [
+    {
+      "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+      "priority": "2",
+      "class": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+      "method": "open",
+      "lines": [
+        {
+          "role": "SOURCE_LINE_INVOKED",
+          "endBytecode": "158",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+          "start": "87",
+          "end": "87",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolStore.java",
+          "sourcefile": "LocalFsSpoolStore.java",
+          "startBytecode": "158",
+          "primary": "true"
+        },
+        {
+          "role": "SOURCE_LINE_KNOWN_NULL",
+          "endBytecode": "153",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+          "start": "87",
+          "end": "87",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolStore.java",
+          "sourcefile": "LocalFsSpoolStore.java",
+          "startBytecode": "153"
+        }
+      ]
+    },
+    {
+      "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+      "priority": "2",
+      "class": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+      "method": "requireSafeParents",
+      "lines": [
+        {
+          "role": "SOURCE_LINE_DEREF",
+          "endBytecode": "7",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+          "start": "208",
+          "end": "208",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolStore.java",
+          "sourcefile": "LocalFsSpoolStore.java",
+          "startBytecode": "7",
+          "primary": "true"
+        },
+        {
+          "role": "SOURCE_LINE_KNOWN_NULL",
+          "endBytecode": "44",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
+          "start": "208",
+          "end": "208",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolStore.java",
+          "sourcefile": "LocalFsSpoolStore.java",
+          "startBytecode": "44"
+        }
+      ]
+    },
+    {
+      "type": "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE",
+      "priority": "2",
+      "class": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+      "method": "initialize",
+      "lines": [
+        {
+          "role": "SOURCE_LINE_INVOKED",
+          "endBytecode": "30",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+          "start": "36",
+          "end": "36",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolWriter.java",
+          "sourcefile": "LocalFsSpoolWriter.java",
+          "startBytecode": "30",
+          "primary": "true"
+        },
+        {
+          "role": "SOURCE_LINE_KNOWN_NULL",
+          "endBytecode": "5",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+          "start": "36",
+          "end": "36",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolWriter.java",
+          "sourcefile": "LocalFsSpoolWriter.java",
+          "startBytecode": "5"
+        }
+      ]
+    },
+    {
+      "type": "PATH_TRAVERSAL_IN",
+      "priority": "2",
+      "class": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+      "method": "initialize",
+      "lines": [
+        {
+          "endBytecode": "30",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+          "start": "36",
+          "end": "36",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolWriter.java",
+          "sourcefile": "LocalFsSpoolWriter.java",
+          "startBytecode": "30",
+          "primary": "true"
+        },
+        {
+          "endBytecode": "19",
+          "classname": "org.pangrova.shuffle.local.spool.LocalFsSpoolWriter",
+          "start": "36",
+          "end": "36",
+          "sourcepath": "org/pangrova/shuffle/local/spool/LocalFsSpoolWriter.java",
+          "sourcefile": "LocalFsSpoolWriter.java",
+          "startBytecode": "19"
+        }
+      ]
+    }
+  ],
+  "missing_classes": [
+    "accept",
+    "makeConcatWithConstants",
+    "test"
+  ],
+  "status": "Open diagnostics, not suppressed or declared safe. Validate actual owner-controlled path and ancestor invariants before change."
+}

@@ -1,25 +1,26 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.governance.core.classification.ColumnTagService;
-import org.pangrova.table.api.governancebinding.GovernanceBindingType;
-import org.pangrova.table.store.memory.control.InMemoryTableControlGovernanceBindingStore;
-import org.pangrova.table.control.TableControlPolicyBinder;
+import org.pangrova.table.api.policybinding.GovernanceBindingType;
+import org.pangrova.table.core.policybinding.TableControlPolicyBinder;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.service.DefaultMetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.parser.api.ast.statement.AlterTableStatement;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.security.api.error.AccessDeniedException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
@@ -59,19 +60,18 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
 
             var metadataService = (DefaultMetadataService) fixture.bootstrap.metadataService();
             DataSource tagAuthority = SharedPostgresContainer.isolatedDataSource("ddl_tag_governance");
-            DataSource maskAuthority = SharedPostgresContainer.isolatedDataSource("ddl_tag_masks");
+            DataSource maskAuthority = SharedPostgresContainer.migratedDataSource("ddl_tag_masks");
             ColumnTagService tagService = new ColumnTagService(name -> fixture.bootstrap.catalogRegistry()
                     .tableGovernance().requireBindable(name.catalog(), name.schema(), name.table()).tableId());
             metadataService.setColumnTagService(tagService);
             JdbcColumnMaskStore maskStore = new JdbcColumnMaskStore(maskAuthority);
-            maskStore.initSchema();
             var boundMasks = new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
                     new org.pangrova.metadata.service.RegistryTablePolicyAuthority(
                             fixture.bootstrap.catalogRegistry()),
                     maskStore);
 
             org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner.migrate(tagAuthority);
-            var bindingStore = new org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore(tagAuthority);
+            var bindingStore = new org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore(tagAuthority);
             fixture.bootstrap.catalogRegistry().setGovernanceBindingStore(bindingStore);
             var binder = new TableControlPolicyBinder(
                     fixture.bootstrap.catalogRegistry().tableControl(), bindingStore);
@@ -141,7 +141,7 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
                 assertThat(bindingStore.list(UUID.fromString(tableId))).isEmpty();
                 assertThat(invalidations).hasValue(2);
             } finally {
-                state.tryTransition(QueryStateMachine.State.CANCELLED);
+                state.tryTransition(QueryState.CANCELLED);
                 tracker.sealQueryIssuance(fixture.context.queryId());
                 authority.cleanupMetadata().requireSuccess();
                 tracker.retireQueryIssuance(fixture.context.queryId());

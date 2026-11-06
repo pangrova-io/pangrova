@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.shuffle;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;

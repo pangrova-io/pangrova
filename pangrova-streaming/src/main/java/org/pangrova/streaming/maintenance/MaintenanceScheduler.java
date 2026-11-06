@@ -2,7 +2,7 @@ package org.pangrova.streaming.maintenance;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.connector.data.write.model.WriteResult;
+import org.pangrova.connector.api.write.WriteResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

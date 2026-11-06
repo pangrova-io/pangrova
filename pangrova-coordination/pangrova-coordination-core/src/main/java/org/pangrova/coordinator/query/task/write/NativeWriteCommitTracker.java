@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.task.write;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
 import org.pangrova.common.file.CopyFileCommitBinding;
 
 import org.slf4j.Logger;

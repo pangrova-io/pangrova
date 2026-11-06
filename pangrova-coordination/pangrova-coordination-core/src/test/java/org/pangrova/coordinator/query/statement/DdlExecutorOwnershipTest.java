@@ -8,49 +8,43 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.table.store.memory.control.InMemoryTableControlMaintenanceStore;
-import org.pangrova.table.store.memory.control.InMemoryTableControlGovernanceBindingStore;
-import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
-import org.pangrova.table.api.governancebinding.GovernanceBindingType;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.table.memory.maintenance.InMemoryTableControlMaintenanceStore;
+import org.pangrova.persistence.table.memory.governancebinding.InMemoryTableControlGovernanceBindingStore;
+import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
+import org.pangrova.table.api.policybinding.GovernanceBindingType;
 import org.pangrova.table.api.maintenance.MaintenanceOperation;
-import org.pangrova.table.api.control.OwnershipMode;
-import org.pangrova.table.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.control.TableControlPolicyBinder;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.table.control.TableControlSettings;
+import org.pangrova.table.api.ownership.OwnershipMode;
+import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.core.policybinding.TableControlPolicyBinder;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.table.core.config.TableControlSettings;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.service.ResolvedTable;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.coordinator.query.audit.TableControlAuditEmitter;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.spi.security.audit.AuditEventWriter;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
-import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.security.spi.audit.AuditEventWriter;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.statement.DropTableStatement;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
+import org.pangrova.security.api.error.AccessDeniedException;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,7 +58,7 @@ import static org.pangrova.coordinator.query.statement.StatementTestSessions.con
 
 class DdlExecutorOwnershipTest {
 
-    private final SqlParser parser = new SqlParser();
+    private final AntlrSqlParser parser = new AntlrSqlParser();
     private MutableMetadata metadata;
     private CatalogRegistry registry;
     private DdlExecutor ddlExecutor;
@@ -79,7 +73,7 @@ class DdlExecutorOwnershipTest {
         metadata.create(new SchemaTableName("default", "users"), "uuid-users");
         ConnectorHandleFactory factory = descriptor ->
                 new ConnectorCatalogHandle(descriptor, new TestConnector(metadata));
-        registry = new CatalogRegistry(new EmptyMetadataStore(), factory, null, null);
+        registry = new CatalogRegistry(new EmptyCatalogDeployments(), factory, null, null);
         registry.register(new CatalogDescriptor(
                 "test_cat", CatalogType.CONNECTOR, "test",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -114,7 +108,7 @@ class DdlExecutorOwnershipTest {
                 .hasRootCauseMessage("Identity catalog unavailable");
         assertThat(metadata.tables).containsKey("default.orders");
         assertThat(registry.tableControl().find("test_cat", "default", "orders").orElseThrow().state())
-                .isEqualTo(org.pangrova.table.api.control.TableControlState.ORPHANED_MANAGED);
+                .isEqualTo(org.pangrova.table.api.ownership.TableControlState.ORPHANED_MANAGED);
     }
 
     @Test
@@ -137,7 +131,7 @@ class DdlExecutorOwnershipTest {
         metadata.create(new SchemaTableName("default", "users"), "uuid-replacement");
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADD COLUMN email VARCHAR"), context()))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("identity");
@@ -156,7 +150,7 @@ class DdlExecutorOwnershipTest {
                 .hasMessageContaining("identity");
         assertThat(metadata.tables).containsKey("default.users");
         assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().state())
-                .isEqualTo(org.pangrova.table.api.control.TableControlState.ACTIVE);
+                .isEqualTo(org.pangrova.table.api.ownership.TableControlState.ACTIVE);
     }
 
     @Test
@@ -226,7 +220,7 @@ class DdlExecutorOwnershipTest {
         var stmt = parser.parse("ALTER TABLE test_cat.default.users ADD COLUMN email VARCHAR");
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) stmt, context()))
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) stmt, context()))
                 .isInstanceOf(AccessDeniedException.class);
         assertThat(metadata.altered).isFalse();
     }
@@ -251,7 +245,7 @@ class DdlExecutorOwnershipTest {
         registerManaged("users");
 
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users RENAME TO people"),
                 context());
 
@@ -271,7 +265,7 @@ class DdlExecutorOwnershipTest {
         registerManaged("people");
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users RENAME TO people"),
                 context()))
                 .isInstanceOf(AccessDeniedException.class)
@@ -288,13 +282,13 @@ class DdlExecutorOwnershipTest {
         metadata.beforeRename = () -> { throw new IllegalStateException("rename failed"); };
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users RENAME TO people"), context()))
                 .isInstanceOf(IllegalStateException.class).hasMessage("rename failed");
         assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().tableId())
                 .isEqualTo(original.tableId());
         assertThat(registry.tableControl().find("test_cat", "default", "people").orElseThrow().state())
-                .isEqualTo(org.pangrova.table.api.control.TableControlState.RENAMING);
+                .isEqualTo(org.pangrova.table.api.ownership.TableControlState.RENAMING);
         assertThatThrownBy(() -> registry.tableControl().requireCreatableName("test_cat", "default", "users"))
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> registry.tableGovernance().requireBindable("test_cat", "default", "users"))
@@ -310,13 +304,13 @@ class DdlExecutorOwnershipTest {
         };
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users RENAME TO people"), context()))
                 .isInstanceOf(IllegalStateException.class).hasMessage("rename failed");
         assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().state())
-                .isEqualTo(org.pangrova.table.api.control.TableControlState.RENAMING);
+                .isEqualTo(org.pangrova.table.api.ownership.TableControlState.RENAMING);
         assertThat(registry.tableControl().find("test_cat", "default", "people").orElseThrow().state())
-                .isEqualTo(org.pangrova.table.api.control.TableControlState.RENAMING);
+                .isEqualTo(org.pangrova.table.api.ownership.TableControlState.RENAMING);
     }
 
     @Test
@@ -334,7 +328,7 @@ class DdlExecutorOwnershipTest {
 
     @Test
     void adoptObservedTableCreatesLinkedRecordAndIsIdempotent() {
-        var adopt = (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+        var adopt = (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                 "ALTER TABLE test_cat.default.users ADOPT");
 
         ddlExecutor.executeAlterTable(adopt, context());
@@ -351,13 +345,13 @@ class DdlExecutorOwnershipTest {
     @Test
     void adoptRejectsWhenTheFormatIdentityChangedAfterDropAndRecreate() {
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
         metadata.create(new SchemaTableName("default", "users"), "uuid-users-recreated");
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context()))
                 .isInstanceOf(AccessDeniedException.class)
@@ -369,7 +363,7 @@ class DdlExecutorOwnershipTest {
         metadata.identityAvailable = false;
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context()))
                 .isInstanceOf(AccessDeniedException.class)
@@ -380,7 +374,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void adoptWithPropertiesPersistsTheMaintenancePolicyByTableId() {
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT WITH "
                                 + "(maintenance_operations='COMPACT', retain_last='4')"),
                 context());
@@ -402,7 +396,7 @@ class DdlExecutorOwnershipTest {
         ddlExecutor.setTableControlAudit(new TableControlAuditEmitter(auditEmitter));
 
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
 
@@ -417,7 +411,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void rejectedAdoptPropertiesLeaveNoControlRecordBehind() {
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT WITH (retian_last='4')"),
                 context()))
                 .isInstanceOf(AccessDeniedException.class)
@@ -430,7 +424,7 @@ class DdlExecutorOwnershipTest {
         ddlExecutor.setMaintenancePolicyService(null);
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT WITH "
                                 + "(maintenance_operations='COMPACT')"),
                 context()))
@@ -442,12 +436,12 @@ class DdlExecutorOwnershipTest {
     @Test
     void unlinkReturnsLinkedTableToObservedWithoutDroppingIt() {
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
 
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users UNLINK"),
                 context());
 
@@ -458,7 +452,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void unlinkRejectsObservedAndManagedTables() {
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users UNLINK"),
                 context()))
                 .isInstanceOf(AccessDeniedException.class)
@@ -466,7 +460,7 @@ class DdlExecutorOwnershipTest {
 
         registerManaged("users");
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users UNLINK"),
                 context()))
                 .isInstanceOf(AccessDeniedException.class)
@@ -476,7 +470,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void unlinkPurgesGovernanceBindingsForTheRetiredTable() {
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
         var tableId = registry.tableControl()
@@ -485,7 +479,7 @@ class DdlExecutorOwnershipTest {
                 GovernanceBindingType.COLUMN_TAG, "classification", Map.of(), "alice");
 
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users UNLINK"),
                 context());
 
@@ -510,9 +504,9 @@ class DdlExecutorOwnershipTest {
     void columnTagRequiresAdoptionAndBindsToTheStableTableId() {
         RecordingMetadataService tags = new RecordingMetadataService();
         ddlExecutor.setMetadataService(tags);
-        var set = (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+        var set = (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                 "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'");
-        var unset = (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+        var unset = (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                 "ALTER TABLE test_cat.default.users ALTER COLUMN id UNSET TAG classification");
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(set, context()))
@@ -521,7 +515,7 @@ class DdlExecutorOwnershipTest {
         assertThat(tags.tags).isEmpty();
 
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
         var tableId = registry.tableControl()
@@ -546,12 +540,12 @@ class DdlExecutorOwnershipTest {
         RecordingMetadataService tags = new RecordingMetadataService();
         ddlExecutor.setMetadataService(tags);
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ALTER COLUMN missing SET TAG classification = 'sensitive'"),
                 context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
@@ -562,12 +556,12 @@ class DdlExecutorOwnershipTest {
     @Test
     void columnTagRequiresTheMetadataService() {
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'"),
                 context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
@@ -579,17 +573,17 @@ class DdlExecutorOwnershipTest {
         RecordingMetadataService tags = new RecordingMetadataService();
         ddlExecutor.setMetadataService(tags);
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ADOPT"),
                 context());
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'"),
                 context());
         assertThat(tags.tags).isNotEmpty();
 
         ddlExecutor.executeAlterTable(
-                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                (org.pangrova.parser.api.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users UNLINK"),
                 context());
 
@@ -693,7 +687,7 @@ class DdlExecutorOwnershipTest {
 
         @Override
         public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
-                String columnName, org.pangrova.spi.connector.data.type.PangrovaType type,
+                String columnName, org.pangrova.types.PangrovaType type,
                 Object defaultValue) {
             altered = true;
         }
@@ -767,19 +761,19 @@ class DdlExecutorOwnershipTest {
         }
     }
 
-    private static final class EmptyMetadataStore implements MetadataStore {
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
-        @Override public void saveTable(TableMetadata m) { }
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) { }
-        @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.ofNullable(descriptors.get(n)); }
         @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) { }
-        @Override public void recordSyncHistory(SyncResult r) { }
-        @Override public void saveSchemas(String c, List<String> s) { }
+
     }
 }

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 
 import java.io.ByteArrayInputStream;

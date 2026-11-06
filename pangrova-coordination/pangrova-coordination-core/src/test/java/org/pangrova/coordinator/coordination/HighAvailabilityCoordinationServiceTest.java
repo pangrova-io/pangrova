@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
-import org.pangrova.persistence.memory.query.coordination.InMemoryExecutionAnchorStore;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +24,7 @@ class HighAvailabilityCoordinationServiceTest {
     void setUp() {
         haService = new HighAvailabilityCoordinationService(
                 new InMemoryDistributedLease(),
-                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
+                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
     }
 
     @AfterEach
@@ -45,7 +45,7 @@ class HighAvailabilityCoordinationServiceTest {
         // A-OWN-01: the query-ownership cap is configurable and enforced fail-closed.
         var svc = new HighAvailabilityCoordinationService(
                 new InMemoryDistributedLease(),
-                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000, 2));
+                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000, 2), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         try {
             assertThat(svc.acquireQueryOwnership("q1", "node-1")).isTrue();
             assertThat(svc.acquireQueryOwnership("q2", "node-1")).isTrue();
@@ -96,9 +96,9 @@ class HighAvailabilityCoordinationServiceTest {
         // when node-1's lease is still active and not expired.
         InMemoryDistributedLease sharedLease = new InMemoryDistributedLease();
         var svc1 = new HighAvailabilityCoordinationService(sharedLease,
-                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
+                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         var svc2 = new HighAvailabilityCoordinationService(sharedLease,
-                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
+                new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         try {
             svc1.tryBecomeLeader("node-1");
             assertThat(svc2.tryBecomeLeader("node-2")).isFalse();
@@ -135,8 +135,8 @@ class HighAvailabilityCoordinationServiceTest {
     void standbyCoordinatorUsesClusterTermAndOwnsQueriesActiveActive() {
         InMemoryDistributedLease sharedLease = new InMemoryDistributedLease();
         var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
-        var controlLeader = new HighAvailabilityCoordinationService(sharedLease, config);
-        var queryPeer = new HighAvailabilityCoordinationService(sharedLease, config);
+        var controlLeader = new HighAvailabilityCoordinationService(sharedLease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
+        var queryPeer = new HighAvailabilityCoordinationService(sharedLease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         try {
             controlLeader.start("node-1");
             queryPeer.start("node-2");
@@ -204,10 +204,10 @@ class HighAvailabilityCoordinationServiceTest {
     @Test
     void yieldedExecutionIsClaimedWithHigherToken() {
         var sharedStore = new InMemoryExecutionAnchorStore();
-        var first = new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
-        var second = new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
-        first.setExecutionAnchorStore(sharedStore);
-        second.setExecutionAnchorStore(sharedStore);
+        var first = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), sharedStore);
+        var second = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), sharedStore);
+
+
         try {
             first.start("node-1");
             second.start("node-2");
@@ -267,8 +267,8 @@ class HighAvailabilityCoordinationServiceTest {
         HighAvailabilityCoordinationService.CoordinationConfig fastConfig =
                 new HighAvailabilityCoordinationService.CoordinationConfig(200, 50);
 
-        HighAvailabilityCoordinationService node1 = new HighAvailabilityCoordinationService(sharedLease, fastConfig);
-        HighAvailabilityCoordinationService node2 = new HighAvailabilityCoordinationService(sharedLease, fastConfig);
+        HighAvailabilityCoordinationService node1 = new HighAvailabilityCoordinationService(sharedLease, fastConfig, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
+        HighAvailabilityCoordinationService node2 = new HighAvailabilityCoordinationService(sharedLease, fastConfig, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         try {
             // node-1 starts first and becomes leader

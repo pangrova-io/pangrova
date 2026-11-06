@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
 import org.pangrova.coordinator.query.lifecycle.CoordinatorQueryLifecycle;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,23 +17,22 @@ import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.spi.query.identity.QueryId;
-import org.pangrova.spi.observability.event.QueryState;
+import org.pangrova.query.api.identity.QueryId;
+import org.pangrova.query.api.lifecycle.QueryState;
 import org.pangrova.common.session.SessionContext;
-import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +63,7 @@ class CoordinatorQueryLifecycleTest {
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null,
                 new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TRACING),
-                new TaskScheduler(new WorkerPerformanceScorer()),
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 workerManager,
                 new CoordinatorTaskTracker(),
                 null, null, null, 0L);
@@ -70,10 +73,10 @@ class CoordinatorQueryLifecycleTest {
         var dagEngine = orchestrator.dagEngine();
         taskManager.setAutoFinishReporter(report ->
                 dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                        report.state(), report.error()));
+                        report.state(), org.pangrova.coordinator.query.task.TaskReportQueryAdapter.failure(report)));
 
-        queryManager = new QueryManager(QueryManagerContext.minimal(orchestrator, TRACING));
-        lifecycle = new CoordinatorQueryLifecycle(queryManager);
+        queryManager = new QueryManager(QueryManagerTestContexts.minimal(orchestrator, TRACING));
+        lifecycle = new CoordinatorQueryLifecycle(queryManager, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 
     @AfterEach
@@ -112,36 +115,38 @@ class CoordinatorQueryLifecycleTest {
     @Test
     void getQueryStateMapsFinishing() {
         QueryId id = createAndForceToRunning();
-        forceTransition(id, QueryStateMachine.State.FINISHING);
+        forceTransition(id, QueryState.FINISHING);
         assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.FINISHING);
     }
 
     @Test
     void getQueryStateMapsFinished() {
         QueryId id = createAndForceToRunning();
-        forceTransition(id, QueryStateMachine.State.FINISHING);
-        forceTransition(id, QueryStateMachine.State.FINISHED);
+        forceTransition(id, QueryState.FINISHING);
+        forceTransition(id, QueryState.FINISHED);
         assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.FINISHED);
     }
 
     @Test
     void getQueryStateMapsFailed() {
         QueryId id = createAndForceToRunning();
-        forceTransition(id, QueryStateMachine.State.FAILED);
+        forceTransition(id, QueryState.FAILED);
         assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.FAILED);
     }
 
     @Test
     void getQueryStatePreservesCancelled() {
         QueryId id = createAndForceToRunning();
-        forceTransition(id, QueryStateMachine.State.CANCELLED);
+        forceTransition(id, QueryState.CANCELLED);
         assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.CANCELLED);
     }
 
     @Test
-    void getQueryStateReturnsFailedForUnknownId() {
+    void getQueryStateDistinguishesUnknownFromFailed() {
         QueryId unknown = new QueryId("nonexistent");
-        assertThat(lifecycle.getQueryState(unknown)).isEqualTo(QueryState.FAILED);
+        assertThatThrownBy(() -> lifecycle.getQueryState(unknown))
+                .isInstanceOf(java.util.NoSuchElementException.class)
+                .hasMessageContaining("nonexistent");
     }
 
     @Test
@@ -149,20 +154,29 @@ class CoordinatorQueryLifecycleTest {
         QueryId id = createAndForceToRunning();
         lifecycle.cancelQuery(id);
         assertThat(queryManager.getQueryState(id.id()))
-                .hasValue(QueryStateMachine.State.CANCELLED);
+                .hasValue(QueryState.CANCELLED);
     }
 
     @Test
-    void allStateMachineStatesMappedToSpiState() {
-        for (QueryStateMachine.State state : QueryStateMachine.State.values()) {
-            QueryId id = createAndForceToRunning();
-            forceState(id, state);
-            QueryState spiState = lifecycle.getQueryState(id);
-            assertThat(spiState).isNotNull();
+    void allAuthoritativeStatesAreReturnedWithoutLoss() {
+        for (QueryState state : QueryState.values()) {
+            var sm = new QueryStateMachine();
+            String id = UUID.randomUUID().toString();
+            queryManager.registerStateMachine(id, sm);
+            if (state == QueryState.FAILED || state == QueryState.CANCELLED) {
+                sm.tryTransition(state);
+            } else {
+                for (QueryState step : new QueryState[]{QueryState.PLANNING, QueryState.SCHEDULING,
+                        QueryState.RUNNING, QueryState.FINISHING, QueryState.FINISHED}) {
+                    if (sm.getState() == state) break;
+                    assertThat(sm.tryTransition(step)).isTrue();
+                }
+            }
+            assertThat(lifecycle.getQueryState(new QueryId(id))).isSameAs(state);
         }
     }
 
-    private void forceTransition(QueryId id, QueryStateMachine.State target) {
+    private void forceTransition(QueryId id, QueryState target) {
         QueryStateMachine sm = queryManager.getStateMachine(id.id());
         sm.tryTransition(target);
     }
@@ -174,31 +188,11 @@ class CoordinatorQueryLifecycleTest {
     private QueryId createAndForceToRunning() {
         String id = UUID.randomUUID().toString();
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine(id, sm);
         return new QueryId(id);
-    }
-
-    private void forceState(QueryId id, QueryStateMachine.State target) {
-        QueryStateMachine sm = queryManager.getStateMachine(id.id());
-        for (QueryStateMachine.State step : pathFromRunning(target)) {
-            sm.tryTransition(step);
-        }
-    }
-
-    private static QueryStateMachine.State[] pathFromRunning(QueryStateMachine.State target) {
-        return switch (target) {
-            case QUEUED, PLANNING, SCHEDULING, RUNNING ->
-                    new QueryStateMachine.State[]{};
-            case FINISHING -> new QueryStateMachine.State[]{
-                    QueryStateMachine.State.FINISHING};
-            case FINISHED -> new QueryStateMachine.State[]{
-                    QueryStateMachine.State.FINISHING, QueryStateMachine.State.FINISHED};
-            case FAILED -> new QueryStateMachine.State[]{QueryStateMachine.State.FAILED};
-            case CANCELLED -> new QueryStateMachine.State[]{QueryStateMachine.State.CANCELLED};
-        };
     }
 
     private static SessionContext testSession(Map<String, String> properties) {

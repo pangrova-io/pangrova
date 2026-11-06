@@ -14,13 +14,13 @@ import org.pangrova.materialization.domain.ObjectState;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
@@ -271,7 +271,6 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
 
         String role = "mv_scoped_" + suffix;
         var roles = new JdbcRoleStore(stateStoreDataSource());
-        roles.initSchema();
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(
                 UserRoleAssignment.of(authenticatedCatalogSession(CATALOG).getUser(), role));

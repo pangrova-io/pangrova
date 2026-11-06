@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.session.QuerySession;
 
 import java.util.List;
 import java.util.Map;
@@ -9,25 +11,24 @@ import java.time.Instant;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.protocol.resource.StageResourceGrantCodec;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;
-import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,7 +60,7 @@ class TaskResourceLimitPropagationTest {
     void setUp() throws Exception {
         worker = new org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture("w1", nativeDirectory);
 
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
 
         httpDispatcher = new RemoteTaskDispatcher(
@@ -73,7 +74,7 @@ class TaskResourceLimitPropagationTest {
         var tracker = new CoordinatorTaskTracker();
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, recordingDispatcher,
-                new TaskScheduler(new WorkerPerformanceScorer()),
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 workerManager, tracker, null, null, null, 30L);
         orchestrator = new QueryDispatcher(withPolicies(deps), null, null);
         worker.connect(orchestrator, tracker, workerManager);
@@ -87,7 +88,7 @@ class TaskResourceLimitPropagationTest {
 
     @Test
     void singleStageDispatch_resourceLimitIsNonNull() {
-        CoordinatorSessionContext session = testSession("rl-q1");
+        QuerySession session = testSession("rl-q1");
         QueryStateMachine sm = new QueryStateMachine();
 
         worker.execute(orchestrator, sm, "SELECT 1", session);
@@ -101,7 +102,7 @@ class TaskResourceLimitPropagationTest {
 
     @Test
     void singleStageDispatch_memoryDerivedFromClusterCapacity() {
-        CoordinatorSessionContext session = testSession("rl-q2");
+        QuerySession session = testSession("rl-q2");
         QueryStateMachine sm = new QueryStateMachine();
 
         worker.execute(orchestrator, sm, "SELECT 1 + 2", session);
@@ -141,7 +142,7 @@ class TaskResourceLimitPropagationTest {
 
     @Test
     void fullPipeline_workerReceivesNonZeroResourceLimit() {
-        CoordinatorSessionContext session = testSession("rl-q3");
+        QuerySession session = testSession("rl-q3");
         QueryStateMachine sm = new QueryStateMachine();
 
         worker.execute(orchestrator, sm, "SELECT 42", session);
@@ -155,8 +156,8 @@ class TaskResourceLimitPropagationTest {
 
     // ── Helpers ──
 
-    private static CoordinatorSessionContext testSession(String queryId) {
-        return new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "test-tenant");
+    private static QuerySession testSession(String queryId) {
+        return new QuerySession(queryId, Map.of(), TEST_IDENTITY, "test-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static StageResourceGrant grant(SubmitTaskRequest request) {

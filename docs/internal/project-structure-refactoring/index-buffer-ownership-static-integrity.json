@@ -1,0 +1,7 @@
+{
+  "api_formal_exit": 0,
+  "builtin_formal_exit": 0,
+  "unchanged_source_files": 142,
+  "reports_captured_before_clean": true,
+  "scope": "Scoped API and builtin formal validation, including recorded analyzer missing-class diagnostics. Complete Catalog dependency-chain verification failed at Shuffle Local and remains open."
+}

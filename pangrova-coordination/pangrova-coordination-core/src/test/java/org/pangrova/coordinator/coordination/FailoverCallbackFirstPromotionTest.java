@@ -3,7 +3,7 @@ package org.pangrova.coordinator.coordination;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,7 +24,7 @@ class FailoverCallbackFirstPromotionTest {
     void standbyFirstPromotion_triggersFailoverCallback() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
-        var svc = new HighAvailabilityCoordinationService(lease, config);
+        var svc = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         AtomicReference<String> failoverLeader = new AtomicReference<>();
         AtomicInteger failoverCount = new AtomicInteger();
@@ -49,7 +49,7 @@ class FailoverCallbackFirstPromotionTest {
     void sameLeaderReacquire_doesNotTriggerFailover() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
-        var svc = new HighAvailabilityCoordinationService(lease, config);
+        var svc = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         AtomicInteger failoverCount = new AtomicInteger();
         svc.onFailover(leader -> failoverCount.incrementAndGet());
@@ -70,7 +70,7 @@ class FailoverCallbackFirstPromotionTest {
     void leaderSwitchover_triggersFailoverOnNewLeader() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
-        var svc = new HighAvailabilityCoordinationService(lease, config);
+        var svc = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         AtomicReference<String> failoverLeader = new AtomicReference<>();
         AtomicInteger failoverCount = new AtomicInteger();

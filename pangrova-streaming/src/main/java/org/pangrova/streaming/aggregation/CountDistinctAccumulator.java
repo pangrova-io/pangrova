@@ -1,6 +1,6 @@
 package org.pangrova.streaming.aggregation;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.types.value.ColumnValue;
 
 import java.util.HashMap;
 import java.util.Map;

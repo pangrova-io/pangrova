@@ -23,6 +23,7 @@ final class CanonicalNativeTask {
 
     static byte[] valuesRequest() {
         Plan.Builder plan = Plan.newBuilder();
+        org.pangrova.protocol.substrait.SubstraitProtocolVersion.stamp(plan);
         var root = plan.addRelationsBuilder().getRootBuilder();
         root.addNames("value");
         var read = root.getInputBuilder().getReadBuilder();

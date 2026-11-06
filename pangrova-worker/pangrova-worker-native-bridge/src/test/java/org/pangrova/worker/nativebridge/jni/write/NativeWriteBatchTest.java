@@ -1,9 +1,9 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.batch.api.page.Page;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.BatchSink;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.RowSink;
 import org.junit.jupiter.api.Test;
@@ -176,7 +176,7 @@ class NativeWriteBatchTest {
         try (NativeWriteExecutor writer = executor(sink, "id")) {
             long handle = writer.beginWrite(descriptor("id"));
             writer.appendDirectBatch(handle, input, 1, 1);
-            ColumnarBatch first = sink.borrowed;
+            ReadableBatch first = sink.borrowed;
             assertThat(input.position()).isEqualTo(position);
             assertThat(input.limit()).isEqualTo(limit);
             assertThat(input.reset().position()).isEqualTo(position);
@@ -213,7 +213,7 @@ class NativeWriteBatchTest {
         return ByteBuffer.allocate(bytes.length + 16).position(8).put(bytes).limit(bytes.length + 8).position(8);
     }
 
-    private static void snapshotCells(ColumnarBatch batch, List<List<Object>> rows) {
+    private static void snapshotCells(ReadableBatch batch, List<List<Object>> rows) {
         for (int row = 0; row < batch.rowCount(); row++) {
             List<Object> values = new ArrayList<>();
             for (int column = 0; column < batch.columns().size(); column++) {
@@ -227,7 +227,7 @@ class NativeWriteBatchTest {
         return ColumnValue.toRaw(page.rows().get(row).get(column));
     }
 
-    static void assertClosed(ColumnarBatch batch) {
+    static void assertClosed(ReadableBatch batch) {
         assertThatThrownBy(batch::columns).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(batch::rowCount).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> batch.value(0, 0)).isInstanceOf(IllegalStateException.class);

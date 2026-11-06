@@ -10,7 +10,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.execution.split.SplitAssignment;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.worker.WorkerInfo;

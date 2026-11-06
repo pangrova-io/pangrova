@@ -2,16 +2,16 @@ package org.pangrova.coordinator.query.statement.dml;
 
 import java.util.Map;
 import java.util.function.Function;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.LiteralValue;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.expression.InExpression;
-import org.pangrova.parser.ast.expression.IsNullExpression;
-import org.pangrova.parser.ast.expression.NotExpression;
-import org.pangrova.parser.ast.expression.NotInExpression;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.expression.InExpression;
+import org.pangrova.parser.api.ast.expression.IsNullExpression;
+import org.pangrova.parser.api.ast.expression.NotExpression;
+import org.pangrova.parser.api.ast.expression.NotInExpression;
+import org.pangrova.connector.api.metadata.DeleteFilter;
 
 import java.util.List;
 

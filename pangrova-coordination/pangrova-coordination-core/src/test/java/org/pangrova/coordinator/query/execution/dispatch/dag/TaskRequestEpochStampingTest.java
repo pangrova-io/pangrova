@@ -1,11 +1,13 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.execution.core.binding.TaskRequestFactory;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
@@ -16,7 +18,7 @@ import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,9 +87,9 @@ class TaskRequestEpochStampingTest {
 
     @Test
     void dmlWriteRequest_rejectsClientDeadlineSessionOverride() {
-        var session = new CoordinatorSessionContext(
+        var session = new QuerySession(
                 "q-deadline", Map.of("pangrova.deadline_epoch_ms", "1"),
-                identity(), "tenant-1");
+                identity(), "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var limit = grant();
         var writeConfig = writeConfig("catalog.schema.table", "APPEND", List.of());
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
@@ -98,8 +100,8 @@ class TaskRequestEpochStampingTest {
 
     @Test
     void dmlWriteRequest_rejectsMissingSecurityIdentity() {
-        var session = new CoordinatorSessionContext(
-                "q-no-identity", Map.of(), null, "tenant-1");
+        var session = new QuerySession(
+                "q-no-identity", Map.of(), null, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var writeConfig = writeConfig(
                 "catalog.schema.table", "APPEND", List.of());
 
@@ -162,7 +164,7 @@ class TaskRequestEpochStampingTest {
     }
 
     private static SubmitTaskRequest request(
-            CoordinatorSessionContext session,
+            QuerySession session,
             byte[] plan,
             StageResourceGrant resourceGrant,
             WriteConfig writeConfig,
@@ -216,9 +218,9 @@ class TaskRequestEpochStampingTest {
                 java.util.Base64.getEncoder().encodeToString(binding.toByteArray()));
     }
 
-    private static CoordinatorSessionContext session(String queryId) {
-        return new CoordinatorSessionContext(
-                queryId, Map.of(), identity(), "tenant-1");
+    private static QuerySession session(String queryId) {
+        return new QuerySession(
+                queryId, Map.of(), identity(), "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static UserIdentity identity() {

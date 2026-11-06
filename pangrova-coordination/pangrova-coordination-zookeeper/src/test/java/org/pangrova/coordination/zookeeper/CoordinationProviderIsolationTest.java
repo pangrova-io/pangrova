@@ -1,7 +1,7 @@
 package org.pangrova.coordination.zookeeper;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.api.coordination.CoordinationProvider;
+import org.pangrova.persistence.coordination.spi.provider.CoordinationProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,7 +11,7 @@ class CoordinationProviderIsolationTest {
     void providerLinksWithoutCoordinatorRuntime() {
         assertThat(CoordinationProvider.class.isAssignableFrom(ZooKeeperLeaseProvider.class)).isTrue();
         var loader = ZooKeeperLeaseProvider.class.getClassLoader();
-        assertThatThrownBy(() -> loader.loadClass("org.pangrova.coordinator.bootstrap.CoordinatorBootstrap"))
+        assertThatThrownBy(() -> loader.loadClass("org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap"))
                 .isInstanceOf(ClassNotFoundException.class);
         assertThatThrownBy(() -> loader.loadClass("org.pangrova.coordinator.coordination.api.CoordinationProvider"))
                 .isInstanceOf(ClassNotFoundException.class);

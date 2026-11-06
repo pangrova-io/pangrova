@@ -1,15 +1,17 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine.StageDispatchRecord;
-import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.task.DispatchResult;
+import org.pangrova.query.core.task.StageDispatchRecord;
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
+import org.pangrova.execution.core.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.StageDAG;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.StageTransfer;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.core.analysis.StageTransfer;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
@@ -37,16 +39,15 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
                 new ConcurrentHashMap<>(), sink);
     }
     public String queryId() { return execution.executionId(); }
-    public CoordinatorSessionContext session() { return execution.requireLiveSession(); }
+    public QuerySession session() { return execution.requireLiveSession(); }
 
     /** Serializes the actual live stage, preserving the pre-optimization output ordinal names. */
-    public org.pangrova.planner.SerializedPlanFragment serializePlan(
+    public org.pangrova.planner.api.fragment.SerializedPlanFragment serializePlan(
             org.pangrova.coordinator.query.stage.StageNode plan,
-            org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext context) {
+            List<String> preOptColumnNames) {
         List<String> columns = plan.stagePlan().fieldNames();
-        if (dag.findDownstreamEdge(plan.stageId()) == null && context != null
-                && !context.preOptColumnNames().isEmpty()) {
-            columns = context.preOptColumnNames();
+        if (dag.findDownstreamEdge(plan.stageId()) == null && !preOptColumnNames.isEmpty()) {
+            columns = List.copyOf(preOptColumnNames);
         }
         var serialized = plan.stagePlan().toSerializedPlan(compiler, columns);
         var incoming = dag.stageEdges().stream().filter(edge -> edge.downstreamStageId() == plan.stageId())

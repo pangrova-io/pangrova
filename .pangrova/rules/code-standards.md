@@ -1,5 +1,7 @@
 # Code Standards
 
+> 2026-11-01：目标架构由 [领域模块化 ADR](../../docs/architecture/domain-modularization-adr.md) 替代。统一领域 API/SPI 制品，保留 Core，Provider/Persistence/Server 分离。下文旧模块名记录实施现状或历史约束；与 ADR 冲突的合并 owner、中央 SPI 目标不再适用。
+
 ## Naming constraints
 
 These are design conventions. SPI annotation checks are enforced in CI; naming rules are enforced via code review.
@@ -41,7 +43,7 @@ Class, package, and proto names must not leak framework names into modules that 
 
 These rules apply immediately to new or moved code. Existing violations must be
 tracked as a ratcheted baseline: they may decrease, never increase. The target
-ownership map is defined in `docs/architecture/long-term-modular-architecture.md`.
+ownership map is defined in `docs/architecture/domain-modularization-adr.md`.
 
 ### Ownership and visibility
 
@@ -56,16 +58,19 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   `org.pangrova.testing`) MUST NOT be claimed by more than one leaf. Sibling
   leaves use non-overlapping roots such as `.runtime`, `.service`, or
   `.testkit`.
-- Shared contracts, storage ports, and backends follow the SPI, Persistence, and
-  Filesystem ownership in `architecture.md`. Domain services, assembly, and
-  servers remain with their callers. These are responsibility boundaries, not
-  mandatory `api/core/store/adapter` directory layers. Further artifacts are justified only
-  for an independently published contract, dependency/classloader isolation,
-  a process/distribution boundary, or JNI/native packaging. Directory symmetry
-  and a single implementation are not sufficient reasons to split.
-- A merged owner artifact MUST keep adapter-only libraries non-transitive
-  (`optional` or app-supplied runtime dependencies) and prove that every
-  exported API compiles, links, and loads on its declared minimal classpath.
+- Each domain has one `pangrova-<domain>-api` contract artifact owning its `.api`
+  and actual `.spi` capability packages. Keep `core` for domain implementation;
+  Providers implement contracts and Server assembles processes. Persistence
+  owns backend implementations and domain storage ports. The central `pangrova-spi`
+  artifact has been removed; do not recreate a cross-domain contract owner.
+  Independent artifacts require a contract, replaceable implementation, SDK or
+  classloader isolation, resource lifecycle, process/distribution, JNI packaging,
+  or genuinely reused codec/test infrastructure boundary. Do not create empty
+  modules or split algorithms sharing dependencies and lifecycle for symmetry.
+- Contract artifacts MUST prove that every exported API compiles, links, and
+  loads on its declared minimal classpath. Adapter-only libraries belong in
+  implementation artifacts, not optional dependencies used to hide public
+  signature leaks.
   JDBC pools/drivers, Flyway, Curator, cloud SDKs, JWT implementations, and
   provider SDKs must never arrive transitively at an API-only consumer.
 - Cross-module imports are default-deny. They must be allowed by the Maven
@@ -83,7 +88,7 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   contain only the stable envelope, identity, timestamp, schema/version, and
   minimal publication primitives; event payloads remain in the producing
   owner's exported capability package.
-- `pangrova-metadata` owns technical object identity, schema, version, binding,
+- `pangrova-metadata-core` owns technical object identity, schema, version, binding,
   and statistics references only. Business concepts, terms, metrics,
   relationships, semantic views, ontologies, and their publication state MUST
   be owned by `pangrova-semantic`; AI grounding/evaluation state MUST be owned

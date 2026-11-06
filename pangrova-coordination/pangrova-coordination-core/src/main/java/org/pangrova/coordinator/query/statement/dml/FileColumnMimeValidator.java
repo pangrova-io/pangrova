@@ -21,10 +21,10 @@ import java.util.stream.Collectors;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.ValidationException;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.expression.FunctionCall;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /**
  * Enforces the per-table FILE-column MIME whitelist on INSERT (F-MM-GOV).

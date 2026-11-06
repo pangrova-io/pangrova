@@ -1,26 +1,29 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.metadata.core.resolution.ConnectorTableLookup;
 import org.pangrova.materialization.domain.InternalNamespace;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.parser.ast.ShowSchemasStatement;
-import org.pangrova.parser.ast.statement.DescribeTableStatement;
-import org.pangrova.parser.ast.statement.ShowTableControlsStatement;
-import org.pangrova.parser.ast.statement.ShowTablesStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.table.api.ownership.TableControlRecord;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.api.ast.ShowSchemasStatement;
+import org.pangrova.parser.api.ast.statement.DescribeTableStatement;
+import org.pangrova.parser.api.ast.statement.ShowTableControlsStatement;
+import org.pangrova.parser.api.ast.statement.ShowTablesStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,11 +62,11 @@ public final class ShowDescribeExecutor {
      * When {@code user} is non-null and {@code accessControl} is configured,
      * schemas the user cannot access are excluded from the result.
      */
-    public List<TypedRow> executeShowSchemas(ShowSchemasStatement stmt, CoordinatorSessionContext context) {
+    public List<TypedRow> executeShowSchemas(ShowSchemasStatement stmt, QuerySession context) {
         UserIdentity user = context.userIdentity();
         String catalog = stmt.catalogName();
-        ConnectorSession session = TableResolver.buildSession(context, catalog, TableResolver.defaultSchema(context));
-        ConnectorMetadata metadata = TableResolver.getMetadata(
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, catalog, SessionTableNames.defaultSchema(context));
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(
                 catalogRegistry, catalog, session);
         List<String> schemas = metadata.listSchemaNames(session);
         schemas = schemas.stream()
@@ -97,14 +100,14 @@ public final class ShowDescribeExecutor {
      * When {@code user} is non-null and {@code accessControl} is configured,
      * tables the user cannot SELECT from are excluded from the result.
      */
-    public List<TypedRow> executeShowTables(ShowTablesStatement stmt, CoordinatorSessionContext context) {
+    public List<TypedRow> executeShowTables(ShowTablesStatement stmt, QuerySession context) {
         UserIdentity user = context.userIdentity();
         List<String> parts = stmt.qualifiedName();
-        String catalog = parts.size() >= 2 ? parts.get(0) : TableResolver.defaultCatalog(context);
+        String catalog = parts.size() >= 2 ? parts.get(0) : SessionTableNames.defaultCatalog(context);
         String schema = parts.size() >= 2 ? parts.get(1) : parts.get(0);
         rejectReservedNamespace(schema, null);
-        ConnectorSession session = TableResolver.buildSession(context, catalog, schema);
-        ConnectorMetadata metadata = TableResolver.getMetadata(
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, catalog, schema);
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(
                 catalogRegistry, catalog, session);
         List<SchemaTableName> tables = metadata.listTables(
                 session, Optional.of(schema));
@@ -136,14 +139,14 @@ public final class ShowDescribeExecutor {
     }
 
     /** Describes a table in the current session context. */
-    public List<TypedRow> executeDescribeTable(DescribeTableStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(
+    public List<TypedRow> executeDescribeTable(DescribeTableStatement stmt, QuerySession context) {
+        QualifiedTableName ref = SessionTableNames.resolveTableRef(
                 stmt.tableName().parts(), context);
         rejectReservedNamespace(ref.schema(), ref.table());
-        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
-        ConnectorMetadata metadata = TableResolver.getMetadata(
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, ref.catalog(), ref.schema());
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(
                 catalogRegistry, ref.catalog(), session);
-        ConnectorTableHandle handle = TableResolver.requireTableHandle(
+        ConnectorTableHandle handle = ConnectorTableLookup.requireTableHandle(
                 metadata, session, ref);
         ConnectorTableMetadata tableMeta =
                 metadata.getTableMetadata(session, handle);
@@ -171,7 +174,7 @@ public final class ShowDescribeExecutor {
      * version. OBSERVED rows are never persisted by this statement.</p>
      */
     public List<TypedRow> executeShowTableControls(
-            ShowTableControlsStatement stmt, CoordinatorSessionContext context) {
+            ShowTableControlsStatement stmt, QuerySession context) {
         TableControlService control = catalogRegistry.tableControl();
         List<String> scope = stmt.scope();
         if (scope.isEmpty()) {
@@ -179,7 +182,7 @@ public final class ShowDescribeExecutor {
                     .map(this::controlRow)
                     .toList();
         }
-        String catalog = scope.size() == 1 ? TableResolver.defaultCatalog(context) : scope.get(0);
+        String catalog = scope.size() == 1 ? SessionTableNames.defaultCatalog(context) : scope.get(0);
         String schema = scope.size() == 1 ? scope.get(0) : scope.get(1);
         String table = scope.size() == 3 ? scope.get(2) : null;
 
@@ -196,8 +199,8 @@ public final class ShowDescribeExecutor {
             rows.put(record.table(), controlRow(record));
         }
 
-        ConnectorSession session = TableResolver.buildSession(context, catalog, schema);
-        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, catalog, session);
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, catalog, schema);
+        ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(catalogRegistry, catalog, session);
         List<SchemaTableName> live = metadata.listTables(session, Optional.of(schema)).stream()
                 .filter(t -> !InternalNamespace.isReservedTable(t.table()))
                 .filter(t -> table == null || t.table().equals(table))

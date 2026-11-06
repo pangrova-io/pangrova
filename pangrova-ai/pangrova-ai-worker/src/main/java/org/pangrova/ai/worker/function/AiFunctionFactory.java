@@ -14,18 +14,18 @@
 package org.pangrova.ai.worker.function;
 
 import org.pangrova.ai.worker.config.AiFunctionActivation;
-import org.pangrova.spi.ai.invocation.EmbeddingProvider;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
-import org.pangrova.spi.ai.invocation.RerankingProvider;
-import org.pangrova.spi.function.registry.FunctionFactory;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.ai.spi.embedding.EmbeddingProvider;
+import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.spi.reranking.RerankingProvider;
+import org.pangrova.function.spi.registry.FunctionFactory;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 import org.pangrova.ai.worker.governance.AiInvocationAuthorizer;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 import org.pangrova.ai.worker.governance.observer.CompositeAiInvocationObserver;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 import org.pangrova.ai.worker.governance.ConfigurableAiInvocationAuthorizer;
 import org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry;
-import org.pangrova.spi.security.secret.SecretResolver;
+import org.pangrova.security.api.secret.SecretResolver;
 import org.pangrova.ai.worker.provider.env.EnvironmentSecretProvider;
 import org.pangrova.ai.worker.provider.governed.GovernedEmbeddingProvider;
 import org.pangrova.ai.worker.provider.governed.GovernedInferenceProvider;

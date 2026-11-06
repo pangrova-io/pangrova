@@ -1,0 +1,42 @@
+{
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/spi/worker/ShuffleByteEgress.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleByteEgress.java",
+    "deleted": false,
+    "token_body_identical": false,
+    "review": "Replace unimplemented per-batch commit callback with actual synchronous delivery/producer-completion/abort contract; no SDK or Native handles. Borrowed buffer ends at callback return. Task/query select previously authorized attempt binding. No exchange publication or retry guarantee inferred from callback success.",
+    "before_sha256": "14b87579ab1f7ea2b7e14a74e044cb06818260dc2bd6363f832fbecffddf7800",
+    "after_sha256": "b589c55a5b3d89d2648a4ecafc1f76b6941087fb33a878d2ce4eaa6d44f1305f"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/SpoolBackedExchangeManager.java": {
+    "old_path": "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange/SpoolBackedExchangeManager.java",
+    "deleted": false,
+    "token_body_identical": true,
+    "review": "Executable body token-identical; inaccurate Local/Native/fallback documentation corrected to current actual support.",
+    "before_sha256": "8553a9dfa2baeaea865e3401aabd2d1d545146ee2af4f09bada37d80c0d67094",
+    "after_sha256": "586fa02b4ff6a7ee57abf1adccb3f34ac6fdafc428e6fa292d5e9f49bb091f72"
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/DefaultShuffleByteEgress.java": {
+    "old_path": "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/DefaultShuffleByteEgress.java",
+    "deleted": true,
+    "token_body_identical": false,
+    "review": "Retire obsolete uninstalled per-batch spool commit prototype. Its method never matched the real JNI callback ABI. Existing actual production remote egress now implements the corrected contract. Local spool integration remains explicitly pending; no support removed from a real execution path.",
+    "before_sha256": "be89cae3d4fd0b93dd4a9d2a180d01d914675d9943110075eb4512c77945a7ff",
+    "after_sha256": null
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/ShuffleDrainException.java": {
+    "old_path": "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/shuffle/ShuffleDrainException.java",
+    "deleted": true,
+    "token_body_identical": false,
+    "review": "Delete exception used only by retired DefaultShuffleByteEgress; actual remote errors retain their existing owner and error semantics.",
+    "before_sha256": "022e0d1c584a085207ae11cdada9738225ce695bbf46a89e947fb828a9bd3a35",
+    "after_sha256": null
+  },
+  "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleByteEgress.java": {
+    "old_path": "pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/remote/RemoteShuffleByteEgress.java",
+    "deleted": false,
+    "token_body_identical": false,
+    "review": "Actual production remote egress implements the domain SPI; only interface declaration/import and Override annotations change. Admission, validation, copy/chunking, producer commit, cancellation, cleanup and existing owner are unchanged.",
+    "before_sha256": "e16d032dc4634cf836c24e2d19fe2deae5f48d46f32d79f30030469347d03bb3",
+    "after_sha256": "ed78a5d80fb557fc5dd0f5aaca322eea42a53122855a54bc1a45ec2e3cee59a5"
+  }
+}

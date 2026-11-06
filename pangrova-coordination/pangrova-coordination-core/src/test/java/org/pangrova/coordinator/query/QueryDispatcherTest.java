@@ -1,27 +1,31 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.api.session.QuerySession;
 
 import java.util.Map;
 import java.util.Set;
 import java.time.Instant;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.apache.calcite.rel.RelNode;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,7 +61,7 @@ class QueryDispatcherTest {
         compiler = new SqlCompiler();
         worker = new org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture("w1", nativeDirectory);
         httpDispatcher = testDispatcher();
-        taskScheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        taskScheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
         var tracker = new CoordinatorTaskTracker();
@@ -76,24 +80,24 @@ class QueryDispatcherTest {
     @Test
     void happyPath_compileScheduleDispatch_reachesRunning() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = testSession("q-1");
+        QuerySession session = testSession("q-1");
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
         assertNotNull(result);
         assertEquals("127.0.0.1", result.workerHost());
-        assertEquals(QueryStateMachine.State.RUNNING, sm.getState());
+        assertEquals(QueryState.RUNNING, sm.getState());
     }
 
     @Test
     void compileFailure_propagatesWithoutOwningTerminalTransition() {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = testSession("q-2");
+        QuerySession session = testSession("q-2");
 
         assertThrows(RuntimeException.class,
                 () -> dispatcher.execute(sm, "THIS IS NOT VALID SQL !!!", session));
         // QueryManager owns the terminal transition after dispatch errors.
-        assertEquals(QueryStateMachine.State.PLANNING, sm.getState());
+        assertEquals(QueryState.PLANNING, sm.getState());
     }
 
     @Test
@@ -106,7 +110,7 @@ class QueryDispatcherTest {
         QueryDispatcher emptyDispatcher = new QueryDispatcher(withPolicies(emptyDeps), null, null);
 
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = testSession("q-3");
+        QuerySession session = testSession("q-3");
 
         // A valid constant query still requires Worker dispatch without a result service.
         NoAvailableWorkerException failure = assertThrows(NoAvailableWorkerException.class,
@@ -114,7 +118,7 @@ class QueryDispatcherTest {
         assertTrue(emptyWm.getActiveWorkers().isEmpty());
         assertTrue(failure.getMessage().contains("No available worker"));
         // Direct dispatcher does not own the QueryManager terminal transition.
-        assertEquals(QueryStateMachine.State.SCHEDULING, sm.getState());
+        assertEquals(QueryState.SCHEDULING, sm.getState());
         }
     }
 
@@ -128,8 +132,8 @@ class QueryDispatcherTest {
         return dispatcher;
     }
 
-    private static CoordinatorSessionContext testSession(String queryId) {
-        return new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "test-tenant");
+    private static QuerySession testSession(String queryId) {
+        return new QuerySession(queryId, Map.of(), TEST_IDENTITY, "test-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     // --- Constant folding detection tests (via PangrovaPlanner.isFoldedConstant) ---
@@ -150,12 +154,12 @@ class QueryDispatcherTest {
     void execute_constantQuery_dispatchesToWorker_whenNoResultService() {
         // Without CoordinatorResultService, constant queries still dispatch to worker
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = testSession("const-1");
+        QuerySession session = testSession("const-1");
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
         assertNotNull(result);
-        assertEquals(QueryStateMachine.State.RUNNING, sm.getState());
+        assertEquals(QueryState.RUNNING, sm.getState());
         assertEquals(1, worker.rows(result).size());
         assertEquals(1, worker.rows(result).get(0).size());
         assertEquals(1, ((Number) worker.rows(result).get(0).get(0)).intValue());

@@ -13,8 +13,8 @@
  */
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.lease.LeaseEntry;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.data.Stat;
@@ -46,9 +46,9 @@ import java.util.Optional;
  * znode — rather than each coordinator's local JVM clock. This prevents coordinator clock skew or GC
  * pauses from disagreeing on expiry and opening a double-active-leader (split-brain) window.</p>
  *
- * <p>All operations are <b>fail-closed</b>: any ZooKeeper error results in "not acquired / not
- * renewed / no holder" rather than a false grant. The supplied {@link CuratorFramework} must already
- * be started. Implementations are thread-safe (ZooKeeper serializes at the quorum).</p>
+ * <p>Explicit absence and version contention return empty/false. Backend, clock and payload failures
+ * propagate; a failed mutation may have committed, so no success or absence can be inferred.
+ * The supplied client must already be started; the caller owns its lifetime.</p>
  */
 public final class ZooKeeperDistributedLease implements DistributedLease {
 
@@ -78,7 +78,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         String path = leasePath(leaseKey);
         try {
             long now = serverNowMillis();
-            long expiresAt = now + duration.toMillis();
+            long expiresAt = Math.addExact(now, duration.toMillis());
             Stat stat = new Stat();
             byte[] data;
             try {
@@ -106,7 +106,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         } catch (Exception e) {
             LOG.warn("event=zk_lease_acquire_failed leaseKey={} holderId={} error={}",
                     leaseKey, holderId, e.toString());
-            return Optional.empty();
+            throw ZooKeeperFailures.storageFailure("acquire", leaseKey, e);
         }
     }
 
@@ -124,7 +124,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         } catch (Exception e) {
             LOG.warn("event=zk_lease_create_failed leaseKey={} holderId={} error={}",
                     leaseKey, holderId, e.toString());
-            return Optional.empty();
+            throw ZooKeeperFailures.storageFailure("create", leaseKey, e);
         }
     }
 
@@ -136,7 +136,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         String path = leasePath(leaseKey);
         try {
             long now = serverNowMillis();
-            long expiresAt = now + duration.toMillis();
+            long expiresAt = Math.addExact(now, duration.toMillis());
             Stat stat = new Stat();
             byte[] data = client.getData().storingStatIn(stat).forPath(path);
             LeaseData existing = LeaseData.parse(data);
@@ -161,7 +161,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         } catch (Exception e) {
             LOG.warn("event=zk_lease_renew_failed leaseKey={} holderId={} error={}",
                     leaseKey, holderId, e.toString());
-            return false;
+            throw ZooKeeperFailures.storageFailure("renew", leaseKey, e);
         }
     }
 
@@ -195,7 +195,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         } catch (Exception e) {
             LOG.error("event=zk_lease_release_error leaseKey={} holderId={} error={}",
                     leaseKey, holderId, e.toString(), e);
-            return false;
+            throw ZooKeeperFailures.storageFailure("release", leaseKey, e);
         }
     }
 
@@ -216,7 +216,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
             return Optional.empty();
         } catch (Exception e) {
             LOG.error("event=zk_lease_query_error leaseKey={} error={}", leaseKey, e.toString(), e);
-            return Optional.empty();
+            throw ZooKeeperFailures.storageFailure("query", leaseKey, e);
         }
     }
 
@@ -225,9 +225,12 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
      * znode is stamped by the server with an {@code mtime}, giving a single authoritative time source
      * shared by every coordinator, independent of local JVM clocks.
      */
-    private long serverNowMillis() throws Exception {
-        Stat stat = client.setData().forPath(clockPath, EMPTY);
-        return stat.getMtime();
+    private long serverNowMillis() {
+        try {
+            return client.setData().forPath(clockPath, EMPTY).getMtime();
+        } catch (Exception failure) {
+            throw ZooKeeperFailures.storageFailure("clock", clockPath, failure);
+        }
     }
 
     private void ensureClockNode() {
@@ -238,8 +241,7 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         } catch (KeeperException.NodeExistsException concurrent) {
             // Created by another coordinator — fine.
         } catch (Exception e) {
-            throw new IllegalStateException(
-                    "Failed to initialize ZooKeeper lease clock node at " + clockPath, e);
+            throw ZooKeeperFailures.storageFailure("initialize clock", clockPath, e);
         }
     }
 

@@ -1,0 +1,110 @@
+[
+  {
+    "path": "docs/architecture/domain-modularization-adr.md",
+    "action": "change",
+    "before_sha256": "7e3ca8d45fa348b7db3e993e4c1f9c312157aa616c20fec61f106401a9f4f18b",
+    "after_sha256": "6fc11c8b45c2eb2c478fc8b99b8aa629fb6dd515b8036f2265c718de78f7630c"
+  },
+  {
+    "path": "docs/architecture/native-packaging-and-interop-refactor-plan.md",
+    "action": "change",
+    "before_sha256": "b688cbd6f920c0983d137a731b46023022c30ecc7a51e9b4b3a88a10d1a1ee05",
+    "after_sha256": "b632d1e5d845cbc97f605bfa8f25a7d7978d53c0c4d385fdd1f1adfe5db7427d"
+  },
+  {
+    "path": "docs/internal/project-structure-refactoring/domain-modularization-progress.md",
+    "action": "change",
+    "before_sha256": "ab37c73021f20f2ab0a3a20a2d48ad931f5b2f00a44a0da449336612663a543c",
+    "after_sha256": "54b73a1067dceeb08fad4f1ccd6a6c50dcc0c2d7bb6b32a098a31a4bff6330c7"
+  },
+  {
+    "path": "pangrova-ai/pangrova-ai-worker/src/test/java/org/pangrova/ai/worker/function/AiFunctionFactoryOssStartupProbe.java",
+    "action": "delete",
+    "before_sha256": "e9da8ff2310d8c2c30cb11082b1a565a68ea56aaee3a69b2c0f284defd1a9f36",
+    "after_sha256": ""
+  },
+  {
+    "path": "pangrova-ai/pangrova-ai-worker/src/test/java/org/pangrova/ai/worker/function/AiFunctionFactoryStorageProbe.java",
+    "action": "add",
+    "before_sha256": "",
+    "after_sha256": "8a78782944ef915bc42d64f6773eb85cd2c7209b5f7c73bb2cd861f0f508f0ce"
+  },
+  {
+    "path": "pangrova-ai/pangrova-ai-worker/src/test/java/org/pangrova/ai/worker/function/AiFunctionFactoryTest.java",
+    "action": "change",
+    "before_sha256": "b13d3319f934d7af8bede32ba2a74576cfd3ab3c4bce164202d8adf03c2e9315",
+    "after_sha256": "48eee420e004d3c2b1025c721b69408f4b03fdb06c339631ee8d3f34c440d973"
+  },
+  {
+    "path": "pangrova-batch/pangrova-batch-api/src/main/java/org/pangrova/batch/api/block/ArrayBlock.java",
+    "action": "change",
+    "before_sha256": "0f3dffdbc86ac6799d12d7fcb9654fad795f22e586aa744b3217ad2605543dc4",
+    "after_sha256": "97ef74599be19d4b2ef89856ed2ee0380715d864999e2814a294b11c41f95db0"
+  },
+  {
+    "path": "pangrova-batch/pangrova-batch-api/src/main/java/org/pangrova/batch/api/page/NativePage.java",
+    "action": "change",
+    "before_sha256": "73286def98ecbaf3fd46de9dda13edbb7de7e99a493f6688a1b762cbd920607a",
+    "after_sha256": "cd90f8211dbbb799feadfac36b991f3ad5f43371c23be1ffb7ba2b910be0fdc6"
+  },
+  {
+    "path": "pangrova-batch/pangrova-batch-api/src/main/java/org/pangrova/batch/api/page/RowPageConverter.java",
+    "action": "change",
+    "before_sha256": "0492d53b09bef6f93e6c3b4df055f8c4e2059ac0c09ca2850e93ea7b2b3071c1",
+    "after_sha256": "80580a4df7927f47148126a1312b888a9bd15511a4810bdd7ff668b513801bf9"
+  },
+  {
+    "path": "pangrova-batch/pangrova-batch-api/src/test/java/org/pangrova/batch/api/page/NativePageOwnershipTest.java",
+    "action": "add",
+    "before_sha256": "",
+    "after_sha256": "a2378f8f107bef4ce7e8c2cee002a519f14fab4ab870da697073b41b6b3ad446"
+  },
+  {
+    "path": "pangrova-batch/pangrova-batch-api/src/test/java/org/pangrova/batch/api/page/RowPageConverterBinaryTest.java",
+    "action": "change",
+    "before_sha256": "2163cca8c2c31568287d0dbeac911152c4bdcac78ca897d652f646443ddf6843",
+    "after_sha256": "57ec5423b01f5f7009f036c7a2e68d2b74ae3fa6cdeca8969cfd82f79830a9cb"
+  },
+  {
+    "path": "pangrova-batch/pangrova-batch-api/src/test/java/org/pangrova/batch/api/page/property/NativePageDefensiveCopyPropertyTest.java",
+    "action": "change",
+    "before_sha256": "450f16a87a136087b77e72b2f661aeb724b0578fe978e808647e7c5d4bb05ac0",
+    "after_sha256": "8e398ed326f88c5ecffcc89c468f031afe2bc82b419ba77c568bb5631d5a896e"
+  },
+  {
+    "path": "pangrova-connector/pangrova-connector-runtime/src/test/java/org/pangrova/connector/runtime/codec/ConnectorBinaryPageCodecTest.java",
+    "action": "change",
+    "before_sha256": "e465158e4a47c2d89c85d6366f6b6d6db4defbdb04c3f23eed3c6824dccbf499",
+    "after_sha256": "a0d1d7d7958095b01e48c4781875b91861cedfc542137d4c6d70df10d0419ee4"
+  },
+  {
+    "path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/TableWarmupExecutor.java",
+    "action": "change",
+    "before_sha256": "263d7ad59cdf8f4100ff45010e5c111906d8101dcffa8dfa623ca06821dcd0d5",
+    "after_sha256": "471274bf04f91e19aa51c577fd70617b47e6334f766c4fdc42642ac7430eb073"
+  },
+  {
+    "path": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/result/CoordinatorResultWriter.java",
+    "action": "change",
+    "before_sha256": "5e12d71e575db78ffdea2c2ddbb17ec9b7d0cc9c75f44719fd39d754e9c7e386",
+    "after_sha256": "0847d6921640f5fbd86b12a79e63a908aade84d104ce1fedf0fe5189549ba408"
+  },
+  {
+    "path": "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/result/CoordinatorResultWriterTest.java",
+    "action": "change",
+    "before_sha256": "7975ea727155665a59f1c549d4bc47130eee16c130a311a7704d831592dd94b3",
+    "after_sha256": "436a8f027c811a95131aa4ece114fe664148574c3fae04a747105b9c738c9c1f"
+  },
+  {
+    "path": "pangrova-types/src/main/java/org/pangrova/types/value/ColumnValue.java",
+    "action": "change",
+    "before_sha256": "c33c794ccba3893cc6936d26067846d40a857f95a3bc3e4ca2cf7fdfa14ba5f5",
+    "after_sha256": "bc7e01de208c70a4ea5025d7df0194cb2c85f24079242787fc8ddf421679ea82"
+  },
+  {
+    "path": "pangrova-types/src/test/java/org/pangrova/types/value/ColumnValueBinaryOwnershipTest.java",
+    "action": "add",
+    "before_sha256": "",
+    "after_sha256": "5fab2a65d32c3fc2957663d93c1a4392be62af978c9a6f56f61e1c89c7a67f0d"
+  }
+]

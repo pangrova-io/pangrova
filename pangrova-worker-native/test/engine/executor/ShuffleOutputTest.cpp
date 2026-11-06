@@ -1,3 +1,4 @@
+#include "CanonicalTestPlan.h"
 // Tests for TaskExecutor shuffle output integration — verifies that
 // when num_shuffle_partitions > 0, serialized shuffle batches are routed
 // to the SerializedShuffleQueue.
@@ -55,7 +56,7 @@ std::vector<uint8_t> serialize(const google::protobuf::MessageLite& msg) {
 }
 
 std::vector<uint8_t> buildValuesPlan() {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
   root->add_names("value");
@@ -71,7 +72,7 @@ std::vector<uint8_t> buildValuesPlan() {
 }
 
 std::vector<uint8_t> buildShuffleValuesPlan(int32_t partitions) {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* root = plan.add_relations()->mutable_root();
   root->add_names("value");
   auto* exchange = root->mutable_input()->mutable_exchange();

@@ -1,10 +1,10 @@
 package org.pangrova.observability.sdk.metrics;
 
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.LongUpDownCounter;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -245,7 +245,7 @@ class MetricNamingConventionTest {
         public ObservableDoubleGauge createGauge(String name, String description,
                                                   String unit, Supplier<Double> supplier) {
             allNames.add(name);
-            return new ObservableDoubleGauge() {};
+            return () -> { /* This recording fixture retains no callback. */ };
         }
 
         @Override

@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.inference.openai;
 
-import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.ai.api.error.AiInvocationException;
 
 import java.util.ArrayList;
 import java.util.List;

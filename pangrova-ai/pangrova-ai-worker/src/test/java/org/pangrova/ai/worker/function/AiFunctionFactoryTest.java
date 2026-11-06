@@ -13,11 +13,11 @@
  */
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
-import org.pangrova.spi.ai.invocation.InferenceResult;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.invocation.InferenceResult;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 import org.pangrova.protocol.function.GovernedBindingProjection;
 import org.pangrova.protocol.function.GovernedScalarValue;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
@@ -79,96 +79,67 @@ class AiFunctionFactoryTest {
     @Test
     void productionFactorySelectsExplicitLocalStorage() throws Exception {
         Path objects = temporaryDirectory.resolve("local-objects");
-        try (var production = new AiFunctionFactory()) {
-            var functions = production.getScalarFunctions(Map.of(
-                    "file.storage-backend", "local",
-                    "file.storage.local.root", objects.toString(),
-                    "file.storage-staging-root", temporaryDirectory.resolve("local-drafts").toString(),
-                    "file.capability-secret-reference", "test://file-capability"));
-            assertTrue(java.nio.file.Files.isDirectory(objects));
-            var fromBytes = functions.stream()
-                    .filter(function -> function.getMetadata().name().equals("file_from_bytes"))
-                    .findFirst().orElseThrow();
-            byte[] content = {1, 2, 3};
-            ColumnValue result = AiTestTaskAuthority.callWithRegisteredTask("tenant", "principal",
-                    java.time.Instant.now().plusSeconds(30).toEpochMilli(), 1024,
-                    () -> fromBytes.invoke(List.of(new ColumnValue.BytesValue(content),
-                            new ColumnValue.StringValue("text/plain"))));
-            var row = assertInstanceOf(ColumnValue.RowValue.class, result);
-            assertEquals(3L, row.fields().get(2));
-            assertEquals(java.util.HexFormat.of().formatHex(
-                    java.security.MessageDigest.getInstance("SHA-256").digest(content)), row.fields().get(3));
-            try (var files = java.nio.file.Files.walk(objects)) {
-                var published = files.filter(java.nio.file.Files::isRegularFile).toList();
-                assertEquals(1, published.size());
-                assertArrayEquals(content, java.nio.file.Files.readAllBytes(published.get(0)));
-            }
+        runStorageProbe("local", objects, temporaryDirectory.resolve("local-drafts"));
+        assertTrue(java.nio.file.Files.isDirectory(objects));
+        try (var files = java.nio.file.Files.walk(objects)) {
+            var published = files.filter(java.nio.file.Files::isRegularFile).toList();
+            assertEquals(1, published.size());
+            assertArrayEquals(new byte[]{1, 2, 3}, java.nio.file.Files.readAllBytes(published.get(0)));
         }
     }
 
     @Test
     void localRootIsRequiredAndUnknownBackendCannotSelectADefault() throws Exception {
         Path drafts = temporaryDirectory.resolve("invalid-drafts");
-        try (var production = new AiFunctionFactory()) {
-            var missingRoot = assertThrows(IllegalArgumentException.class,
-                    () -> production.getScalarFunctions(Map.of(
-                            "file.storage-backend", "local",
-                            "file.storage-staging-root", drafts.toString(),
-                            "file.capability-secret-reference", "test://file-capability")));
-            assertTrue(missingRoot.getMessage().contains("file.storage.local.root is required"));
-            var unsupported = assertThrows(IllegalArgumentException.class,
-                    () -> production.getScalarFunctions(Map.of(
-                            "file.storage-backend", "unsupported-backend",
-                            "file.storage-staging-root", drafts.toString(),
-                            "file.capability-secret-reference", "test://file-capability")));
-            assertTrue(unsupported.getMessage().contains("Unsupported FILE storage backend"));
-            assertFalse(java.nio.file.Files.exists(drafts));
-        }
+        runStorageProbe("invalid-local", temporaryDirectory.resolve("unused"), drafts);
+        assertFalse(java.nio.file.Files.exists(drafts));
     }
 
     @Test
     void productionOssRegistrationOwnsAndClosesItsRealSdkWithoutRequestingObjects() throws Exception {
         Path drafts = temporaryDirectory.resolve("oss-startup-drafts");
-        Path output = temporaryDirectory.resolve("oss-startup-output.log");
+        runStorageProbe("oss", temporaryDirectory.resolve("unused"), drafts);
+        assertTrue(java.nio.file.Files.isDirectory(drafts));
+    }
+
+    @Test
+    void ossRequiresItsOwnConfigurationBeforeOpeningStaging() throws Exception {
+        Path drafts = temporaryDirectory.resolve("oss-drafts");
+        runStorageProbe("missing-oss", temporaryDirectory.resolve("unused"), drafts);
+        assertFalse(java.nio.file.Files.exists(drafts));
+    }
+
+    private void runStorageProbe(String mode, Path objects, Path drafts) throws Exception {
+        Path output = temporaryDirectory.resolve(mode + "-startup-output.log");
         String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
         var builder = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "-Xmx256m", "-cp", classpath, AiFunctionFactoryOssStartupProbe.class.getName(), drafts.toString())
+                "-Xmx256m", "-cp", classpath, AiFunctionFactoryStorageProbe.class.getName(),
+                mode, objects.toString(), drafts.toString())
                 .redirectErrorStream(true).redirectOutput(output.toFile());
+        byte[] key = new byte[32];
+        new java.security.SecureRandom().nextBytes(key);
+        builder.environment().put("PANGROVA_TEST_FILE_CAPABILITY_KEY",
+                java.util.Base64.getEncoder().encodeToString(key));
+        java.util.Arrays.fill(key, (byte) 0);
         builder.environment().put("OSS_ACCESS_KEY_ID", "test-id");
         builder.environment().put("OSS_ACCESS_KEY_SECRET", "test-secret");
         builder.environment().put("OSS_SESSION_TOKEN", "");
         Process process = builder.start();
         try {
-            assertTrue(process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS), "OSS factory child did not exit");
+            assertTrue(process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS), "FILE factory child did not exit");
             assertEquals(0, process.exitValue(), () -> {
                 try { return java.nio.file.Files.readString(output); }
                 catch (java.io.IOException failure) { return failure.toString(); }
             });
-            assertTrue(java.nio.file.Files.readString(output).contains("OSS_FACTORY_REGISTERED_AND_CLOSED"));
-            assertTrue(java.nio.file.Files.isDirectory(drafts));
+            assertTrue(java.nio.file.Files.readString(output).contains("FILE_FACTORY_PROBE_PASSED:" + mode));
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw interrupted;
         } finally {
             if (process.isAlive()) {
                 process.destroyForcibly();
-                assertTrue(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS), "OSS factory child is still owned");
+                assertTrue(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS), "FILE factory child is still owned");
             }
-        }
-    }
-
-    @Test
-    void ossRequiresItsOwnConfigurationBeforeOpeningStaging() throws Exception {
-        Path drafts = temporaryDirectory.resolve("oss-drafts");
-        try (var production = new AiFunctionFactory()) {
-            var missingBucket = assertThrows(IllegalArgumentException.class,
-                    () -> production.getScalarFunctions(Map.of(
-                            "file.storage-backend", "oss",
-                            "file.storage.s3.bucket", "must-not-be-used",
-                            "file.storage-staging-root", drafts.toString(),
-                            "file.capability-secret-reference", "test://file-capability")));
-            assertTrue(missingBucket.getMessage().contains("file.storage.oss.bucket is required"));
-            assertFalse(java.nio.file.Files.exists(drafts));
         }
     }
 
@@ -276,7 +247,7 @@ class AiFunctionFactoryTest {
             List<ColumnValue> changed = new java.util.ArrayList<>(first);
             changed.set(2 + FunctionBindingDeclarations.governedLayout("AI_MODEL")
                     .ordinal("provider_items"), new ColumnValue.StringValue("1"));
-            return ((org.pangrova.spi.function.scalar.BatchableScalarFunction) function)
+            return ((org.pangrova.function.spi.scalar.BatchableScalarFunction) function)
                     .invokeBatch(List.of(first, changed));
         }));
     }

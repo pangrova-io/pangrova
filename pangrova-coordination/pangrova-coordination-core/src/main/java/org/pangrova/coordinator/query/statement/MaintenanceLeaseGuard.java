@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.LeaseEntry;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.lease.LeaseEntry;
+import org.pangrova.security.api.error.AccessDeniedException;
 
 import java.time.Duration;
 import java.util.concurrent.Executors;

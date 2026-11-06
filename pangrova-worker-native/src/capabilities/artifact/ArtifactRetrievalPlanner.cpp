@@ -1,6 +1,7 @@
 // Copyright (c) Pangrova contributors. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+#include "engine/plan/SubstraitProtocolVersion.h"
 #include "capabilities/artifact/ArtifactRetrievalPlanner.h"
 
 #include <algorithm>
@@ -409,6 +410,8 @@ ArtifactRetrievalPlanner::prepare(
     throw std::runtime_error(
         "Artifact retrieval preparation received an invalid Substrait plan");
   }
+  pangrova::plan::validateSubstraitVersion(plan);
+
   std::vector<proto::RetrievalSourceDetail> details;
   for (const auto& relation : plan.relations()) {
     if (relation.has_root()) {

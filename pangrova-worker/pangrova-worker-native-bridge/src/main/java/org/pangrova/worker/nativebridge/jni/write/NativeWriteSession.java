@@ -1,7 +1,7 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
 
 import java.util.List;
 import java.util.Objects;

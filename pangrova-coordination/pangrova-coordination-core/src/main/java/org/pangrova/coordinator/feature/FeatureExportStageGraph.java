@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.feature;
 
-import org.pangrova.coordinator.generation.template.FrozenStageBindings;
+import org.pangrova.generation.core.execution.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.spi.generation.execution.GenerationStageGraph;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.generation.TabularExportPlanBuilder;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.core.generation.TabularExportPlanBuilder;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.OperatorBinding;

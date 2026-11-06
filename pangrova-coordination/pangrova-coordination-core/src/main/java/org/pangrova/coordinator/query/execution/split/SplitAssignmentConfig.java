@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
+
 /**
  * Configuration for split assignment behavior including lease duration,
  * cache affinity assignment, work stealing, and pull-mode enablement.

@@ -5,18 +5,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.spi.connector.metadata.table.SnapshotRange;
+import org.pangrova.connector.api.metadata.table.SnapshotRange;
 
 /** Trusted incremental-range selectors derived from a proven change set. */
 class PlanningIncrementalSelectorsTest {
 
     @Test
     void trustedRangesBindWhileClientSelectorsAreStripped() {
-        var context = new CoordinatorSessionContext("query", Map.of(
+        var context = new QuerySession("query", Map.of(
                 "catalog", "cat",
-                "pangrova.source_incremental.cat.db.forged", "1:9"), null, "tenant")
+                "pangrova.source_incremental.cat.db.forged", "1:9"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())
                 .withSourceIncrementalRanges(Map.of(
                         PlanningSnapshotSelectors.tableKey("cat", "db", "orders"),
                         new SnapshotRange(7, 9)));
@@ -31,8 +31,8 @@ class PlanningIncrementalSelectorsTest {
 
     @Test
     void rangeLookupIsCaseNormalizedAndKeepsLiteralDotsDistinct() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
-                "query", Map.of(), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession(
+                "query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         var selected = PlanningIncrementalSelectors.bind(session, Map.of(
                 PlanningSnapshotSelectors.tableKey("Cat", "A.B", "Rows"),
                 new SnapshotRange(2, 5),
@@ -48,8 +48,8 @@ class PlanningIncrementalSelectorsTest {
 
     @Test
     void replacingRangesDoesNotCarryAnEarlierRangeForward() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
-                "query", Map.of(), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession(
+                "query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         var selected = PlanningIncrementalSelectors.bind(session, Map.of(
                 PlanningSnapshotSelectors.tableKey("cat", "db", "first"), new SnapshotRange(1, 2)));
         var replaced = PlanningIncrementalSelectors.bind(selected, Map.of(
@@ -62,7 +62,7 @@ class PlanningIncrementalSelectorsTest {
 
     @Test
     void exactSnapshotsAndRangesForDifferentSourcesCoexist() {
-        var context = new CoordinatorSessionContext("query", Map.of("catalog", "cat"), null, "tenant")
+        var context = new QuerySession("query", Map.of("catalog", "cat"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())
                 .withSourceSnapshots(Map.of(
                         PlanningSnapshotSelectors.tableKey("cat", "db", "customers"), 11L))
                 .withSourceIncrementalRanges(Map.of(
@@ -81,8 +81,8 @@ class PlanningIncrementalSelectorsTest {
     void oneSourceCannotBindBothAnExactSnapshotAndARange() {
         String key = PlanningSnapshotSelectors.tableKey("cat", "db", "orders");
 
-        assertThatThrownBy(() -> new CoordinatorSessionContext(
-                "query", Map.of(), null, "tenant")
+        assertThatThrownBy(() -> new QuerySession(
+                "query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())
                 .withSourceSnapshots(Map.of(key, 7L))
                 .withSourceIncrementalRanges(Map.of(key, new SnapshotRange(7, 9))))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -91,8 +91,8 @@ class PlanningIncrementalSelectorsTest {
 
     @Test
     void alreadyPrefixedKeysAreRejectedBeforeBinding() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
-                "query", Map.of(), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession(
+                "query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
 
         assertThatThrownBy(() -> PlanningIncrementalSelectors.bind(session, Map.of(
                 PlanningIncrementalSelectors.PROPERTY_PREFIX
@@ -104,8 +104,8 @@ class PlanningIncrementalSelectorsTest {
 
     @Test
     void invalidRangesAreRejectedBeforeBinding() {
-        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
-                "query", Map.of(), null, "tenant"));
+        var session = SessionContextConverter.toConnectorSession(new QuerySession(
+                "query", Map.of(), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
 
         assertThatThrownBy(() -> PlanningIncrementalSelectors.bind(session, Map.of(" ", new SnapshotRange(1, 2))))
                 .isInstanceOf(IllegalArgumentException.class)

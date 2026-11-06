@@ -1,0 +1,289 @@
+[
+  {
+    "report": "pangrova-file/pangrova-file-core/target/spotbugsXml.xml",
+    "sha256": "d44b05512bc408490dca95d1acb70aa1d4bd637accfff7f9363535c0c06ef55b",
+    "findings": [],
+    "missing_classes": [
+      "equals",
+      "get",
+      "getAsLong",
+      "hashCode",
+      "makeConcatWithConstants",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-security/pangrova-security-policy-builtin/target/spotbugsXml.xml",
+    "sha256": "641dd09832b6d3be35b90127d8b458c335a28582fcaf87428f7357d91f315bd0",
+    "findings": [],
+    "missing_classes": [
+      "makeConcatWithConstants",
+      "test"
+    ]
+  },
+  {
+    "report": "pangrova-security/pangrova-security-auth-builtin/target/spotbugsXml.xml",
+    "sha256": "bfbd909b22abc3fc60657e467af692d8c1fe557e6d0a25a6a634d1279c7abf4a",
+    "findings": [],
+    "missing_classes": []
+  },
+  {
+    "report": "pangrova-security/pangrova-security-auth-ldap/target/spotbugsXml.xml",
+    "sha256": "e77a8357195302f8bbe678e7ff36f632ce5a6e96d9a1b4d879eb2a265a645914",
+    "findings": [],
+    "missing_classes": [
+      "close",
+      "equals",
+      "hashCode",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-security/pangrova-security-core/target/spotbugsXml.xml",
+    "sha256": "327f44f0bb6f3a8b4f2afed69149b1c91f67a9d73b54eeea884efc5f88b3670d",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "applyAsInt",
+      "applyAsLong",
+      "equals",
+      "get",
+      "hashCode",
+      "makeConcatWithConstants",
+      "newThread",
+      "run",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-security/pangrova-security-auth-oauth2/target/spotbugsXml.xml",
+    "sha256": "d2f134d496f8017ae898216ac7baefa23b6cc154e7d069c2459cf49f05c16317",
+    "findings": [],
+    "missing_classes": [
+      "apply",
+      "equals",
+      "hashCode",
+      "locate",
+      "makeConcatWithConstants",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-table/pangrova-table-core/target/spotbugsXml.xml",
+    "sha256": "8ed3f92a72699e37de8535165811df5f102ef5abb0eb365f9d0063770255d23c",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "equals",
+      "get",
+      "hashCode",
+      "makeConcatWithConstants",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-streaming/target/spotbugsXml.xml",
+    "sha256": "25bc26206ec322b84f0fc6f85d4b58cadb15aae326562d61e0fac9575a022950",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "add",
+      "apply",
+      "applyAsInt",
+      "compare",
+      "equals",
+      "get",
+      "hashCode",
+      "makeConcatWithConstants",
+      "newThread",
+      "onFailed",
+      "run",
+      "test",
+      "toString",
+      "validate"
+    ]
+  },
+  {
+    "report": "pangrova-governance/target/spotbugsXml.xml",
+    "sha256": "d019d80c711c237ba33c5e973bf58c69296c87097ab02f652e4cb82212f379e1",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "compare",
+      "equals",
+      "get",
+      "getAsBoolean",
+      "hashCode",
+      "makeConcatWithConstants",
+      "process",
+      "run",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-table-postgresql/target/spotbugsXml.xml",
+    "sha256": "70a125f9a6a2ebf44e5a442ea4236736fe520e76f9e6dd849330e6a3878d6b61",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "makeConcatWithConstants"
+    ]
+  },
+  {
+    "report": "pangrova-file/pangrova-file-core/target/checkstyle-result.xml",
+    "sha256": "ceaf8fe986db19a62d4c1abf0164739ad3640e8e5166e0fbc39cd203bc1b3d3d",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-security/pangrova-security-policy-builtin/target/checkstyle-result.xml",
+    "sha256": "911cdd400c1666e2f3c09ab7e70936d7441c19f78862564f0d900c9e93a2e79d",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-security/pangrova-security-auth-builtin/target/checkstyle-result.xml",
+    "sha256": "ff6cb4b5e6c276e5942e94435525ccbab7f78fe640e8b23c7f4daf11ac0ddc95",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-security/pangrova-security-auth-ldap/target/checkstyle-result.xml",
+    "sha256": "47ad704581236f7a28c10819b4ccfb1904a41e92ca7f91688da7a8a9b828cf0f",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-security/pangrova-security-core/target/checkstyle-result.xml",
+    "sha256": "60ba68f5f2a7317e2a0ca0af595f0cf84417518cd4dc070cdf4353f01cdc4a8f",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-security/pangrova-security-auth-oauth2/target/checkstyle-result.xml",
+    "sha256": "d46f9013dc8bdd2f7db1e0821dab033e95255cc0da6fd13af98a49e8ac8ceb14",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-table/pangrova-table-core/target/checkstyle-result.xml",
+    "sha256": "a310b0cfc438dfd4c9fd83f986c62556fb6519b48edfdfa5e00353a6fcd69cc0",
+    "diagnostics": [
+      {
+        "file": "pangrova-table/pangrova-table-core/src/main/java/org/pangrova/table/core/ownership/TableControlService.java",
+        "line": "1",
+        "severity": "warning",
+        "message": "\u6587\u4ef6 840 \u884c \uff08\u6700\u591a\uff1a800 \u884c\uff09\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.FileLengthCheck"
+      },
+      {
+        "file": "pangrova-table/pangrova-table-core/src/main/java/org/pangrova/table/core/ownership/TableControlService.java",
+        "line": "121",
+        "column": "5",
+        "severity": "warning",
+        "message": "\u5708\u590d\u6742\u5ea6\uff1a 22 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+      }
+    ]
+  },
+  {
+    "report": "pangrova-streaming/target/checkstyle-result.xml",
+    "sha256": "cfc844c2a8e3fc7558ee21128e047b5f07f010bfbd9ff0a6a70a9e44bbcec25b",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-governance/target/checkstyle-result.xml",
+    "sha256": "a3692d43d759824b93c0d5190af053d1055ccb6e61cafc9f6ded9712a1ee872b",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-metadata/pangrova-metadata-core/target/checkstyle-result.xml",
+    "sha256": "83bb00fafe12d2901a65d91ee4a23c7b0d85dc33ec6bc5de8207839c83b01eea",
+    "diagnostics": [
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/core/resolution/ConnectorTableLookup.java",
+        "line": "22",
+        "column": "5",
+        "severity": "error",
+        "message": "\u7f3a\u5c11 Javadoc \u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.javadoc.MissingJavadocMethodCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/core/resolution/ConnectorTableLookup.java",
+        "line": "33",
+        "column": "5",
+        "severity": "error",
+        "message": "\u7f3a\u5c11 Javadoc \u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.javadoc.MissingJavadocMethodCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/core/resolution/ConnectorTableLookup.java",
+        "line": "58",
+        "column": "5",
+        "severity": "error",
+        "message": "\u7f3a\u5c11 Javadoc \u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.javadoc.MissingJavadocMethodCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/catalog/registry/CatalogRegistry.java",
+        "line": "69",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 129\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceNamespace.java",
+        "line": "6",
+        "column": "1",
+        "severity": "error",
+        "message": "'import' \u524d\u53ea\u5e94\u6709\u4e00\u4e2a\u7a7a\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java",
+        "line": "644",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 132\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java",
+        "line": "712",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 150\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/service/MetadataTagOperations.java",
+        "line": "130",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 126\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/service/TableControlDeferredPolicy.java",
+        "line": "9",
+        "column": "1",
+        "severity": "error",
+        "message": "'import' \u524d\u53ea\u5e94\u6709\u4e00\u4e2a\u7a7a\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+      },
+      {
+        "file": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/store/jdbc/catalog/PooledDataSourceFactory.java",
+        "line": "4",
+        "column": "1",
+        "severity": "error",
+        "message": "'import' \u524d\u53ea\u5e94\u6709\u4e00\u4e2a\u7a7a\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+      }
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-table-postgresql/target/checkstyle-result.xml",
+    "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+    "diagnostics": []
+  }
+]

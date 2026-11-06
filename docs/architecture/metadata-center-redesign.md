@@ -13,7 +13,7 @@ Pangrova 应建立一个统一的元数据中心，但“统一”必须被定�
 - 所有 Connector 通过小型能力接口提供格式原生元数据；
 - 所有实时系统视图和历史库存来自同一对象身份体系。
 
-“统一”不意味着所有持久化状态都归 `pangrova-metadata` 所有。查询 journal、worker registry、execution anchor、分布式 lease、索引构建任务、流式 offset、动态表 refresh、租户配额和治理结果仍是各自业务域的状态。业务 Concept/Metric/Relationship/Ontology/Semantic View 由 Metadata 上层的 `pangrova-semantic` 拥有，AI grounding/evaluation 由 `pangrova-ai-control` 拥有；它们可以共享一个 PostgreSQL 集群，也可以引用统一的 `CatalogId/TableId/FieldId/VersionToken`，但不能继续共享一个没有边界的 Java 模块和 migration 所有权。
+“统一”不意味着所有持久化状态都归 `pangrova-metadata-core` 所有。查询 journal、worker registry、execution anchor、分布式 lease、索引构建任务、流式 offset、动态表 refresh、租户配额和治理结果仍是各自业务域的状态。业务 Concept/Metric/Relationship/Ontology/Semantic View 由 Metadata 上层的 `pangrova-semantic` 拥有，AI grounding/evaluation 由 `pangrova-ai-control` 拥有；它们可以共享一个 PostgreSQL 集群，也可以引用统一的 `CatalogId/TableId/FieldId/VersionToken`，但不能继续共享一个没有边界的 Java 模块和 migration 所有权。
 
 推荐的最终形态是：
 
@@ -27,14 +27,14 @@ Pangrova 应建立一个统一的元数据中心，但“统一”必须被定�
   + 一个可靠变更事件源
 
 不等于
-  = 一个包含所有控制面状态的 pangrova-metadata 大包
+  = 一个包含所有控制面状态的 pangrova-metadata-core 大包
 ```
 
 这是最适合 Pangrova 的 Snowflake、Iceberg 和 Paimon 组合：借鉴 Snowflake 的集中事务元数据、查询入口和版本绑定；借鉴 Iceberg/Paimon 的格式原生快照、schema/manifest 和 OCC；保留 Pangrova Java 协调、C++ 执行、Connector 隔离的现有边界。
 
 ## 当前问题为何需要重构而不是整理
 
-当前工作区中的 `pangrova-metadata` 有 222 个 Java 主代码文件、约 2.47 万行和 26 个一级包。只有一部分属于查询元数据：`catalog`、`model`、`schema`、`service`、部分 `cache/store/event`。其余大量代码分别属于 indexing、artifact build、coordination、streaming、dynamic table、tenant、semantic/evaluation 和 governance。
+当前工作区中的 `pangrova-metadata-core` 有 222 个 Java 主代码文件、约 2.47 万行和 26 个一级包。只有一部分属于查询元数据：`catalog`、`model`、`schema`、`service`、部分 `cache/store/event`。其余大量代码分别属于 indexing、artifact build、coordination、streaming、dynamic table、tenant、semantic/evaluation 和 governance。
 
 数据库 V1 migration 也承担了 catalog/table mirror、query/task journal、worker/coordinator registry、distributed lease、index、artifact、dynamic table、streaming、cache invalidation、quality 和 tenant 等多个领域的建表职责。与此同时，一部分 repository 又在构造函数中自行执行 `CREATE TABLE IF NOT EXISTS`。
 
@@ -248,10 +248,10 @@ Metadata Core 不得依赖 Semantic/Governance/AI。Semantic 通过 ObjectId/Fie
 
 ## 目标模块结构
 
-保留 `pangrova-metadata` 作为单一、纯粹的 catalog/metadata 中心；不建议第一阶段创建多个细碎 Maven module。内部包结构建议如下：
+保留 `pangrova-metadata-core` 作为单一、纯粹的 catalog/metadata 中心；不建议第一阶段创建多个细碎 Maven module。内部包结构建议如下：
 
 ```text
-pangrova-metadata
+pangrova-metadata-core
 └── org.pangrova.metadata
     ├── api
     │   ├── MetadataGateway
@@ -769,7 +769,7 @@ query/task history、worker health、index build、stream offset 不应伪装成
 - 每迁出一个领域，即迁移其 Flyway location 和 system tables；
 - Coordinator 作为 composition root 注入各领域服务；
 - 删除旧 repository、旧 migration ownership 和跨域 imports；
-- 将 `pangrova-metadata` 收敛到 catalog/binding/mutation/cache/store/system。
+- 将 `pangrova-metadata-core` 收敛到 catalog/binding/mutation/cache/store/system。
 
 ### 阶段 5：外部 Catalog 与历史库存（12–24 周）
 
@@ -783,7 +783,7 @@ query/task history、worker health、index build、stream offset 不应伪装成
 
 ### 结构门槛
 
-- `pangrova-metadata` 只包含约定的 10 个领域包；
+- `pangrova-metadata-core` 只包含约定的 10 个领域包；
 - 无 Iceberg/Paimon SDK 依赖或 import；
 - 无 query/task/worker/index/artifact/stream offset/tenant/quality repository；
 - `MetadataService` God interface 被删除；所有 public interface 不超过仓库规定的方法数；
@@ -846,7 +846,7 @@ query/task history、worker health、index build、stream offset 不应伪装成
 - 对存储，只拥有 catalog、名称绑定、加速 projection 和事件，不拥有所有控制面状态；
 - 对查询，保证每表 repeatable read，并且不承诺底层 catalog 无法提供的全局事务。
 
-如果严格按上述边界实施，`pangrova-metadata` 会从当前的“持久化代码收容所”变成真正的元数据中心：更小、更强语义、更容易扩展新格式，也更接近 Snowflake 的控制面纪律与 Iceberg/Paimon 的开放湖仓事实模型。
+如果严格按上述边界实施，`pangrova-metadata-core` 会从当前的“持久化代码收容所”变成真正的元数据中心：更小、更强语义、更容易扩展新格式，也更接近 Snowflake 的控制面纪律与 Iceberg/Paimon 的开放湖仓事实模型。
 
 ## Sources
 
@@ -862,3 +862,7 @@ query/task history、worker health、index build、stream offset 不应伪装成
 [^10]: Apache Iceberg, [“REST Catalog Specification”](https://iceberg.apache.org/rest-catalog-spec/). 官方协议；用于 change-based commit、capability、multi-table commit 和 credential vending 事实。
 [^11]: Apache Paimon, [“Snapshot Specification”](https://paimon.apache.org/docs/master/concepts/spec/snapshot/). 官方规范；用于 snapshot、manifest、schema ID 和 commit identity 事实。
 [^12]: Apache Paimon, [“Concurrency Control”](https://paimon.apache.org/docs/master/concepts/concurrency-control/). 官方文档；用于 OCC、冲突验证和原子发布事实。
+
+## 同步持久化实施更新（2026-11-03）
+
+当前实现已移除 `MAX(sync_history.sync_time)` 进度和空操作 `updateSyncTime`。同步来源改为返回 `MetadataChangeBatch`，独立 `MetadataSyncRepository` 负责部署限定的 checkpoint 与完成回执。未声明完整覆盖的来源只执行盘点，不虚构时间游标。完整枚举不被当作变更日志边界；全量 inventory 服务与条件投影事务的其余设计仍未全部落地。详见 [本批所有权与保证](../internal/project-structure-refactoring/metadata-sync-ownership.md)。

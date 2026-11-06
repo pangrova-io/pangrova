@@ -1,7 +1,7 @@
 package org.pangrova.ai.worker.provider;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 
 import java.util.Map;
 
@@ -54,9 +54,9 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 config, ignored -> "key", ignored -> new byte[0])) {
             assertThat(registry.resolveInference("media").supportedModalities())
                     .containsExactlyInAnyOrder(
-                            org.pangrova.spi.ai.capability.Modality.TEXT,
-                            org.pangrova.spi.ai.capability.Modality.IMAGE,
-                            org.pangrova.spi.ai.capability.Modality.DOCUMENT);
+                            org.pangrova.ai.api.capability.Modality.TEXT,
+                            org.pangrova.ai.api.capability.Modality.IMAGE,
+                            org.pangrova.ai.api.capability.Modality.DOCUMENT);
         }
     }
 
@@ -76,8 +76,8 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 config, ignored -> "key", ignored -> new byte[0])) {
             assertThat(registry.resolveInference("media").supportedModalities())
                     .containsExactlyInAnyOrder(
-                            org.pangrova.spi.ai.capability.Modality.TEXT,
-                            org.pangrova.spi.ai.capability.Modality.AUDIO);
+                            org.pangrova.ai.api.capability.Modality.TEXT,
+                            org.pangrova.ai.api.capability.Modality.AUDIO);
         }
     }
 
@@ -139,8 +139,8 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 config, reference -> "key", reference -> new byte[0])) {
             assertThat(registry.resolveInference("chat").supportedModalities())
                     .containsExactlyInAnyOrder(
-                            org.pangrova.spi.ai.capability.Modality.TEXT,
-                            org.pangrova.spi.ai.capability.Modality.IMAGE);
+                            org.pangrova.ai.api.capability.Modality.TEXT,
+                            org.pangrova.ai.api.capability.Modality.IMAGE);
         }
     }
 

@@ -19,12 +19,12 @@ import java.util.Map;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.statement.CreateStorageProfileStatement;
+import org.pangrova.parser.api.ast.statement.CreateStorageProfileStatement;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
+import org.pangrova.persistence.file.api.profile.StorageProfileRegistry;
 import org.pangrova.common.storage.StorageType;
 
 /**

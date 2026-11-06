@@ -3,6 +3,7 @@ package org.pangrova.testing.integration.e2e.lifecycle;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
+import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
@@ -103,6 +104,8 @@ final class CopyNativeInputAssertions {
                         == TaskState.TASK_STATE_FAILED);
         var exhaustedReport = TaskReport.parseFrom(executor.getTaskStatus(exhaustedHandle));
         assertThat(exhaustedReport.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
+        assertThat(exhaustedReport.getError().getMessage())
+                .contains("Task object-store requested-read grant exhausted");
         assertThat(localInputs(stagingRoot)).hasSize(1);
         Path privateDirectory = localInputs(stagingRoot).get(0).getParent();
         Path cleanupBarrier = Files.writeString(privateDirectory.resolve("cleanup-barrier"), "retained");
@@ -146,7 +149,13 @@ final class CopyNativeInputAssertions {
         var accepted = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
         String id = submit(manager, accepted);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
-                .until(() -> manager.getExecutorHandle(id).orElse(0) > 0);
+                .until(() -> {
+                    assertThat(manager.getTaskState(id).orElseThrow())
+                            .as("COPY must create a Native owner without entering a failed terminal state")
+                            .isNotIn(org.pangrova.worker.task.state.TaskState.FAILED,
+                                    org.pangrova.worker.task.state.TaskState.CANCELLED);
+                    return manager.getExecutorHandle(id).orElse(0) > 0;
+                });
         assertThat(localInputs(stagingRoot)).hasSize(1);
         long handle = manager.getExecutorHandle(id).orElseThrow();
         readExactValues(runtime, accepted.taskRequest());
@@ -254,7 +263,7 @@ final class CopyNativeInputAssertions {
                                 .setNullability(Type.Nullability.NULLABILITY_NULLABLE))));
         var read = ReadRel.newBuilder().setBaseSchema(schema)
                 .setNamedTable(ReadRel.NamedTable.newBuilder().addNames(sourceId));
-        return Plan.newBuilder().addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
+        return Plan.newBuilder().setVersion(SubstraitProtocolVersion.build()).addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
                 .setInput(Rel.newBuilder().setRead(read)).addNames("id").addNames("payload")))
                 .build().toByteArray();
     }

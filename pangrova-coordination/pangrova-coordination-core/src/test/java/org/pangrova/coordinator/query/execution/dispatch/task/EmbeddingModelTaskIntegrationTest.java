@@ -18,25 +18,25 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.ai.control.embedding.ConcurrentMapEmbeddingModelRegistry;
-import org.pangrova.coordinator.ai.embedding.EmbeddingModelExecutionAdmission;
+import org.pangrova.ai.control.model.EmbeddingModelExecutionAdmission;
 import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.ai.control.embedding.ModelDropUnavailableException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.statement.CreateEmbeddingModelStatement;
-import org.pangrova.parser.ast.statement.AlterEmbeddingModelStatement;
-import org.pangrova.parser.ast.statement.DropEmbeddingModelStatement;
-import org.pangrova.parser.ast.statement.ShowEmbeddingModelsStatement;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.statement.CreateEmbeddingModelStatement;
+import org.pangrova.parser.api.ast.statement.AlterEmbeddingModelStatement;
+import org.pangrova.parser.api.ast.statement.DropEmbeddingModelStatement;
+import org.pangrova.parser.api.ast.statement.ShowEmbeddingModelsStatement;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.CapabilityLimits;
 import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
 import org.pangrova.protocol.v2.VersionedRef;
-import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
-import org.pangrova.spi.ai.embedding.EmbeddingModelBindingIdentity;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.ai.api.embedding.EmbeddingModelBindingIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
 import java.util.Map;
@@ -59,7 +59,7 @@ class EmbeddingModelTaskIntegrationTest {
         ModelAvailability availability = availability();
         CreateEmbeddingModelTask task = new CreateEmbeddingModelTask(
                 registry, (model, capability) -> availability);
-        CreateEmbeddingModelStatement statement = (CreateEmbeddingModelStatement) new SqlParser()
+        CreateEmbeddingModelStatement statement = (CreateEmbeddingModelStatement) new AntlrSqlParser()
                 .parse("CREATE EMBEDDING MODEL catalog_embed ("
                         + "provider = 'openai-compatible', "
                         + "endpoint = 'https://example.test/embeddings', "
@@ -89,7 +89,7 @@ class EmbeddingModelTaskIntegrationTest {
                 0, EmbeddingModelDescriptor.DeploymentFence.unbound());
         CreateEmbeddingModelTask task = new CreateEmbeddingModelTask(
                 registry, (model, capability) -> availability(requested, "ollama-v1", 9));
-        CreateEmbeddingModelStatement statement = (CreateEmbeddingModelStatement) new SqlParser()
+        CreateEmbeddingModelStatement statement = (CreateEmbeddingModelStatement) new AntlrSqlParser()
                 .parse("CREATE EMBEDDING MODEL catalog_embed ("
                         + "provider = 'openai-compatible', "
                         + "endpoint = 'http://127.0.0.1:11434/v1/embeddings', "
@@ -110,12 +110,12 @@ class EmbeddingModelTaskIntegrationTest {
                 registry(), (model, capability) -> availability());
         String prefix = "CREATE EMBEDDING MODEL catalog_embed ("
                 + "provider = 'openai-compatible', dimension = 768, authentication = 'none', ";
-        assertThatThrownBy(() -> task.execute((CreateEmbeddingModelStatement) new SqlParser()
+        assertThatThrownBy(() -> task.execute((CreateEmbeddingModelStatement) new AntlrSqlParser()
                 .parse(prefix + "endpoint = 'http://127.0.0.1:11434/v1/embeddings', "
                         + "api_key_secret = 'vault://key')"), context(ADMIN)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not declare api_key_secret");
-        assertThatThrownBy(() -> task.execute((CreateEmbeddingModelStatement) new SqlParser()
+        assertThatThrownBy(() -> task.execute((CreateEmbeddingModelStatement) new AntlrSqlParser()
                 .parse(prefix + "endpoint = 'http://public.example/v1/embeddings')"),
                 context(ADMIN)))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -126,7 +126,7 @@ class EmbeddingModelTaskIntegrationTest {
     void rejectsLegacyRateAliasInsteadOfSilentlyDefaultingIt() {
         CreateEmbeddingModelTask task = new CreateEmbeddingModelTask(
                 registry(), (model, capability) -> availability());
-        CreateEmbeddingModelStatement statement = (CreateEmbeddingModelStatement) new SqlParser()
+        CreateEmbeddingModelStatement statement = (CreateEmbeddingModelStatement) new AntlrSqlParser()
                 .parse("CREATE EMBEDDING MODEL catalog_embed ("
                         + "provider = 'openai-compatible', "
                         + "endpoint = 'https://example.test/embeddings', "
@@ -168,7 +168,7 @@ class EmbeddingModelTaskIntegrationTest {
                 "DROP EMBEDDING MODEL catalog_embed",
                 "DROP EMBEDDING MODEL catalog_embed CASCADE")) {
             DropEmbeddingModelStatement statement = (DropEmbeddingModelStatement)
-                    new SqlParser().parse(sql);
+                    new AntlrSqlParser().parse(sql);
             assertThatThrownBy(() -> task.execute(statement, context(ADMIN)))
                     .isInstanceOf(ModelDropUnavailableException.class)
                     .satisfies(failure -> assertThat(((PangrovaException) failure).getErrorCode())
@@ -211,7 +211,7 @@ class EmbeddingModelTaskIntegrationTest {
         ModelAvailability nextAvailability = availability(requested, "model-v8", 8);
         AlterEmbeddingModelTask task = new AlterEmbeddingModelTask(
                 registry, (model, capability) -> nextAvailability);
-        AlterEmbeddingModelStatement statement = (AlterEmbeddingModelStatement) new SqlParser()
+        AlterEmbeddingModelStatement statement = (AlterEmbeddingModelStatement) new AntlrSqlParser()
                 .parse("ALTER EMBEDDING MODEL catalog_embed SET ("
                         + "expected_version = 0, "
                         + "endpoint = 'https://new.example.test/embeddings')");
@@ -307,7 +307,7 @@ class EmbeddingModelTaskIntegrationTest {
 
     @Test
     void parserRejectsDuplicateExpectedVersion() {
-        assertThatThrownBy(() -> new SqlParser().parse(
+        assertThatThrownBy(() -> new AntlrSqlParser().parse(
                 "ALTER EMBEDDING MODEL catalog_embed SET ("
                         + "expected_version = 0, expected_version = 1, max_batch_size = 16)"))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -328,7 +328,7 @@ class EmbeddingModelTaskIntegrationTest {
         return new StatementExecutionContext(
                 null,
                 "query-1",
-                new CoordinatorSessionContext("query-1", Map.of(), identity, "tenant-1"),
+                new QuerySession("query-1", Map.of(), identity, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()),
                 null,
                 null);
     }

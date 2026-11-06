@@ -44,8 +44,35 @@ class RegressionSelectionTest {
         for (var owner : List.of("WorkerBootstrapE2ETest",
                 "NativeExchangeTransportExternalIntegrationTest",
                 "WorkerShuffleChannelAdmissionIntegrationTest",
+                "NativeShuffleEgressContractIntegrationTest",
+                "NativeAiFailureProjectionRegistrationTest",
+                "LocalGovernedFileSqlE2ETest",
                 "CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes")) {
             assertThat(workflow).contains(owner);
+        }
+    }
+
+    @Test
+    void everyRuntimeOwnerSourceHasAnIsolatedCiSelection() throws Exception {
+        java.util.Map<?, ?> workflow;
+        try (var input = Files.newBufferedReader(ROOT.resolve(".github/workflows/ci.yml"))) {
+            workflow = new org.yaml.snakeyaml.Yaml().load(input);
+        }
+        var jobs = (java.util.Map<?, ?>) workflow.get("jobs");
+        var production = (java.util.Map<?, ?>) jobs.get("production-regression");
+        var steps = (List<?>) production.get("steps");
+        String isolatedRun = steps.stream().map(java.util.Map.class::cast)
+                .filter(step -> "Run isolated Native runtime owner E2E".equals(step.get("name")))
+                .map(step -> (String) step.get("run")).findFirst().orElseThrow();
+        var ownerTag = java.util.regex.Pattern.compile(
+                "@(?:org\\.junit\\.jupiter\\.api\\.)?Tag\\s*\\(\\s*\"native-runtime-owner\"\\s*\\)");
+        try (var sources = Files.walk(ROOT.resolve(
+                "pangrova-testing/pangrova-testing-integration-tests/src/test/java"))) {
+            for (var source : sources.filter(path -> path.toString().endsWith("Test.java")).toList()) {
+                if (!ownerTag.matcher(Files.readString(source)).find()) continue;
+                String owner = source.getFileName().toString().replace(".java", "");
+                assertThat(isolatedRun).as("isolated Native CI selection for %s", owner).contains(owner);
+            }
         }
     }
 
@@ -65,7 +92,7 @@ class RegressionSelectionTest {
             var ownerPath = switch (module) {
                 case "worker" -> "pangrova-worker/pangrova-worker-core";
                 case "coordinator" -> "pangrova-coordination/pangrova-coordination-core";
-                default -> "pangrova-metadata";
+                default -> "pangrova-metadata-core";
             };
             var owner = read(ROOT.resolve(ownerPath).resolve("pom.xml"));
             assertThat(value(owner, "/project/properties/" + property)).isEmpty();
@@ -86,7 +113,7 @@ class RegressionSelectionTest {
         // only an explicit override can drop the late-bound JaCoCo agent.
         var inherited = value(read(ROOT.resolve("pom.xml")),
                 "//plugin[artifactId='maven-surefire-plugin']/configuration/argLine");
-        for (var module : List.of("", "pangrova-worker/pangrova-worker-core/", "pangrova-coordination/pangrova-coordination-core/", "pangrova-scheduler/",
+        for (var module : List.of("", "pangrova-worker/pangrova-worker-core/", "pangrova-coordination/pangrova-coordination-core/", "pangrova-scheduler/pangrova-scheduler-api/", "pangrova-scheduler/pangrova-scheduler-core/", "pangrova-scheduler/pangrova-scheduler-strategies-builtin/",
                 "pangrova-client/pangrova-client-cli/", "pangrova-testing/pangrova-testing-integration-tests/")) {
             var project = read(ROOT.resolve(module + "pom.xml"));
             var override = value(project, "//plugin[artifactId='maven-surefire-plugin']/configuration/argLine");

@@ -10,8 +10,8 @@ import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 
 import java.util.List;
 import java.util.Map;

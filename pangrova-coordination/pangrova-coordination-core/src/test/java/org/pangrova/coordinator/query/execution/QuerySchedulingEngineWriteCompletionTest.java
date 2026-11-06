@@ -1,7 +1,9 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -14,20 +16,20 @@ class QuerySchedulingEngineWriteCompletionTest {
         var query = runningQuery();
         assertThat(query.terminalStateReady()).isNotDone();
 
-        assertThat(query.tryTransition(QueryStateMachine.State.FINISHING)).isTrue();
+        assertThat(query.tryTransition(QueryState.FINISHING)).isTrue();
         assertThat(query.terminalStateReady()).isNotDone();
-        assertThat(query.tryTransition(QueryStateMachine.State.FINISHED)).isTrue();
+        assertThat(query.tryTransition(QueryState.FINISHED)).isTrue();
 
         assertThatCode(() -> QuerySchedulingEngine.awaitWriteCompletion(
                 query, "write-query", "retired-original-attempt", 1_000))
                 .doesNotThrowAnyException();
-        assertThat(query.terminalStateReady()).isCompletedWithValue(QueryStateMachine.State.FINISHED);
+        assertThat(query.terminalStateReady()).isCompletedWithValue(QueryState.FINISHED);
     }
 
     @Test
     void failedLogicalWriteCannotBeAcceptedAsPhysicalCopySuccess() {
         var query = runningQuery();
-        assertThat(query.tryTransition(QueryStateMachine.State.FAILED)).isTrue();
+        assertThat(query.tryTransition(QueryState.FAILED)).isTrue();
 
         assertThatThrownBy(() -> QuerySchedulingEngine.awaitWriteCompletion(
                 query, "write-query", "retired-original-attempt", 1_000))
@@ -37,9 +39,9 @@ class QuerySchedulingEngineWriteCompletionTest {
 
     private static QueryStateMachine runningQuery() {
         var query = new QueryStateMachine();
-        assertThat(query.tryTransition(QueryStateMachine.State.PLANNING)).isTrue();
-        assertThat(query.tryTransition(QueryStateMachine.State.SCHEDULING)).isTrue();
-        assertThat(query.tryTransition(QueryStateMachine.State.RUNNING)).isTrue();
+        assertThat(query.tryTransition(QueryState.PLANNING)).isTrue();
+        assertThat(query.tryTransition(QueryState.SCHEDULING)).isTrue();
+        assertThat(query.tryTransition(QueryState.RUNNING)).isTrue();
         return query;
     }
 }

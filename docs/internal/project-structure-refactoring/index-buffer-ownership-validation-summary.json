@@ -1,0 +1,233 @@
+{
+  "baseline": "8811 current-worktree text files saved before this batch; unrelated changes preserved.",
+  "stages": [
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-indexing-api -am '-Dtest=SplitBlockBloom*Test,IndexBufferOwnershipTest,BloomFilterIndexDataPropertyTest,BoundingBoxPropertyTest,IndexDataTest,DynamicFilterSummaryTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 6.58,
+      "cases": 75,
+      "passed": 75,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "api-static",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-indexing-api -am -Pstatic-analysis verify",
+      "exit": 1,
+      "seconds": 55.5,
+      "cases": 762,
+      "passed": 762,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "api-static2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-indexing-api -am -Pstatic-analysis verify",
+      "exit": 0,
+      "seconds": 52.29,
+      "cases": 762,
+      "passed": 762,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=ApiVersionHeadersTest,BackoffStrategyPropertyTest,BackoffStrategyTest,BitmapDirectAccumulationTest,BloomFilterDeserializationPropertyTest,BloomFilterIndexDataPropertyTest,BloomFilterStrategyProviderTest,BoundingBoxPropertyTest,BuildFileMappingTest,CachedBloomFilterIndexDataTest,CircuitBreakerEventRecordingPropertyTest,CircuitBreakerOpenBlockingPropertyTest,CircuitBreakerStateMachinePropertyTest,DataSizePropertyTest,DataSizeTest,DigestUtilsPropertyTest,DigestUtilsTest,DistanceMetricTest,DynamicFilterSummaryTest,EmbeddedHttpServerFactoryThreadPoolTest,EmbeddedHttpServerPortOwnershipTest,ErrorClassifierTest,ExecutorDrainTest,GenerationExecutionFenceLockIntegrationTest,GenerationPublicationFenceLockIntegrationTest,HashStrategyProviderTest,HealthCheckEndpointTest,HttpClientFactoryTest,HttpResponseCheckTest,IndexBufferOwnershipTest,IndexBuildSnapshotPinTest,IndexCacheCompactionPropertyTest,IndexCacheConsistencyPropertyTest,IndexCacheDataFileIndexTest,IndexCacheLookupComplexityTest,IndexCachePropertyTest,IndexCodecGoldenTest,IndexDataTest,IndexDescriptorTest,IndexEvalCircuitBreakerTest,IndexEvaluationPreparationTest,IndexFileReadResultTest,IndexFileSelectionTest,IndexMetadataStoreCommitLogDefaultsTest,IndexSerializerRoundTripPropertyTest,IndexSnapshotEvaluationTest,IndexStateUpdateContractTest,IndexStorageLayoutTest,IndexTypeStableIdTest,IndexingApiIsolationTest,JdbcIndexCommitQueueMigrationTest,JdbcIndexCommitQueueScaleTest,JdbcIndexCommitQueueTest,JdbcIndexGenerationPublicationStoreTest,JdbcIndexGenerationPublicationTest,JdbcIndexStateFencingTest,JdbcIndexStatisticsStoreIntegrationTest,JdbcScalarIndexAuthorityTest,JdbcSupportPostgresTest,JsonEscaperPropertyTest,JsonEscaperTest,JsonMapperFactoryTest,LifecycleGuardPropertyTest,LifecycleGuardTest,ManagedExecutorFactoryTest,ManagedHttpClientTest,MultiHintAggregationPropertyTest,NumberConversionsTest,PangrovaErrorCodeTest,PangrovaExceptionTest,PreconditionsPropertyTest,PreconditionsTest,PrefixBinarySearchPropertyTest,ProcessIncarnationStoreTest,ProcessResourceLocksTest,QueryCheckpointContractTest,RTreeTraversalEquivalencePropertyTest,RTreeTraversalPropertyTest,ResourceCloserPropertyTest,ResourceCloserTest,RetryingCommitWrapperTest,RoaringBitmapCodecGoldenTest,RoaringBitmapCodecPropertyTest,RollbackReportTest,SerdeCodecTypeFidelityPropertyTest,SparseBinarySearchPropertyTest,SplitBlockBloomBufferTest,SplitBlockBloomFilterTest,StopwatchTest,SubsystemActivationCheckTest,SystemBootstrapSequenceTest,ThreadUtilsTest,TypeSerializerRegistryTest,VectorHybridSearchStrategyTest,VectorQueryOwnershipTest,VectorSearchRewriterCastTest,RowGroupPrunerTest,RuntimeFilter*Test,JoinRuntimeFilterPlannerTest,ModuleDependencyPropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest,NativeDynamicFilterE2ETest,NativeDynamicFilterJoinE2ETest,IndexTypeVerificationE2ETest,BitmapCardinalityE2ETest,RTreeIndexE2ETest,GinIndexE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean install",
+      "exit": 0,
+      "seconds": 346.21,
+      "cases": 758,
+      "passed": 758,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-static",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pnative-runtime,full-regression,static-analysis '-Dtest=CatalogPersistenceApiClasspathTest,PostgresMetadataProjection*Test,PostgresMetadataSync*Test' -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 47.18,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-static2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pnative-runtime,full-regression,static-analysis '-Dtest=HeartbeatRequestTest,CatalogPersistenceApiClasspathTest,PostgresMetadataProjection*Test,PostgresMetadataSync*Test' -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 85.98,
+      "cases": 8,
+      "passed": 8,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 3.49,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style2",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 3.61,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style3",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 3.99,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style4",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 3.67,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style5",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 3.84,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style6",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 4.13,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style7",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 3.89,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style8",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 4.31,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style9",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 4.45,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style10",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 1,
+      "seconds": 4.2,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-style11",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pstatic-analysis checkstyle:checkstyle",
+      "exit": 0,
+      "seconds": 4.17,
+      "cases": 0,
+      "passed": 0,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "catalog-static3",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-catalog-postgresql -am -Pnative-runtime,full-regression,static-analysis '-Dtest=HeartbeatRequestTest,CatalogPersistenceApiClasspathTest,PostgresMetadataProjection*Test,PostgresMetadataSync*Test' -Dsurefire.failIfNoSpecifiedTests=false verify",
+      "exit": 1,
+      "seconds": 102.1,
+      "cases": 8,
+      "passed": 8,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "builtin-static",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-indexing-strategies-builtin -Pstatic-analysis verify",
+      "exit": 0,
+      "seconds": 8.43,
+      "cases": 81,
+      "passed": 81,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "final-package",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=SplitBlockBloomBufferTest,IndexBufferOwnershipTest,IndexSnapshotEvaluationTest,HeartbeatRequestTest,FileSpaceLayoutTest,CopySourceEndpointPolicyTest,FileApiIsolationTest,FileContractsIsolationTest,CoordinationApiIsolationTest,SecurityPersistenceApiClasspathTest,LocalFsSpoolStoreTest,LocalSpoolIsolationTest,SpoolBackedExchangeManagerTest,MetricsScopeTest,NativeMetricsPublisherTest,WorkerOptionsTest,PostgresMetadataProjection*Test,PostgresMetadataSync*Test,ModuleDependencyPropertyTest,PackageDependencyAcyclicityPropertyTest,ActivationSmokeE2ETest' -Dsurefire.failIfNoSpecifiedTests=false clean install",
+      "exit": 0,
+      "seconds": 186.5,
+      "cases": 167,
+      "passed": 167,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 1282,
+    "passed": 1282,
+    "failure": 0,
+    "error": 0,
+    "skipped": 0
+  },
+  "scope": "Current-batch JUnit/jqwik testcase reports, not repeated trials. Selected clean reactor/E2E does not equal full production regression."
+}

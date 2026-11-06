@@ -1,7 +1,7 @@
 package org.pangrova.ai.worker.inference.openai;
 
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.embedding.BlobReference;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

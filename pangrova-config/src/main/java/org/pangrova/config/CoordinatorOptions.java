@@ -204,6 +204,15 @@ public final class CoordinatorOptions {
             .withDescription("Maximum number of concurrently executing queries")
             .build();
 
+    /** Per-task disk grant; the Worker independently owns the local directory. */
+    public static final ConfigOption<Long> TASK_SPILL_MAX_BYTES =
+            ConfigOptions.key("coordinator.task.spill.max-bytes")
+                    .longType()
+                    .defaultValue(0L)
+                    .withDescription("Maximum spill bytes per task; zero disables task spilling. "
+                            + "Requires worker.spill.directory and is bounded by Worker-local policy.")
+                    .build();
+
     // ---- Worker Management ----
 
     public static final ConfigOption<Duration> WORKER_HEARTBEAT_TIMEOUT =

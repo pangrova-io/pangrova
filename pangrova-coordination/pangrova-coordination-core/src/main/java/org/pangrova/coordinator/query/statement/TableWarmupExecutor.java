@@ -1,30 +1,31 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.SplitProperties;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.NativePage;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.metadata.SplitProperties;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,9 +73,6 @@ import org.slf4j.LoggerFactory;
  */
 public final class TableWarmupExecutor {
 
-    /** Public procedure name (case-insensitive at the call site). */
-    public static final String PROCEDURE_NAME = "warmup_table";
-
     private static final Logger LOG = LoggerFactory.getLogger(TableWarmupExecutor.class);
 
     /** Hard cap on how many splits a single warmup invocation will read. */
@@ -102,8 +100,10 @@ public final class TableWarmupExecutor {
      * rows_touched, bytes_prefetched, duration_ms)}.
      */
     public List<TypedRow> execute(
-            String catalog, Map<String, String> arguments, CoordinatorSessionContext context) {
-        SchemaTable target = parseTarget(catalog, arguments);
+            org.pangrova.connector.api.metadata.table.QualifiedTableName table, QuerySession context) {
+        java.util.Objects.requireNonNull(table, "table");
+        String catalog = table.catalog();
+        SchemaTable target = new SchemaTable(table.schema(), table.table());
         ResolvedTable resolved = resolveTable(catalog, target, context);
 
         long startNanos = System.nanoTime();
@@ -121,8 +121,8 @@ public final class TableWarmupExecutor {
         return List.of(buildResultRow(catalog, target, counters, durationMs));
     }
 
-    private ResolvedTable resolveTable(String catalog, SchemaTable target, CoordinatorSessionContext context) {
-        ConnectorSession session = TableResolver.buildSession(context, catalog, target.schema);
+    private ResolvedTable resolveTable(String catalog, SchemaTable target, QuerySession context) {
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, catalog, target.schema);
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(catalog);
         ConnectorMetadata metadata = catalogHandle.getMetadata(session);
         ConnectorTableHandle tableHandle = metadata.getTableHandle(
@@ -235,7 +235,7 @@ public final class TableWarmupExecutor {
             if (np != null) {
                 int rows = Math.max(0, np.getRowCount());
                 counters.rowsTouched += rows;
-                observedBytes += np.serializedBatch().length;
+                observedBytes += np.serializedSizeInBytes();
                 np.close();
                 continue;
             }
@@ -263,26 +263,6 @@ public final class TableWarmupExecutor {
         } catch (RuntimeException ignored) {
             return 0L;
         }
-    }
-
-    private static SchemaTable parseTarget(String catalog, Map<String, String> arguments) {
-        String arg0 = arguments.getOrDefault("arg0", "");
-        String arg1 = arguments.getOrDefault("arg1", "");
-        if (arg0.isEmpty()) {
-            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "warmup_table requires arguments: "
-                            + "CALL " + catalog + ".warmup_table('schema.table') "
-                            + "or CALL " + catalog + ".warmup_table('schema', 'table')");
-        }
-        if (!arg1.isEmpty()) {
-            return new SchemaTable(arg0, arg1);
-        }
-        int dot = arg0.indexOf('.');
-        if (dot <= 0 || dot >= arg0.length() - 1) {
-            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "warmup_table: single-argument form must be 'schema.table', got '" + arg0 + "'");
-        }
-        return new SchemaTable(arg0.substring(0, dot), arg0.substring(dot + 1));
     }
 
     private record SchemaTable(String schema, String table) { }

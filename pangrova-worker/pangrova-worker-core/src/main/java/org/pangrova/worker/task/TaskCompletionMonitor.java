@@ -495,12 +495,12 @@ public final class TaskCompletionMonitor {
         }
     }
 
-    private static org.pangrova.worker.exchange.remote.RemoteShuffleAdmissionException
+    private static org.pangrova.shuffle.pangrova.client.RemoteShuffleAdmissionException
             admissionFailure(Throwable failure) {
         for (Throwable current = failure; current != null; current = current.getCause()) {
             if (current
                     instanceof
-                    org.pangrova.worker.exchange.remote.RemoteShuffleAdmissionException admission) {
+                    org.pangrova.shuffle.pangrova.client.RemoteShuffleAdmissionException admission) {
                 return admission;
             }
         }

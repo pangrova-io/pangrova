@@ -1,0 +1,55 @@
+{
+  "test_files": 7,
+  "missing": [],
+  "sources": [
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-local/src/test/java/org/pangrova/shuffle/local/spool/LocalSpoolIsolationTest.java",
+      "sha256": "904db962f2c974ad0bab5ad5f92f2e951e8ba16e9912b8fc353f8c69e7598745",
+      "reports_from": [
+        "consumers-package"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-local/src/test/java/org/pangrova/shuffle/local/spool/LocalSpoolDirectoryTest.java",
+      "sha256": "bc02bd851c429c62ac91acc2dad92a77f49a2846ae428bd9ac2b65f4e34e4aa5",
+      "reports_from": [
+        "consumers-package"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-local/src/test/java/org/pangrova/shuffle/local/spool/LocalFsSpoolStoreTest.java",
+      "sha256": "b9aa43f373ac48673d6730a0cff868f7b1299e3d4fa5a290891a39077f0508b4",
+      "reports_from": [
+        "consumers-package"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/exchange/ExchangeSpiPropertyTest.java",
+      "sha256": "0b5eb4d4593559297d886c93ef818b500adca07a35a3dca0d3249ae7d6e65f39",
+      "reports_from": [
+        "consumers-package"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/exchange/ExchangeBindingValidationTest.java",
+      "sha256": "e3e6ec6475b0f303b682335ee5fe2e8d7409ee67f0d6b5871956552ae445376a",
+      "reports_from": [
+        "consumers-package"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/exchange/SpoolBackedExchangeManagerTest.java",
+      "sha256": "d405e70107fcfd79f7c5162a05d7f1a822c6702f5c0f0aa8b296935bab07a61a",
+      "reports_from": [
+        "consumers-package"
+      ]
+    },
+    {
+      "path": "pangrova-shuffle/pangrova-shuffle-core/src/test/java/org/pangrova/shuffle/exchange/ExchangeSpiContractTest.java",
+      "sha256": "3bbdc0f8327898f03969a7e0bf1102eab12506c2ee852779235042a0be2e45dd",
+      "reports_from": [
+        "consumers-package"
+      ]
+    }
+  ]
+}

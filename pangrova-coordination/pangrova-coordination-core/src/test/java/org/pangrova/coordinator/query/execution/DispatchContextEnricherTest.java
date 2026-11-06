@@ -4,13 +4,13 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.rerank.RerankerPlanNode;
-import org.pangrova.planner.rerank.RerankerValidationException;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.rerank.RerankerPlanNode;
+import org.pangrova.planner.core.rerank.RerankerValidationException;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
 
 import java.lang.reflect.Proxy;
 import java.time.Instant;
@@ -92,7 +92,7 @@ class DispatchContextEnricherTest {
 
     private static DispatchContextEnricher enricher(IndexMetadataStore store) {
         return new DispatchContextEnricher(new IndexAwareSplitFetcher(
-                null, null, store, null, null));
+                null, null, store, null));
     }
 
     private static DispatchQueryContext context(String sql) {

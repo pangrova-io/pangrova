@@ -14,7 +14,7 @@
 package org.pangrova.testing.integration.e2e.index.vector;
 
 import org.pangrova.protocol.v2.MemorySnapshot;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.index.VectorIndexE2ETestBase;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;

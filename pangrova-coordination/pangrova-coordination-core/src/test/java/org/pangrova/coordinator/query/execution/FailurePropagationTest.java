@@ -1,12 +1,13 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.api.stage.StageState;
+
 import java.util.List;
 import java.util.Map;
 
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -25,13 +26,13 @@ class FailurePropagationTest {
         Stage upstream = dag.findStage(0);
         Stage downstream = dag.findStage(1);
 
-        upstream.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        upstream.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        upstream.stateMachine().tryTransitionTo(StageStateMachine.State.FAILED);
+        upstream.stateMachine().transitionTo(StageState.SCHEDULING);
+        upstream.stateMachine().transitionTo(StageState.RUNNING);
+        upstream.stateMachine().tryTransitionTo(StageState.FAILED);
 
         cancelDownstream(upstream, dag);
         // PLANNED → CANCELLED (PLANNED cannot go to FAILED per state machine rules)
-        assertEquals(StageStateMachine.State.CANCELLED, downstream.stateMachine().getState());
+        assertEquals(StageState.CANCELLED, downstream.stateMachine().getState());
     }
 
     @Test
@@ -41,15 +42,15 @@ class FailurePropagationTest {
         Stage upstream = dag.findStage(0);
         Stage downstream = dag.findStage(1);
 
-        upstream.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        upstream.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        downstream.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        downstream.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
+        upstream.stateMachine().transitionTo(StageState.SCHEDULING);
+        upstream.stateMachine().transitionTo(StageState.RUNNING);
+        downstream.stateMachine().transitionTo(StageState.SCHEDULING);
+        downstream.stateMachine().transitionTo(StageState.RUNNING);
 
-        upstream.stateMachine().tryTransitionTo(StageStateMachine.State.FAILED);
+        upstream.stateMachine().tryTransitionTo(StageState.FAILED);
         cancelDownstream(upstream, dag);
 
-        assertEquals(StageStateMachine.State.FAILED, downstream.stateMachine().getState());
+        assertEquals(StageState.FAILED, downstream.stateMachine().getState());
     }
 
     @Test
@@ -59,17 +60,17 @@ class FailurePropagationTest {
         Stage upstream = dag.findStage(0);
         Stage downstream = dag.findStage(1);
 
-        downstream.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        downstream.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        downstream.stateMachine().transitionTo(StageStateMachine.State.FLUSHING);
-        downstream.stateMachine().transitionTo(StageStateMachine.State.FINISHED);
+        downstream.stateMachine().transitionTo(StageState.SCHEDULING);
+        downstream.stateMachine().transitionTo(StageState.RUNNING);
+        downstream.stateMachine().transitionTo(StageState.FLUSHING);
+        downstream.stateMachine().transitionTo(StageState.FINISHED);
 
-        upstream.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        upstream.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        upstream.stateMachine().tryTransitionTo(StageStateMachine.State.FAILED);
+        upstream.stateMachine().transitionTo(StageState.SCHEDULING);
+        upstream.stateMachine().transitionTo(StageState.RUNNING);
+        upstream.stateMachine().tryTransitionTo(StageState.FAILED);
 
         cancelDownstream(upstream, dag);
-        assertEquals(StageStateMachine.State.FINISHED, downstream.stateMachine().getState());
+        assertEquals(StageState.FINISHED, downstream.stateMachine().getState());
     }
 
     @Test
@@ -85,16 +86,16 @@ class FailurePropagationTest {
         ).withStages("q-fp-4");
 
         Stage s0 = dag.findStage(0);
-        s0.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        s0.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        s0.stateMachine().tryTransitionTo(StageStateMachine.State.FAILED);
+        s0.stateMachine().transitionTo(StageState.SCHEDULING);
+        s0.stateMachine().transitionTo(StageState.RUNNING);
+        s0.stateMachine().tryTransitionTo(StageState.FAILED);
 
         cancelDownstream(s0, dag);
 
         // s1 is direct downstream of s0 → CANCELLED (was PLANNED)
-        assertEquals(StageStateMachine.State.CANCELLED, dag.findStage(1).stateMachine().getState());
+        assertEquals(StageState.CANCELLED, dag.findStage(1).stateMachine().getState());
         // s2 is NOT direct downstream of s0 → stays PLANNED
-        assertEquals(StageStateMachine.State.PLANNED, dag.findStage(2).stateMachine().getState());
+        assertEquals(StageState.PLANNED, dag.findStage(2).stateMachine().getState());
     }
 
     @Test
@@ -104,14 +105,14 @@ class FailurePropagationTest {
         Stage upstream = dag.findStage(0);
         Stage downstream = dag.findStage(1);
 
-        upstream.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
-        upstream.stateMachine().transitionTo(StageStateMachine.State.RUNNING);
-        downstream.stateMachine().transitionTo(StageStateMachine.State.SCHEDULING);
+        upstream.stateMachine().transitionTo(StageState.SCHEDULING);
+        upstream.stateMachine().transitionTo(StageState.RUNNING);
+        downstream.stateMachine().transitionTo(StageState.SCHEDULING);
 
-        upstream.stateMachine().tryTransitionTo(StageStateMachine.State.FAILED);
+        upstream.stateMachine().tryTransitionTo(StageState.FAILED);
         cancelDownstream(upstream, dag);
 
-        assertEquals(StageStateMachine.State.FAILED, downstream.stateMachine().getState());
+        assertEquals(StageState.FAILED, downstream.stateMachine().getState());
     }
 
     /**
@@ -126,16 +127,16 @@ class FailurePropagationTest {
             if (!upstreams.contains(failed.stageId())) {
                 continue;
             }
-            StageStateMachine.State state = stage.stateMachine().getState();
-            if (state == StageStateMachine.State.FINISHED
-                    || state == StageStateMachine.State.FAILED
-                    || state == StageStateMachine.State.CANCELLED) {
+            StageState state = stage.stateMachine().getState();
+            if (state == StageState.FINISHED
+                    || state == StageState.FAILED
+                    || state == StageState.CANCELLED) {
                 continue;
             }
-            if (state == StageStateMachine.State.PLANNED) {
-                stage.stateMachine().tryTransitionTo(StageStateMachine.State.CANCELLED);
+            if (state == StageState.PLANNED) {
+                stage.stateMachine().tryTransitionTo(StageState.CANCELLED);
             } else {
-                stage.stateMachine().tryTransitionTo(StageStateMachine.State.FAILED);
+                stage.stateMachine().tryTransitionTo(StageState.FAILED);
             }
         }
     }
@@ -148,12 +149,12 @@ class FailurePropagationTest {
         ).withStages(queryId);
     }
 
-    private static org.pangrova.planner.PlanFragment dummyFragment() {
+    private static org.pangrova.planner.core.analysis.PlanFragment dummyFragment() {
         var cluster = org.apache.calcite.plan.RelOptCluster.create(
                 new org.apache.calcite.plan.volcano.VolcanoPlanner(),
                 new org.apache.calcite.rex.RexBuilder(
                         new org.apache.calcite.jdbc.JavaTypeFactoryImpl()));
-        return new org.pangrova.planner.PlanFragment(
+        return new org.pangrova.planner.core.analysis.PlanFragment(
                 org.apache.calcite.rel.logical.LogicalValues.createOneRow(cluster), -1L, -1L);
     }
 }

@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
-import org.pangrova.spi.connector.metadata.IncrementalScanCapability;
+import org.pangrova.connector.spi.metadata.IncrementalScanCapability;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;

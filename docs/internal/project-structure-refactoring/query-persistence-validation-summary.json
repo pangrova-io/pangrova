@@ -1,0 +1,111 @@
+{
+  "stages": [
+    {
+      "stage": "focused",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-persistence-query-postgresql,:pangrova-persistence-query-memory,:pangrova-coordination-core -am -Pnative-runtime,full-regression '-Dtest=QueryAuthorityBackendBindingTest,*QueryStateJournal*Test*,*QueryAuditStore*Test*,*WriteCommit*Test*,*ExecutionAnchor*Test*,*ExecutionTransactionFence*Test*,*QueryLineage*Test*,*QueryEventListener*Test*,JournalPendingWritesTest,JournalSqlOperationTest,HighAvailability*Test*,QueryOwnership*Test*,CoordinatorExecutionAuthorityIntegrationTest,TaskStatusReceiver*Test*,QueryApiClasspathTest,QueryDurableRecoveryWiringTest,CoordinationFailureLifecycleTest' -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 304.51,
+      "cases": 261,
+      "passed": 261,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "integration",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=QueryAuthorityBackendBindingTest,*QueryStateJournal*Test*,*QueryAuditStore*Test*,*WriteCommit*Test*,*ExecutionAnchor*Test*,*ExecutionTransactionFence*Test*,*QueryLineage*Test*,*QueryEventListener*Test*,JournalPendingWritesTest,JournalSqlOperationTest,HighAvailability*Test*,QueryOwnership*Test*,CoordinatorExecutionAuthorityIntegrationTest,TaskStatusReceiver*Test*,QueryApiClasspathTest,QueryDurableRecoveryWiringTest,CoordinationFailureLifecycleTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest,PhysicalTwoWorkerShuffleE2ETest,ActivationSmokeE2ETest,WorkerWithdrawalIdentityIntegrationTest,WorkerRegistryE2ETest*,ClusterRegistryE2ETest*,CoordinatorHaE2ETest*' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 26.52,
+      "cases": 29,
+      "passed": 28,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "integration-corrected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=QueryAuthorityBackendBindingTest,*QueryStateJournal*Test*,*QueryAuditStore*Test*,*WriteCommit*Test*,*ExecutionAnchor*Test*,*ExecutionTransactionFence*Test*,*QueryLineage*Test*,*QueryEventListener*Test*,JournalPendingWritesTest,JournalSqlOperationTest,HighAvailability*Test*,QueryOwnership*Test*,CoordinatorExecutionAuthorityIntegrationTest,TaskStatusReceiver*Test*,QueryApiClasspathTest,QueryDurableRecoveryWiringTest,CoordinationFailureLifecycleTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest,BootstrapReachabilityTest,SpiWiringVerificationTest,PhysicalTwoWorkerShuffleE2ETest,ActivationSmokeE2ETest,WorkerWithdrawalIdentityIntegrationTest,WorkerRegistryE2ETest*,ClusterRegistryE2ETest*,CoordinatorHaE2ETest*' -Dsurefire.failIfNoSpecifiedTests=false clean package",
+      "exit": 1,
+      "seconds": 443.85,
+      "cases": 349,
+      "passed": 348,
+      "failure": 1,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "artifact",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -Pnative-runtime,full-regression '-Dtest=QueryAuthorityBackendBindingTest,*QueryStateJournal*Test*,*QueryAuditStore*Test*,*WriteCommit*Test*,*ExecutionAnchor*Test*,*ExecutionTransactionFence*Test*,*QueryLineage*Test*,*QueryEventListener*Test*,JournalPendingWritesTest,JournalSqlOperationTest,HighAvailability*Test*,QueryOwnership*Test*,CoordinatorExecutionAuthorityIntegrationTest,TaskStatusReceiver*Test*,QueryApiClasspathTest,QueryDurableRecoveryWiringTest,CoordinationFailureLifecycleTest,ModuleDependencyPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest' -Dsurefire.failIfNoSpecifiedTests=false package",
+      "exit": 0,
+      "seconds": 385.18,
+      "cases": 317,
+      "passed": 317,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "recovery-consumers",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-coordination-core -am -Pnative-runtime,full-regression -Dtest=QueryManagerJournalTest,QueryManagerContextJournalTest,JournalRecoveryServiceTest,JournalRecoveryOwnerScopeTest,CopyFileCommitRecoveryIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 74.39,
+      "cases": 26,
+      "passed": 26,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-dataset",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=NativeDatasetControlBootstrapTest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 66.85,
+      "cases": 2,
+      "passed": 2,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-copy",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=CopySourceReadHttpE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 1,
+      "seconds": 97.82,
+      "cases": 4,
+      "passed": 3,
+      "failure": 0,
+      "error": 1,
+      "skipped": 0
+    },
+    {
+      "stage": "native-copy-corrected",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=CopySourceReadHttpE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 79.9,
+      "cases": 4,
+      "passed": 4,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    },
+    {
+      "stage": "native-bootstrap",
+      "command": "mvn -q -Dpangrova.function-contract.python=${PANGROVA_FUNCTION_CONTRACT_PYTHON} -Dpangrova.e2e.ai.image-id=sha256:3e1f00d6a36dfeb98d124114a79060f0e0441ae1e35dbbbc90e6cc8f42683a8e -pl :pangrova-testing-integration-tests -am -Pnative-runtime,full-regression -Dpangrova.e2e.excludedGroups=none -Dtest=WorkerBootstrapE2ETest -Dsurefire.failIfNoSpecifiedTests=false test",
+      "exit": 0,
+      "seconds": 99.74,
+      "cases": 5,
+      "passed": 5,
+      "failure": 0,
+      "error": 0,
+      "skipped": 0
+    }
+  ],
+  "latest_selected": {
+    "cases": 386,
+    "passed": 385,
+    "failure": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "selection": "Latest whole-class execution across selected stages; full regression reported separately, never inherited as complete reactor success."
+}

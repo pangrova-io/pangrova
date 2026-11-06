@@ -16,13 +16,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class FilesystemApiIsolationTest {
     @Test
     void actualClasspathAndAllApiTypesLoadWithoutSecurityRuntimeJdbcOrCloudProviders() throws Exception {
-        var forbidden = List.of("org.pangrova.observability.sdk.noop.NoOpMetricsProvider",
+        var forbidden = List.of("org.pangrova.observability.noop.NoOpMetricsProvider",
                 "com.fasterxml.jackson.databind.ObjectMapper", "org.postgresql.Driver",
-                "com.zaxxer.hikari.HikariDataSource", "org.pangrova.spi.security.UserIdentity",
-                "org.pangrova.persistence.api.security.policy.RoleStore",
-                "org.pangrova.file.space.FileSpaceAccessService",
+                "com.zaxxer.hikari.HikariDataSource", "org.pangrova.security.api.identity.UserIdentity",
+                "org.pangrova.persistence.security.api.policy.RoleStore",
+                "org.pangrova.file.core.access.FileSpaceAccessService",
                 "org.pangrova.protocol.execution.AiTaskLifecycle",
-                "org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry",
+                "org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry",
                 "software.amazon.awssdk.services.s3.S3Client", "com.aliyun.sdk.service.oss2.OSSClient",
                 "org.pangrova.worker.file.ObjectStoreAccessorFactory",
                 "org.pangrova.filesystem.s3.object.S3ObjectStoreAccessorProvider",

@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
 
 /** Immutable receipt for serialization contracts only, not authorization or actual SDK declaration evidence. */
 public final class IcebergWriteReceiptFixtures {

@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordinator.query.stage;
 
-import org.pangrova.planner.ShuffleType;
+import org.pangrova.planner.core.analysis.ShuffleType;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
 

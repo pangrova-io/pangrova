@@ -13,25 +13,25 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.file.access.FileListingClient;
-import org.pangrova.file.space.FileSpaceAccessService;
-import org.pangrova.spi.file.access.FileAccessGrant;
+import org.pangrova.file.spi.access.FileListingClient;
+import org.pangrova.file.core.access.FileSpaceAccessService;
+import org.pangrova.file.api.access.FileAccessGrant;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.parser.SqlParser;
-import org.pangrova.parser.ast.statement.ListStageStatement;
-import org.pangrova.spi.security.FileSpaceAccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.parser.api.ast.statement.ListStageStatement;
+import org.pangrova.security.spi.authorization.FileSpaceAccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.filesystem.api.object.FileListing;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.spi.file.space.FileSpaceMutation;
-import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.persistence.file.api.space.FileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpaceType;
 import org.pangrova.filesystem.api.object.FileStat;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,7 +48,7 @@ class ListStageTaskTest {
 
     @Test
     void listsEveryPageAndFiltersWithThePattern() {
-        ListStageStatement statement = (ListStageStatement) new SqlParser().parse(
+        ListStageStatement statement = (ListStageStatement) new AntlrSqlParser().parse(
                 "LIST @media.raw.stage_landing/images/ PATTERN = '.*[.]jpg'");
         FileListingClient client = (grant, token) -> {
             grants.add(grant);
@@ -78,7 +78,7 @@ class ListStageTaskTest {
 
     @Test
     void invalidPatternIsRejectedBeforeContactingAWorker() {
-        ListStageStatement statement = (ListStageStatement) new SqlParser().parse(
+        ListStageStatement statement = (ListStageStatement) new AntlrSqlParser().parse(
                 "LIST @media.raw.stage_landing PATTERN = '['");
         FileListingClient client = (grant, token) -> {
             throw new AssertionError("worker must not be called");
@@ -94,7 +94,7 @@ class ListStageTaskTest {
     @Test
     void missingTicketIssuerFailsClosed() {
         ListStageStatement statement =
-                (ListStageStatement) new SqlParser().parse("LIST @media.raw.stage_landing");
+                (ListStageStatement) new AntlrSqlParser().parse("LIST @media.raw.stage_landing");
 
         assertThatThrownBy(() -> new ListStageTask(null, null).execute(statement, context()))
                 .isInstanceOfSatisfying(PangrovaException.class, failure ->
@@ -115,15 +115,15 @@ class ListStageTaskTest {
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
                 new FileSpaceAuditEmitter(null), SECRET,
                 org.pangrova.coordinator.file.FileAuthorityTestFixture.authority());
-        var profiles = new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
+        var profiles = new org.pangrova.testing.testkit.file.InMemoryStorageProfileRegistry();
         profiles.register(profile);
         return new FileSpaceAccessService(new Spaces(spaces), profiles,
                 new AllowAll(), context);
     }
 
     private static StatementExecutionContext context() {
-        CoordinatorSessionContext session = new CoordinatorSessionContext("list-stage",
-                Map.of("catalog", "media", "schema", "raw"), USER, "tenant-a");
+        QuerySession session = new QuerySession("list-stage",
+                Map.of("catalog", "media", "schema", "raw"), USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         return new StatementExecutionContext(null, session.queryId(), session, null, null);
     }
 

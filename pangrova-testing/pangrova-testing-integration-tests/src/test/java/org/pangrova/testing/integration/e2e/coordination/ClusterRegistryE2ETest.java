@@ -5,13 +5,13 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry;
-import org.pangrova.persistence.jdbc.coordination.JdbcWorkerRegistry;
-import org.pangrova.metadata.store.jdbc.catalog.EmbeddedDataSource;
+import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
+import org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry;
+import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.coordination.CoordinatorSnapshot;
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.WorkerSnapshot;
+import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.membership.WorkerSnapshot;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.integration.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.integration.e2e.fixture.RegistryTestSchemaHelper;
@@ -63,7 +63,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
     @BeforeEach
     void setUp() throws Exception {
         var pg = RegistryTestSchemaHelper.requirePostgres();
-        dataSource = new EmbeddedDataSource(
+        dataSource = new DriverManagerDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
         MetadataSchemaInitializer.createSchema(dataSource);
         RegistryTestSchemaHelper.truncateAll(dataSource,
@@ -96,12 +96,12 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
 
             // Start Coordinator-A
-            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haA.setCoordinatorRegistry(coordinatorRegistry, "host-a", 8080);
             WorkerManager managerA = new WorkerManager(SUSPECT_MS, DEAD_MS, workerRegistry);
 
             // Start Coordinator-B
-            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haB.setCoordinatorRegistry(coordinatorRegistry, "host-b", 8081);
             WorkerManager managerB = new WorkerManager(SUSPECT_MS, DEAD_MS, workerRegistry);
 
@@ -147,7 +147,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
 
             // Coordinator-A becomes LEADER, registers 3 workers
-            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haA.setCoordinatorRegistry(coordinatorRegistry, "host-a", 8080);
             WorkerManager managerA = new WorkerManager(SUSPECT_MS, DEAD_MS, workerRegistry);
 
@@ -163,7 +163,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             assertThat(lease.currentHolder("coordinator_leader")).isEmpty();
 
             // STANDBY takes over
-            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haB.setCoordinatorRegistry(coordinatorRegistry, "host-b", 8081);
             WorkerManager managerB = new WorkerManager(SUSPECT_MS, DEAD_MS, workerRegistry);
 
@@ -209,7 +209,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
         @DisplayName("Cluster running → Worker-4 registers → Worker-2 removed → LEADER has 3 workers → DB has 3 rows")
         void dynamicScaling_addAndRemoveWorkers() {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             ha.setCoordinatorRegistry(coordinatorRegistry, "host-a", 8080);
             WorkerManager manager = new WorkerManager(SUSPECT_MS, DEAD_MS, workerRegistry);
 
@@ -282,7 +282,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             toggleDs.setFailing(false);
 
             // Next heartbeat writes successfully
-            manager.onHeartbeat("worker-1", new WorkerManager.HeartbeatData(
+            manager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity("worker-1", manager.getWorker("worker-1").workerExecutionIdentity().admissionDomainId(), manager.getWorker("worker-1").workerExecutionIdentity().incarnationId()), new WorkerManager.HeartbeatData(
                     MemoryPressure.LOW, 0.5, 2, 2L * 1024 * 1024 * 1024));
 
             // Verify DB was updated after recovery
@@ -306,7 +306,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
 
             // Phase 1: Original cluster running
-            HighAvailabilityCoordinationService haOriginal = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haOriginal = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haOriginal.setCoordinatorRegistry(coordinatorRegistry, "host-orig", 8080);
             WorkerManager managerOriginal = new WorkerManager(SUSPECT_MS, DEAD_MS, workerRegistry);
 
@@ -325,7 +325,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             assertThat(preserved).hasSize(3);
 
             // Phase 3: New coordinator starts and recovers topology
-            HighAvailabilityCoordinationService haNew = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haNew = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haNew.setCoordinatorRegistry(coordinatorRegistry, "host-new", 8090);
             WorkerManager managerNew = new WorkerManager(SUSPECT_MS, DEAD_MS, workerRegistry);
 

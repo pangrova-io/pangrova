@@ -4,20 +4,20 @@ import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.ai.control.store.jdbc.embedding.JdbcEmbeddingModelRegistry;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
-import org.pangrova.spi.connector.coordination.WriteCommitJournal;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
+import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -33,7 +33,6 @@ final class GeneratedAuthorityTestFixtures {
 
     static void provisionModel(DataSource dataSource) {
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of("model_owner"));
         roles.createRole(Role.of("model_invoker"));
         roles.grantRoleToUser(UserRoleAssignment.of("definition-owner", "model_owner"));

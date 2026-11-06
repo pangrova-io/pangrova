@@ -1,0 +1,93 @@
+{
+  "pangrova-common/src/main/java/org/pangrova/common/resilience/api/QueryCheckpoint.java": {
+    "action": "clarify",
+    "token_body_identical": true,
+    "review": "Metadata checkpoint is not exchange recovery proof; remove false claim of assembled FTE resume and cross-layer Javadoc reference.",
+    "before_sha256": "58b8c00a5a3385fc64ead61e4e90e9d88d06992833839ba7c747b6e16f907654",
+    "after_sha256": "4c57b0b10fcf8a734e986f99af93e873fcd943af659b951d87632cddcfc98aab"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/ShuffleRetryPolicyValidator.java": {
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Unassembled consumer requirement validator checks effective CONSUMER_RETRY, removes misleading store/config recommendation; no startup enforcement claim.",
+    "before_sha256": "c354cb7f711da9ce0eff71f246fa8edbb1a639be7f1cfc37f53eaf89dbe66227",
+    "after_sha256": "16363b0fd975776b486a4faaff83b362883cf0850063d11d038fd285849d1522"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/SpoolingExchangeManager.java": {
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Remove injected capabilities and default derivation from store medium; unsupported unassembled lifecycle returns no verified guarantees. Existing registration/commit/cleanup behavior unchanged and still incomplete.",
+    "before_sha256": "1c791e44ba049e032039850732ce9f00585a3b92279396d1c1c26452deb18afb",
+    "after_sha256": "43ce897c6a0cb7459e9da24cef20869597fcb224f881bccffda1b453d8e1e265"
+  },
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/ft/FaultTolerantStageScheduler.java": {
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Unassembled FTE policy helper now consumes explicit CONSUMER_RETRY and names its consumer-only failure entry; no producer retry inferred; budget algorithm and counters unchanged.",
+    "before_sha256": "7bebb1d3cc0f9892a267fe49ebd405ec0fe5d75550f6a1f26cd8f1df7d85d231",
+    "after_sha256": "4a89f82ac2c94a34f0a5bff3e1588131cd234927549cdfc5cbac78f91c519afc"
+  },
+  "pangrova-scheduler/pangrova-scheduler-api/src/main/java/org/pangrova/scheduler/api/placement/FaultTolerancePolicy.java": {
+    "action": "clarify",
+    "token_body_identical": true,
+    "review": "Clarify policy-helper status and explicit consumer retry; enum values unchanged; production Stage owner unaffected.",
+    "before_sha256": "41ceb06460bca27a10a6327c71f5375fb22d59db794c3427314ccfc84bdfb41a",
+    "after_sha256": "db167694de76eb1c4a14b859e7922ab2298b1d18b0d126d11e1f1e164002b4b2"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleCapabilities.java": {
+    "action": "delete",
+    "token_body_identical": false,
+    "review": "Delete default durability-to-retry/retention/scale-down inference; replace with explicit descriptor, no old FQN compatibility shell.",
+    "before_sha256": "669648aef0e649469708ab6868d476b5ab6394e15e1bf75202a97516e1272a52",
+    "after_sha256": null
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleDurability.java": {
+    "action": "clarify",
+    "token_body_identical": true,
+    "review": "Storage vocabulary only; remove false durability-derived retry and survival claims. Enum values unchanged.",
+    "before_sha256": "b44f0ea1c4d6d70764af6f38c6ad1fdc6f2a89e76d3c97a92c4d57303855300e",
+    "after_sha256": "f84e4715d9b322bdb61a84cfc3762b8436f60075dc5bab5be1740d6a4a2b4c63"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleRetentionPolicy.java": {
+    "action": "change",
+    "token_body_identical": false,
+    "review": "Retention vocabulary and annotation describe explicitly observed references; no claim that storage medium authorizes scale-down. Enum values unchanged.",
+    "before_sha256": "8f9172597f2ad2fcd245fc755c50a6fba0b810ac51f8434266d6c29ef4af1a7c",
+    "after_sha256": "a24ce616591fc0a3f432591e63d3638be1fdba4ec501be9f167707eeabeeb51b"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/ShuffleTransportMode.java": {
+    "action": "clarify",
+    "token_body_identical": true,
+    "review": "Transport direction vocabulary only; remove process-lifetime guarantees inferred from PUSH/PULL. Enum values unchanged.",
+    "before_sha256": "0343bad1db51fe08ccbb44a1d621d420b45215439f2ca7b93e61f915ba42086d",
+    "after_sha256": "dfbaafde22c7ede0bd25b5640c40592203e42bce33d27412e24ef83f06ae5f62"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/capability/ShuffleCapability.java": {
+    "action": "add",
+    "token_body_identical": false,
+    "review": "New independent capability vocabulary with distinct producer/consumer, compute/storage/session failure domains; no runtime or resource owner.",
+    "before_sha256": null,
+    "after_sha256": "89a30866f15e3052210434954126f1a62b4893b8141db6f574d421ee17db9136"
+  },
+  "pangrova-shuffle/pangrova-shuffle-api/src/main/java/org/pangrova/shuffle/api/capability/ShuffleCapabilityDescriptor.java": {
+    "action": "add",
+    "token_body_identical": false,
+    "review": "Immutable explicit set, defensive copies and intersection only; no inferred guarantees, resources, receipt validation or deployment discovery.",
+    "before_sha256": null,
+    "after_sha256": "2ed203d740d7b343a647ba1acef113156ff81c0875ffe03351c958400aaeaf9b"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStore.java": {
+    "action": "clarify",
+    "token_body_identical": true,
+    "review": "Storage-medium method no longer claims to authorize FTE; actual segment I/O API and latest-attempt limitation unchanged.",
+    "before_sha256": "8a6da57d245bc2cdc62866abf67922cb8dd346516890d3ab016657b34548e00b",
+    "after_sha256": "402fdaea384514301796e07fbdd04f1ff01344349b6a2125feda4d5473f26672"
+  },
+  "pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/localfs/LocalFsSpoolStore.java": {
+    "action": "clarify",
+    "token_body_identical": true,
+    "review": "Document actual file-I/O primitive and missing exchange lifecycle; executable I/O and close/delete semantics unchanged.",
+    "before_sha256": "2dc928eaf715998c0d193041b56fe4e877c4b0e738155b9459637e4c83d9a44d",
+    "after_sha256": "4f2b24cd2cd1373db8437f2a094ab7e3c9458262272143ee8db56f4b9f6fb000"
+  }
+}

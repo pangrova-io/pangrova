@@ -1,7 +1,13 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
+import org.pangrova.query.api.session.QuerySession;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -19,17 +25,17 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.failure.NoAvailableWorkerException;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.client.protocol.SubmitQueryResponse;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.submission.QuerySubmissionResult;
 import org.pangrova.testing.testkit.TestObservability;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +65,7 @@ class QueryManagerAsyncSubmitTest {
                 executionStartedLatch, executionBlockLatch);
         AsyncSubmitConfig asyncConfig = AsyncSubmitConfig.defaultEnabled();
         queryManager = new QueryManager(
-                QueryManagerContext.minimalAsync(
+                QueryManagerTestContexts.minimalAsync(
                         slowDispatcher, TestObservability.TRACING,
                         asyncConfig, asyncExecutor));
     }
@@ -76,7 +82,7 @@ class QueryManagerAsyncSubmitTest {
         // Submit a query — the SlowQueryDispatcher will transition to RUNNING
         // quickly but then block for a long time simulating slow execution.
         long startMs = System.currentTimeMillis();
-        SubmitQueryResponse response = queryManager.submitQuery(
+        QuerySubmissionResult response = queryManager.submitQuery(
                 "async-test-1", "SELECT 1", testSession("async-test-1"));
         long elapsedMs = System.currentTimeMillis() - startMs;
 
@@ -88,7 +94,7 @@ class QueryManagerAsyncSubmitTest {
         // Assert: state is RUNNING (or beyond, if the fast dispatch completed)
         assertThat(response.state())
                 .as("Submit response state should be RUNNING or terminal")
-                .isIn("RUNNING", "FINISHING", "FINISHED");
+                .isIn(QueryState.RUNNING, QueryState.FINISHING, QueryState.FINISHED);
 
         // Assert: queryId is propagated correctly
         assertThat(response.queryId()).isEqualTo("async-test-1");
@@ -107,27 +113,27 @@ class QueryManagerAsyncSubmitTest {
         QueryDispatcher dispatcher = new SlowQueryDispatcher(new CountDownLatch(1), commit) {
             @Override
             public DispatchResult execute(QueryStateMachine sm, String sql,
-                                          CoordinatorSessionContext session) {
-                sm.tryTransition(QueryStateMachine.State.PLANNING);
-                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-                sm.tryTransition(QueryStateMachine.State.RUNNING);
+                                          QuerySession session) {
+                sm.tryTransition(QueryState.PLANNING);
+                sm.tryTransition(QueryState.SCHEDULING);
+                sm.tryTransition(QueryState.RUNNING);
                 sm.markWriteDispatchReady();
                 await(commit);
-                sm.tryTransition(QueryStateMachine.State.FINISHING);
-                sm.tryTransition(QueryStateMachine.State.FINISHED);
+                sm.tryTransition(QueryState.FINISHING);
+                sm.tryTransition(QueryState.FINISHED);
                 return null;
             }
         };
-        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+        QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
                 dispatcher, TestObservability.TRACING,
                 new AsyncSubmitConfig(true, 200), asyncExecutor));
 
         try {
-            SubmitQueryResponse response = manager.submitQuery(
+            QuerySubmissionResult response = manager.submitQuery(
                     "long-write", "INSERT INTO t VALUES (1)", testSession("long-write"));
-            assertThat(response.state()).isEqualTo("RUNNING");
+            assertThat(response.state()).isEqualTo(org.pangrova.query.api.lifecycle.QueryState.RUNNING);
             assertThat(response.resultEndpoint()).isNull();
-            assertThat(manager.getQueryState("long-write")).contains(QueryStateMachine.State.RUNNING);
+            assertThat(manager.getQueryState("long-write")).contains(QueryState.RUNNING);
         } finally {
             commit.countDown();
         }
@@ -136,11 +142,11 @@ class QueryManagerAsyncSubmitTest {
     @Test
     @DisplayName("async submit: query eventually reaches FINISHED after background execution completes")
     void asyncSubmitQueryEventuallyCompletes() throws Exception {
-        SubmitQueryResponse response = queryManager.submitQuery(
+        QuerySubmissionResult response = queryManager.submitQuery(
                 "async-test-2", "SELECT 2", testSession("async-test-2"));
 
         // Submit returned with RUNNING
-        assertThat(response.state()).isIn("RUNNING", "FINISHING", "FINISHED");
+        assertThat(response.state()).isIn(org.pangrova.query.api.lifecycle.QueryState.RUNNING, org.pangrova.query.api.lifecycle.QueryState.FINISHING, org.pangrova.query.api.lifecycle.QueryState.FINISHED);
 
         // Release the execution block — simulate query completion
         executionBlockLatch.countDown();
@@ -154,7 +160,7 @@ class QueryManagerAsyncSubmitTest {
         // State should now be FINISHED
         var finalState = queryManager.getQueryState("async-test-2");
         assertThat(finalState).isPresent();
-        assertThat(finalState.get()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(finalState.get()).isEqualTo(QueryState.FINISHED);
     }
 
     @Test
@@ -170,14 +176,14 @@ class QueryManagerAsyncSubmitTest {
                     startLatch, blockLatch);
             AsyncSubmitConfig shortTimeout = new AsyncSubmitConfig(true, 200);
             QueryManager shortTimeoutManager = new QueryManager(
-                    QueryManagerContext.minimalAsync(
+                    QueryManagerTestContexts.minimalAsync(
                             fastStartDispatcher, TestObservability.TRACING,
                             shortTimeout, shortTimeoutExecutor));
 
             // Should succeed — RUNNING is reached within the 200ms timeout
-            SubmitQueryResponse response = shortTimeoutManager.submitQuery(
+            QuerySubmissionResult response = shortTimeoutManager.submitQuery(
                     "timeout-test-1", "SELECT 1", testSession("timeout-test-1"));
-            assertThat(response.state()).isIn("RUNNING", "FINISHING", "FINISHED");
+            assertThat(response.state()).isIn(org.pangrova.query.api.lifecycle.QueryState.RUNNING, org.pangrova.query.api.lifecycle.QueryState.FINISHING, org.pangrova.query.api.lifecycle.QueryState.FINISHED);
 
             blockLatch.countDown();
         } finally {
@@ -196,7 +202,7 @@ class QueryManagerAsyncSubmitTest {
         ExecutorService syncExecutor = Executors.newSingleThreadExecutor();
 
         QueryManager syncManager = new QueryManager(
-                QueryManagerContext.minimalAsync(
+                QueryManagerTestContexts.minimalAsync(
                         dispatcher, TestObservability.TRACING,
                         syncConfig, syncExecutor));
 
@@ -204,11 +210,11 @@ class QueryManagerAsyncSubmitTest {
         // Release the latch immediately so the query completes.
         blockLatch.countDown();
 
-        SubmitQueryResponse response = syncManager.submitQuery(
+        QuerySubmissionResult response = syncManager.submitQuery(
                 "sync-test-1", "SELECT 1", testSession("sync-test-1"));
 
         // In sync mode, response should show terminal state
-        assertThat(response.state()).isEqualTo("FINISHED");
+        assertThat(response.state()).isEqualTo(org.pangrova.query.api.lifecycle.QueryState.FINISHED);
 
         syncExecutor.shutdownNow();
     }
@@ -223,9 +229,9 @@ class QueryManagerAsyncSubmitTest {
         var state = queryManager.getQueryState("state-test-1");
         assertThat(state).isPresent();
         assertThat(state.get()).isIn(
-                QueryStateMachine.State.RUNNING,
-                QueryStateMachine.State.FINISHING,
-                QueryStateMachine.State.FINISHED);
+                QueryState.RUNNING,
+                QueryState.FINISHING,
+                QueryState.FINISHED);
 
         // ResultEndpoint should be available for polling clients
         var endpoint = queryManager.getResultEndpoint("state-test-1");
@@ -241,32 +247,32 @@ class QueryManagerAsyncSubmitTest {
                 new CountDownLatch(1), new CountDownLatch(1)) {
             @Override
             public DispatchResult execute(QueryStateMachine sm, String sql,
-                                          CoordinatorSessionContext session) {
+                                          QuerySession session) {
                 var endpoint = new ResultEndpoint(
                         "localhost", 9090, "ticket-early", "arrow-flight");
-                sm.tryTransition(QueryStateMachine.State.PLANNING);
-                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
+                sm.tryTransition(QueryState.PLANNING);
+                sm.tryTransition(QueryState.SCHEDULING);
                 sm.setResultEndpoint(endpoint);
                 endpointPublished.countDown();
                 await(allowRunning);
-                sm.tryTransition(QueryStateMachine.State.RUNNING);
+                sm.tryTransition(QueryState.RUNNING);
                 return new DispatchResult("localhost", "task-early", endpoint);
             }
         };
-        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+        QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
                 dispatcher, TestObservability.TRACING,
                 AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
         ExecutorService submitter = Executors.newSingleThreadExecutor();
         try {
-            Future<SubmitQueryResponse> submitted = submitter.submit(() ->
+            Future<QuerySubmissionResult> submitted = submitter.submit(() ->
                     manager.submitQuery("endpoint-before-running", "SELECT 1",
                             testSession("endpoint-before-running")));
             assertThat(endpointPublished.await(5, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(() -> submitted.get(200, TimeUnit.MILLISECONDS))
                     .isInstanceOf(TimeoutException.class);
             allowRunning.countDown();
-            SubmitQueryResponse response = submitted.get(5, TimeUnit.SECONDS);
-            assertThat(response.state()).isEqualTo("RUNNING");
+            QuerySubmissionResult response = submitted.get(5, TimeUnit.SECONDS);
+            assertThat(response.state()).isEqualTo(org.pangrova.query.api.lifecycle.QueryState.RUNNING);
             assertThat(response.resultEndpoint()).isNotNull();
         } finally {
             allowRunning.countDown();
@@ -283,12 +289,12 @@ class QueryManagerAsyncSubmitTest {
                 new CountDownLatch(1), new CountDownLatch(1)) {
             @Override
             public DispatchResult execute(QueryStateMachine sm, String sql,
-                                          CoordinatorSessionContext session) {
-                sm.tryTransition(QueryStateMachine.State.PLANNING);
-                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-                sm.tryTransition(QueryStateMachine.State.RUNNING);
-                sm.tryTransition(QueryStateMachine.State.FINISHING);
-                sm.tryTransition(QueryStateMachine.State.FINISHED);
+                                          QuerySession session) {
+                sm.tryTransition(QueryState.PLANNING);
+                sm.tryTransition(QueryState.SCHEDULING);
+                sm.tryTransition(QueryState.RUNNING);
+                sm.tryTransition(QueryState.FINISHING);
+                sm.tryTransition(QueryState.FINISHED);
                 terminalReached.countDown();
                 await(allowResult);
                 return new DispatchResult("localhost", "task-ddl",
@@ -296,20 +302,20 @@ class QueryManagerAsyncSubmitTest {
                                 "ticket-ddl", "arrow-flight"));
             }
         };
-        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+        QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
                 dispatcher, TestObservability.TRACING,
                 AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
         ExecutorService submitter = Executors.newSingleThreadExecutor();
         try {
-            Future<SubmitQueryResponse> submitted = submitter.submit(() ->
+            Future<QuerySubmissionResult> submitted = submitter.submit(() ->
                     manager.submitQuery("ddl-before-endpoint", "SHOW TABLES",
                             testSession("ddl-before-endpoint")));
             assertThat(terminalReached.await(5, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(() -> submitted.get(200, TimeUnit.MILLISECONDS))
                     .isInstanceOf(TimeoutException.class);
             allowResult.countDown();
-            SubmitQueryResponse response = submitted.get(5, TimeUnit.SECONDS);
-            assertThat(response.state()).isEqualTo("FINISHED");
+            QuerySubmissionResult response = submitted.get(5, TimeUnit.SECONDS);
+            assertThat(response.state()).isEqualTo(org.pangrova.query.api.lifecycle.QueryState.FINISHED);
             assertThat(response.resultEndpoint()).isNotNull();
             assertThat(response.resultEndpoint().ticket()).isEqualTo("ticket-ddl");
         } finally {
@@ -325,13 +331,13 @@ class QueryManagerAsyncSubmitTest {
                 new CountDownLatch(1), new CountDownLatch(1)) {
             @Override
             public DispatchResult execute(QueryStateMachine sm, String sql,
-                                          CoordinatorSessionContext session) {
-                sm.tryTransition(QueryStateMachine.State.PLANNING);
-                sm.tryTransition(QueryStateMachine.State.FAILED);
+                                          QuerySession session) {
+                sm.tryTransition(QueryState.PLANNING);
+                sm.tryTransition(QueryState.FAILED);
                 throw new NoAvailableWorkerException();
             }
         };
-        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+        QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
                 unavailable, TestObservability.TRACING,
                 AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
 
@@ -339,7 +345,7 @@ class QueryManagerAsyncSubmitTest {
                 "no-worker", "SELECT 1", testSession("no-worker")))
                 .isInstanceOf(NoAvailableWorkerException.class);
         assertThat(manager.getQueryState("no-worker"))
-                .contains(QueryStateMachine.State.FAILED);
+                .contains(QueryState.FAILED);
         assertThat(manager.getResultEndpoint("no-worker")).isEmpty();
     }
 
@@ -348,17 +354,17 @@ class QueryManagerAsyncSubmitTest {
         var dependencies = SlowQueryDispatcher.buildMinimalContext();
         try (var remote = (RemoteTaskDispatcher) dependencies.dispatcher()) {
             var dispatcher = new QueryDispatcher(dependencies, null, null);
-            var manager = new QueryManager(QueryManagerContext.minimalAsync(
+            var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
                     dispatcher, TestObservability.TRACING,
                     AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
             String queryId = "real-dispatch-failure";
 
             assertThatThrownBy(() -> manager.submitQuery(queryId, "THIS IS NOT VALID SQL !!!",
-                    new CoordinatorSessionContext(queryId, java.util.Map.of(),
-                            new org.pangrova.spi.security.UserIdentity("test-user", java.util.Set.of("public"),
-                                    java.util.Map.of(), java.time.Instant.EPOCH), "default")))
-                    .isInstanceOf(org.pangrova.parser.ParseException.class);
-            assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FAILED);
+                    new QuerySession(queryId, java.util.Map.of(),
+                            new org.pangrova.security.api.identity.UserIdentity("test-user", java.util.Set.of("public"),
+                                    java.util.Map.of(), java.time.Instant.EPOCH), "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())))
+                    .isInstanceOf(org.pangrova.parser.api.diagnostic.ParseException.class);
+            assertThat(manager.getQueryState(queryId)).contains(QueryState.FAILED);
             assertThat(manager.getQueryError(queryId)).isPresent();
             org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() -> {
                 // The minimal fixture has no production cleanup scheduler; drive its actual retry tick.
@@ -374,34 +380,34 @@ class QueryManagerAsyncSubmitTest {
         var executingState = new AtomicReference<QueryStateMachine>();
         var compiler = new SqlCompiler() {
             @Override
-            public org.pangrova.planner.PlanResult compileForPolicyApplication(String sql) {
+            public org.pangrova.planner.core.analysis.PlanResult compileForPolicyApplication(String sql) {
                 var state = executingState.get();
-                state.tryTransition(QueryStateMachine.State.SCHEDULING);
-                state.tryTransition(QueryStateMachine.State.RUNNING);
+                state.tryTransition(QueryState.SCHEDULING);
+                state.tryTransition(QueryState.RUNNING);
                 state.markWriteDispatchReady();
                 await(failDispatch);
-                throw new org.pangrova.spi.security.AccessDeniedException("publication permission revoked");
+                throw new org.pangrova.security.api.error.AccessDeniedException("publication permission revoked");
             }
         };
         var dependencies = SlowQueryDispatcher.buildMinimalContext(compiler);
         try (var remote = (RemoteTaskDispatcher) dependencies.dispatcher()) {
             var dispatcher = new QueryDispatcher(dependencies, null, null) {
                 @Override
-                public DispatchResult execute(QueryStateMachine sm, String sql, CoordinatorSessionContext session) {
+                public DispatchResult execute(QueryStateMachine sm, String sql, QuerySession session) {
                     executingState.set(sm);
                     return super.execute(sm, sql, session);
                 }
             };
-            var manager = new QueryManager(QueryManagerContext.minimalAsync(
+            var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
                     dispatcher, TestObservability.TRACING,
                     AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
             String queryId = "failure-after-readiness";
             var submitted = manager.submitQuery(queryId, "SELECT 1",
                     org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session(queryId));
-            assertThat(submitted.state()).isEqualTo("RUNNING");
+            assertThat(submitted.state()).isEqualTo(org.pangrova.query.api.lifecycle.QueryState.RUNNING);
             failDispatch.countDown();
             org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() -> {
-                assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FAILED);
+                assertThat(manager.getQueryState(queryId)).contains(QueryState.FAILED);
                 assertThat(manager.getQueryError(queryId).orElseThrow().errorCode()).isEqualTo("SECURITY-0002");
                 assertThat(manager.getActiveQueryCount()).isZero();
             });
@@ -418,25 +424,25 @@ class QueryManagerAsyncSubmitTest {
         QueryDispatcher dispatcher = new SlowQueryDispatcher(dispatched, blocked) {
             @Override
             public DispatchResult execute(QueryStateMachine sm, String sql,
-                                          CoordinatorSessionContext session) {
-                sm.tryTransition(QueryStateMachine.State.PLANNING);
-                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-                sm.tryTransition(QueryStateMachine.State.RUNNING);
+                                          QuerySession session) {
+                sm.tryTransition(QueryState.PLANNING);
+                sm.tryTransition(QueryState.SCHEDULING);
+                sm.tryTransition(QueryState.RUNNING);
                 dispatched.countDown();
                 await(blocked);
                 throw new IllegalStateException("dispatch should be interrupted");
             }
         };
-        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+        QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
                 dispatcher, TestObservability.TRACING,
                 new AsyncSubmitConfig(true, 5_000), asyncExecutor));
         ExecutorService submitter = Executors.newSingleThreadExecutor();
         try {
-            Future<SubmitQueryResponse> submitted = submitter.submit(() ->
+            Future<QuerySubmissionResult> submitted = submitter.submit(() ->
                     manager.submitQuery("write-commit-failed", "INSERT INTO t VALUES (1)",
                             testSession("write-commit-failed")));
             assertThat(dispatched.await(2, TimeUnit.SECONDS)).isTrue();
-            manager.onTaskFailed("write-commit-failed", new ErrorDetail(
+            manager.onTaskFailed("write-commit-failed", new QueryFailure(
                     "RUNTIME-0001", "CATALOG_COMMIT_FAILED", "catalog commit rejected"));
             assertThatThrownBy(() -> submitted.get(2, TimeUnit.SECONDS))
                     .isInstanceOf(ExecutionException.class)
@@ -472,14 +478,14 @@ class QueryManagerAsyncSubmitTest {
         return false;
     }
 
-    private static boolean isTerminal(QueryStateMachine.State state) {
-        return state == QueryStateMachine.State.FINISHED
-                || state == QueryStateMachine.State.FAILED
-                || state == QueryStateMachine.State.CANCELLED;
+    private static boolean isTerminal(QueryState state) {
+        return state == QueryState.FINISHED
+                || state == QueryState.FAILED
+                || state == QueryState.CANCELLED;
     }
 
-    private static CoordinatorSessionContext testSession(String queryId) {
-        return new CoordinatorSessionContext(queryId, null, null, null);
+    private static QuerySession testSession(String queryId) {
+        return new QuerySession(queryId, null, null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     /**
@@ -502,7 +508,7 @@ class QueryManagerAsyncSubmitTest {
 
         @Override
         public DispatchResult execute(QueryStateMachine sm, String sql,
-                                      CoordinatorSessionContext session) {
+                                      QuerySession session) {
             // Set the result endpoint BEFORE transitioning to RUNNING — the async
             // listener fires on RUNNING and immediately reads the endpoint.
             ResultEndpoint endpoint = new ResultEndpoint(
@@ -511,9 +517,9 @@ class QueryManagerAsyncSubmitTest {
             sm.setResultEndpoint(endpoint);
 
             // Simulate compile → schedule → dispatch transitions quickly
-            sm.tryTransition(QueryStateMachine.State.PLANNING);
-            sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-            sm.tryTransition(QueryStateMachine.State.RUNNING);
+            sm.tryTransition(QueryState.PLANNING);
+            sm.tryTransition(QueryState.SCHEDULING);
+            sm.tryTransition(QueryState.RUNNING);
 
             // Signal that execution has started (RUNNING reached)
             executionStartedLatch.countDown();
@@ -526,8 +532,8 @@ class QueryManagerAsyncSubmitTest {
             }
 
             // Complete the query
-            sm.tryTransition(QueryStateMachine.State.FINISHING);
-            sm.tryTransition(QueryStateMachine.State.FINISHED);
+            sm.tryTransition(QueryState.FINISHING);
+            sm.tryTransition(QueryState.FINISHED);
 
             return new DispatchResult("localhost",
                     "task-" + session.queryId(), endpoint);
@@ -558,7 +564,7 @@ class QueryManagerAsyncSubmitTest {
         }
 
         private static QueryDispatcherContext buildMinimalContext(SqlCompiler compiler) {
-            TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+            TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
             return QueryDispatcherContext.withDefaults(
                     compiler, null, null, null,
                     new RemoteTaskDispatcher(
@@ -566,7 +572,7 @@ class QueryManagerAsyncSubmitTest {
                             TestObservability.TRACING),
                     scheduler,
                     new WorkerManager(20_000, 60_000,
-                            new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
+                            new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry()),
                     new CoordinatorTaskTracker(),
                     null, null, null, 0L);
         }

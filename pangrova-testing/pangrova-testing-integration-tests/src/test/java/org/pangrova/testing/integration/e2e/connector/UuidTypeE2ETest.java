@@ -10,7 +10,7 @@ import org.apache.iceberg.types.Types.UUIDType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.types.value.ColumnValue;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

@@ -11,7 +11,7 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.service.MetadataService;
+import org.pangrova.metadata.api.resolution.MetadataService;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 
 /** Authenticated internal endpoint for exact catalog revision deployment. */

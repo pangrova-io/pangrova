@@ -2,10 +2,10 @@ package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
-import org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry;
-import org.pangrova.metadata.store.jdbc.catalog.EmbeddedDataSource;
-import org.pangrova.spi.coordination.CoordinatorSnapshot;
-import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
+import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
+import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.integration.e2e.fixture.RegistryTestSchemaHelper;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
@@ -48,7 +48,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
     @BeforeEach
     void setUp() throws Exception {
         var pg = RegistryTestSchemaHelper.requirePostgres();
-        dataSource = new EmbeddedDataSource(
+        dataSource = new DriverManagerDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
         MetadataSchemaInitializer.createSchema(dataSource);
         RegistryTestSchemaHelper.truncateAll(dataSource, "coordinator_registry");
@@ -68,7 +68,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
         @DisplayName("HA service start() registers coordinator → DB row exists → getAllCoordinators returns it")
         void start_registersCoordinator() {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             ha.setCoordinatorRegistry(registry, "host-a", 8080);
             try {
                 ha.start("coordinator-a");
@@ -99,7 +99,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
         @DisplayName("Coordinator-A starts → tryBecomeLeader → updateRole(LEADER) → getLeader() returns it")
         void leaderElection_updatesRoleInRegistry() {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             ha.setCoordinatorRegistry(registry, "host-a", 8080);
             try {
                 ha.start("coordinator-a");
@@ -130,9 +130,9 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
         @DisplayName("Two coordinators start → each registers → only one LEADER → getAllCoordinators returns 2")
         void dualCoordinator_onlyOneLeader() {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haA.setCoordinatorRegistry(registry, "host-a", 8080);
-            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haB.setCoordinatorRegistry(registry, "host-b", 8081);
             try {
                 haA.start("coordinator-a");
@@ -173,7 +173,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
         @DisplayName("Coordinator-A is LEADER → close() → Coordinator-B detects → tryBecomeLeader → getLeader returns B")
         void failover_newLeaderTakesOver() {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haA.setCoordinatorRegistry(registry, "host-a", 8080);
 
             // Coordinator-A becomes leader
@@ -187,7 +187,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
             assertThat(lease.currentHolder("coordinator_leader")).isEmpty();
 
             // Coordinator-B starts and takes over
-            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haB.setCoordinatorRegistry(registry, "host-b", 8081);
             try {
                 haB.start("coordinator-b");
@@ -218,7 +218,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
         @DisplayName("Coordinator-A is LEADER → stepDown → updateRole(STANDBY) → getLeader empty → B takes over")
         void demotion_leaderStepsDown() {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService haA = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             haA.setCoordinatorRegistry(registry, "host-a", 8080);
             try {
                 haA.start("coordinator-a");
@@ -241,7 +241,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
                 assertThat(leader).isEmpty();
 
                 // Coordinator-B takes over
-                HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config);
+                HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
                 haB.setCoordinatorRegistry(registry, "host-b", 8081);
                 try {
                     haB.start("coordinator-b");
@@ -278,7 +278,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
 
             // Register a fresh coordinator via HA service
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             ha.setCoordinatorRegistry(registry, "host-fresh", 8081);
             try {
                 ha.start("coordinator-fresh");
@@ -317,7 +317,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
         @DisplayName("getLeader() returns leader's host + httpPort → verify endpoint info correct")
         void clientRouting_leaderEndpointCorrect() {
             CoordinationConfig config = new CoordinationConfig(LEASE_MS, HEARTBEAT_MS);
-            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config);
+            HighAvailabilityCoordinationService ha = new HighAvailabilityCoordinationService(lease, config, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
             ha.setCoordinatorRegistry(registry, "coordinator-host.example.com", 9443);
             try {
                 ha.start("coordinator-primary");

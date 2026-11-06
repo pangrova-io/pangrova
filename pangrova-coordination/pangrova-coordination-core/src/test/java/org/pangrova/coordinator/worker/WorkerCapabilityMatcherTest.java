@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.worker;
 
-import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
+import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
 import org.pangrova.scheduler.api.placement.HealthState;
 
 import com.google.protobuf.ByteString;
@@ -44,15 +44,15 @@ class WorkerCapabilityMatcherTest {
                 .build();
 
         assertThat(WorkerCapabilityMatcher.supports(
-                worker, planRef, format("native-build-a"))).isTrue();
+                worker.capabilityInventory(), planRef, format("native-build-a"))).isTrue();
         assertThat(WorkerCapabilityMatcher.supports(
-                worker, planRef, format("native-build-b"))).isFalse();
+                worker.capabilityInventory(), planRef, format("native-build-b"))).isFalse();
         assertThat(WorkerCapabilityMatcher.supports(
-                worker, planRef.toBuilder()
+                worker.capabilityInventory(), planRef.toBuilder()
                         .setImplementationBuildId("native-build-b").build(), null))
                 .isFalse();
         assertThat(WorkerCapabilityMatcher.supports(
-                worker, planRef.toBuilder()
+                worker.capabilityInventory(), planRef.toBuilder()
                         .setSignatureSha256(FORMAT_SCHEMA).build(), null))
                 .isFalse();
     }
@@ -61,7 +61,7 @@ class WorkerCapabilityMatcherTest {
     void rejectsIncompletePlanIdentityInsteadOfFallingBackToStringCapability() {
         WorkerInfo worker = workerWith(capability("native-build-a", format("native-build-a")));
         assertThatThrownBy(() -> WorkerCapabilityMatcher.supports(
-                worker, CapabilityRef.newBuilder()
+                worker.capabilityInventory(), CapabilityRef.newBuilder()
                         .setCapabilityId("pangrova.artifact.build.diskann")
                         .build(), null))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -106,9 +106,9 @@ class WorkerCapabilityMatcherTest {
                 .build();
 
         assertThat(WorkerCapabilityMatcher.supports(
-                worker, List.of(binding))).isTrue();
+                worker.capabilityInventory(), List.of(binding))).isTrue();
         assertThat(WorkerCapabilityMatcher.supports(
-                worker, List.of(binding.toBuilder().setModel(
+                worker.capabilityInventory(), List.of(binding.toBuilder().setModel(
                         binding.getModel().toBuilder().setModel(
                                 model.toBuilder().setVersion("v8"))).build())))
                 .isFalse();
@@ -127,13 +127,29 @@ class WorkerCapabilityMatcherTest {
                         .setFormat(format("native-build-a")))
                 .build();
 
-        assertThat(WorkerCapabilityMatcher.supports(worker, List.of(matching)))
+        assertThat(WorkerCapabilityMatcher.supports(worker.capabilityInventory(), List.of(matching)))
                 .isTrue();
-        assertThat(WorkerCapabilityMatcher.supports(worker, List.of(
+        assertThat(WorkerCapabilityMatcher.supports(worker.capabilityInventory(), List.of(
                 matching.toBuilder().setOutputArtifact(
                         matching.getOutputArtifact().toBuilder()
                                 .setFormat(format("native-build-b"))).build())))
                 .isFalse();
+    }
+
+    @Test
+    void outputWriterSupportCannotHideAnUnsupportedInputFormat() {
+        var advertised = capability("native-build-a", format("native-build-a"));
+        var worker = workerWith(advertised);
+        var input = org.pangrova.protocol.v2.ArtifactBinding.newBuilder()
+                .setFormat(format("native-build-b"));
+        var binding = OperatorBinding.newBuilder().setPlanNodeId("read-and-write")
+                .setCapability(advertised.getRef())
+                .setOutputArtifact(ArtifactWriteBinding.newBuilder().setFormat(format("native-build-a")))
+                .addArtifacts(input).build();
+        assertThat(WorkerCapabilityMatcher.supports(worker.capabilityInventory(), List.of(binding))).isFalse();
+        var compatible = binding.toBuilder().setArtifacts(0,
+                input.setFormat(format("native-build-a"))).build();
+        assertThat(WorkerCapabilityMatcher.supports(worker.capabilityInventory(), List.of(compatible))).isTrue();
     }
 
     private static CapabilityDescriptor capability(

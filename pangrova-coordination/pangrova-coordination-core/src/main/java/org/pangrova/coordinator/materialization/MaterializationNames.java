@@ -5,7 +5,7 @@ import java.util.regex.Pattern;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.QualifiedName;
-import org.pangrova.parser.ast.Identifier;
+import org.pangrova.parser.api.ast.Identifier;
 
 /** Resolves SQL identifiers to tenant-scoped materialization identities. */
 final class MaterializationNames {

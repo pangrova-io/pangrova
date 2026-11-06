@@ -17,44 +17,44 @@ class StageEdgeTest {
     @Test
     void defaultFormatIsCanonicalAndUnboundOrUnknownFormatsAreRejected() {
         var format = org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH;
-        assertEquals(format, new StageEdge(0, 1, org.pangrova.planner.ShuffleType.SINGLETON).batchSerde());
+        assertEquals(format, new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.SINGLETON).batchSerde());
         for (var invalid : List.of(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_UNSPECIFIED,
                 org.pangrova.protocol.v2.BatchSerde.UNRECOGNIZED)) {
             assertThrows(IllegalArgumentException.class, () -> new StageEdge(0, 1,
-                    org.pangrova.planner.ShuffleType.SINGLETON, List.of(), "exchange", 1, invalid, true));
+                    org.pangrova.planner.core.analysis.ShuffleType.SINGLETON, List.of(), "exchange", 1, invalid, true));
         }
         assertThrows(IllegalArgumentException.class, () -> new StageEdge(0, 1,
-                org.pangrova.planner.ShuffleType.SINGLETON, List.of(), "exchange", 1, null, true));
+                org.pangrova.planner.core.analysis.ShuffleType.SINGLETON, List.of(), "exchange", 1, null, true));
     }
 
     @Test
     void hashDistributionMapsToBlocking() {
-        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
+        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.HASH);
         assertEquals(ExchangeReadMode.BLOCKING, edge.readMode());
     }
 
     @Test
     void rangeDistributionMapsToBlocking() {
-        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.RANGE);
+        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.RANGE);
         assertEquals(ExchangeReadMode.BLOCKING, edge.readMode());
     }
 
     @Test
     void completeBroadcastDistributionMapsToBlocking() {
-        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.BROADCAST);
+        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.BROADCAST);
         assertEquals(ExchangeReadMode.BLOCKING, edge.readMode());
     }
 
     @Test
     void completeSingletonDistributionMapsToBlocking() {
-        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.SINGLETON);
+        StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.SINGLETON);
         assertEquals(ExchangeReadMode.BLOCKING, edge.readMode());
     }
 
     @Test
     void onlyExplicitlyIncompleteSingletonOrBroadcastCanStream() {
-        for (var distribution : List.of(org.pangrova.planner.ShuffleType.SINGLETON,
-                org.pangrova.planner.ShuffleType.BROADCAST)) {
+        for (var distribution : List.of(org.pangrova.planner.core.analysis.ShuffleType.SINGLETON,
+                org.pangrova.planner.core.analysis.ShuffleType.BROADCAST)) {
             var edge = new StageEdge(0, 1, distribution, List.of(), "stream", 1,
                     org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
             assertEquals(ExchangeReadMode.STREAMING, edge.readMode());
@@ -69,8 +69,8 @@ class StageEdgeTest {
 
     @Test
     void dagGetEdgeReadModeWithMetadata() {
-        StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
-        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST);
+        StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.core.analysis.ShuffleType.HASH);
+        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.core.analysis.ShuffleType.BROADCAST);
         StageDAG dag = StageDAG.fromNodes(List.of(), Map.of(), List.of(hashEdge, broadcastEdge));
 
         assertEquals(ExchangeReadMode.BLOCKING, dag.getEdgeReadMode(0, 1));

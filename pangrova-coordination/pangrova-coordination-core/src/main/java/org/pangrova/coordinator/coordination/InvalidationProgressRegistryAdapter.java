@@ -2,9 +2,9 @@ package org.pangrova.coordinator.coordination;
 
 import java.time.Duration;
 
-import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
-import org.pangrova.spi.coordination.CoordinatorSnapshot;
-import org.pangrova.metadata.api.cache.InvalidationProgressRegistry;
+import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
+import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
+import org.pangrova.metadata.spi.cache.InvalidationProgressRegistry;
 
 /** Adapts the coordinator registry to Metadata's invalidation-progress port. */
 public final class InvalidationProgressRegistryAdapter implements InvalidationProgressRegistry {

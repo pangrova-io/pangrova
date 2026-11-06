@@ -19,15 +19,22 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-api</artifactId>
-        </dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId></dependency>
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-api</artifactId></dependency>
+
+  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-jdbc</artifactId>
+            <artifactId>pangrova-ai-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-jdbc-support</artifactId>
+        </dependency>
+
 
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -37,14 +44,7 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
-        </dependency>
+
 
         <!-- Test -->
 

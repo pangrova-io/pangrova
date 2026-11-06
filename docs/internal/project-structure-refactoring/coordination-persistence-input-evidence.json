@@ -1,0 +1,69 @@
+{
+  "Native": {
+    "baseline_text_files": 744,
+    "changed": []
+  },
+  "Native Bridge": {
+    "baseline_text_files": 60,
+    "changed": []
+  },
+  "Protocol": {
+    "baseline_text_files": 273,
+    "changed": []
+  },
+  "Schema": {
+    "baseline_text_files": 99,
+    "changed": [
+      "pangrova-schema-migrations/src/main/resources/META-INF/pangrova/schema-migrations.tsv",
+      "pangrova-schema-migrations/README.md"
+    ],
+    "unchanged_prior_sql_files": 96,
+    "new_canonical_resource": "pangrova-schema-migrations/src/main/resources/db/migration/V106__cluster_concurrency_authority.sql"
+  },
+  "Shuffle": {
+    "baseline_text_files": 162,
+    "changed": []
+  },
+  "Client": {
+    "baseline_text_files": 81,
+    "changed": []
+  },
+  "Server": {
+    "baseline_text_files": 143,
+    "changed": [
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorLeaseBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/SelfIntelligenceBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/HighAvailabilityBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorShutdownSequence.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryRuntimeWiring.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/ModuleIntegrationBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/IndexingBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/SecurityBootstrap.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/task/NativeReportDeliveryFixture.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/DistributedScenarioTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/PipelineIntegrationTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/worker/WorkerHealthConfigurableThresholdsTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/http/endpoint/catalog/CatalogRestResourceTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/http/InternalAuthSecretWiringTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/lifecycle/PangrovaCoordinatorStopTimingTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/integration/bootstrap/WorkerBootstrapControlFixture.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/property/dispatch/SpillBudgetPropagationPropertyTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/SecurityChainTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/PlannerWiringSessionIntegrationTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/MaintenanceLeadershipBootstrapTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/HaLeaseBackendFallbackTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/LeaderLifecycleMaintenanceSingletonTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/HighAvailabilityBootstrapFailoverCallbackTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/JournalRecoveryLeadershipGateTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/OperationsChainTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/QueryDurableRecoveryWiringTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/HighAvailabilityBootstrapShutdownCloseTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/IndexingBootstrapStartOrderingTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/NativeDatasetControlBootstrapTest.java",
+      "pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/bootstrap/WriteCommitWiringActiveActiveTest.java",
+      "pangrova-server/pangrova-server-coordinator/pom.xml"
+    ]
+  }
+}

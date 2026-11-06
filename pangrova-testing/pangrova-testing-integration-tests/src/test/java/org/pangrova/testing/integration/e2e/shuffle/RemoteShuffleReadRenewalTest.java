@@ -9,8 +9,8 @@ import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.shuffle.api.ShuffleAccess;
 import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
-import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -54,7 +54,7 @@ class RemoteShuffleReadRenewalTest extends ContainerTestBase {
     private static void verifyRollover(ActualShuffleService service, ExternalShuffleTransport binding,
             byte[] first, byte[] second, org.pangrova.protocol.v2.ShuffleAccessCapability shortGrant) {
         try (var pool = service.clientPool();
-             var source = new RemoteShuffleExchangeSource(binding, pool.borrow(binding.selectedEndpoint()))) {
+             var source = new RemoteShuffleExchangeSource(ActualShuffleService.partitionRead(binding), binding.readAccess(), pool.borrow(binding.selectedEndpoint()))) {
             assertThat(source.nextVerifiedChunk().getData().toByteArray()).isEqualTo(first);
             assertThat(source.lastCompletedSequence()).isZero();
             await().atMost(Duration.ofSeconds(20)).until(() ->

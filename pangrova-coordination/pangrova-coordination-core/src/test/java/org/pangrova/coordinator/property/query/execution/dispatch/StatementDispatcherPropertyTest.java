@@ -1,20 +1,24 @@
 package org.pangrova.coordinator.property.query.execution.dispatch;
 
+import org.pangrova.query.core.statement.StatementClassifier;
+
+import org.pangrova.query.api.statement.StatementCategory;
+
 import net.jqwik.api.*;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.*;
-import org.pangrova.parser.ast.*;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.statement.*;
-import org.pangrova.parser.ast.statement.dml.*;
-import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.parser.ast.statement.maintenance.CallStatement;
-import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
-import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
-import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
-import org.pangrova.parser.ast.statement.stream.*;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.*;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.statement.*;
+import org.pangrova.parser.api.ast.statement.dml.*;
+import org.pangrova.parser.api.ast.type.DataTypeSpec;
+import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.CompactStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement;
+import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
+import org.pangrova.parser.api.ast.statement.stream.*;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -26,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Property-based tests for the unified statement dispatch path.
  *
- * <p>Verifies that {@link StatementCategory#categorize(Statement)} correctly
+ * <p>Verifies that {@link StatementClassifier#categorize(Statement)} correctly
  * delegates to {@code StatementClassifier} and returns the expected category
  * for every known statement type.</p>
  *
@@ -55,13 +59,13 @@ class StatementDispatcherPropertyTest {
         return qualifiedNames().flatMap(name -> Arbitraries.of(
                 new CreateTableStatement(
                         name,
-                        List.of(new CreateTableStatement.ColumnDefinition("id", DataTypeSpec.fromRawTypeString("INTEGER"))),
+                        List.of(new CreateTableStatement.ColumnDefinition("id", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("INTEGER"))),
                         false, List.of(), List.of(), Optional.empty(), Map.of()),
                 new DropTableStatement(name, false),
-                new AlterTableStatement.AddColumn(name, "col", DataTypeSpec.fromRawTypeString("VARCHAR")),
+                new AlterTableStatement.AddColumn(name, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VARCHAR")),
                 new AlterTableStatement.DropColumn(name, "col"),
                 new AlterTableStatement.RenameColumn(name, "old", "new_col"),
-                new AlterTableStatement.ChangeColumnType(name, "col", DataTypeSpec.fromRawTypeString("BIGINT")),
+                new AlterTableStatement.ChangeColumnType(name, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT")),
                 new CreateSchemaStatement(Identifier.of("cat", "sch"), false),
                 new CreateCatalogStatement("catalog", Optional.of("iceberg"), Map.of()),
                 new DropCatalogStatement("catalog")
@@ -187,14 +191,14 @@ class StatementDispatcherPropertyTest {
     /**
      * Property 1: Classification delegation preserves semantics.
      *
-     * <p>For any DDL statement, {@code StatementCategory.categorize()} returns DDL.</p>
+     * <p>For any DDL statement, {@code StatementClassifier.categorize()} returns DDL.</p>
      *
      * <p><b>Validates: Requirements 1.1, 1.4, 1.5</b></p>
      */
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void ddlStatementsCategorizeToDdl(@ForAll("ddlStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("DDL %s must categorize to DDL", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.DDL);
     }
@@ -207,7 +211,7 @@ class StatementDispatcherPropertyTest {
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void dmlStatementsCategorizeToDml(@ForAll("dmlStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("DML %s must categorize to DML", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.DML);
     }
@@ -220,7 +224,7 @@ class StatementDispatcherPropertyTest {
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void showStatementsCategorizesToShow(@ForAll("showStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("SHOW %s must categorize to SHOW", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.SHOW);
     }
@@ -234,7 +238,7 @@ class StatementDispatcherPropertyTest {
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void maintenanceStatementsCategorizesToMaintenance(
             @ForAll("maintenanceStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("Maintenance %s must categorize to MAINTENANCE", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.MAINTENANCE);
     }
@@ -248,7 +252,7 @@ class StatementDispatcherPropertyTest {
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void dynamicTableStatementsCategorizesToDynamicTable(
             @ForAll("dynamicTableStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("DT %s must categorize to DYNAMIC_TABLE", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.DYNAMIC_TABLE);
     }
@@ -262,7 +266,7 @@ class StatementDispatcherPropertyTest {
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void unsupportedStatementsCategorizesToUnknown(
             @ForAll("unsupportedStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("Unsupported %s must categorize to UNKNOWN", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.UNKNOWN);
     }
@@ -275,7 +279,7 @@ class StatementDispatcherPropertyTest {
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void indexStatementsCategorizesToIndex(@ForAll("indexStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("Index %s must categorize to INDEX", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.INDEX);
     }
@@ -289,7 +293,7 @@ class StatementDispatcherPropertyTest {
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void clusteringStatementsCategorizesToClustering(
             @ForAll("clusteringStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("Clustering %s must categorize to CLUSTERING", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.CLUSTERING);
     }
@@ -302,7 +306,7 @@ class StatementDispatcherPropertyTest {
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void tenantStatementsCategorizesToTenant(@ForAll("tenantStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("Tenant %s must categorize to TENANT", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.TENANT);
     }
@@ -315,7 +319,7 @@ class StatementDispatcherPropertyTest {
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void streamStatementsCategorizesToStream(@ForAll("streamStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("Stream %s must categorize to STREAM", stmt.getClass().getSimpleName())
                 .isEqualTo(StatementCategory.STREAM);
     }
@@ -328,7 +332,7 @@ class StatementDispatcherPropertyTest {
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 1: Classification delegation preserves semantics")
     void explainStatementsCategorizesToExplain(@ForAll("explainStatements") Statement stmt) {
-        assertThat(StatementCategory.categorize(stmt))
+        assertThat(StatementClassifier.categorize(stmt))
                 .as("EXPLAIN must categorize to EXPLAIN")
                 .isEqualTo(StatementCategory.EXPLAIN);
     }
@@ -345,7 +349,7 @@ class StatementDispatcherPropertyTest {
                 List.of(new TableRef(name)),
                 Optional.empty(), List.of(), Optional.empty(),
                 List.of(), Optional.empty());
-        assertThat(StatementCategory.categorize(query))
+        assertThat(StatementClassifier.categorize(query))
                 .as("Plain SELECT must categorize to QUERY")
                 .isEqualTo(StatementCategory.QUERY);
     }
@@ -420,12 +424,12 @@ class StatementDispatcherPropertyTest {
         return qualifiedNames().flatMap(name -> Arbitraries.of(
                 new CreateTableStatement(
                         name,
-                        List.of(new CreateTableStatement.ColumnDefinition("id", DataTypeSpec.fromRawTypeString("INTEGER"))),
+                        List.of(new CreateTableStatement.ColumnDefinition("id", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("INTEGER"))),
                         false, List.of(), List.of(), Optional.empty(), Map.of()),
-                new AlterTableStatement.AddColumn(name, "col", DataTypeSpec.fromRawTypeString("VARCHAR")),
+                new AlterTableStatement.AddColumn(name, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("VARCHAR")),
                 new AlterTableStatement.DropColumn(name, "col"),
                 new AlterTableStatement.RenameColumn(name, "old", "new_col"),
-                new AlterTableStatement.ChangeColumnType(name, "col", DataTypeSpec.fromRawTypeString("BIGINT"))
+                new AlterTableStatement.ChangeColumnType(name, "col", org.pangrova.parser.core.build.type.RawSqlTypeParser.parse("BIGINT"))
         ));
     }
 
@@ -471,7 +475,7 @@ class StatementDispatcherPropertyTest {
     void deleteInvokesCheckCanDeleteFromTable(
             @ForAll("deleteStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         assertThat(recorder.calls)
                 .as("DELETE must invoke checkCanDeleteFromTable")
@@ -488,7 +492,7 @@ class StatementDispatcherPropertyTest {
     void updateAndUpdateOnlyMergeInvokeOnlyUpdatePrivilege(
             @ForAll("updateMergeStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         assertThat(recorder.calls)
                 .as("Physical overwrite must not widen SQL UPDATE permission requirements")
@@ -505,7 +509,7 @@ class StatementDispatcherPropertyTest {
     void insertInvokesCheckCanInsertIntoTable(
             @ForAll("insertStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         assertThat(recorder.calls)
                 .as("INSERT must invoke checkCanInsertIntoTable")
@@ -522,7 +526,7 @@ class StatementDispatcherPropertyTest {
     void dropTableInvokesCheckCanDropTable(
             @ForAll("dropTableStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         assertThat(recorder.calls)
                 .as("DROP TABLE must invoke checkCanDropTable")
@@ -539,7 +543,7 @@ class StatementDispatcherPropertyTest {
     void ddlNonDropInvokesItsExactPrivilege(
             @ForAll("ddlNonDropWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         assertThat(recorder.calls)
                 .as("CREATE and ALTER must invoke their exact privilege")
@@ -554,7 +558,7 @@ class StatementDispatcherPropertyTest {
                 : new DropCatalogStatement("catalog");
         var recorder = new RecordingAccessControl();
         PermissionChecker.check(statement,
-                new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+                new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
         assertThat(recorder.calls).containsExactly(create
                 ? "checkCanCreateCatalog" : "checkCanDropCatalog");
     }
@@ -569,7 +573,7 @@ class StatementDispatcherPropertyTest {
     void indexInvokesCheckCanAlterTable(
             @ForAll("indexWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         assertThat(recorder.calls)
                 .as("INDEX must invoke checkCanAlterTable")
@@ -586,7 +590,7 @@ class StatementDispatcherPropertyTest {
     void clusteringInvokesCheckCanAlterTable(
             @ForAll("clusteringWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         assertThat(recorder.calls)
                 .as("CLUSTERING must invoke checkCanAlterTable")
@@ -603,7 +607,7 @@ class StatementDispatcherPropertyTest {
     void dynamicTableInvokesCheckCanAlterTable(
             @ForAll("dynamicTableWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        PermissionChecker.check(stmt, new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()), recorder);
 
         String permission = stmt instanceof CreateDynamicTableStatement ? "checkCanCreateTable"
                 : stmt instanceof DropDynamicTableStatement ? "checkCanDropTable" : "checkCanAlterTable";
@@ -633,51 +637,33 @@ class StatementDispatcherPropertyTest {
         );
     }
 
-    /**
-     * Property 3 (null AccessControl): When AccessControl is null,
-     * PermissionChecker.check() completes without throwing for ANY statement type.
-     *
-     * <p><b>Validates: Requirements 2.3</b></p>
-     */
+    /** Existing nullable bootstrap behavior does not authorize tenant membership administration. */
     @Property(tries = 100)
-    @Tag("Feature: statement-routing-unification, Property 3: Null access control skips permission checks")
-    void nullAccessControlSkipsPermissionChecks(
-            @ForAll("allStatements") Statement stmt) {
-        // Must not throw — null AccessControl means skip
-        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), null);
+    void missingAccessControlRejectsTenantAdministration(@ForAll("allStatements") Statement stmt) {
+        var session = new QuerySession("permission-query", Map.of(), TEST_USER, "tenant-a",
+                java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
+        assertMissingAuthorityBehavior(stmt, session, null);
     }
 
-    /**
-     * Property 3 (null UserIdentity): When UserIdentity is null,
-     * PermissionChecker.check() completes without throwing for ANY statement type.
-     *
-     * <p><b>Validates: Requirements 2.3</b></p>
-     */
     @Property(tries = 100)
-    @Tag("Feature: statement-routing-unification, Property 3: Null access control skips permission checks")
-    void nullUserIdentitySkipsPermissionChecks(
-            @ForAll("allStatements") Statement stmt) {
+    void missingIdentityRejectsTenantAdministration(@ForAll("allStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        // Must not throw — null UserIdentity means skip
-        PermissionChecker.check(stmt, null, recorder);
-        // No permission methods should have been called
-        assertThat(recorder.calls)
-                .as("No permission checks when UserIdentity is null")
-                .isEmpty();
+        assertMissingAuthorityBehavior(stmt, null, recorder);
+        assertThat(recorder.calls).as("No provider call can authorize an anonymous identity").isEmpty();
     }
 
-    /**
-     * Property 3 (both null): When BOTH AccessControl and UserIdentity are null,
-     * PermissionChecker.check() completes without throwing for ANY statement type.
-     *
-     * <p><b>Validates: Requirements 2.3</b></p>
-     */
     @Property(tries = 100)
-    @Tag("Feature: statement-routing-unification, Property 3: Null access control skips permission checks")
-    void bothNullSkipsPermissionChecks(
-            @ForAll("allStatements") Statement stmt) {
-        // Must not throw — both null means skip
-        PermissionChecker.check(stmt, null, null);
+    void missingIdentityAndProviderRejectTenantAdministration(@ForAll("allStatements") Statement stmt) {
+        assertMissingAuthorityBehavior(stmt, null, null);
+    }
+
+    private static void assertMissingAuthorityBehavior(Statement stmt, QuerySession session, AccessControl control) {
+        if (stmt instanceof GrantTenantStatement || stmt instanceof RevokeTenantStatement) {
+            assertThatThrownBy(() -> PermissionChecker.check(stmt, session, control))
+                    .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class);
+        } else {
+            PermissionChecker.check(stmt, session, control);
+        }
     }
 
     // ── Property 4: Routing completeness ──
@@ -754,7 +740,7 @@ class StatementDispatcherPropertyTest {
 
         assertThatThrownBy(() -> dispatcher.executeDirect(
                 stmt, null, "q-unsupported",
-                new CoordinatorSessionContext("q-unsupported", Map.of(), TEST_USER, null)))
+                new QuerySession("q-unsupported", Map.of(), TEST_USER, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())))
                 .as("Unsupported %s must be rejected", stmt.getClass().getSimpleName())
                 .isInstanceOfAny(
                         UnsupportedOperationException.class,
@@ -793,7 +779,7 @@ class StatementDispatcherPropertyTest {
         // executeDirect with null QueryStateMachine — factory executes, events fire
         dispatcher.executeDirect(
                 stmt, null, "q-direct",
-                new CoordinatorSessionContext("q-direct", Map.of(), null, null));
+                new QuerySession("q-direct", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
 
         // Verify factory executed and completion event fired
         assertThat(recordingListener.events)
@@ -824,7 +810,7 @@ class StatementDispatcherPropertyTest {
         String queryId = "q-completion-" + stmt.getClass().getSimpleName();
         dispatcher.executeDirect(
                 stmt, null, queryId,
-                new CoordinatorSessionContext(queryId, Map.of(), null, null));
+                new QuerySession(queryId, Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
 
         // Both listeners must have received exactly one event
         assertThat(listener1.events)
@@ -890,9 +876,9 @@ class StatementDispatcherPropertyTest {
         tasks.put(DescribeTableStatement.class, noOp);
         tasks.put(ShowCatalogsStatement.class, noOp);
         // Maintenance
-        tasks.put(org.pangrova.parser.ast.statement.maintenance.CompactStatement.class, noOp);
-        tasks.put(org.pangrova.parser.ast.statement.maintenance.VacuumStatement.class, noOp);
-        tasks.put(org.pangrova.parser.ast.statement.maintenance.OptimizeStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.maintenance.CompactStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement.class, noOp);
         // Dynamic table
         tasks.put(CreateDynamicTableStatement.class, noOp);
         tasks.put(CreateContinuousQueryStatement.class, noOp);
@@ -913,11 +899,11 @@ class StatementDispatcherPropertyTest {
         tasks.put(GrantTenantStatement.class, noOp);
         tasks.put(RevokeTenantStatement.class, noOp);
         // Stream
-        tasks.put(org.pangrova.parser.ast.statement.stream.CreateStreamStatement.class, noOp);
-        tasks.put(org.pangrova.parser.ast.statement.stream.AlterStreamStatement.class, noOp);
-        tasks.put(org.pangrova.parser.ast.statement.stream.DropStreamStatement.class, noOp);
-        tasks.put(org.pangrova.parser.ast.statement.stream.ShowStreamsStatement.class, noOp);
-        tasks.put(org.pangrova.parser.ast.statement.stream.DescribeStreamStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.stream.AlterStreamStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.stream.DropStreamStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.stream.ShowStreamsStatement.class, noOp);
+        tasks.put(org.pangrova.parser.api.ast.statement.stream.DescribeStreamStatement.class, noOp);
         // Unsupported (registered so they appear in registry but rejected by rejectUnsupported)
         tasks.put(DescribeCatalogStatement.class, noOp);
         tasks.put(AlterCatalogStatement.class, noOp);
@@ -999,6 +985,14 @@ class StatementDispatcherPropertyTest {
 
         final List<String> calls = new ArrayList<>();
 
+        @Override
+        public void checkCanCreateView(UserIdentity u, String c, String s, String v, boolean replace) {
+            calls.add("checkCanCreateView");
+        }
+        @Override
+        public void checkCanDropView(UserIdentity u, String c, String s, String v) {
+            calls.add("checkCanDropView");
+        }
         @Override
         public void checkCanUpdateTable(UserIdentity user, String catalog, String schema, String table) {
             calls.add("checkCanUpdateTable");

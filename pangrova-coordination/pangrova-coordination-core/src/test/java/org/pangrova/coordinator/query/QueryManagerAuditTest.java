@@ -1,28 +1,34 @@
 package org.pangrova.coordinator.query;
-import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore;
-import org.pangrova.query.audit.QueryAuditService;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore;
+import org.pangrova.query.core.audit.QueryAuditService;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.spi.security.audit.AuditEventWriter;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.planner.core.analysis.PangrovaPlanner;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.security.spi.audit.AuditEventWriter;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -55,7 +61,7 @@ class QueryManagerAuditTest {
     void emitsSubmittedAndFailedWhenConstantQueryHasNoWorker() throws Exception {
         var captured = new CopyOnWriteArrayList<AuditEvent>();
         QueryManager qm = buildAuditQueryManager(captured);
-        CoordinatorSessionContext session = session("q-audit-1");
+        QuerySession session = session("q-audit-1");
 
         assertThatThrownBy(() -> qm.submitQuery("q-audit-1", "SELECT 1 + 2", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
@@ -72,7 +78,7 @@ class QueryManagerAuditTest {
         assertThat(captured.get(0).principal()).isEqualTo("fixture-subject");
         assertThat(captured.get(1).principal()).isEqualTo("fixture-subject");
         assertThat(captured.get(1).properties()).containsEntry("tenant_id", "fixture-tenant");
-        assertThat(qm.getQueryState("q-audit-1")).contains(QueryStateMachine.State.FAILED);
+        assertThat(qm.getQueryState("q-audit-1")).contains(QueryState.FAILED);
     }
 
     @Test
@@ -81,9 +87,9 @@ class QueryManagerAuditTest {
         QueryManager qm = buildAuditQueryManager(captured);
         QueryStateMachine sm = new QueryStateMachine();
         qm.registerStateMachine("q-audit-complete", sm);
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
 
         qm.onAllTasksFinished("q-audit-complete");
         awaitEvents(captured, 1, 5);
@@ -92,7 +98,7 @@ class QueryManagerAuditTest {
         assertThat(captured.get(0).eventType()).isEqualTo(AuditEventType.QUERY_COMPLETED);
         assertThat(captured.get(0).success()).isTrue();
         assertThat(qm.getQueryState("q-audit-complete"))
-                .contains(QueryStateMachine.State.FINISHED);
+                .contains(QueryState.FINISHED);
     }
 
     @Test
@@ -103,13 +109,13 @@ class QueryManagerAuditTest {
         // This component fixture exercises task-failure audit delivery, not Native SQL execution.
         QueryStateMachine sm = new QueryStateMachine();
         qm.registerStateMachine("q-audit-2", sm);
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         captured.clear();
 
         // Simulate task failure
-        qm.onTaskFailed("q-audit-2", new ErrorDetail("INTERNAL", "INTERNAL", "simulated failure"));
+        qm.onTaskFailed("q-audit-2", new QueryFailure("INTERNAL", "INTERNAL", "simulated failure"));
         awaitEvents(captured, 1, 5);
 
         assertThat(captured).hasSize(1);
@@ -122,18 +128,18 @@ class QueryManagerAuditTest {
     @Test
     void noAuditEmittedWhenEmitterIsNull() {
         QueryManager qm = buildQueryManagerWithoutAudit();
-        CoordinatorSessionContext session = session("q-audit-3");
+        QuerySession session = session("q-audit-3");
 
         assertThatThrownBy(() -> qm.submitQuery("q-audit-3", "SELECT 1", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
-        assertThat(qm.getQueryState("q-audit-3")).contains(QueryStateMachine.State.FAILED);
+        assertThat(qm.getQueryState("q-audit-3")).contains(QueryState.FAILED);
     }
 
     @Test
     void emitsTableAccessedAuditEvent() throws Exception {
         var captured = new CopyOnWriteArrayList<AuditEvent>();
         QueryManager qm = buildAuditQueryManager(captured);
-        CoordinatorSessionContext session = new CoordinatorSessionContext("q-audit-4", Map.of(), null, null);
+        QuerySession session = new QuerySession("q-audit-4", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         qm.emitTableAccessedAudit("q-audit-4", "iceberg_catalog", "db", "orders", session);
         awaitEvents(captured, 1, 5);
@@ -151,10 +157,10 @@ class QueryManagerAuditTest {
     void auditPrincipalIsAnonymousWhenNoIdentity() throws Exception {
         var captured = new CopyOnWriteArrayList<AuditEvent>();
         QueryManager qm = buildAuditQueryManager(captured);
-        CoordinatorSessionContext session = new CoordinatorSessionContext("q-audit-5", Map.of(), null, null);
+        QuerySession session = new QuerySession("q-audit-5", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         assertThatThrownBy(() -> qm.submitQuery("q-audit-5", "SELECT 1", session))
-                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class);
         awaitEvents(captured, 2, 5);
 
         assertThat(captured.get(0).principal()).isEqualTo("anonymous");
@@ -170,19 +176,19 @@ class QueryManagerAuditTest {
         QueryManagerContext deps = new QueryManagerContext(
                 orchestrator, TestObservability.TRACING,
                 null, null, null, null, emitter, auditService, null, null,
-                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(), null);
+                new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         return new QueryManager(deps);
     }
 
     private QueryManager buildQueryManagerWithoutAudit() {
-        return new QueryManager(QueryManagerContext.minimal(buildOrchestrator(), TestObservability.TRACING));
+        return new QueryManager(QueryManagerTestContexts.minimal(buildOrchestrator(), TestObservability.TRACING));
     }
 
     private static QueryDispatcher buildOrchestrator() {
         SqlCompiler compiler = new SqlCompiler(
                 new PangrovaPlanner(), new SubstraitConverter(),
                 new SubstraitPlanSerializer());
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         return new QueryDispatcher(
                 withPolicies(QueryDispatcherContext.withDefaults(

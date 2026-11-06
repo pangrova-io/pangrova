@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.shuffle;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
-import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

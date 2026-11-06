@@ -1,22 +1,23 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.api.task.QuerySplit;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
 import org.pangrova.coordinator.query.execution.split.SplitAssignment;
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for file path extraction from ConnectorSplit via SplitFetcher.SplitWithPaths
+ * Tests for file path extraction from ConnectorSplit via QuerySplit
  * and SplitAssignment construction with file paths for cache affinity routing.
  */
 class SplitFilePathExtractionTest {
 
     @Test
     void splitWithPathsPreservesFilePaths() {
-        var swp = new SplitFetcher.SplitWithPaths("data", List.of("s3://bucket/file1.parquet"));
+        var swp = new QuerySplit("data", List.of("s3://bucket/file1.parquet"));
         assertThat(swp.serializedData()).isEqualTo("data");
         assertThat(swp.filePaths()).containsExactly("s3://bucket/file1.parquet");
     }
@@ -24,14 +25,14 @@ class SplitFilePathExtractionTest {
     @Test
     void splitWithPathsDefensiveCopy() {
         var paths = new java.util.ArrayList<>(List.of("s3://a", "s3://b"));
-        var swp = new SplitFetcher.SplitWithPaths("data", paths);
+        var swp = new QuerySplit("data", paths);
         paths.add("s3://c");
         assertThat(swp.filePaths()).hasSize(2);
     }
 
     @Test
     void splitWithPathsNullFilePathsDefaultsToEmpty() {
-        var swp = new SplitFetcher.SplitWithPaths("data", null);
+        var swp = new QuerySplit("data", null);
         assertThat(swp.filePaths()).isEmpty();
     }
 
@@ -71,16 +72,16 @@ class SplitFilePathExtractionTest {
 
     @Test
     void pullModeDispatchBuildsAssignmentsWithFilePaths() {
-        // Simulate what dispatchPullMode does: convert SplitWithPaths to SplitAssignment
-        List<SplitFetcher.SplitWithPaths> splitsWithPaths = List.of(
-                new SplitFetcher.SplitWithPaths("s0", List.of("s3://f0.parquet")),
-                new SplitFetcher.SplitWithPaths("s1", List.of("s3://f1.parquet")),
-                new SplitFetcher.SplitWithPaths("s2", List.of()));
+        // Simulate what dispatchPullMode does: convert QuerySplit to SplitAssignment
+        List<QuerySplit> splitsWithPaths = List.of(
+                new QuerySplit("s0", List.of("s3://f0.parquet")),
+                new QuerySplit("s1", List.of("s3://f1.parquet")),
+                new QuerySplit("s2", List.of()));
 
         long now = System.currentTimeMillis();
         List<SplitAssignment> assignments = new java.util.ArrayList<>();
         for (int i = 0; i < splitsWithPaths.size(); i++) {
-            SplitFetcher.SplitWithPaths swp = splitsWithPaths.get(i);
+            QuerySplit swp = splitsWithPaths.get(i);
             assignments.add(new SplitAssignment(i, swp.serializedData(), List.of(),
                     swp.filePaths(), now));
         }

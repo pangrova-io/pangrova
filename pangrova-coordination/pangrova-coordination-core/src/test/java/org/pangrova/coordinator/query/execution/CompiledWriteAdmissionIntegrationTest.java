@@ -2,9 +2,9 @@ package org.pangrova.coordinator.query.execution;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
@@ -71,8 +71,8 @@ class CompiledWriteAdmissionIntegrationTest extends ContainerTestBase {
         return new DmlWriteContext(SchedulingWriteFixture.TABLE, "INSERT", List.of(), Optional.of(compiled));
     }
 
-    private static CoordinatorSessionContext actor() {
-        return new CoordinatorSessionContext("compiled-write", Map.of(),
-                new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-1");
+    private static QuerySession actor() {
+        return new QuerySession("compiled-write", Map.of(),
+                new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH), "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 }

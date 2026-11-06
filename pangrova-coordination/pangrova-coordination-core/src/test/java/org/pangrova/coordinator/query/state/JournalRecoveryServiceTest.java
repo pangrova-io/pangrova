@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.state;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.sql.SQLException;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Tag;
@@ -7,22 +9,21 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.spi.query.state.QueryStateEvent;
-import org.pangrova.spi.query.state.StateJournalConfig;
-import org.pangrova.spi.query.state.TaskStateEvent;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,8 +36,8 @@ class JournalRecoveryServiceTest {
             fixture.query("q-1", "RUNNING");
             fixture.query("q-2", "SCHEDULING");
             assertThat(fixture.recovery.recover()).isEqualTo(2);
-            assertThat(fixture.manager.getQueryState("q-1")).contains(QueryStateMachine.State.RUNNING);
-            assertThat(fixture.manager.getQueryState("q-2")).contains(QueryStateMachine.State.SCHEDULING);
+            assertThat(fixture.manager.getQueryState("q-1")).contains(QueryState.RUNNING);
+            assertThat(fixture.manager.getQueryState("q-2")).contains(QueryState.SCHEDULING);
         }
     }
 
@@ -73,7 +74,7 @@ class JournalRecoveryServiceTest {
             assertThat(fixture.recovery.recover()).isZero();
             assertThat(fixture.manager.getQueryState("q-fail")).isEmpty();
             assertThat(fixture.manager.getQueryStateWithJournalFallback("q-fail"))
-                    .contains(QueryStateMachine.State.FAILED);
+                    .contains(QueryState.FAILED);
             assertThat(fixture.manager.getStateMachine("q-fail")).isNull();
             assertThat(fixture.queryRows("q-fail")).isEqualTo(2);
         }
@@ -85,7 +86,7 @@ class JournalRecoveryServiceTest {
             fixture.query("q-unknown", "RUNNING");
             fixture.task("q-unknown", "t-unknown", "missing-worker", "RUNNING", 1L);
             assertThat(fixture.recovery.recover()).isZero(); // One recovered, one logically failed.
-            assertThat(fixture.manager.getQueryState("q-unknown")).contains(QueryStateMachine.State.FAILED);
+            assertThat(fixture.manager.getQueryState("q-unknown")).contains(QueryState.FAILED);
             assertThat(fixture.manager.getStateMachine("q-unknown").getError())
                     .hasValueSatisfying(error -> assertThat(error.errorCode()).isEqualTo("RECOVERY_WORKER_DEAD"));
             assertThat(fixture.manager.awaitAllQueries(1)).isFalse();
@@ -100,9 +101,9 @@ class JournalRecoveryServiceTest {
         try (var fixture = new RecoveryFixture(false)) {
             fixture.query("q-no-task", "RUNNING");
             assertThat(fixture.recovery.recover()).isEqualTo(1);
-            fixture.manager.onTaskFailed("q-no-task", new ErrorDetail("RECOVERY_UNRESOLVED",
+            fixture.manager.onTaskFailed("q-no-task", new QueryFailure("RECOVERY_UNRESOLVED",
                     "ownership", "Journal history does not contain exact issued attempts"));
-            assertThat(fixture.manager.getQueryState("q-no-task")).contains(QueryStateMachine.State.FAILED);
+            assertThat(fixture.manager.getQueryState("q-no-task")).contains(QueryState.FAILED);
             assertThat(fixture.taskRows("q-no-task")).isZero();
             assertThat(fixture.manager.awaitAllQueries(1)).isFalse();
             assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);
@@ -123,19 +124,19 @@ class JournalRecoveryServiceTest {
         private RecoveryFixture(boolean checkWorkers) throws SQLException {
             var workers = new WorkerManager(5000, 15000, new InMemoryWorkerRegistry());
             var dispatcher = new QueryDispatcher(QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null,
-                    null, transport, new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker,
+                    null, transport, new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker,
                     null, null, null, 0L), null, null);
             manager = new QueryManager(new QueryManagerContext(dispatcher, TestObservability.TRACING,
-                    null, null, null, null, null, null, null, null, journal));
+                    null, null, null, null, null, null, null, null, journal, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
             recovery = new JournalRecoveryService(journal, manager, tracker, checkWorkers ? workers : null);
         }
 
         private void query(String query, String state) {
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), query, "SELECT 1", "{}", state));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), null), query, "SELECT 1", "{}", state));
         }
 
         private void task(String query, String task, String worker, String state, long sequence) {
-            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), query, task, worker, state, 0, sequence));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), null), query, task, worker, state, 0, sequence));
         }
 
         private int queryRows(String query) throws SQLException { return count("query_state_journal", query); }

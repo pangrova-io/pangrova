@@ -3,12 +3,12 @@ package org.pangrova.testing.integration.e2e.setup;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.plugin.ConnectorContext;
-import org.pangrova.spi.connector.plugin.ConnectorFactory;
-import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
-import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.ConnectorContext;
+import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

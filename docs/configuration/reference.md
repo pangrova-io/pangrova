@@ -22,6 +22,7 @@ descriptions live in the per-component pages.
 | `coordinator.ha.ddl-leader-routing` | `false` | Route DDL only to the leader |
 | `coordinator.query.timeout` | `"5m"` | Query execution timeout |
 | `coordinator.query.max-concurrent` | `100` | Max concurrent queries |
+| `coordinator.task.spill.max-bytes` | `0` | Per-task spill byte ceiling; requires `worker.spill.directory`; zero disables task spilling |
 | `coordinator.worker.heartbeat-timeout` | `"30s"` | Worker liveness timeout |
 | `coordinator.worker.max-retry` | `3` | Task dispatch retries per worker |
 | `state-store.type` | `IN_MEMORY` | State store backend: `IN_MEMORY` / `JDBC` |
@@ -47,7 +48,7 @@ descriptions live in the per-component pages.
 | `worker.transport.tls.root-ca-path` | `""` | Peer-verification PEM root CA |
 | `worker.transport.tls.identity` | `""` | Advertised certificate DNS identity |
 | `worker.copy.task-tls-port` | `0` | Dedicated mTLS COPY task-control port; `0` disables it, and a fixed port enables it for distributed deployment |
-| `worker.task.result-retention-seconds` | `300` | Result retention window |
+| `worker.task.result-retention-seconds` | `300` | Terminal task retention; earlier result authority expiry or resource drain still applies |
 | `worker.shuffle.buffer-capacity` | `100` | Batches per shuffle partition buffer |
 | `worker.shuffle.max-memory-bytes` | 512 MB | Total shuffle memory budget |
 | `worker.shuffle.spill-threshold` | `0.8` | Shuffle spill trigger ratio |

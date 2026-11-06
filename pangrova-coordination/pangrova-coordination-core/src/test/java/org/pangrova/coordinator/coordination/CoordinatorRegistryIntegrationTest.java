@@ -2,9 +2,9 @@ package org.pangrova.coordinator.coordination;
 
 import java.util.Optional;
 
-import org.pangrova.spi.coordination.CoordinatorSnapshot;
-import org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryCoordinatorRegistry;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +36,7 @@ class CoordinatorRegistryIntegrationTest {
     void setUp() {
         registry = new InMemoryCoordinatorRegistry();
         lease = new InMemoryDistributedLease();
-        haService = new HighAvailabilityCoordinationService(lease);
+        haService = new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         haService.setCoordinatorRegistry(registry, HOST, HTTP_PORT);
     }
 
@@ -109,7 +109,7 @@ class CoordinatorRegistryIntegrationTest {
         // checking that after a second coordinator takes over, the registry
         // reflects the new leader.
         HighAvailabilityCoordinationService haService2 =
-                new HighAvailabilityCoordinationService(lease);
+                new HighAvailabilityCoordinationService(lease, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
         InMemoryCoordinatorRegistry registry2 = registry; // shared registry
         haService2.setCoordinatorRegistry(registry2, "host-2", 9090);
         try {
@@ -142,7 +142,7 @@ class CoordinatorRegistryIntegrationTest {
     void noRegistrySetIsNoOp() {
         // Create HA service WITHOUT setting a registry — backward compatibility
         HighAvailabilityCoordinationService bareService =
-                new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
+                new HighAvailabilityCoordinationService(new InMemoryDistributedLease(), new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         // start and close should not throw even without a registry
         assertThatCode(() -> {

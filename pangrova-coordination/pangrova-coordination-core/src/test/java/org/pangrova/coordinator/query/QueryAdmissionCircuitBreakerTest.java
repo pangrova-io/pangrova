@@ -1,7 +1,11 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.pangrova.coordinator.query.admission.QueryRejectedException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -13,18 +17,18 @@ import java.util.UUID;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.resilience.config.ResilienceConfigLoader;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,7 +63,7 @@ class QueryAdmissionCircuitBreakerTest {
         QueryManagerContext ctx = new QueryManagerContext(
                 dispatcher, TestObservability.TRACING,
                 null, null, null, null, null, null,
-                resilienceRegistry, null, null, null);
+                resilienceRegistry, null, new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         queryManager = new QueryManager(ctx);
     }
 
@@ -85,7 +89,7 @@ class QueryAdmissionCircuitBreakerTest {
         for (int i = 0; i < 10; i++) {
             String queryId = registerRunningQuery();
             queryManager.onTaskFailed(queryId,
-                    new ErrorDetail("INTERNAL", "SIM", "simulated failure " + i));
+                    new QueryFailure("INTERNAL", "SIM", "simulated failure " + i));
         }
 
         // Breaker should now be OPEN — new queries must be rejected
@@ -95,7 +99,7 @@ class QueryAdmissionCircuitBreakerTest {
         // Verify that checkDegradation (called in submitQuery) rejects with clear message
         assertThatThrownBy(() -> queryManager.submitQuery(
                 "rejected-" + UUID.randomUUID(), "SELECT 1",
-                new CoordinatorSessionContext("q1", Map.of(), null, null)))
+                new QuerySession("q1", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())))
                 .isInstanceOf(QueryRejectedException.class)
                 .hasMessageContaining("system overloaded")
                 .hasMessageContaining("admission circuit breaker open");
@@ -112,7 +116,7 @@ class QueryAdmissionCircuitBreakerTest {
         for (int i = 0; i < 4; i++) {
             String queryId = registerRunningQuery();
             queryManager.onTaskFailed(queryId,
-                    new ErrorDetail("INTERNAL", "SIM", "failure " + i));
+                    new QueryFailure("INTERNAL", "SIM", "failure " + i));
         }
 
         // 40% < 50% threshold — breaker remains closed
@@ -141,7 +145,7 @@ class QueryAdmissionCircuitBreakerTest {
         for (int i = 0; i < 10; i++) {
             String queryId = registerRunningQuery();
             queryManager.onTaskFailed(queryId,
-                    new ErrorDetail("INTERNAL", "SIM", "failure " + i));
+                    new QueryFailure("INTERNAL", "SIM", "failure " + i));
         }
 
         // Verify OPEN state
@@ -156,13 +160,12 @@ class QueryAdmissionCircuitBreakerTest {
     }
 
     @Test
-    @DisplayName("Admission breaker is fed from onQueryTimeout path")
+    @DisplayName("Admission breaker is fed from timeout owner path")
     void admissionBreaker_fedFromTimeoutPath() {
         // Simulate 10 query timeouts
         for (int i = 0; i < 10; i++) {
             String queryId = registerRunningQuery();
-            queryManager.onQueryTimeout(queryId,
-                    new ErrorDetail("TIMEOUT", "TIMEOUT", "query timed out " + i));
+            queryManager.timeoutQueriesCreatedBy(java.time.Instant.now(), java.time.Duration.ofSeconds(30));
         }
 
         // Timeouts are failures — breaker should open
@@ -176,16 +179,16 @@ class QueryAdmissionCircuitBreakerTest {
     private String registerRunningQuery() {
         String queryId = "test-" + UUID.randomUUID();
         QueryStateMachine sm = new QueryStateMachine();
-        sm.tryTransition(QueryStateMachine.State.PLANNING);
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
+        sm.tryTransition(QueryState.PLANNING);
+        sm.tryTransition(QueryState.SCHEDULING);
+        sm.tryTransition(QueryState.RUNNING);
         queryManager.registerStateMachine(queryId, sm);
         return queryId;
     }
 
     private static QueryDispatcher buildDispatcher() {
         SqlCompiler compiler = new SqlCompiler();
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         return new QueryDispatcher(
                 QueryDispatcherContext.withDefaults(

@@ -16,12 +16,12 @@ import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 
 /** Pins system-table source objects after query authorization, without producing metadata rows. */
 final class PaimonSystemReadBindings {

@@ -1,0 +1,12 @@
+source	line	reference
+pangrova-persistence/pangrova-persistence-file-postgresql/src/main/java/org/pangrova/persistence/file/postgresql/profile/JdbcStorageProfileRegistry.java	139	public Optional<StorageProfile> resolveByUrl(String url) {
+pangrova-persistence/pangrova-persistence-file-postgresql/src/test/java/org/pangrova/persistence/file/postgresql/profile/JdbcStorageProfileRegistryTest.java	45	"var resolved = assertDoesNotThrow(() -> registry.resolveByUrl(""s3://bucket-a/data/nested/file.parquet""));"
+pangrova-persistence/pangrova-persistence-file-postgresql/src/test/java/org/pangrova/persistence/file/postgresql/profile/JdbcStorageProfileRegistryTest.java	47	"assertThat(registry.resolveByUrl(""s3://missing/data/nested/file.parquet"")).isEmpty();"
+pangrova-persistence/pangrova-persistence-file-postgresql/src/test/java/org/pangrova/persistence/file/postgresql/profile/JdbcStorageProfileRegistryTest.java	66	"assertThat(first.resolveByUrl(""s3://bucket-a/data/file.parquet"")).contains(old);"
+pangrova-persistence/pangrova-persistence-file-postgresql/src/test/java/org/pangrova/persistence/file/postgresql/profile/JdbcStorageProfileRegistryTest.java	131	"assertThatThrownBy(() -> registry.resolveByUrl(""s3://bucket-a/data/file.parquet""))"
+pangrova-persistence/pangrova-persistence-file-api/src/main/java/org/pangrova/persistence/file/api/profile/StorageProfileRegistry.java	67	Optional<StorageProfile> resolveByUrl(String url);
+pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/file/InMemoryStorageProfileRegistry.java	81	public Optional<StorageProfile> resolveByUrl(String url) {
+pangrova-testing/pangrova-testing-kit/src/test/java/org/pangrova/testing/testkit/file/InMemoryStorageProfileRegistryTest.java	26	"assertThat(registry.resolveByUrl(""s3://bucket-a/data/nested/file.parquet"")).contains(specific);"
+pangrova-testing/pangrova-testing-kit/src/test/java/org/pangrova/testing/testkit/file/InMemoryStorageProfileRegistryTest.java	27	"assertThat(registry.resolveByUrl(""s3://missing/data/nested/file.parquet"")).isEmpty();"
+pangrova-testing/pangrova-testing-kit/src/test/java/org/pangrova/testing/testkit/file/InMemoryStorageProfileRegistryTest.java	37	"assertThatThrownBy(() -> registry.resolveByUrl(""s3://bucket-a/data/file.parquet""))"
+pangrova-worker/pangrova-worker-core/src/test/java/org/pangrova/worker/file/FileSpaceObjectStoreTest.java	153	public Optional<StorageProfile> resolveByUrl(String url) {

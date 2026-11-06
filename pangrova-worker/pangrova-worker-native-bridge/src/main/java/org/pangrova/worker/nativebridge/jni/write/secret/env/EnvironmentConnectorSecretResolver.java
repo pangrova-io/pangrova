@@ -1,9 +1,9 @@
 package org.pangrova.worker.nativebridge.jni.write.secret.env;
 
-import org.pangrova.spi.security.secret.SecretProvider;
-import org.pangrova.spi.security.secret.SecretReference;
+import org.pangrova.security.spi.secret.SecretProvider;
+import org.pangrova.security.api.secret.SecretReference;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.spi.connector.ConnectorSecretResolver;
+import org.pangrova.connector.spi.secret.ConnectorSecretResolver;
 
 import java.util.function.Function;
 import java.util.Objects;

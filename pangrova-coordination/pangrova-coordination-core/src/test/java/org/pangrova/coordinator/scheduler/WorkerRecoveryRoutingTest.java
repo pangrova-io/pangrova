@@ -13,7 +13,7 @@ import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 import org.pangrova.protocol.v2.ExecutionDrainState;

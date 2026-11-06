@@ -15,8 +15,8 @@ import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.api.error.ConnectorException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

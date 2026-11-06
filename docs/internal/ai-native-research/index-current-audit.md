@@ -1,5 +1,7 @@
 # 索引、混合检索、模型重排与自动 embedding：真实链路核查
 
+> 2026-11-02 模块化更新：实际 VectorSearchRewriter、VectorSearchNode、EmpiricalRecallEstimator 已迁入 `pangrova-indexing-planner-adapter`；下文无生产调用的 VectorHybridSearchPlanner 及旧 TopK/路由分支已删除。历史功能核查和未支持边界保留；当前实施证据见 [模块化台账](../project-structure-refactoring/domain-modularization-progress.md)。
+
 核查日期：2026-10-07。依据当前工作树源码及官方文档。本轮仅做只读核查并新增本文件，
 初次核查没有修改生产源码、启动构建或运行测试；下文测试分类是对测试实现的核查，不能替代执行结果。
 后续隔离 worktree 的 linear 数值修复见第 8 节，构建和测试由统一验证流程负责。

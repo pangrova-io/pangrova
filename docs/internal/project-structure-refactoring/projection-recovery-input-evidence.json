@@ -1,0 +1,236 @@
+[
+  {
+    "path": ".pangrova/rules/architecture.md",
+    "before_sha256": "fbd3b2de4b73dab1780c08b71e24a6a20d6587cc391fd55f6fb804be517ae42f",
+    "after_sha256": "ae309cccea8c2e208522202eb5db4a3fba85573f276cbc0602b414a2d04439cd",
+    "disposition": "change"
+  },
+  {
+    "path": "docs/architecture/domain-modularization-adr.md",
+    "before_sha256": "4980d0169a3ee3700e60adb4f161db10f905e633679d4afabee58ac008e9a2ff",
+    "after_sha256": "2535b02f22c04cf704806631ef6c252cde275c75fb11782338ca051da92237bf",
+    "disposition": "change"
+  },
+  {
+    "path": "docs/architecture/metadata.md",
+    "before_sha256": "7817585cd1df11fcd7a86498dbae5340752867e227f44b174e050b20ca59fe55",
+    "after_sha256": "65753ca5d81478a16802fd8e062c7e648a9efcb6dd7883ccd4f46fecc25d6423",
+    "disposition": "change"
+  },
+  {
+    "path": "docs/internal/project-structure-refactoring/domain-modularization-progress.md",
+    "before_sha256": "ae54a273271080981d5faf5b92305f8b32f764ca463e9d3a3fbf424ebac1574d",
+    "after_sha256": "dfaf65476d405d5b1ddca394545df08851694ee050c6fd36230a14c009ed7c7d",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/metadata/UnsupportedMetadataProjectionTransactions.java",
+    "before_sha256": "1538450f4b7fa608fe5b7df16b8f8a4467d724e4ed8f0f10cf5645c451ac4bf4",
+    "after_sha256": "9f93e13189c1cb2c278fd4b1febc8404a70dceff9ff26341a7378cc0ff0a5144",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/metadata/UnsupportedMetadataSyncRepository.java",
+    "before_sha256": "aa7c5fd54b4c212e8fd1f6c489435c429efbf488f607ecf4bf0b3b6c6b2c974f",
+    "after_sha256": "60b06f0ab5af1b5f8999234dc1b4eeba062dd8f0e324413a75be2391d88c4195",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/main/java/org/pangrova/metadata/outbox/MetadataSyncService.java",
+    "before_sha256": "74304c28f611ae1c2e8b9e7737617ae34ef93b49cb1000ed439d42c2bb9708d3",
+    "after_sha256": "50a3bdf5c354e610af8bd67503ded74f241d215efe7df1d2e8af0cb867ce1486",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/test/java/org/pangrova/metadata/outbox/MetadataDriftSamplingIntegrationTest.java",
+    "before_sha256": "09a15bd601f24fd54fb78e130a183bab415a82b42f3f20eb7925ad51177fc297",
+    "after_sha256": "8638a1ad9e74339b6e31070e592234e65eb24117bc8e78c44e1f8c990f3cfdad",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/test/java/org/pangrova/metadata/outbox/MetadataSyncInvalidationIntegrationTest.java",
+    "before_sha256": "7cb13d26c707c8d355a316a1028289940ded1ff7114cc8e5e56478c53f8587b4",
+    "after_sha256": "75b2c11657486c19ac0e93af415faf126b29f25981be1b064cb3f49d6137e97d",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/test/java/org/pangrova/metadata/outbox/MetadataSyncRecoveryIntegrationTest.java",
+    "before_sha256": "",
+    "after_sha256": "9231c4a9f8c7aef2ad45ce627b5bd1c7cf1f688809c4724952168f0b7e1a5ce1",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/test/java/org/pangrova/metadata/outbox/MetadataSyncServiceTest.java",
+    "before_sha256": "99a85bc23dcff84d1d770d3a6109eac5a0c72e8dd6626e36a7d2c5c74d79d310",
+    "after_sha256": "61533a354198fefd7ea9bdcb54c4b46e557f83035e49e5c965ebdae2ad4bc86e",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/test/java/org/pangrova/metadata/outbox/MetadataSyncWatermarkTest.java",
+    "before_sha256": "d2c14366e6a36b20b29085c84dffb9f9c6f45b4aa8b73fe2170a79eea8f4a379",
+    "after_sha256": "9a819d6d06c1f17706ae2f3f1798a1fd88968f06d8f5b43fa545f75461797e20",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/test/java/org/pangrova/metadata/outbox/RecordingMetadataSyncRepository.java",
+    "before_sha256": "0f9655cdf4fc19ba17593ed384c4c84dae7faff6014914d10011aa475e811044",
+    "after_sha256": "dbe06783f18934a8498742a0b8caeccf444253d5ca8c7a46137a17225bfd6c05",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-metadata/pangrova-metadata-core/src/test/java/org/pangrova/metadata/outbox/RecordingProjectionTransactions.java",
+    "before_sha256": "cede13680e26c1e84db9c1fa36451d78158d8105ff793c5e0cee20eeea7b0f8f",
+    "after_sha256": "352c9950b667da322987b104f9f89a54314700e39ba6faafc38ff1ed066e2274",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionPendingException.java",
+    "before_sha256": "",
+    "after_sha256": "aeb09ec1f68bc0e048ae430b188ccc912cae4232b176fd9d65c74f31417237e7",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/projection/MetadataProjectionTransactions.java",
+    "before_sha256": "e3814460e79c9c33739af5094b8552897e101794a0d24ef962fd88ed0fe3e814",
+    "after_sha256": "39c6db125ab167b4398fd5e7a21f6ea8878db3e2ea1bec9208cb0c13a7a20898",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/synchronization/MetadataSyncPendingException.java",
+    "before_sha256": "",
+    "after_sha256": "bed722b28fee876be3a3409329d826eecc8d76bad1cb429f74aa10f31caa5560",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/synchronization/MetadataSyncRepository.java",
+    "before_sha256": "b9578541f400a31a7d87da699b047744c5c54f876c6f2527f030b8cb0aaf8e3b",
+    "after_sha256": "244683cdda035f9016cebc0d32f02ab564f5ca0ad231b0ca605723b928c621f6",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/catalog/PostgresCatalogDeploymentRepository.java",
+    "before_sha256": "6ffbab2bd1e1ee67f82ae2bc50cea366fda32445783ce77ce5b077763222519e",
+    "after_sha256": "c9925c18adabe43f073e590ddeb39f5b6fe40f6dbd2226e63a72a83d77fa0a34",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/invalidation/PostgresInvalidationPoller.java",
+    "before_sha256": "1747e3a5b46809e6f97298f47a0cc54bf10a8365ee261cd3fe0a5f23d0e62b69",
+    "after_sha256": "5c6e924750001f959eaee0273e033e0f7a160ea14e06435c6241247187965d31",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresMetadataProjectionTransactions.java",
+    "before_sha256": "33a8b6436e984da6bc1999e0d9f70f558f87b9d953adf8fca89ef5481d205cb9",
+    "after_sha256": "ee922b896d49a89e2fedf4119910f418215f6d247b08879d4e53fbd1c086a9bc",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionIntentJournal.java",
+    "before_sha256": "",
+    "after_sha256": "25e89097496f9e6c91d633da318382cbc1884e3279b622f57d463a53206b7798",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionReceiptCodec.java",
+    "before_sha256": "136feacdc3508289a43afcf6d8097a26d00a9da7b3c10a3dfd6cc670c3c9e79b",
+    "after_sha256": "9f72c920f645ae1c05403b4aed12ff627da5a21e989d54fa3b7fb8db572c996e",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionRequestValidation.java",
+    "before_sha256": "",
+    "after_sha256": "0b96cf352c1b2dccbc96bf84d2aaa7b9f1c7c07e69cc69d067b0fe09aef500ba",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/projection/ProjectionRows.java",
+    "before_sha256": "1b0b98d01de6efd85f970b6c980734da960ab7b2935b41520ce8bafa30914c35",
+    "after_sha256": "1c51a5f349832bfae36909b4a7eb68a8bd84206ba00deb9b418be196b9ec4c0c",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/PostgresMetadataSyncRepository.java",
+    "before_sha256": "bf9828a211fa74ff05d192418f523f86b5ffbd6159408113aad8ce36df7e3b46",
+    "after_sha256": "767d332174a3ea50e7e16ad115c91e343e620b0c8e4be3db32ccff5ad497894a",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
+    "before_sha256": "",
+    "after_sha256": "5ceda9eb5430b387f0ce6d64975455f12f97bbb6c228ac46200618a2f514fbf8",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncIntentJournal.java",
+    "before_sha256": "",
+    "after_sha256": "b95be26c86b1f409743035a340b617a8145345436e9ccceef5911bb55133211a",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/transaction/PostgresCatalogPersistenceSupport.java",
+    "before_sha256": "33303e4f89f064152230f5a2a1c065409d63abe70599c26e996a4ed35e57bcbe",
+    "after_sha256": "ed7c2998c105b99de30db0b0c8d5a3ad3ddf37a1b8a94ad9c666e27c807c50b5",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/test/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresMetadataProjectionFailureTest.java",
+    "before_sha256": "61a73639556dc0a88a5b67dccc2b58e6ea8d8da85f54a39636d85cbe68dcde43",
+    "after_sha256": "b000534cedd3e8abe58ddab6ec660d929058b6183a803cc89a454af450e3a9ee",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/test/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresMetadataProjectionTransactionsTest.java",
+    "before_sha256": "72981fea7bc1be33ef9707b14db5880f8f3dd63cf5819b561a6444828148643b",
+    "after_sha256": "aa136a7d231845c987e735f92059954ba99af691b49c6484bde2839af68fd318",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/test/java/org/pangrova/persistence/catalog/postgresql/projection/PostgresProjectionInvalidationIntegrationTest.java",
+    "before_sha256": "dc1913f4c3999be06fa96aa33ffd4eb3ab8ab15d304f4900baf155816b975127",
+    "after_sha256": "59d558103f406ab7c53b7fcf74b54d2b0f2411d1f2fe9d49812af6885e9b7fd6",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/test/java/org/pangrova/persistence/catalog/postgresql/synchronization/PostgresMetadataSyncFailureTest.java",
+    "before_sha256": "a9f6af801f809c51df038bc597f5108ba04d0b13867dfdfc78a064ef4acd9b79",
+    "after_sha256": "1e2a78b80a2995a2b3d05e2a8d44437be6af0a8cf7106501f7fbfdab6c8d2168",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/test/java/org/pangrova/persistence/catalog/postgresql/synchronization/PostgresMetadataSyncRepositoryTest.java",
+    "before_sha256": "d8e8a2339330a4cd5fecc995ffe1face2577b0df394ecfb10ac06db017c87496",
+    "after_sha256": "63473af168fd9aeb344f5197cd54bfdd407253b2cf35e46126f16f02460ed52d",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-schema-migrations/README.md",
+    "before_sha256": "8c4c896ac70a6e2f9fed51b76ecfe8c5200663b9455442a4e942035a11c09b7f",
+    "after_sha256": "5ee9d4ba0b31dd70a590528604306edd8c53c590e3478d2e394e7b4fde23f439",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-schema-migrations/src/main/resources/META-INF/pangrova/schema-migrations.tsv",
+    "before_sha256": "a5ba32525e6882bb07ebd3afcfadb02d9cd652677e6810151aa0b7138c924cc9",
+    "after_sha256": "d6c7ba58d2e1d7fade0f61448b9a7973f2808362d292deafc204c49b14def1aa",
+    "disposition": "change"
+  },
+  {
+    "path": "pangrova-schema-migrations/src/main/resources/db/migration/V109__metadata_projection_intents.sql",
+    "before_sha256": "",
+    "after_sha256": "bad9d8b261ef3b8544c95f732a5422041e71b3d0b58fe73852d3a220c889f97f",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-schema-migrations/src/main/resources/db/migration/V110__metadata_sync_intents.sql",
+    "before_sha256": "",
+    "after_sha256": "e5a1ce255d8e43f5471f47812556d6cee23e7b382eefe09c523e075cced14ee3",
+    "disposition": "add"
+  },
+  {
+    "path": "pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/ModuleIntegrationBootstrap.java",
+    "before_sha256": "0ed5bc10a1fd6c97057de0d5182ae58b1f57411b6b38201fbd765a24e5d58ff1",
+    "after_sha256": "8c55986a62763d3074a5e86ab415cc3a363f1f1bfa008c37027cb7390c8f1312",
+    "disposition": "change"
+  }
+]

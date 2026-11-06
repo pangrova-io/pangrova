@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.http.endpoint;
 
+import org.pangrova.query.api.stage.StageState;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.DefaultValue;
@@ -11,8 +13,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.client.error.ErrorDetail;
 
 import java.time.Instant;
@@ -114,7 +115,7 @@ public final class QueryStatusResource {
                     .build();
         }
 
-        Map<String, StageStateMachine.State> stageStates = sm.getStageStates();
+        Map<String, StageState> stageStates = sm.getStageStates();
         List<StageInfo> stages = stageStates.entrySet().stream()
                 .map(entry -> new StageInfo(entry.getKey(), entry.getValue().name()))
                 .sorted(Comparator.comparing(StageInfo::stageId))
@@ -137,8 +138,8 @@ public final class QueryStatusResource {
     }
 
     private static QueryDetail toQueryDetail(String queryId, QueryStateMachine sm) {
-        String errorMessage = sm.getError().map(ErrorDetail::message).orElse(null);
-        String errorCode = sm.getError().map(ErrorDetail::errorCode).orElse(null);
+        String errorMessage = sm.getError().map(org.pangrova.query.api.error.QueryFailure::message).orElse(null);
+        String errorCode = sm.getError().map(org.pangrova.query.api.error.QueryFailure::errorCode).orElse(null);
         int stageCount = sm.getStageStates().size();
 
         return new QueryDetail(

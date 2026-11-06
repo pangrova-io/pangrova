@@ -10,6 +10,13 @@ sidebar_label: "Native Packaging and Interop Plan"
 Status: Target architecture and delivery plan; proposed identifiers in this
 document are not current production types until their implementation gate passes.
 
+Module and contract ownership now follow the [domain modularization ADR](domain-modularization-adr.md).
+The September findings below remain historical evidence, not a statement that their old SPI
+locations still exist. For INT-12, NativePage is now in Batch API and explicitly owns a heap
+snapshot: payload reads return copies, and encoded length can be queried without copying.
+This closes mutable-array exposure; it does not claim zero-copy transfer, Native buffer leases,
+or completion of the broader in-process columnar ABI work.
+
 Audit baseline:
 
 - Pangrova working tree inspected on 2026-09-12. The tree contained unrelated

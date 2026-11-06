@@ -2,15 +2,15 @@ package org.pangrova.worker.task;
 
 import org.pangrova.worker.task.state.TaskState;
 
-import org.pangrova.spi.observability.Span;
-import org.pangrova.spi.observability.SpanKind;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.api.tracing.Span;
+import org.pangrova.observability.api.tracing.SpanKind;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.pangrova.worker.result.ResultTransport;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
-import org.pangrova.shuffle.api.ShuffleTransport;
+import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +39,7 @@ final class TaskLifecycleManager {
     private final TaskMemoryAllocator memoryAllocator;
     private final TaskStatusCollector statusCollector;
     private final TaskCompletionMonitor completionMonitor;
-    private final ShuffleTransport shuffleTransport;
+    private final NativeShuffleTransport shuffleTransport;
     private final ResultTransport resultTransport;
     private final ExchangeTransport exchangeTransport;
     private final TaskResourceReleaser resourceReleaser;
@@ -94,8 +94,8 @@ final class TaskLifecycleManager {
     /**
      * Executes a task: build protobuf, create native executor, start task, wire result pipeline.
      *
-     * <p>When transport SPIs are wired (non-null), uses SPI calls for shuffle, result,
-     * Uses transport SPIs for shuffle, result, and exchange transport.</p>
+     * <p>Required Native serving and result/exchange transports must be wired before
+     * starting the corresponding task paths.</p>
      *
      * @param taskId   worker-assigned task identifier
      * @param info     task tracking record
@@ -122,7 +122,7 @@ final class TaskLifecycleManager {
             // construction race and makes startup fail atomically.
             wireExchangeSources(info, handle);
 
-            // Shuffle pipeline via transport SPI (before completion monitor)
+            // Start task-owned Native serving before its completion monitor
             if (shuffleTransport != null && isComputeTaskWithDirectShuffle(info)) {
                 startShuffleViaSpi(info, handle, onError);
             }
@@ -219,7 +219,7 @@ final class TaskLifecycleManager {
     }
 
     /**
-     * Starts shuffle pipeline via the ShuffleTransport SPI.
+     * Starts direct serving through the Native adapter for this task handle.
      */
     private void startShuffleViaSpi(TaskInfo info, long handle,
                                     Consumer<Exception> onError) {

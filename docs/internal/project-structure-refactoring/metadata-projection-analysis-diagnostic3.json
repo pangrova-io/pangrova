@@ -1,0 +1,17 @@
+{
+  "command": [
+    "mvn",
+    "-q",
+    "-Dpangrova.function-contract.python=/Users/sunxiaojian/.local/bin/python3.12",
+    "-pl",
+    ":pangrova-persistence-catalog-postgresql,:pangrova-metadata-core",
+    "-am",
+    "-DskipTests",
+    "-Pstatic-analysis",
+    "package",
+    "spotbugs:spotbugs"
+  ],
+  "exit": 0,
+  "seconds": 197.89937591552734,
+  "scope": "Diagnostic report generation only; the blocking verify failed upstream in pangrova-types and is retained separately."
+}

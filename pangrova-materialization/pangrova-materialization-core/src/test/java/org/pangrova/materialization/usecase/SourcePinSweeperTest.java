@@ -29,8 +29,8 @@ import org.pangrova.materialization.domain.SourceVector;
 import org.pangrova.materialization.port.Clock;
 import org.pangrova.materialization.port.MaterializationEvent;
 import org.pangrova.materialization.port.MaterializationEventType;
-import org.pangrova.spi.connector.materialization.PinnedSource;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.PinnedSource;
+import org.pangrova.connector.api.materialization.SourceRef;
 
 class SourcePinSweeperTest {
 

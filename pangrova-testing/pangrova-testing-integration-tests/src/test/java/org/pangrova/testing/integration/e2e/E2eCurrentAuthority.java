@@ -7,31 +7,30 @@ import org.pangrova.coordinator.ai.embedding.DurableGeneratedValueBuildService;
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DefaultWorkerSelector;
-import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
+import org.pangrova.scheduler.api.resource.SpillBudget;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.policy.PrivilegeGrant;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
-import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.spi.security.tenant.Tenant;
-import org.pangrova.spi.security.tenant.TenantRole;
-import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.spi.security.tenant.ResourceQuota;
-import org.pangrova.spi.connector.coordination.WriteCommitJournal;
-import org.pangrova.spi.security.AccessControl;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
+import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.security.spi.authorization.AccessControl;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -50,7 +49,7 @@ final class E2eCurrentAuthority {
                                   ResourceQuota deploymentQuota) {
         java.util.Objects.requireNonNull(deploymentQuota, "deploymentQuota");
         var store = new JdbcTenantStore(dataSource);
-        store.initSchema();
+
         if (store.getTenant(tenantId).isEmpty()) {
             store.createTenant(new Tenant(tenantId, "Authenticated SQL E2E tenant", TenantStatus.ACTIVE,
                     deploymentQuota, List.of(), List.of(), "e2e", Map.of(), Instant.EPOCH, principal));
@@ -101,19 +100,25 @@ final class E2eCurrentAuthority {
         roles.grantRoleToUser(UserRoleAssignment.of(principal, MODEL_USAGE_ROLE));
     }
 
+    /** Exercise the production configuration path before building real Native task grants. */
+    static SpillBudget configuredSpillBudget(long bytes) {
+        return org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain.buildBootstrapConfig(
+                org.pangrova.config.PangrovaConfiguration.fromYaml(java.util.Map.of(
+                        "coordinator.task.spill.max-bytes", Long.toString(bytes)))).spillBudget();
+    }
+
     static GeneratedValueMaterializationCoordinator generatedValues(GeneratedServices services) {
         var submissions = ModelAuthorityFixtures.artifacts().generatedSubmissions(services.dataSource());
         var selector = new DefaultWorkerSelector(services.workers(), services.scheduler(),
-                new SplitAssignmentManager(), new SpillBudget(1024L * 1024 * 1024, ""), services.models());
+                null, configuredSpillBudget(1024L * 1024 * 1024), services.models());
         var builds = new DurableGeneratedValueBuildService(services.builds(), submissions,
-                new SnapshotGenerationSplitPlanner(services.catalogs()), selector, services.artifactUri(), services.catalogs());
+                new SnapshotGenerationSplitPlanner(services.catalogs()), selector, services.artifactUri(), services.catalogs(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         return new GeneratedValueMaterializationCoordinator(services.catalogs(), builds,
                 services.dataSource(), services.journal(), ModelAuthorityFixtures.models());
     }
 
     private static JdbcRoleStore roles(DataSource dataSource) {
         var roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         return roles;
     }
 

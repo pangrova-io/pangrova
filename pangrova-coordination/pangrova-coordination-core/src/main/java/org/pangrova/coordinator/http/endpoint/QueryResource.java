@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.http.endpoint;
 
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.Consumes;
@@ -14,16 +18,15 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.coordinator.http.IdempotencyKeyRegistry;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.spi.observability.profiling.ProfilerEndpoint;
-import org.pangrova.query.profiling.QueryProfileService;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.observability.core.profiling.ProfilerEndpoint;
+import org.pangrova.query.core.profiling.QueryProfileService;
 import org.pangrova.client.error.ErrorDetail;
 import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.client.protocol.ResultEndpoint;
+import org.pangrova.transport.api.result.ResultEndpoint;
 import org.pangrova.client.protocol.SubmitQueryRequest;
 import org.pangrova.client.protocol.SubmitQueryResponse;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +43,7 @@ import java.util.UUID;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public final class QueryResource {
+    private final ExecutionTraceContextFactory traceContexts;
 
     private static final int HTTP_STATUS_ACCEPTED = 202;
 
@@ -51,7 +55,8 @@ public final class QueryResource {
     /** Creates a resource wiring query lifecycle, profiling, and idempotency components. */
     public QueryResource(QueryManager queryManager, ProfilerEndpoint profilerEndpoint,
                          QueryProfileService queryProfileService,
-                         IdempotencyKeyRegistry idempotencyRegistry) {
+                         IdempotencyKeyRegistry idempotencyRegistry, ExecutionTraceContextFactory traceContexts) {
+        this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.queryManager = checkNotNull(queryManager, "queryManager must not be null");
         this.profilerEndpoint = profilerEndpoint;
         this.queryProfileService = queryProfileService;
@@ -87,11 +92,11 @@ public final class QueryResource {
     private Response doSubmit(String queryId, SubmitQueryRequest request,
                               ContainerRequestContext requestContext) {
         UserIdentity identity = extractUserIdentity(requestContext);
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                queryId, request.sessionProperties(), identity, null);
-        SubmitQueryResponse response = queryManager.submitQuery(
+        QuerySession session = new QuerySession(
+                queryId, request.sessionProperties(), identity, null, java.util.Optional.empty(), traceContexts.capture());
+        var result = queryManager.submitQuery(
                 queryId, request.query(), session);
-        return Response.ok(response).build();
+        return Response.ok(QueryResponseMapper.submission(result)).build();
     }
 
     private static UserIdentity extractUserIdentity(ContainerRequestContext ctx) {
@@ -108,7 +113,7 @@ public final class QueryResource {
     public Response getQueryState(@PathParam("queryId") String queryId) {
         // A-XNODE-01: journal fallback lets any coordinator in an Active-Active
         // cluster answer state polls for queries accepted by a peer node.
-        Optional<QueryStateMachine.State> state =
+        Optional<QueryState> state =
                 queryManager.getQueryStateWithJournalFallback(queryId);
         if (state.isEmpty()) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -117,7 +122,7 @@ public final class QueryResource {
                     .build();
         }
         ResultEndpoint endpoint = queryManager.getResultEndpoint(queryId).orElse(null);
-        ErrorDetail error = queryManager.getQueryError(queryId).orElse(null);
+        ErrorDetail error = queryManager.getQueryError(queryId).map(QueryResponseMapper::failure).orElse(null);
         QueryStatusResponse body = QueryStatusResponse.of(
                 queryId, state.get().name(), error, endpoint);
         return Response.ok(body).build();
@@ -127,7 +132,7 @@ public final class QueryResource {
     @POST
     @Path("/{queryId}/cancel")
     public Response cancelQuery(@PathParam("queryId") String queryId) {
-        Optional<QueryStateMachine.State> state = queryManager.getQueryState(queryId);
+        Optional<QueryState> state = queryManager.getQueryState(queryId);
         if (state.isEmpty()) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(new CancelResponse(queryId, false, "NOT_FOUND"))
@@ -158,7 +163,16 @@ public final class QueryResource {
                     .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND", "Profiler not available"))
                     .build();
         }
-        byte[] flameGraphData = profilerEndpoint.getFlameGraph(queryId);
+        byte[] flameGraphData;
+        try {
+            flameGraphData = profilerEndpoint.getFlameGraph(queryId);
+        } catch (org.pangrova.observability.api.profiling.ProfilingUnavailableException unavailable) {
+            return Response.status(Response.Status.NOT_IMPLEMENTED)
+                    .type(MediaType.APPLICATION_JSON)
+                    .entity(new ErrorDetail("UNSUPPORTED_CAPABILITY", "UNSUPPORTED_CAPABILITY",
+                            unavailable.getMessage()))
+                    .build();
+        }
         if (flameGraphData == null || flameGraphData.length == 0) {
             return Response.status(Response.Status.NOT_FOUND)
                     .type(MediaType.APPLICATION_JSON)
@@ -199,9 +213,9 @@ public final class QueryResource {
 
     record CancelResponse(String query_id, boolean cancelled, String outcome) {}
 
-    private static boolean isTerminalState(QueryStateMachine.State state) {
-        return state == QueryStateMachine.State.FINISHED
-                || state == QueryStateMachine.State.FAILED
-                || state == QueryStateMachine.State.CANCELLED;
+    private static boolean isTerminalState(QueryState state) {
+        return state == QueryState.FINISHED
+                || state == QueryState.FAILED
+                || state == QueryState.CANCELLED;
     }
 }

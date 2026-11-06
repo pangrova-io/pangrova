@@ -3,7 +3,7 @@ package org.pangrova.coordinator.http.endpoint;
 import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.http.RequestLimitConfig;
-import org.pangrova.security.authn.AuthenticationManager;
+import org.pangrova.security.core.authentication.AuthenticationManager;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.glassfish.jersey.jackson.JacksonFeature;
@@ -14,7 +14,7 @@ import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,10 +35,11 @@ class WorkerResourceVersionCheckTest {
 
     private static final String INTERNAL_SECRET = "worker-version-test-internal-secret";
     private WorkerResource resource;
+    private WorkerManager workerManager;
 
     @BeforeEach
     void setUp() {
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         resource = new WorkerResource(workerManager);
     }
 
@@ -100,6 +101,10 @@ class WorkerResourceVersionCheckTest {
 
     private HttpResponse<String> registerOverHttp(
             WorkerRegistrationRequest request, String secret) throws Exception {
+        return requestOverHttp("POST", "/v1/workers/register", request, secret);
+    }
+
+    private HttpResponse<String> requestOverHttp(String method, String path, Object request, String secret) throws Exception {
         try (var authentication = new AuthenticationManager(List.of())) {
             var config = new ResourceConfig().register(resource).register(JacksonFeature.class)
                     .register(new RequestLimitFilter(RequestLimitConfig.defaults()))
@@ -111,11 +116,11 @@ class WorkerResourceVersionCheckTest {
             try {
                 server.start();
                 var httpRequest = HttpRequest.newBuilder(URI.create("http://localhost:"
-                        + EmbeddedHttpServerFactory.getPort(server) + "/v1/workers/register"))
+                        + EmbeddedHttpServerFactory.getPort(server) + path))
                         .timeout(Duration.ofSeconds(10))
                         .header("Content-Type", "application/json")
                         .header("Authorization", "Bearer " + secret)
-                        .POST(HttpRequest.BodyPublishers.ofString(
+                        .method(method, HttpRequest.BodyPublishers.ofString(
                                 JsonMapperFactory.writer().writeValueAsString(request))).build();
                 return HttpClient.newHttpClient().send(httpRequest, HttpResponse.BodyHandlers.ofString());
             } finally {
@@ -167,6 +172,40 @@ class WorkerResourceVersionCheckTest {
         assertThat(WorkerResource.isCanonicalProtocolVersion(1)).isFalse();
         assertThat(WorkerResource.isCanonicalProtocolVersion(3)).isFalse();
         assertThat(WorkerResource.isCanonicalProtocolVersion(99)).isFalse();
+    }
+
+    @Test
+    void authenticatedStaleProcessWithdrawalCannotDeleteReplacement() throws Exception {
+        var old = TestWorkerInfoBuilder.active("withdrawal", "localhost", 8080, 9090);
+        workerManager.registerWorker(old);
+        var replacement = TestWorkerInfoBuilder.active(old.workerId(), "localhost", 8181, 9191,
+                new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
+                        old.workerExecutionIdentity().admissionDomainId(),
+                        "00000000-0000-0000-0000-0000000000e2"));
+        workerManager.registerWorker(replacement);
+        String path = "/v1/workers/" + old.workerId();
+        assertThat(requestOverHttp("DELETE", path, old.workerExecutionIdentity(), INTERNAL_SECRET).statusCode()).isEqualTo(200);
+        assertThat(workerManager.getWorker(old.workerId()).workerExecutionIdentity()).isEqualTo(replacement.workerExecutionIdentity());
+        assertThat(requestOverHttp("DELETE", path, null, INTERNAL_SECRET).statusCode()).isEqualTo(400);
+        assertThat(requestOverHttp("DELETE", path, replacement.workerExecutionIdentity(), "wrong-secret").statusCode()).isEqualTo(401);
+        assertThat(workerManager.getWorker(old.workerId())).isNotNull();
+        assertThat(requestOverHttp("DELETE", path, replacement.workerExecutionIdentity(), INTERNAL_SECRET).statusCode()).isEqualTo(200);
+        assertThat(workerManager.getWorker(old.workerId())).isNull();
+        assertThat(requestOverHttp("DELETE", path, replacement.workerExecutionIdentity(), INTERNAL_SECRET).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void exactWithdrawalAfterCoordinatorFailoverDoesNotRequireALocalCacheEntry() throws Exception {
+        var registry = new InMemoryWorkerRegistry();
+        var previous = new WorkerManager(20_000, 60_000, registry);
+        var worker = TestWorkerInfoBuilder.active("withdrawal-failover", "localhost", 8080, 9090);
+        previous.registerWorker(worker);
+        workerManager = new WorkerManager(20_000, 60_000, registry);
+        resource = new WorkerResource(workerManager);
+        assertThat(workerManager.getWorker(worker.workerId())).isNull();
+        assertThat(requestOverHttp("DELETE", "/v1/workers/" + worker.workerId(),
+                worker.workerExecutionIdentity(), INTERNAL_SECRET).statusCode()).isEqualTo(200);
+        assertThat(registry.getWorker(worker.workerId())).isEmpty();
     }
 
     private static String canonicalInventory() {

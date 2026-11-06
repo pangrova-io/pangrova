@@ -6,12 +6,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 
-import org.pangrova.spi.connector.data.type.MapType;
-import org.pangrova.spi.connector.data.type.primitive.VarcharType;
-import org.pangrova.spi.connector.data.type.primitive.temporal.TimestampType;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.types.MapType;
+import org.pangrova.types.primitive.VarcharType;
+import org.pangrova.types.primitive.temporal.TimestampType;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /** Immutable, read-only reference to one Iceberg metadata-table version. */
 public record IcebergSystemTableHandle(

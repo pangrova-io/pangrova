@@ -13,11 +13,11 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.execution.core.binding.TaskRequestFactory;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,7 +38,7 @@ class TaskRequestFactoryPropertyTest {
     void leafTaskRequestAlwaysHasValidTaskId(
             @ForAll("queryIds") String queryId,
             @ForAll("planBytes") byte[] planBytes) {
-        CoordinatorSessionContext session = createSession(queryId);
+        QuerySession session = createSession(queryId);
         StageResourceGrant limit = resourceGrant();
 
         SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
@@ -64,7 +64,7 @@ class TaskRequestFactoryPropertyTest {
             @ForAll("planBytes") byte[] planBytes,
             @ForAll @IntRange(min = 0, max = 100) int stageId,
             @ForAll @IntRange(min = 0, max = 50) int partition) {
-        CoordinatorSessionContext session = createSession(queryId);
+        QuerySession session = createSession(queryId);
         StageResourceGrant limit = resourceGrant();
 
         org.pangrova.coordinator.query.stage.StageNode stage = createStageNode(stageId);
@@ -88,7 +88,7 @@ class TaskRequestFactoryPropertyTest {
     void leafTaskRequestTaskIdsAreUnique(
             @ForAll("queryIds") String queryId,
             @ForAll @IntRange(min = 2, max = 50) int count) {
-        CoordinatorSessionContext session = createSession(queryId);
+        QuerySession session = createSession(queryId);
         StageResourceGrant limit = resourceGrant();
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
 
@@ -122,24 +122,25 @@ class TaskRequestFactoryPropertyTest {
     }
 
     private static TaskRequestFactory.LeafTask leafTask(
-            CoordinatorSessionContext session,
+            QuerySession session,
             byte[] planBytes,
             org.pangrova.coordinator.query.stage.StageNode stage,
             int partition,
             StageResourceGrant resourceGrant) {
         return new TaskRequestFactory.LeafTask(
-                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session),
-                planBytes, stage, partition, resourceGrant,
+                new org.pangrova.execution.core.authority.StageExecutionContext.Live(session),
+                planBytes, new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
+                        org.pangrova.execution.api.stage.TaskPurpose.valueOf(stage.taskType())), partition, resourceGrant,
                 List.of(), List.of(), null, List.of(),
-                org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskDeadline.after(
+                org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                         java.time.Duration.ofMinutes(5), java.time.Instant.now()),
                 org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1L, 0),
                 List.of(), null, List.of());
     }
 
-    private static CoordinatorSessionContext createSession(String queryId) {
+    private static QuerySession createSession(String queryId) {
         UserIdentity identity = new UserIdentity("testUser", Set.of(), Map.of(), java.time.Instant.now());
-        return new CoordinatorSessionContext(queryId, Map.of(), identity, "default-tenant");
+        return new QuerySession(queryId, Map.of(), identity, "default-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
     }
 
     private static StageResourceGrant resourceGrant() {
@@ -161,6 +162,6 @@ class TaskRequestFactoryPropertyTest {
                 org.apache.calcite.rel.logical.LogicalValues.createEmpty(cluster,
                         typeFactory.builder().build());
         return new org.pangrova.coordinator.query.stage.StageNode(
-                stageId, new org.pangrova.planner.PlanFragment(dummyRel, -1L, -1L), 1, "COMPUTE", List.of());
+                stageId, new org.pangrova.planner.core.analysis.PlanFragment(dummyRel, -1L, -1L), 1, "COMPUTE", List.of());
     }
 }

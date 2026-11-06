@@ -83,30 +83,25 @@ class ElectionScheduler {
         if (!running.get()) {
             return;
         }
+        boolean renewed = false;
         try {
-            if (!callback.renewLease(coordinatorId)) {
-                LOG.warn("event=lease_renewal_failed coordinator={} action=demoting_to_standby", coordinatorId);
-                callback.onLeaseRenewalFailed(coordinatorId);
-                cancelScheduledTask();
-                scheduleFailureDetection(coordinatorId);
-            } else {
-                callback.onHeartbeatTick(coordinatorId);
-            }
-        } catch (Exception e) {
-            // Critical: ScheduledExecutorService silently cancels future executions
-            // if the Runnable throws an exception. Treat any unexpected error
-            // (network partition, JDBC timeout, clock skew) as a renewal failure
-            // to prevent this node from becoming a zombie leader.
-            LOG.error("event=lease_renewal_exception coordinator={} action=demoting_to_standby error={}",
-                    coordinatorId, e.getMessage(), e);
+            renewed = callback.renewLease(coordinatorId);
+            if (renewed) callback.onHeartbeatTick(coordinatorId);
+        } catch (Exception failure) {
+            renewed = false;
+            LOG.error("event=lease_renewal_exception coordinator={} action=demoting_to_standby",
+                    coordinatorId, failure);
+        }
+        if (!renewed) {
             try {
                 callback.onLeaseRenewalFailed(coordinatorId);
-            } catch (Exception inner) {
-                LOG.error("event=lease_renewal_demotion_failed coordinator={} error={}",
-                        coordinatorId, inner.getMessage(), inner);
+            } catch (Exception failure) {
+                LOG.error("event=lease_renewal_demotion_failed coordinator={}", coordinatorId, failure);
+            } finally {
+                // A failed registry publication must neither retry demotion twice nor kill the timer.
+                cancelScheduledTask();
+                scheduleFailureDetection(coordinatorId);
             }
-            cancelScheduledTask();
-            scheduleFailureDetection(coordinatorId);
         }
     }
 

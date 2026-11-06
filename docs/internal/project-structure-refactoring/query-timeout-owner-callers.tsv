@@ -1,0 +1,10 @@
+source	change
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryBootstrap.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorShutdownSequence.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-server/pangrova-server-coordinator/src/test/java/org/pangrova/server/coordinator/query/QueryTimeoutEnforcerBootstrapTest.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTimeoutEnforcer.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryTimeoutEnforcerTest.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryLifecycleResponsibilityBoundaryTest.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/query/QueryAdmissionCircuitBreakerTest.java	Updated ownership contract, scheduling wiring or tests; see source diff
+pangrova-coordination/pangrova-coordination-core/src/test/java/org/pangrova/coordinator/property/query/QueryTimeoutPropertyTest.java	Updated ownership contract, scheduling wiring or tests; see source diff

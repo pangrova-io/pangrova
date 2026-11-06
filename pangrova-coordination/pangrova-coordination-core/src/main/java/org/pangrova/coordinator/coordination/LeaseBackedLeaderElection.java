@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.lease.LeaseEntry;
 
 import java.time.Duration;
 import java.util.Objects;

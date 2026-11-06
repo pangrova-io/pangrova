@@ -1,0 +1,8 @@
+{
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryStateMachine.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryConnectorAuthority.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryJournalLifecycle.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryTerminalCleanup.java": "byte-identical",
+  "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryAsyncSubmission.java": "byte-identical",
+  "pre-existing_public_constructors": "QueryManager(Context) and QueryManager(Context, Optional<ReaderPinLifecycle>) are both present in the baseline; no constructor changed in this batch"
+}

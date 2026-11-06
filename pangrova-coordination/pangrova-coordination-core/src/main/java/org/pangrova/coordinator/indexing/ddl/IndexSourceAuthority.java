@@ -1,9 +1,11 @@
 package org.pangrova.coordinator.indexing.ddl;
 
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
+
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.security.api.error.AccessDeniedException;
 
 /** Binds builds to current grants and DROPPED cleanup to its exact persisted scope. */
 public final class IndexSourceAuthority {

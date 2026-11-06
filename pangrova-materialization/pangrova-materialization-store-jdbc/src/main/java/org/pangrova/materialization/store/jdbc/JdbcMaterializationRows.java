@@ -43,11 +43,11 @@ import org.pangrova.materialization.domain.TargetLag;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.domain.TriggerKind;
 import org.pangrova.materialization.port.ReclaimableSourcePin;
-import org.pangrova.spi.connector.materialization.CommitEvidence;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.connector.api.materialization.CommitEvidence;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
-import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 
 /**
  * Column projections, row mapping, and state-code translation for the

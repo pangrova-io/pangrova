@@ -14,10 +14,10 @@
 package org.pangrova.client.jdbc;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.transport.ColumnDescriptor;
-import org.pangrova.transport.ResultBatch;
+import org.pangrova.transport.client.ColumnDescriptor;
+import org.pangrova.transport.client.ResultBatch;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.transport.ArrowBatchDecoder;
+import org.pangrova.transport.client.ArrowBatchDecoder;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;

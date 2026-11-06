@@ -16,8 +16,8 @@ import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.metadata.api.resolution.MetadataService;
+import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -208,7 +208,7 @@ public final class CatalogRestOperations {
             metadataService.dropTable(session, tableRef);
             LOG.info("event=drop_table namespace={} table={}", namespace, table);
             return true;
-        } catch (org.pangrova.spi.security.AccessDeniedException denied) {
+        } catch (org.pangrova.security.api.error.AccessDeniedException denied) {
             throw denied;
         } catch (RuntimeException e) {
             LOG.debug("event=drop_table_not_found namespace={} table={} error={}",

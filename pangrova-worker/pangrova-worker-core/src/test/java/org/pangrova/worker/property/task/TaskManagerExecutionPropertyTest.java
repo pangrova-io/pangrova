@@ -13,7 +13,6 @@ import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 import org.pangrova.worker.task.ActualTaskManagerFixture;
-import org.pangrova.worker.task.TaskManager;
 
 import java.util.stream.LongStream;
 

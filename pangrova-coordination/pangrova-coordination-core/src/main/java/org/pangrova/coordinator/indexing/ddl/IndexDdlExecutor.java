@@ -1,28 +1,30 @@
 package org.pangrova.coordinator.indexing.ddl;
 
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.indexing.BuildMappingPersister;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.statement.TableResolver;
+import org.pangrova.indexing.core.build.BuildMappingPersister;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.indexing.IndexGenerationPublisher;
 import org.pangrova.indexing.storage.IndexCache;
-import org.pangrova.metadata.exception.IndexAlreadyExistsException;
-import org.pangrova.parser.ast.statement.AlterIndexStatement;
-import org.pangrova.parser.ast.statement.CreateIndexStatement;
-import org.pangrova.parser.ast.statement.DropIndexStatement;
-import org.pangrova.parser.ast.statement.ShowIndexesStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
-import org.pangrova.spi.connector.index.SnapshotDataFile;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.indexing.api.error.IndexAlreadyExistsException;
+import org.pangrova.parser.api.ast.statement.AlterIndexStatement;
+import org.pangrova.parser.api.ast.statement.CreateIndexStatement;
+import org.pangrova.parser.api.ast.statement.DropIndexStatement;
+import org.pangrova.parser.api.ast.statement.ShowIndexesStatement;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotDataFile;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.core.descriptor.IndexDescriptorTransitions;
+import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,7 +81,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
             return;
         }
         if (user == null) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.error.AccessDeniedException(
                     "Anonymous access denied for index DDL on " + tableRef);
         }
         if (requireAlter) {
@@ -114,13 +116,13 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     /** Validates and submits a CREATE INDEX request. */
     public List<TypedRow> executeCreateIndex(
-            CreateIndexStatement stmt, CoordinatorSessionContext context) {
+            CreateIndexStatement stmt, QuerySession context) {
         String tenantId = context.tenantId();
         UserIdentity user = context.userIdentity();
         requireTenantId(tenantId);
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAccess(tableRef, user, true);
-        var session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        var session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         var accessors = deps.accessorResolver().forSession(session);
         IndexValidationHelper.validateTableExists(tableRef, deps.catalogRegistry(), session);
         IndexType indexType = parseIndexType(stmt.indexType());
@@ -173,11 +175,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     /** Drops the named index and schedules cleanup of its artifacts. */
     public List<TypedRow> executeDropIndex(
-            DropIndexStatement stmt, CoordinatorSessionContext context) {
+            DropIndexStatement stmt, QuerySession context) {
         String tenantId = context.tenantId();
         UserIdentity user = context.userIdentity();
         requireTenantId(tenantId);
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAccess(tableRef, user, true);
         IndexDescriptor target = findActiveIndex(stmt.indexName(), tableRef, tenantId);
 
@@ -245,11 +247,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     /** Returns visible index descriptors for the requested table. */
     public List<TypedRow> executeShowIndexes(
-            ShowIndexesStatement stmt, CoordinatorSessionContext context) {
+            ShowIndexesStatement stmt, QuerySession context) {
         String tenantId = context.tenantId();
         UserIdentity user = context.userIdentity();
         requireTenantId(tenantId);
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAccess(tableRef, user, false);
         List<IndexDescriptor> indexes = deps.indexMetadataStore()
                 .findIndexesByTable(
@@ -263,15 +265,15 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     /** Submits a rebuild for an existing index. */
     public List<TypedRow> executeAlterIndex(
-            AlterIndexStatement stmt, CoordinatorSessionContext context) {
+            AlterIndexStatement stmt, QuerySession context) {
         String tenantId = context.tenantId();
         UserIdentity user = context.userIdentity();
         requireTenantId(tenantId);
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAccess(tableRef, user, true);
         IndexDescriptor target = findRebuildableIndex(
                 tableRef, stmt.indexName(), tenantId);
-        var session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        var session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         IndexValidationHelper.validateTableExists(tableRef, deps.catalogRegistry(), session);
         List<String> columns = IndexValidationHelper.validateColumns(
                 tableRef, target.columnNames(), target.indexType(), deps.catalogRegistry(), session);
@@ -312,9 +314,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
         for (int attempt = 0; attempt < 3; attempt++) {
             Instant now = Instant.now();
             int newGeneration = current.generation() + 1;
-            IndexDescriptor rebuilt = current.withGeneration(newGeneration, now)
-                    .withBuildSnapshotId(sourceSnapshot, now)
-                    .withState(IndexState.BUILDING, now);
+            IndexDescriptor rebuilt = IndexDescriptorTransitions.transition(current.withGeneration(newGeneration, now)
+                    .withBuildSnapshotId(sourceSnapshot, now), IndexState.BUILDING, now);
             boolean updated = deps.indexMetadataStore().beginIndexGeneration(
                     current.indexId(), newGeneration, sourceSnapshot,
                     now, current.updatedAt(), current.state(), current.generation());
@@ -356,9 +357,9 @@ public final class IndexDdlExecutor implements AutoCloseable {
             IndexDescriptor descriptor,
             QualifiedTableName tableRef,
             List<org.pangrova.indexing.build.DataFileInfo> dataFiles,
-            CoordinatorSessionContext context) {
+            QuerySession context) {
         var accessors = deps.accessorResolver().forSession(
-                TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema()));
+                SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema()));
         try {
             if (requiresNativeArtifact(descriptor.indexType())) {
                 DurableIndexBuildService nativeBuild = deps.buildServices().aiNative();
@@ -533,9 +534,9 @@ public final class IndexDdlExecutor implements AutoCloseable {
     }
 
     private IndexBuildInput resolveBuildInput(
-            QualifiedTableName tableRef, boolean materializeDataFiles, CoordinatorSessionContext context) {
+            QualifiedTableName tableRef, boolean materializeDataFiles, QuerySession context) {
         SnapshotAwareMetadata metadata = deps.accessorResolver().forSession(
-                TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema()))
+                SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema()))
                 .resolveSnapshotAwareMetadata(
                         tableRef.catalog(), tableRef.schema(), tableRef.table());
         if (metadata == null) {

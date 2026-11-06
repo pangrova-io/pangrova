@@ -1,12 +1,13 @@
 package org.pangrova.coordinator.coordination.store.jdbc;
 
+import org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions;
+
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
+import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.security.api.error.AccessDeniedException;
 
 import java.sql.SQLException;
 import java.time.Duration;
@@ -30,7 +31,7 @@ class JdbcCopyFrozenInputLineageTest {
         var executor = Executors.newFixedThreadPool(4);
         var start = new CountDownLatch(1);
         try {
-            var results = new java.util.ArrayList<java.util.concurrent.Future<JdbcCopySourceReadAdmissions.FrozenInput>>();
+            var results = new java.util.ArrayList<java.util.concurrent.Future<CopySourceReadAdmissions.FrozenInput>>();
             for (int i = 0; i < 4; i++) {
                 results.add(executor.submit(() -> {
                     if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("No start signal");
@@ -123,7 +124,7 @@ class JdbcCopyFrozenInputLineageTest {
                 .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> fixture.redeem(bound.ticket(), bound.scope()))
                 .isInstanceOf(AccessDeniedException.class);
-        var current = new JdbcCopySourceReadAdmissions.FrozenInputAttempt(old.tenantId(), old.principal(),
+        var current = new CopySourceReadAdmissions.FrozenInputAttempt(old.tenantId(), old.principal(),
                 old.executionId(), old.sourceAttemptId(), "new-leaf", leader.epoch(), old.deadlineEpochMs());
         var resumed = fixture.admissions().issueFrozenInput(current, fixture.anchor());
         assertThat(fixture.redeem(resumed.ticket(), resumed.scope()).stagedSource()).contains(proof);
@@ -134,7 +135,8 @@ class JdbcCopyFrozenInputLineageTest {
         var source = SharedPostgresContainer.isolatedDataSource("copy_input_upgrade");
         Flyway.configure().dataSource(source).locations("classpath:db/migration")
                 .target(MigrationVersion.fromVersion("64")).load().migrate();
-        var fixture = fixture(source);
+        createV64AuthorityFixture(source);
+        var fixture = JdbcCopySourceReadAdmissionsTest.fixtureWithExistingTenant(source);
         var proof = insertLegacyRoot(fixture);
         Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
         var input = fixture.admissions().issueFrozenInput(inputAttempt(fixture, "after-upgrade"), fixture.anchor());
@@ -150,16 +152,55 @@ class JdbcCopyFrozenInputLineageTest {
         }
     }
 
-    private static JdbcCopySourceReadAdmissions.StagedSource insertLegacyRoot(
+    /** Test-only pre-canonical schema: current stores must not initialize or upgrade it implicitly. */
+    private static void createV64AuthorityFixture(javax.sql.DataSource source) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("""
+                    INSERT INTO tenants(tenant_id,name,status,created_at,updated_at)
+                    VALUES ('tenant-a','Tenant A','ACTIVE',clock_timestamp(),clock_timestamp());
+                    INSERT INTO tenant_user_memberships(user_principal,tenant_id,role)
+                    VALUES ('alice','tenant-a','MEMBER');
+                    CREATE TABLE pangrova_roles (
+                        role_name VARCHAR(255) PRIMARY KEY, description VARCHAR(1024),
+                        created_by VARCHAR(255), created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                    CREATE TABLE pangrova_user_roles (
+                        user_id VARCHAR(255) NOT NULL, role_name VARCHAR(255) NOT NULL,
+                        granted_by VARCHAR(255), granted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY(user_id,role_name));
+                    CREATE TABLE pangrova_group_roles (
+                        group_name VARCHAR(255) NOT NULL, role_name VARCHAR(255) NOT NULL,
+                        mapped_by VARCHAR(255), mapped_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY(group_name,role_name));
+                    CREATE TABLE security_grants (
+                        grant_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        role_name VARCHAR(255) NOT NULL, privilege VARCHAR(64) NOT NULL,
+                        object_type VARCHAR(64) NOT NULL, catalog_name VARCHAR(255),
+                        schema_name VARCHAR(255), table_name VARCHAR(255), column_name VARCHAR(255),
+                        with_grant_option BOOLEAN NOT NULL DEFAULT FALSE,
+                        cascade_revoke BOOLEAN NOT NULL DEFAULT FALSE, granted_by VARCHAR(255),
+                        granted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(role_name,privilege,object_type,catalog_name,schema_name,table_name,column_name));
+                    """);
+            try (var rows = statement.executeQuery("""
+                    SELECT count(*) FROM information_schema.columns
+                    WHERE table_schema=current_schema() AND table_name='tenants' AND column_name='quota_present'
+                    """)) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isZero();
+            }
+        }
+    }
+
+    private static CopySourceReadAdmissions.StagedSource insertLegacyRoot(
             JdbcCopySourceReadAdmissionsTest.Fixture fixture) throws Exception {
         var scope = fixture.scope();
         String tenant = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                 .digest(("copy\0" + scope.tenantId()).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-        var order = new java.util.ArrayList<>(new org.pangrova.spi.security.UserIdentity("alice",
+        var order = new java.util.ArrayList<>(new org.pangrova.security.api.identity.UserIdentity("alice",
                 java.util.Set.of("alpha", "beta"), java.util.Map.of(), java.time.Instant.now()).groups());
         java.util.Collections.reverse(order);
         String groups = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(order);
-        var proof = new JdbcCopySourceReadAdmissions.StagedSource("legacy-version",
+        var proof = new CopySourceReadAdmissions.StagedSource("legacy-version",
                 scope.managedStorageRootUri() + "/tenants/" + tenant + "/sha256/bb/" + "b".repeat(64),
                 "b".repeat(64), 123, tenant);
         try (var connection = fixture.source().getConnection(); var insert = connection.prepareStatement("""
@@ -187,7 +228,7 @@ class JdbcCopyFrozenInputLineageTest {
             insert.setString(i++, scope.managedBackendIdentitySha256());
             insert.setString(i++, scope.executionId());
             insert.setString(i++, scope.stagingAttemptId());
-            insert.setString(i++, JdbcCopySourceReadAdmissions.commandSha256(scope));
+            insert.setString(i++, CopySourceReadAdmissions.commandSha256(scope));
             insert.setString(i++, scope.ownerId());
             insert.setString(i++, scope.ownerIncarnation());
             insert.setLong(i++, scope.controlEpoch());

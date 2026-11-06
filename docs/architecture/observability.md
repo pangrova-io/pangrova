@@ -20,8 +20,23 @@ its configured `Meter` and `Tracer` into `OtelMetricsProvider` and
 `ServiceLoader` providers: they require the configured SDK and its lifecycle.
 Registering them in `META-INF/services` fails the
 [JDK provider-constructor contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/ServiceLoader.html#developing-service-providers).
-Logging and task-context wrapping retain their independently constructible
-service registrations.
+Provider selection remains explicit in process assembly. Task wrapping is an
+explicitly constructed `TaskWrapping` implementation; no contract-level global
+ServiceLoader or first-provider selection remains.
+
+Execution identity is separate from exporting spans. `ExecutionTraceContext` and
+`ExecutionTraceContextFactory` live in the unified Observability API artifact;
+Server explicitly supplies the stateless `OtelExecutionTraceContextFactory` from
+the current SDK module. The provider preserves trace ID, span ID, flags and W3C
+vendor state, or generates an unsampled root when no valid parent exists. Snapshot
+activation restores the calling thread's previous scope on close; it owns neither
+query authority nor exporter shutdown. There is no static provider registry.
+
+The SQL E2E fixture uses disabled telemetry. Its canonical TaskRequest identity
+and actual Native result assertions do not prove exported-span continuity or
+HTTP parent propagation under an enabled provider; SDK/filter/JNI tests cover
+those individual boundaries. The full SDK/provider/transport module split is
+still pending.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -64,6 +79,61 @@ service registrations.
 │                        └───────────────────┘                               │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Current artifact and ownership boundaries
+
+| Artifact | Owns |
+|---|---|
+| `pangrova-observability-api` | `.api` tracing/metric/logging values and profiling configuration/errors; `.spi` providers, task wrapping and profiler contracts |
+| `pangrova-observability-core` | MDC capture/restore, metric registration scopes and profiling delegation |
+| `pangrova-observability-noop` | Explicit disabled telemetry instruments/providers and `UnavailableProfiler` |
+| `pangrova-observability-sdk` | Existing OpenTelemetry implementation, configuration and transport/native adapters pending their planned split |
+
+The API depends only on Common. Query observations and listener contracts belong to
+`pangrova-query-api` (`api.event` / `spi.event`); their process-local dispatcher belongs
+to `pangrova-query-core` (`core.event`). Observability API and Core do not depend on
+Query API/Core. Core and Noop do not depend on the central SPI, OpenTelemetry SDK,
+Coordinator or Worker. Query observer callbacks remain fault-isolated; durable
+audit/publication authority remains with the owning workflow, not the in-memory
+event dispatcher. Provider factories, the remaining
+SDK/Core separation, and dedicated HTTP/gRPC/native adapter artifacts remain
+part of the target plan and are not claimed complete here.
+
+Dimensioned metric overloads reject nonempty attributes when an implementation
+has not implemented dimension handling; they never silently record an unlabelled
+observation. Explicit disabled instruments discard the whole observation.
+`Span.makeCurrent()` is mandatory: only the disabled span explicitly returns a
+no-op scope; active providers must implement activation/restoration.
+
+Gauge registrations implement `AutoCloseable`. The handle owner unregisters its
+callback when the observation ends; closing it does not shut down the shared SDK.
+Coordinator and Worker inject a `MetricsScope` that owns all registrations created
+through it, including those whose handles were not retained by individual collectors.
+Role shutdown closes that scope before the telemetry backend. A child scope borrows
+its parent provider; Native metrics publishing uses a child scope and unregisters
+its four gauges on `stop()`, after the sampling executor has drained in Worker
+shutdown. Failed publisher construction closes any registrations already acquired.
+
+Scope close rejects new instrument creation, releases gauges in reverse order,
+attempts every release, and retains failed registrations for retry. Independent
+owners sharing a backend remain active. A callback already collecting may finish
+after unregister, so gauge suppliers must read safe snapshots rather than dereference
+a released Native handle. This lifecycle does not establish cardinality bounds or
+complete the remaining per-component metric accounting and adapter separation.
+
+Task wrappers capture the submitting context at decoration time and restore
+the executing thread's previous MDC in `finally`, including inline execution,
+nested wrappers and exceptions. The executor decorator shares its delegate's
+lifecycle; shutting down the decorator shuts down that delegate. It does not
+own an independently created pool.
+
+Coordinator currently configures `UnavailableProfiler`. Profiling start, stop
+and data retrieval reject with `ProfilingUnavailableException`, rather than
+returning a fabricated session or empty successful result. The HTTP SVG profile
+endpoint translates this explicit unsupported capability to **501** with
+`UNSUPPORTED_CAPABILITY`. A configured profiler that has no data for a particular
+query can still produce the separate existing **404** response. Structured JSON
+query profiles are a distinct endpoint and are unchanged by this split.
 
 ## 2. OpenTelemetry Integration
 
@@ -661,12 +731,12 @@ public class ProfilerEndpoint {
 
 ### Resource audit admission and shutdown
 
-Query audit values and the admission sink live in `pangrova-spi` under
-`org.pangrova.spi.query.audit`; the storage port lives in `pangrova-persistence-api`
-under `org.pangrova.persistence.api.query.audit`. The runtime service remains
-`org.pangrova.query.audit.QueryAuditService`. Each Coordinator composes its own
+Query audit values and the admission sink live in `pangrova-query-api` under
+`org.pangrova.query.api.audit` and `org.pangrova.query.spi.audit`; the storage port lives in `pangrova-persistence-query-api`
+under `org.pangrova.persistence.query.api.audit`. The runtime service remains
+`org.pangrova.query.core.audit.QueryAuditService`. Each Coordinator composes its own
 `QueryAuditServices`: admission and profile lookup
-share one `org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore` instance.
+share one `org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore` instance.
 Independent Coordinators do not share a global cache.
 API consumers do not load the service, cache or JDBC backend.
 
@@ -678,14 +748,17 @@ identity when the event backend is absent. This does not yet close the resource
 audit integration gap: terminal resource records currently lack actual stage/task
 and Native usage aggregation, and zero placeholders are not measured usage.
 
-The unused asynchronous `JdbcAuditStore` implementation has been removed: no production
+The unused asynchronous JdbcAuditStore (retired) implementation has been removed: no production
 constructor, factory or service registration selected it. Its private queue tests were
 removed with it; the active audit-service and shared-cache tests remain. The historical
 `query_audit_records` migration is preserved byte-for-byte, but this table is not the
-current resource-audit persistence path. Durable completion/split events use
-`org.pangrova.persistence.jdbc.query.event.JdbcQueryEventListener` and the separate
-`query_events` / `query_split_profiles` tables. These facts must not be presented as
-a durable resource-usage audit ledger.
+current resource-audit persistence path. The separately implemented
+`org.pangrova.persistence.query.postgresql.event.JdbcQueryEventListener` writes completion/split
+observations to `query_events` / `query_split_profiles`. It has PostgreSQL integration
+coverage but is not registered by current production assembly; split-completion
+publishing is also not wired in the execution path. Its callback logs and swallows
+SQL failures, so it cannot serve as a durable resource-usage audit ledger or replace
+the query journal, committed lineage facts, or publication authority.
 
 Metric getters intentionally expose the same registered live instrument, JVM collectors
 retain live management beans, and no-op instruments are stateless shared singletons.

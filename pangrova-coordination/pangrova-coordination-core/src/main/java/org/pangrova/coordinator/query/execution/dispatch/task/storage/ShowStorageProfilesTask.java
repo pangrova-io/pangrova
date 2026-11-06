@@ -16,16 +16,16 @@ package org.pangrova.coordinator.query.execution.dispatch.task.storage;
 import java.util.List;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.statement.ShowStorageProfilesStatement;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.statement.ShowStorageProfilesStatement;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
+import org.pangrova.persistence.file.api.profile.StorageProfileRegistry;
 
 /**
  * Executes {@code SHOW STORAGE PROFILES} by listing all registered profiles.

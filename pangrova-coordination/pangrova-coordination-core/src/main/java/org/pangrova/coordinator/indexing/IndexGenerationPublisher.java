@@ -2,12 +2,12 @@ package org.pangrova.coordinator.indexing;
 
 import java.time.Instant;
 
-import org.pangrova.indexing.serde.IndexSerializer;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.store.IndexGenerationFormat;
-import org.pangrova.indexing.store.IndexGenerationManifest;
-import org.pangrova.indexing.store.IndexPublicationRequest;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.indexing.codec.data.IndexSerializer;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
+import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 
 /** Creates the canonical artifact identity and atomically publishes one index generation. */
 public final class IndexGenerationPublisher {

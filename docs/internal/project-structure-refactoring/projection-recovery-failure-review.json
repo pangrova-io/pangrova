@@ -1,0 +1,60 @@
+{
+  "records": [
+    {
+      "stage": "focused",
+      "finding": "Three failures and three errors after introducing a separate durable acceptance transaction. Existing faults targeted the first COMMIT, collision tests expected both contenders at the outbox, and known-failure retries allocated new IDs.",
+      "resolution": "Added distinct intent/final commit fault cases; target final COMMIT explicitly in original tests; assert one reserved winner and one rejected contender. Pending is explicit and cannot be bypassed; recover original requests before new work."
+    },
+    {
+      "stage": "focused2",
+      "finding": "One old deletion retry fixture still allocated a fresh ID behind a pending operation.",
+      "resolution": "Recover the original deletion and retain exact projection/outbox assertions."
+    },
+    {
+      "stage": "atomic",
+      "finding": "A component fixture used a different Catalog identity, an old test expected partial-success return for an accepted pending write, and drift checks assumed an untyped SQL message.",
+      "resolution": "Match the fixture authority; assert typed Pending plus original SQLSTATE and unchanged data/cache; validate recovery through the real invalidation poller. No failed operation is counted as success."
+    },
+    {
+      "stage": "atomic2",
+      "finding": "Test compilation failed because a text replacement also changed an unrelated assertion to reference originalId outside its method.",
+      "resolution": "Restore the unrelated normal incremental-sync assertion and retain receipt verification only in the recovery scenario. 65 completed tests in that run were retained as evidence, not misreported as a passing run."
+    },
+    {
+      "stage": "api-analysis1",
+      "finding": "One 121-character API Javadoc line exceeded the unchanged 120-character rule.",
+      "resolution": "Wrapped documentation; api-analysis2 formal verify passed."
+    },
+    {
+      "stage": "owner-analysis1",
+      "finding": "Two new JDBC SQL-construction findings in SyncCompletionRows; current Indexing API still reported nine existing findings.",
+      "resolution": "Replace closed-enum runtime table-name concatenation with compile-time SQL constants and exhaustive selection. Do not suppress either SQL finding. Indexing findings remain separately open."
+    },
+    {
+      "stage": "provider-analysis1",
+      "finding": "Full Provider dependency-closure static verify stopped at the nine Indexing API findings before its own tests.",
+      "resolution": "Record the failure; build/install current reactor dependencies and run a scoped Provider verify. This does not replace or pass the failed whole-closure gate."
+    },
+    {
+      "stage": "provider-isolated",
+      "finding": "56 behavior tests passed; Checkstyle found 13 issues (switch formatting, parameter positions 11/12 and constructor separators).",
+      "resolution": "Use a local exhaustive SQL selection, name JDBC parameter indices, and fix whitespace. Three additional existing overlong declarations/Javadoc lines were wrapped without behavior changes."
+    },
+    {
+      "stage": "provider-style",
+      "finding": "The named SQL parameter made one serialization statement 125 characters.",
+      "resolution": "Wrapped it; provider-style2 passed, then provider-isolated2 passed formal verify with 56 tests."
+    },
+    {
+      "stage": "acceptance-boundary-review",
+      "finding": "Initial new validation rejected blank identifiers although the existing domain/storage contract only required non-null strings.",
+      "resolution": "Restrict backend validation to unrepresentable NUL/overlong identifiers; preserve domain naming semantics. Regression covers storable empty/whitespace names and 255 supplementary Unicode code points."
+    },
+    {
+      "stage": "evidence-collection",
+      "finding": "An evidence helper assumed static XML reports survived subsequent clean builds; the file lookup failed.",
+      "resolution": "Retain actual terminal verify results and unchanged source hashes; explicitly record lost XML, regenerate current packaged-source reports with static-reports, and capture those separately. No prior-batch passing report substituted."
+    }
+  ],
+  "test_policy": "No disabled tests, no lowered gate thresholds, no new SpotBugs exclusion. All latest selected testcase reports pass."
+}

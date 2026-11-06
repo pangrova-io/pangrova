@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.query.api.lifecycle.QueryOperation;
+
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -373,14 +375,14 @@ public class CoordinatorTaskTracker {
     }
 
     /** Opens the sole issuance authority before planning. */
-    public org.pangrova.spi.connector.ConnectorQueryAuthority openQueryIssuance(String queryId) {
+    public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {
         return taskIdentityStore.openQuery(queryId);
     }
 
     public void markRecoveredIssuanceUnresolved(String queryId) { taskIdentityStore.markRecoveryUnresolved(queryId); }
 
     /** Enters a query issuance operation and notifies listeners when it exits. */
-    public QueryIssuanceOperation enterQueryOperation(String queryId) {
+    public QueryOperation enterQueryOperation(String queryId) {
         Runnable exited = taskIdentityStore.enterQueryOperation(queryId);
         try {
             return new QueryIssuanceOperation(() -> {
@@ -394,7 +396,7 @@ public class CoordinatorTaskTracker {
     }
 
     /** Enters an already issued scope for a state transition, including terminal cleanup metadata. */
-    public QueryIssuanceOperation enterQueryMetadataOperation(String queryId) {
+    public QueryOperation enterQueryMetadataOperation(String queryId) {
         Runnable exited = taskIdentityStore.enterMetadataOperation(queryId);
         try {
             return new QueryIssuanceOperation(() -> {
@@ -523,7 +525,7 @@ public class CoordinatorTaskTracker {
     }
 
     /** Returns the original issued scheduled fact, preserving event identity and producer time on retry. */
-    public org.pangrova.spi.query.state.TaskStateEvent scheduledJournalEvent(String taskId) {
+    public org.pangrova.query.api.journal.TaskStateEvent scheduledJournalEvent(String taskId) {
         return taskIdentityStore.scheduledEvent(taskId);
     }
 

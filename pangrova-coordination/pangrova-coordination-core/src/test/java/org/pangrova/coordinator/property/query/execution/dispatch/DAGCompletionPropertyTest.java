@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.property.query.execution.dispatch;
 
+import org.pangrova.query.api.stage.StageState;
+
 import java.util.List;
 import java.util.Map;
 
@@ -8,11 +10,10 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.coordinator.query.stage.Stage;
-import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageRetryPolicy;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.stage.StageRetryPolicy;
+import org.pangrova.query.core.stage.StageStateMachine;
+import org.pangrova.query.api.error.QueryFailure;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.logical.LogicalValues;
@@ -52,7 +53,7 @@ class DAGCompletionPropertyTest {
             stage.onTaskFinished("task-" + i);
         }
         assertThat(stage.stateMachine().getState())
-                .isEqualTo(StageStateMachine.State.FINISHED);
+                .isEqualTo(StageState.FINISHED);
     }
 
     /**
@@ -67,14 +68,14 @@ class DAGCompletionPropertyTest {
     void nonRetryableTaskFailureCausesStageFailure(
             @ForAll @IntRange(min = 1, max = 4) int taskCount) {
         Stage stage = createRunningStage(taskCount, StageRetryPolicy.NO_RETRY);
-        ErrorDetail userError = new ErrorDetail(
+        QueryFailure userError = new QueryFailure(
                 "VALIDATION-0001", "InvalidArgument", "bad input");
         for (int i = 1; i < taskCount; i++) {
             stage.onTaskFinished("task-" + i);
         }
         stage.onTaskFailed("task-0", userError);
         assertThat(stage.stateMachine().getState())
-                .isEqualTo(StageStateMachine.State.FAILED);
+                .isEqualTo(StageState.FAILED);
     }
 
     /**
@@ -122,7 +123,7 @@ class DAGCompletionPropertyTest {
     void stageRetryResetsTaskTracking(
             @ForAll @IntRange(min = 1, max = 4) int taskCount) {
         Stage stage = createRunningStage(taskCount);
-        stage.onTaskFailed("task-0", new ErrorDetail(
+        stage.onTaskFailed("task-0", new QueryFailure(
                 "EXCHANGE-0004", "ExchangeFetchFailed", "shuffle data lost"));
         int genBefore = stage.currentGeneration();
         boolean prepared = stage.tryPrepareRetry();
@@ -147,16 +148,16 @@ class DAGCompletionPropertyTest {
         stage.tryPrepareRetry();
         stage.addTaskId("new-task-0");
         stage.addTaskId("new-task-1");
-        stage.stateMachine().tryTransitionTo(StageStateMachine.State.SCHEDULING);
-        stage.stateMachine().tryTransitionTo(StageStateMachine.State.RUNNING);
+        stage.stateMachine().tryTransitionTo(StageState.SCHEDULING);
+        stage.stateMachine().tryTransitionTo(StageState.RUNNING);
         stage.onTaskFinished("task-0", oldGen);
         assertThat(stage.stateMachine().getState())
                 .as("stale callback should not trigger FINISHED")
-                .isEqualTo(StageStateMachine.State.RUNNING);
+                .isEqualTo(StageState.RUNNING);
         stage.onTaskFinished("new-task-0");
         stage.onTaskFinished("new-task-1");
         assertThat(stage.stateMachine().getState())
-                .isEqualTo(StageStateMachine.State.FINISHED);
+                .isEqualTo(StageState.FINISHED);
     }
 
     private Stage createRunningStage(int taskCount) {
@@ -165,11 +166,11 @@ class DAGCompletionPropertyTest {
 
     private Stage createRunningStage(int taskCount, StageRetryPolicy policy) {
         StageNode node = new StageNode(
-                0, new org.pangrova.planner.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L), taskCount, "OUTPUT", List.of());
+                0, new org.pangrova.planner.core.analysis.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L), taskCount, "OUTPUT", List.of());
         StageStateMachine sm = new StageStateMachine("0", "q-test");
         Stage stage = new Stage(node, sm, policy);
-        sm.tryTransitionTo(StageStateMachine.State.SCHEDULING);
-        sm.tryTransitionTo(StageStateMachine.State.RUNNING);
+        sm.tryTransitionTo(StageState.SCHEDULING);
+        sm.tryTransitionTo(StageState.RUNNING);
         for (int i = 0; i < taskCount; i++) {
             stage.addTaskId("task-" + i);
         }

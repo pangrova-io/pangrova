@@ -20,8 +20,8 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.transport.ArrowBatchDecoder;
-import org.pangrova.transport.ResultBatch;
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ResultBatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

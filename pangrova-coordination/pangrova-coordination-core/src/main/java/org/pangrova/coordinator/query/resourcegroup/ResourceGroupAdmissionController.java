@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
-import org.pangrova.scheduler.api.resource.ClusterAdmissionController;
+import org.pangrova.scheduler.spi.admission.ClusterAdmissionController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

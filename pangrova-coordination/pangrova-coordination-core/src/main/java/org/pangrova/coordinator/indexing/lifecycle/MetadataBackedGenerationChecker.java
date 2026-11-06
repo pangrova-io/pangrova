@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
 import org.pangrova.indexing.build.GenerationChecker;
-import org.pangrova.indexing.store.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

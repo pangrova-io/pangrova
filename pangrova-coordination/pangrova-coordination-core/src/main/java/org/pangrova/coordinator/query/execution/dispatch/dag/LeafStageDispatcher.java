@@ -1,5 +1,16 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
+
+
+import org.pangrova.execution.core.binding.TaskRequestFactory;
+import org.pangrova.execution.api.stage.TaskStage;
+import org.pangrova.execution.api.stage.TaskPurpose;
+
+import org.pangrova.query.api.task.QuerySplit;
+
+import org.pangrova.query.core.task.StageDispatchRecord;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -8,14 +19,13 @@ import java.util.function.UnaryOperator;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.StagePartitionDispatcher;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.binding.GenerationPartitionResources;
+import org.pangrova.execution.core.authority.StageExecutionContext;
+import org.pangrova.generation.core.execution.binding.GenerationPartitionResources;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
-import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.DynamicFilterBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
@@ -23,7 +33,7 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,7 +47,7 @@ final class LeafStageDispatcher {
     private static final long MAX_DML_MEMORY_BYTES = 256L * 1024 * 1024;
 
     private final org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher;
-    private final org.pangrova.planner.runtimefilter.RuntimeFilterRegistry runtimeFilterRegistry;
+    private final org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry runtimeFilterRegistry;
     private final QueryStateJournal stateJournal;
     private final long taskTimeoutSeconds;
     private final TaskStageRegistrar taskStageRegistrar;
@@ -47,7 +57,7 @@ final class LeafStageDispatcher {
     private final DispatchCanceller canceller;
 
     LeafStageDispatcher(org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher,
-                        org.pangrova.planner.runtimefilter.RuntimeFilterRegistry runtimeFilterRegistry,
+                        org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry runtimeFilterRegistry,
                         QueryStateJournal stateJournal,
                         long taskTimeoutSeconds,
                         DispatchCanceller canceller,
@@ -73,14 +83,14 @@ final class LeafStageDispatcher {
             StageExecutionContext execution,
             StageNode plan,
             BoundExecutionPlan boundPlan,
-            List<SplitFetcher.SplitWithPaths> splitsWithPaths,
+            List<QuerySplit> splitsWithPaths,
             WorkerSelector workerSelector,
             StageDAG dag,
-            List<DAGDispatchEngine.StageDispatchRecord> dispatched,
+            List<StageDispatchRecord> dispatched,
             org.pangrova.protocol.rest.config.WriteConfig writeConfig,
             boolean distributedRetrieval,
             long planEpoch, DurableStageRuntime durable) {
-        org.pangrova.coordinator.query.session.CoordinatorSessionContext session() {
+        org.pangrova.query.api.session.QuerySession session() {
             return execution.requireLiveSession();
         }
     }
@@ -122,7 +132,7 @@ final class LeafStageDispatcher {
                 runtimeFilterRegistry);
         var shuffleConfig = buildShuffleConfig(plan, input.dag(), remoteShuffle);
         List<String> allSplits = input.splitsWithPaths().stream()
-                .map(SplitFetcher.SplitWithPaths::serializedData).toList();
+                .map(QuerySplit::serializedData).toList();
         boolean leafStage = !input.splitsWithPaths().isEmpty();
         boolean hasArtifactBindings = input.boundPlan().operatorBindings().stream()
                 .anyMatch(binding -> binding.getArtifactsCount() > 0);
@@ -147,7 +157,7 @@ final class LeafStageDispatcher {
             boolean hasArtifactBindings) {
         int workerCount = input.workerSelector().activeWorkerCount();
         if (workerCount <= 0) {
-            throw new org.pangrova.scheduler.failure.NoAvailableWorkerException(
+            throw new org.pangrova.scheduler.api.error.NoAvailableWorkerException(
                     "No available worker for task dispatch: no schedulable capacity for this stage");
         }
         int rawParallelism = rawParallelism(input, leafStage, workerCount);
@@ -158,7 +168,7 @@ final class LeafStageDispatcher {
         boolean outputStage = input.dag().findDownstreamEdge(
                 input.plan().stageId()) == null;
         if (outputStage && shuffleConfig == null && !input.distributedRetrieval()
-                && input.plan().stagePlan().mode() == org.pangrova.planner.StagePlanAccess.Mode.LIVE_QUERY) {
+                && input.plan().stagePlan().mode() == org.pangrova.planner.core.analysis.StagePlanAccess.Mode.LIVE_QUERY) {
             taskCount = 1;
         }
         return taskCount;
@@ -180,7 +190,7 @@ final class LeafStageDispatcher {
     }
 
     private static boolean requiresExactPartitionCount(StageNode plan, StageDAG dag, boolean remoteShuffle) {
-        return plan.stagePlan().mode() == org.pangrova.planner.StagePlanAccess.Mode.DURABLE_REPLAY
+        return plan.stagePlan().mode() == org.pangrova.planner.core.analysis.StagePlanAccess.Mode.DURABLE_REPLAY
                 || !dag.edges().getOrDefault(plan.stageId(), List.of()).isEmpty()
                 || remoteShuffle && dag.findDownstreamEdge(plan.stageId()) != null;
     }
@@ -270,9 +280,10 @@ final class LeafStageDispatcher {
         return TaskRequestFactory.buildLeafTaskRequest(
                 new TaskRequestFactory.LeafTask(
                         input.execution(), input.boundPlan().planBytes(),
-                        input.plan(), partition, limit, sources,
+                        new TaskStage(input.plan().stageId(), TaskPurpose.valueOf(input.plan().taskType())),
+                        partition, limit, sources,
                         prepared.filters(), prepared.shuffleConfig(), taskSplits,
-                        org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskDeadline.after(
+                        org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                                 java.time.Duration.ofSeconds(taskTimeoutSeconds), java.time.Instant.now()),
                         attempt, taskBindings,
                         shuffleHandle(input.dag(), input.plan().stageId()),
@@ -290,7 +301,7 @@ final class LeafStageDispatcher {
 
     void populateDispatchRecords(
             List<DAGDispatchEngine.PartitionDispatch> pds, Stage stage,
-            List<DAGDispatchEngine.StageDispatchRecord> dispatched,
+            List<StageDispatchRecord> dispatched,
             ConcurrentHashMap<Integer, DispatchResult> results) {
         DispatchResult first = null;
         for (DAGDispatchEngine.PartitionDispatch pd : pds) {
@@ -306,7 +317,7 @@ final class LeafStageDispatcher {
                 stage.bindShuffleExecutionIdentity(
                         attempt.getPlanEpoch(), attempt.getExecutionOwner());
             }
-            dispatched.add(new DAGDispatchEngine.StageDispatchRecord(
+            dispatched.add(new StageDispatchRecord(
                     stage.stageId(), r, pd.workerHttpPort(), pd.workerTransportPort(),
                     pd.request()));
             if (first == null) {
@@ -449,13 +460,13 @@ final class LeafStageDispatcher {
     }
 
     private static void requireDistribution(StageEdge downstreamEdge, boolean remoteShuffle) {
-        if (downstreamEdge.shuffleType() == org.pangrova.planner.ShuffleType.ANY
-                || downstreamEdge.shuffleType() == org.pangrova.planner.ShuffleType.RANGE) {
+        if (downstreamEdge.shuffleType() == org.pangrova.planner.core.analysis.ShuffleType.ANY
+                || downstreamEdge.shuffleType() == org.pangrova.planner.core.analysis.ShuffleType.RANGE) {
             throw new IllegalArgumentException(
                     "Unsupported materialized shuffle distribution: "
                             + downstreamEdge.shuffleType());
         }
-        if (remoteShuffle && downstreamEdge.shuffleType() == org.pangrova.planner.ShuffleType.BROADCAST) {
+        if (remoteShuffle && downstreamEdge.shuffleType() == org.pangrova.planner.core.analysis.ShuffleType.BROADCAST) {
             throw new IllegalArgumentException(
                     "External shuffle does not support distribution: "
                             + downstreamEdge.shuffleType());

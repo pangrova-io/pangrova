@@ -8,7 +8,7 @@ import java.util.Set;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.StrategyId;
-import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceRef;
 
 /**
  * Explicit registry of materialization extensions.

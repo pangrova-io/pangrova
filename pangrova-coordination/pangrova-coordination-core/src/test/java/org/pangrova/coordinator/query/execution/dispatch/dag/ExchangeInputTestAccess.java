@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.query.core.task.StageDispatchRecord;
+
 import java.util.List;
 
 import org.pangrova.coordinator.query.stage.StageDAG;
@@ -14,7 +16,7 @@ public final class ExchangeInputTestAccess {
     public static List<ExchangeInputBinding> build(
             StageNode stage,
             StageDAG dag,
-            List<DAGDispatchEngine.StageDispatchRecord> dispatched,
+            List<StageDispatchRecord> dispatched,
             int partitionId) {
         return ExchangeSourceBuilder.buildExchangeInputs(
                 stage, dag, dispatched, partitionId);

@@ -5,7 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
 

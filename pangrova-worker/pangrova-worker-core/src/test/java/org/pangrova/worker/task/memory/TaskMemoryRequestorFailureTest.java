@@ -3,7 +3,7 @@ package org.pangrova.worker.task.memory;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.spi.query.identity.QueryId;
+import org.pangrova.query.api.identity.QueryId;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.worker.resource.ResourceManager;

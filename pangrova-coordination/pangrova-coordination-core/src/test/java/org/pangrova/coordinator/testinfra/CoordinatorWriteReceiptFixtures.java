@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
-import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
+import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
 
 import java.util.List;
 import java.util.Optional;

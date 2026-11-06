@@ -19,6 +19,7 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>
         <!-- Public client contract -->
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -28,7 +29,7 @@
         <!-- REST client implementation -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-transport</artifactId>
+            <artifactId>pangrova-transport-client</artifactId>
         </dependency>
 
         <!-- Internal: protocol DTOs (QueryStatusResponse, SubmitQueryResponse, etc.) -->

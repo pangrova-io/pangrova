@@ -1,22 +1,23 @@
 package org.pangrova.coordinator.ai.branch;
 
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+import org.pangrova.query.core.session.SessionTableNames;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.statement.TableResolver;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.parser.ast.statement.CreateBranchStatement;
-import org.pangrova.parser.ast.statement.CreateTagStatement;
-import org.pangrova.parser.ast.statement.DropBranchStatement;
-import org.pangrova.parser.ast.statement.DropTagStatement;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.statement.CreateBranchStatement;
+import org.pangrova.parser.api.ast.statement.CreateTagStatement;
+import org.pangrova.parser.api.ast.statement.DropBranchStatement;
+import org.pangrova.parser.api.ast.statement.DropTagStatement;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,17 +41,17 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes CREATE BRANCH after enforcing ALTER privileges. */
-    public List<TypedRow> executeCreateBranch(CreateBranchStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+    public List<TypedRow> executeCreateBranch(CreateBranchStatement stmt, QuerySession context) {
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
         try {
             metadata.createBranch(session, tableHandle, stmt.branchName(),
-                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                    new org.pangrova.connector.api.metadata.BranchCreationOptions(
                             stmt.fromSnapshot(), stmt.fromTag(), java.util.OptionalLong.empty()));
         } catch (UnsupportedOperationException e) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_DDL_FAILED,
@@ -74,11 +75,11 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes DROP BRANCH after enforcing ALTER privileges. */
-    public List<TypedRow> executeDropBranch(DropBranchStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+    public List<TypedRow> executeDropBranch(DropBranchStatement stmt, QuerySession context) {
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -106,11 +107,11 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes CREATE TAG after enforcing ALTER privileges. */
-    public List<TypedRow> executeCreateTag(CreateTagStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+    public List<TypedRow> executeCreateTag(CreateTagStatement stmt, QuerySession context) {
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -138,11 +139,11 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes DROP TAG after enforcing ALTER privileges. */
-    public List<TypedRow> executeDropTag(DropTagStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+    public List<TypedRow> executeDropTag(DropTagStatement stmt, QuerySession context) {
+        QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 

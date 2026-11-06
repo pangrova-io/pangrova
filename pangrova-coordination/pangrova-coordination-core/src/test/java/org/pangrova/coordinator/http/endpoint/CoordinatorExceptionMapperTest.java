@@ -2,8 +2,8 @@ package org.pangrova.coordinator.http.endpoint;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.error.ErrorDetail;
-import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.security.tenant.TenantQuotaExceededException;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.core.tenant.TenantQuotaExceededException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

@@ -2,7 +2,7 @@ package org.pangrova.worker.nativebridge.connector.session;
 
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.api.session.ConnectorSession;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,7 +17,7 @@ public record TaskConnectorSession(
         String catalog,
         Map<String, String> properties) implements ConnectorSession {
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+    public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
         return java.util.Optional.empty();
     }
 

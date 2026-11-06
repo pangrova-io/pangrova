@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.exchange;
 
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
+
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;

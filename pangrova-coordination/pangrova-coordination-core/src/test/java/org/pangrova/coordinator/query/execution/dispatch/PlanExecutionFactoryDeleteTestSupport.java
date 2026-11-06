@@ -1,5 +1,11 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.query.api.statement.StatementCategory;
+
+import org.pangrova.query.core.task.DispatchResult;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.util.ArrayList;
 import java.time.Instant;
 import java.util.List;
@@ -8,8 +14,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
@@ -17,29 +23,29 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.statement.dml.DeleteStatement;
-import org.pangrova.client.protocol.ResultEndpoint;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
+import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.DeleteFilter;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -82,9 +88,9 @@ final class PlanExecutionFactoryDeleteTestSupport {
     static final class Fixture {
         final NativeWriteCommitTracker tracker = new NativeWriteCommitTracker();
         final QueryStateMachine stateMachine = new QueryStateMachine();
-        final CoordinatorSessionContext session = new CoordinatorSessionContext(
+        final QuerySession session = new QuerySession(
                 QUERY_ID, Map.of(), new UserIdentity("delete-user", Set.of(), Map.of(),
-                        Instant.EPOCH), "delete-tenant");
+                        Instant.EPOCH), "delete-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         final StatementExecutionContext context = new StatementExecutionContext(
                 stateMachine, QUERY_ID, session, null, null);
         final List<String> events = new ArrayList<>();
@@ -98,8 +104,8 @@ final class PlanExecutionFactoryDeleteTestSupport {
         Fixture(boolean partitioned) {
             metadata = new DeleteMetadata(partitioned, events);
             registry = new DeleteCatalogRegistry(metadata);
-            assertThat(stateMachine.tryTransition(QueryStateMachine.State.PLANNING)).isTrue();
-            assertThat(stateMachine.getState()).isEqualTo(QueryStateMachine.State.PLANNING);
+            assertThat(stateMachine.tryTransition(QueryState.PLANNING)).isTrue();
+            assertThat(stateMachine.getState()).isEqualTo(QueryState.PLANNING);
         }
 
         StatementResult execute(DeleteStatement statement) {
@@ -108,7 +114,7 @@ final class PlanExecutionFactoryDeleteTestSupport {
                         assertThat(incomingState).isSameAs(stateMachine);
                         assertThat(incomingSession).isSameAs(session);
                         assertNotAllocated();
-                        assertThat(stateMachine.getState()).isEqualTo(QueryStateMachine.State.PLANNING);
+                        assertThat(stateMachine.getState()).isEqualTo(QueryState.PLANNING);
                         events.add("dispatch");
                         dispatched.add(nativeStatement);
                         onDispatch.accept(nativeStatement);
@@ -131,7 +137,7 @@ final class PlanExecutionFactoryDeleteTestSupport {
             assertThat(events).containsExactly(expectedEvents);
             assertThat(dispatched).hasSize(1);
             assertNotAllocated();
-            assertThat(stateMachine.getState()).isEqualTo(QueryStateMachine.State.PLANNING);
+            assertThat(stateMachine.getState()).isEqualTo(QueryState.PLANNING);
             assertThat(stateMachine.isTerminal()).isFalse();
         }
 
@@ -139,7 +145,7 @@ final class PlanExecutionFactoryDeleteTestSupport {
             assertThat(dispatched).isEmpty();
             assertThat(tracker.hasWriteContext(QUERY_ID)).isFalse();
             assertThat(tracker.peekWriteState(QUERY_ID)).isNull();
-            assertThat(stateMachine.getState()).isEqualTo(QueryStateMachine.State.PLANNING);
+            assertThat(stateMachine.getState()).isEqualTo(QueryState.PLANNING);
         }
     }
 

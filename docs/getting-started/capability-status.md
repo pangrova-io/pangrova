@@ -93,6 +93,15 @@ and the [current CDC boundary](../architecture/streaming.md).
   does not make every physical I/O operation a pure C++ path. JNI, IPC, conversion,
   compression, and network transfers must be measured
   individually before claiming zero-copy behavior.
+- SQL `GRANT`/`REVOKE` now parses and dispatches through authenticated,
+  PostgreSQL-backed privilege administration, including grant options,
+  RESTRICT/CASCADE and durable receipts. Component tests cover real SQL dispatch
+  and database authority. `SHOW PRIVILEGE MUTATION` confirms the original
+  submitter's receipt. An authenticated HTTP/Native SQL test proves that SQL-issued
+  grants enable actual reads and SQL revokes deny subsequent reads; OAuth2/LDAP
+  use separate authentication integration tests. Overall release qualification
+  still depends on the full repository gates. See
+  [the supported syntax and limits](../architecture/security.md#sql-privilege-administration).
 - Security, resource governance, and observability have implementations and wiring.
   They require configuration and workload/failure validation; their presence does not
   establish production readiness.

@@ -4,19 +4,21 @@ import org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder;
 import org.pangrova.coordinator.metadata.read.PlanningReadBindings;
 import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.metadata.catalog.handle.federation.FederationHandleFactory;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.metadata.spi.catalog.FederationHandleFactory;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.service.DefaultMetadataService;
-import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.metadata.api.catalog.MetadataStore;
+import org.pangrova.metadata.api.resolution.MetadataService;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.metadata.outbox.MetadataSyncService;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import javax.sql.DataSource;
+import org.pangrova.persistence.catalog.api.projection.TableProjectionRepository;
+import org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions;
+import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository;
 
 /**
  * Encapsulates the metadata subsystem initialization sequence for Coordinator startup.
@@ -52,19 +54,26 @@ public final class MetadataBootstrap {
     }
 
     /**
-     * Initializes the full metadata subsystem from a MetadataStore.
+     * Initializes the full metadata subsystem from a CatalogDeploymentRepository.
      * Sequence: store → registry → cache → service → initialize catalogs.
      */
-    public static MetadataBootstrap initialize(MetadataStore store) {
-        return initialize(store, null);
+    public static MetadataBootstrap initialize(CatalogDeploymentRepository deployments,
+            TableProjectionRepository tables,
+            MetadataProjectionTransactions projections,
+            MetadataSyncRepository synchronization) {
+        return initialize(deployments, tables, projections, synchronization, null);
     }
 
     /**
      * Initializes the metadata subsystem with connector support.
      * When connectorHandleFactory is provided, CONNECTOR-type catalogs can be loaded.
      */
-    public static MetadataBootstrap initialize(MetadataStore store, ConnectorHandleFactory connectorHandleFactory) {
-        return initialize(store, connectorHandleFactory, null);
+    public static MetadataBootstrap initialize(CatalogDeploymentRepository deployments,
+            TableProjectionRepository tables,
+            MetadataProjectionTransactions projections,
+            MetadataSyncRepository synchronization,
+            ConnectorHandleFactory connectorHandleFactory) {
+        return initialize(deployments, tables, projections, synchronization, connectorHandleFactory, null);
     }
 
     /**
@@ -73,15 +82,22 @@ public final class MetadataBootstrap {
      * FEDERATION-type catalogs use federationHandleFactory (PluginFederationHandleFactory).
      */
     public static MetadataBootstrap initialize(
-            MetadataStore store,
+            CatalogDeploymentRepository deployments,
+            TableProjectionRepository tables,
+            MetadataProjectionTransactions projections,
+            MetadataSyncRepository synchronization,
             ConnectorHandleFactory connectorHandleFactory,
             FederationHandleFactory federationHandleFactory) {
-        return initialize(store, connectorHandleFactory, federationHandleFactory, null);
+        return initialize(deployments, tables, projections, synchronization,
+                connectorHandleFactory, federationHandleFactory, null);
     }
 
     /** Initializes durable Dynamic Table publications when the metadata JDBC authority is present. */
     public static MetadataBootstrap initialize(
-            MetadataStore store,
+            CatalogDeploymentRepository deployments,
+            TableProjectionRepository tables,
+            MetadataProjectionTransactions projections,
+            MetadataSyncRepository synchronization,
             ConnectorHandleFactory connectorHandleFactory,
             FederationHandleFactory federationHandleFactory,
             javax.sql.DataSource publicationDataSource) {
@@ -89,13 +105,14 @@ public final class MetadataBootstrap {
         MetadataEventDispatcher dispatcher = new MetadataEventDispatcher();
         dispatcher.addListener(cache);
         CatalogRegistry registry = new CatalogRegistry(
-                store, connectorHandleFactory, federationHandleFactory, dispatcher);
+                deployments, connectorHandleFactory, federationHandleFactory, dispatcher);
         SchemaEvolutionValidator validator = new SchemaEvolutionValidator();
 
         DefaultMetadataService service = new DefaultMetadataService(
                 registry, cache, dispatcher, validator);
 
-        MetadataSyncService syncService = new MetadataSyncService(store, cache, dispatcher);
+        MetadataSyncService syncService = new MetadataSyncService(
+                tables, projections, synchronization, cache, dispatcher);
         org.pangrova.metadata.outbox.TableVersionObserver versionObserver =
                 new org.pangrova.metadata.outbox.TableVersionObserver(registry, dispatcher);
 
@@ -110,18 +127,18 @@ public final class MetadataBootstrap {
      * Builds a CalciteSchema bridging MetadataService to Calcite's table resolution.
      * Passes CatalogRegistry so LazyMetadataSchema can resolve tables from connectors.
      */
-    public CalciteSchema buildCalciteSchema(org.pangrova.spi.connector.ConnectorSession session) {
+    public CalciteSchema buildCalciteSchema(org.pangrova.connector.api.session.ConnectorSession session) {
         return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session);
     }
 
     /** Shares the selected source owner with the session planner's statistics provider. */
-    public CalciteSchema buildCalciteSchema(org.pangrova.spi.connector.ConnectorSession session,
+    public CalciteSchema buildCalciteSchema(org.pangrova.connector.api.session.ConnectorSession session,
             PlanningReadBindings readBindings) {
         return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session, readBindings);
     }
 
     /** Subscribes to metadata lifecycle events such as observed external commits. */
-    public void addMetadataListener(org.pangrova.metadata.event.MetadataEventListener listener) {
+    public void addMetadataListener(org.pangrova.metadata.spi.event.MetadataEventListener listener) {
         eventDispatcher.addListener(listener);
     }
 

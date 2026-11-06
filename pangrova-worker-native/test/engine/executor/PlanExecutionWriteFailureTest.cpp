@@ -1,3 +1,4 @@
+#include "CanonicalTestPlan.h"
 #include <gtest/gtest.h>
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
@@ -15,7 +16,7 @@ namespace pangrova::executor::test {
 namespace {
 
 std::vector<uint8_t> writeSourcePlan() {
-  substrait::Plan plan;
+  auto plan = pangrova::test::canonicalTestPlan(substrait::Plan{});
   auto* root = plan.add_relations()->mutable_root();
   root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();

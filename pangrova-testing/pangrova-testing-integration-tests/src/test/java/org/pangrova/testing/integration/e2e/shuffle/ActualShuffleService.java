@@ -16,11 +16,11 @@ import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
-import org.pangrova.shuffle.core.ShuffleProducerSetChecksum;
+import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.server.ShuffleServerRuntime;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
+import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
 
 import java.net.ServerSocket;
 import java.nio.file.Path;
@@ -39,6 +39,14 @@ final class ActualShuffleService implements AutoCloseable {
     private final List<ShuffleServiceConfig.Endpoint> endpoints;
     private final int partitions;
     private org.pangrova.common.lifecycle.ProcessIncarnationStore workerIncarnation;
+
+    static org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead partitionRead(
+            org.pangrova.shuffle.exchange.ExternalShuffleTransport input) {
+        return new org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead(
+                input.shuffleId(), new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
+                        input.consumerAttempt(), input.outputPartitionId(), input.deadlineEpochMs()),
+                input.planEpoch(), input.expectedProducerPartitions(), input.expectedProducerSetChecksum());
+    }
 
     ActualShuffleService(Path directory, int partitions, int serviceCount) throws Exception {
         if (partitions <= 0 || serviceCount <= 0 || serviceCount > partitions) {
@@ -96,11 +104,11 @@ final class ActualShuffleService implements AutoCloseable {
     }
 
     RemoteShuffleClientPool clientPool() {
-        return clientPool(new org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission(
-                new org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission.Limits(100, 8)));
+        return clientPool(new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission(
+                new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(100, 8)));
     }
 
-    RemoteShuffleClientPool clientPool(org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission admission) {
+    RemoteShuffleClientPool clientPool(org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission admission) {
         return new RemoteShuffleClientPool(5_000, 5_000,
                 RemoteShuffleClientPool.PoolOptions.mutualTls(new RemoteShuffleClientPool.PemTlsConfig(
                         backend.workerCertificate(), backend.workerPrivateKey(),
@@ -108,11 +116,11 @@ final class ActualShuffleService implements AutoCloseable {
     }
 
     RemoteShuffleClientPool shortIdleClientPool() {
-        return shortIdleClientPool(new org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission(
-                new org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission.Limits(100, 8)));
+        return shortIdleClientPool(new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission(
+                new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(100, 8)));
     }
 
-    RemoteShuffleClientPool shortIdleClientPool(org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission admission) {
+    RemoteShuffleClientPool shortIdleClientPool(org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission admission) {
         return new RemoteShuffleClientPool(5_000, 5_000,
                 new RemoteShuffleClientPool.PoolOptions(100, TimeUnit.MILLISECONDS, 100, true, null,
                         new RemoteShuffleClientPool.PemTlsConfig(
@@ -259,10 +267,10 @@ final class ActualShuffleService implements AutoCloseable {
         var owner = attempt.getExecutionOwner();
         var exchangeOwner = new org.pangrova.shuffle.api.ShuffleExecutionOwner(
                 owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken());
-        var exchangeAttempt = new org.pangrova.shuffle.exchange.ExchangeTaskAttempt(
+        var exchangeAttempt = new org.pangrova.shuffle.api.identity.ExchangeTaskAttempt(
                 attempt.getQueryOrJobId(), attempt.getStageId(), attempt.getPartitionId(),
                 attempt.getTaskId(), attempt.getControlEpoch(),
-                new org.pangrova.shuffle.exchange.ExchangeAttemptFence(attempt.getPlanEpoch(),
+                new org.pangrova.shuffle.api.identity.ExchangeAttemptFence(attempt.getPlanEpoch(),
                         attempt.getAttemptId(), attempt.getFencingToken()), exchangeOwner,
                 attempt.getWorkerExecutionIdentity().getAdmissionDomainId(),
                 attempt.getWorkerExecutionIdentity().getIncarnationId());

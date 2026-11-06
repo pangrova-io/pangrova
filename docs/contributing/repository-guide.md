@@ -26,7 +26,7 @@ The root README is an introduction; development inventories belong here.
 | `docs/` | User, developer, design and operational documentation |
 | `website/` | Docusaurus rendering, navigation, blog and shared static images |
 | `pangrova-common` / `pangrova-config` | Shared primitives and typed configuration |
-| `pangrova-parser` / `pangrova-planner` | SQL parsing and Calcite planning |
+| `pangrova-parser` / `pangrova-planner` | Parser API/Core and Planner API/Core; SDK-free contracts with implementation-owned ANTLR/Calcite |
 | `pangrova-protocol` | Canonical wire contracts and build-time function-contract generators |
 | `pangrova-query-api` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
 | `pangrova-generation` | Durable generation jobs: core contracts/codecs/routing, independent transaction SPI and PostgreSQL job/stage/exchange implementation |
@@ -37,19 +37,19 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-worker-native` | C++20 execution, JNI, Velox adapters and Lance FFI |
 | `pangrova-native-bundle` | Platform-specific JNI library packaging |
 | `pangrova-connector` | Iceberg, Paimon and Lance connector modules |
-| `pangrova-metadata` | Durable metadata, catalog and coordination persistence |
-| `pangrova-table` | Table control, maintenance, statistics and governance-binding owner |
-| `pangrova-file` | Volume/Stage, directory generation, upload, storage profile and COPY claim/publication owner |
+| `pangrova-metadata-core` | Durable metadata, catalog and coordination persistence |
+| `pangrova-table` | Table API/Core family: ownership, observation, maintenance, statistics and governance binding |
+| `pangrova-file` | File API/Core/Worker Adapter family: Volume/Stage contracts, authorization, URL issuance, directory refresh and delegated Worker HTTP operations |
 | `pangrova-semantic` | Semantic View identity, immutable versions, definition validation, publication fencing and JDBC storage |
 | `pangrova-ai` | Shared AI descriptors, governed control plane, and optional Worker-side AI runtime |
-| `pangrova-storage` | SDK-free Storage API, independent filesystem and S3 blob providers for Worker COPY and the AI FILE layer |
+| `pangrova-filesystem` | SDK-free Filesystem API and independent LOCAL/S3/OSS providers; backend capability limits are documented in the File architecture |
 | `pangrova-materialization` | Dynamic-table/materialized-view domain kernel and JDBC state store |
 | `pangrova-streaming` | CDC and streaming infrastructure |
 | `pangrova-shuffle` | Exchange contracts and deployable shuffle service |
 | `pangrova-operations` | DDL/DML operation infrastructure |
 | `pangrova-scheduler` | Cluster admission, quota/resource placement, scheduling strategies and fair/load-balanced execution order |
 | `pangrova-security` / `pangrova-governance` | Authentication, authorization, classification, lineage and quality governance |
-| `pangrova-indexing` | Index contracts (descriptors, state, eval, pruning, publication) and index services/planner extension |
+| `pangrova-indexing` | API/Codec/Core family; unified Indexing API and SPI replace the retired central SPI; strategy, JDBC and planner implementation separation remains in progress |
 | `pangrova-observability` | Observability contracts/no-op implementations, OpenTelemetry providers and adapters; Query audit persistence belongs to `pangrova-query` |
 | `pangrova-transport` / `pangrova-client` | Client result transport, REST, JDBC and CLI |
 | `pangrova-standalone` | Single-JVM Coordinator/Worker assembly |

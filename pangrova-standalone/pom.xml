@@ -19,6 +19,7 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-coordinator</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-config</artifactId>
@@ -55,4 +56,21 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions><execution>
+                    <id>role-runtime-classpath</id>
+                    <phase>package</phase>
+                    <goals><goal>build-classpath</goal></goals>
+                    <configuration>
+                        <includeScope>runtime</includeScope>
+                        <outputFile>${project.build.directory}/runtime-classpath.txt</outputFile>
+                    </configuration>
+                </execution></executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

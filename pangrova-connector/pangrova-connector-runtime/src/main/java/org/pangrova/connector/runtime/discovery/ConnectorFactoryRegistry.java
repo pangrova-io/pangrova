@@ -2,7 +2,7 @@ package org.pangrova.connector.runtime.discovery;
 
 import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.connector.spi.plugin.ConnectorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,9 +15,10 @@ import java.util.Set;
 /**
  * Immutable registry of connector factories discovered from a classloader.
  *
- * <p>Discovery is fail-closed: a factory with a blank name, a duplicate name,
- * or an {@code org.pangrova} implementation loaded outside the connector SPI
- * classloader is rejected instead of silently overwriting another provider.
+ * <p>Discovery is fail-closed: null factories, blank names and duplicate names
+ * are rejected instead of silently overwriting another provider. The plugin
+ * classloader owns contract-class identity; this registry does not validate
+ * provider version or role compatibility.
  */
 public final class ConnectorFactoryRegistry {
 

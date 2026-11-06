@@ -23,9 +23,9 @@ import org.pangrova.common.resilience.policy.ResiliencePolicyConfig.CircuitBreak
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig.RateLimiterSettings;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig.RetrySettings;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig.TimeLimiterSettings;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricAttributes;
-import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,12 +1,14 @@
 package org.pangrova.coordinator.property.query.stage;
 
+import org.pangrova.query.api.stage.StageState;
+
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
-import org.pangrova.coordinator.query.stage.StageRetryPolicy;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
+import org.pangrova.query.api.stage.StageRetryPolicy;
+import org.pangrova.query.core.stage.StageStateMachine;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,31 +25,31 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class StageStateMachinePropertyTest {
 
-    private static final Map<StageStateMachine.State, Set<StageStateMachine.State>> VALID_TRANSITIONS = Map.of(
-            StageStateMachine.State.PLANNED, Set.of(StageStateMachine.State.SCHEDULING, StageStateMachine.State.CANCELLED),
-            StageStateMachine.State.SCHEDULING, Set.of(StageStateMachine.State.RUNNING, StageStateMachine.State.FAILED, StageStateMachine.State.CANCELLED),
-            StageStateMachine.State.RUNNING, Set.of(StageStateMachine.State.FLUSHING, StageStateMachine.State.FAILED, StageStateMachine.State.CANCELLED),
-            StageStateMachine.State.FLUSHING, Set.of(StageStateMachine.State.FINISHED, StageStateMachine.State.FAILED),
-            StageStateMachine.State.FINISHED, Set.of(),
-            StageStateMachine.State.FAILED, Set.of(),
-            StageStateMachine.State.CANCELLED, Set.of()
+    private static final Map<StageState, Set<StageState>> VALID_TRANSITIONS = Map.of(
+            StageState.PLANNED, Set.of(StageState.SCHEDULING, StageState.CANCELLED),
+            StageState.SCHEDULING, Set.of(StageState.RUNNING, StageState.FAILED, StageState.CANCELLED),
+            StageState.RUNNING, Set.of(StageState.FLUSHING, StageState.FAILED, StageState.CANCELLED),
+            StageState.FLUSHING, Set.of(StageState.FINISHED, StageState.FAILED),
+            StageState.FINISHED, Set.of(),
+            StageState.FAILED, Set.of(),
+            StageState.CANCELLED, Set.of()
     );
 
     @Provide
-    Arbitrary<StageStateMachine.State> anyState() {
-        return Arbitraries.of(StageStateMachine.State.values());
+    Arbitrary<StageState> anyState() {
+        return Arbitraries.of(StageState.values());
     }
 
     @Provide
-    Arbitrary<List<StageStateMachine.State>> validTransitionSequence() {
+    Arbitrary<List<StageState>> validTransitionSequence() {
         return Arbitraries.lazyOf(
-                () -> Arbitraries.just(List.of(StageStateMachine.State.SCHEDULING, StageStateMachine.State.RUNNING, StageStateMachine.State.FLUSHING, StageStateMachine.State.FINISHED)),
-                () -> Arbitraries.just(List.of(StageStateMachine.State.SCHEDULING, StageStateMachine.State.RUNNING, StageStateMachine.State.FAILED)),
-                () -> Arbitraries.just(List.of(StageStateMachine.State.SCHEDULING, StageStateMachine.State.FAILED)),
-                () -> Arbitraries.just(List.of(StageStateMachine.State.CANCELLED)),
-                () -> Arbitraries.just(List.of(StageStateMachine.State.SCHEDULING, StageStateMachine.State.RUNNING, StageStateMachine.State.CANCELLED)),
-                () -> Arbitraries.just(List.of(StageStateMachine.State.SCHEDULING, StageStateMachine.State.CANCELLED)),
-                () -> Arbitraries.just(List.of(StageStateMachine.State.SCHEDULING, StageStateMachine.State.RUNNING, StageStateMachine.State.FLUSHING, StageStateMachine.State.FAILED))
+                () -> Arbitraries.just(List.of(StageState.SCHEDULING, StageState.RUNNING, StageState.FLUSHING, StageState.FINISHED)),
+                () -> Arbitraries.just(List.of(StageState.SCHEDULING, StageState.RUNNING, StageState.FAILED)),
+                () -> Arbitraries.just(List.of(StageState.SCHEDULING, StageState.FAILED)),
+                () -> Arbitraries.just(List.of(StageState.CANCELLED)),
+                () -> Arbitraries.just(List.of(StageState.SCHEDULING, StageState.RUNNING, StageState.CANCELLED)),
+                () -> Arbitraries.just(List.of(StageState.SCHEDULING, StageState.CANCELLED)),
+                () -> Arbitraries.just(List.of(StageState.SCHEDULING, StageState.RUNNING, StageState.FLUSHING, StageState.FAILED))
         );
     }
 
@@ -58,9 +60,9 @@ class StageStateMachinePropertyTest {
      * **Validates: Requirements 1.1**
      */
     @Property(tries = 10)
-    void property1_onlyLegalTransitionsSucceed(@ForAll("anyState") StageStateMachine.State target) {
+    void property1_onlyLegalTransitionsSucceed(@ForAll("anyState") StageState target) {
         StageStateMachine sm = new StageStateMachine("s0", "q1");
-        boolean expected = VALID_TRANSITIONS.get(StageStateMachine.State.PLANNED).contains(target);
+        boolean expected = VALID_TRANSITIONS.get(StageState.PLANNED).contains(target);
         boolean actual = sm.tryTransitionTo(target);
         assertThat(actual).isEqualTo(expected);
     }
@@ -72,9 +74,9 @@ class StageStateMachinePropertyTest {
      */
     @Property(tries = 10)
     void property2_validSequenceReachesTerminal(
-            @ForAll("validTransitionSequence") List<StageStateMachine.State> sequence) {
+            @ForAll("validTransitionSequence") List<StageState> sequence) {
         StageStateMachine sm = new StageStateMachine("s0", "q1");
-        for (StageStateMachine.State target : sequence) {
+        for (StageState target : sequence) {
             sm.transitionTo(target);
         }
         assertThat(sm.isTerminal()).isTrue();
@@ -87,12 +89,12 @@ class StageStateMachinePropertyTest {
      */
     @Property(tries = 10)
     void property3_listenersCalledOnEveryTransition(
-            @ForAll("validTransitionSequence") List<StageStateMachine.State> sequence) {
+            @ForAll("validTransitionSequence") List<StageState> sequence) {
         StageStateMachine sm = new StageStateMachine("s0", "q1");
         AtomicInteger callCount = new AtomicInteger(0);
         sm.addStateChangeListener((stageId, oldState, newState) -> callCount.incrementAndGet());
 
-        for (StageStateMachine.State target : sequence) {
+        for (StageState target : sequence) {
             sm.transitionTo(target);
         }
         assertThat(callCount.get()).isEqualTo(sequence.size());
@@ -105,13 +107,13 @@ class StageStateMachinePropertyTest {
      */
     @Property(tries = 10)
     void property4_terminalStatesRejectAllTransitions(
-            @ForAll("anyState") StageStateMachine.State target) {
+            @ForAll("anyState") StageState target) {
         // FINISHED is terminal
         StageStateMachine sm = new StageStateMachine("s0", "q1");
-        sm.transitionTo(StageStateMachine.State.SCHEDULING);
-        sm.transitionTo(StageStateMachine.State.RUNNING);
-        sm.transitionTo(StageStateMachine.State.FLUSHING);
-        sm.transitionTo(StageStateMachine.State.FINISHED);
+        sm.transitionTo(StageState.SCHEDULING);
+        sm.transitionTo(StageState.RUNNING);
+        sm.transitionTo(StageState.FLUSHING);
+        sm.transitionTo(StageState.FINISHED);
 
         assertThat(sm.tryTransitionTo(target)).isFalse();
     }
@@ -122,9 +124,9 @@ class StageStateMachinePropertyTest {
      * **Validates: Requirements 1.1**
      */
     @Property(tries = 10)
-    void property5_illegalTransitionPreservesState(@ForAll("anyState") StageStateMachine.State target) {
+    void property5_illegalTransitionPreservesState(@ForAll("anyState") StageState target) {
         StageStateMachine sm = new StageStateMachine("s0", "q1");
-        StageStateMachine.State before = sm.getState();
+        StageState before = sm.getState();
         boolean allowed = VALID_TRANSITIONS.get(before).contains(target);
         if (!allowed) {
             sm.tryTransitionTo(target);

@@ -5,9 +5,9 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.spi.connector.metadata.table.ConnectorDerivedQuery;
-import org.pangrova.spi.connector.metadata.table.ConnectorDerivedTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorDerivedQuery;
+import org.pangrova.connector.api.metadata.table.ConnectorDerivedTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 
 /** Frozen metadata inputs and an ordinary relational aggregation for Iceberg partitions. */
 public record IcebergPartitionTableHandle(IcebergTableHandle baseTable,

@@ -12,9 +12,85 @@ sidebar_label: "Security"
 
 > **Summary.** Authentication, authorization, row/column-level access control, data masking, and audit logging.
 
+SQL privilege `GRANT`/`REVOKE` now has a parser → Server SQL adapter → atomic
+PostgreSQL authority path. It supports multiple privileges and roles, grant options,
+exact scope revocation, RESTRICT/CASCADE, and durable mutation receipts. The old
+unauthorized direct-store SecurityStatementHandler (retired) has been removed. Component
+verification uses real PostgreSQL and the production statement dispatcher.
+`SqlPrivilegeAuthorityE2ETest` additionally exercises the authenticated HTTP query
+pipeline and actual Iceberg/Native reads. Its bearer authenticator is a test
+identity fixture; OAuth2/LDAP implementations have separate integration coverage. See [SQL privilege administration](#sql-privilege-administration).
+
+## Current module boundary (2026-11-02)
+
+`pangrova-security` is now an aggregator. Its API artifact owns `.api` and `.spi`;
+Core owns orchestration, and authentication (builtin/LDAP/OAuth2), RBAC policy,
+environment/file secrets and AWS KMS are separate implementation artifacts.
+OAuth2 owns its JJWT/Jackson/cache dependencies; KMS owns AWS configuration and SDK.
+`EncryptedData` and the `KeyManager` extension live in the SDK-free API.
+
+Security store ports belong to `pangrova-persistence-security-api`. Connection-bound
+current-role/grant/policy and model authority ports belong to `persistence-jdbc-api`.
+Their Connection is borrowed from the caller. `AuthorizationPublicationLock` specifies
+transaction-scoped acquisition without committing, rolling back or closing that connection.
+Core's deferred authorization and policy reader now receive their backend collaborators
+explicitly. Security Core's production dependency closure contains no persistence backend.
+Lock → current roles → grants → policy checks, and row validation before mask reads,
+remain in the original order. The Metadata adapter still selects the PostgreSQL readers;
+whole-workflow ownership and Server-only composition remain unfinished P5 work.
+
+`pangrova-persistence-security-postgresql` owns the extracted SQL readers, policy stores,
+audit writer, codecs and authorization gate. `pangrova-persistence-security-memory`
+contains the existing production Tenant implementation only. In-memory Role, static Grant
+and in-memory Mask are shared Testing Kit fixtures: they have no production startup path.
+Tenant now has one PostgreSQL implementation under `persistence.security.postgresql.tenant`.
+It stores definition, nullable quota, namespace restrictions and properties in `tenants`,
+and memberships in `tenant_user_memberships`. The former Metadata implementation and
+the unassembled normalized `tenant/tenant_quota/tenant_property/tenant_membership`
+implementation have been merged; the parallel table definitions are removed.
+
+Tenant Store has no schema-creation method. Canonical migrations V1/V4/V103 initialize
+its tables, distinguish absent quota from explicit all-zero quota, and install authority
+mutation triggers before stores are used. Existing migration bytes remain unchanged.
+No old-table mapping, data-copy, dual-write or compatibility tool is provided.
+V104 initializes policy/audit tables and installs the authority, role-drop, storage-profile
+and file-space grant triggers. Policy stores no longer expose `initSchema`; the audit
+writer performs a read-only readiness check and fails if its schema is unavailable.
+The Coordinator applies the canonical bundle before constructing security services.
+Initialization for other domains is tracked separately; this change covers Security persistence.
+
+Both Tenant backends atomically upsert complete definitions and retain original creation
+metadata. PostgreSQL locks the authority mutation gate before its write, rolls back on
+SQL/runtime/error failures, and preserves rollback failures as suppressed exceptions.
+Membership resolution reads membership and tenant in one backend snapshot; stale removal
+for a former tenant cannot delete a reassigned membership. Memory filters ACTIVE tenants
+and uses one instance monitor, with no durability or cross-process guarantee.
+`TenantPersistenceException` belongs to the persistence contract and preserves the existing
+outward metastore error code; a commit exception does not prove rejection.
+
+
+`SecurityPolicyEventPublisher` is a notification contract. `LocalSecurityPolicyEventBus`
+is now a Testing Kit fixture after the caller audit found only test consumers. It
+is synchronous and process-local: listener exceptions are logged and isolated, with
+no durability, replay or atomic-outbox guarantee. Empty row-policy and column-mask
+stores are also test-only fixtures, never a production authorization fallback. The former
+SecurityStatementHandler/event bus mutation path has been removed. Production SQL privilege
+and tenant mutations are registered by `SecurityAdministrationBootstrap` and recheck current
+PostgreSQL authority; test-only event delivery is not an alternative authorization path.
+
+`SecretTemplates` is Core interpolation logic, not API. `SecretResolverRegistry`
+rejects duplicate or blank provider prefixes rather than replacing a credential
+authority at runtime. Prefixes remain case-sensitive; there is no plugin hot reload.
+
+Server owns audit backend selection and constructs the current authentication and
+RBAC providers. Typed factory discovery/version/role negotiation is not yet delivered
+by this extraction. AWS KMS's physical rotation version is not exposed by its current
+logical envelope version; KMS resource lifecycle and capability tightening remain
+explicit follow-up work, not production-readiness claims.
+
 ## Public policy contracts
 
-`org.pangrova.security.api.AuthorizationDeniedException` is the shared authorization
+`org.pangrova.security.api.error.AuthorizationDeniedException` is the shared authorization
 failure, retaining the `AccessDeniedException` hierarchy and `ACCESS_DENIED` error code.
 Consumers must not import this exception from the former `security.core.authz` package.
 `security.api.policy.SqlIdentifierValidator` owns lexical identifier/policy checks used
@@ -30,7 +106,7 @@ or an authorization decision. Planning and authorization remain mandatory downst
 
 ## Audit composition
 
-`security.assembly.audit.AuditWriterFactory` owns backend selection; audit contracts,
+`org.pangrova.server.coordinator.assembly.security.audit.AuditWriterFactory` owns backend selection; audit contracts,
 Core emitters and JDBC writers do not depend on this assembly. A null/blank backend
 token defaults to LOG, while an unknown token is rejected. Explicit JDBC or COMPOSITE
 selection requires a DataSource and fails if it is absent, preserving the requested
@@ -540,10 +616,10 @@ policy reader uses the same guard. Stable principal expressions such as
 `current_user()` remain available.
 
 The immutable deferred permission, connector-definition and model observations
-are owned by `org.pangrova.spi.security.authz.DeferredAuthorizationScope`.
+are owned by `org.pangrova.security.api.authorization.DeferredAuthorizationScope`.
 They describe previously admitted work and do not confer current authority.
 The canonical metadata encoding owned by Persistence JDBC,
-`org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec`, handles
+`org.pangrova.persistence.security.postgresql.codec.DeferredAuthorizationScopeCodec`, handles
 encoding, decoding, write receipts and canonical SHA-256 digests. API values do
 not depend on the codec or Jackson; callers that need a persisted identity use
 `DeferredAuthorizationScopeCodec.sha256(scope)`.
@@ -1415,7 +1491,7 @@ See [14 §7](./observability.md) for structured logging format.
 > `KeyManager`. `Authenticator` works with `AuthenticationRequest`, exposes
 > `authenticate`, `supports`, `isHealthy`, `init`, and `close`; `KeyManager` owns
 > data-key creation, lookup, rotation, and envelope encryption. The interfaces in
-> `pangrova-security` are authoritative for their exact signatures.
+> `pangrova-security/pangrova-security-api` and their owning providers are authoritative for their exact signatures.
 
 
 > **Audit implementation:** Security events use `AuditEventEmitter`. A separate
@@ -1441,3 +1517,87 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 > **Security Error Codes**: Security-related error codes are defined in [resilience.md §2.2](./resilience.md) at range 1800–1899: `AUTHENTICATION_FAILED(1801)`, `TOKEN_EXPIRED(1802)`, `RLS_POLICY_ERROR(1803)`, `COLUMN_MASK_ERROR(1804)`, `AUDIT_WRITE_FAILED(1805)`. These codes cover authentication failures, token expiry, RLS/masking policy errors, and audit write failures. All security components (Authenticator, AccessControl, AuditLogger) should throw `PangrovaException` with the corresponding error code from this range.
+
+## SQL privilege administration
+
+```sql
+GRANT SELECT, INSERT ON TABLE lake.sales.orders TO ROLE analysts, loaders;
+GRANT SELECT ON SCHEMA lake.sales TO ROLE delegation_team WITH GRANT OPTION;
+REVOKE GRANT OPTION FOR SELECT ON SCHEMA lake.sales FROM ROLE delegation_team CASCADE;
+REVOKE SELECT ON TABLE lake.sales.orders FROM ROLE analysts RESTRICT;
+```
+
+The supported scope kinds are CATALOG, SCHEMA, TABLE, VOLUME, STAGE, and
+STORAGE PROFILE (`STORAGE_PROFILE` is also accepted). Table/volume/stage names
+use the session catalog and schema when omitted. Schema names accept one or two
+components; catalog/profile names accept one. Quoted names preserve component
+boundaries and case. Literal wildcard targets are rejected. Privileges must be
+valid for their scope; OWNER is managed through ownership operations, not GRANT.
+Column-specific grants, user recipients, role membership DDL and role inheritance
+are not exposed by this SQL grammar. Existing roles and trusted bootstrap grants
+are provisioned through their existing administrative stores. No role name or IdP
+group name implicitly grants administrator authority.
+
+`SecurityAdministrationBootstrap` registers the SQL handlers for both supported
+and unavailable configurations, so disabled capability fails explicitly. Mutation
+is enabled only with configured authentication (OAuth2/LDAP) and PostgreSQL.
+Security-disabled and NOOP/bypass configurations cannot mutate privileges, even
+when a supplied identity happens to have a privileged role. The SQL adapter never
+constructs a Store or interprets an HTTP identity claim itself.
+
+`PrivilegeMutationRepository` owns a complete atomic operation. The PostgreSQL
+implementation takes the existing exclusive authorization transaction gate before
+reading current role membership and grants. Each requested privilege requires a
+containing OWNER or matching WITH GRANT OPTION. All recipients must be existing
+roles. The entire multi-role/multi-privilege statement, authorization revision and
+receipt/audit row commit together. Failures roll back the whole statement; there
+is no memory fallback. Namespace policy grants may precede discovery of external
+tables. Storage profile read grants retain the existing database existence guard.
+
+Each SQL-issued grant records a specific supporting grant. Independent grantors
+retain independent rows. RESTRICT (the default) rejects unresolved descendants;
+CASCADE removes only the transitive dependency chain, preserving independent
+support. Revoking the grant option preserves the recipient's own use permission
+while removing dependent grants. Non-owners revoke only grants they issued;
+owners can revoke matching non-OWNER grants from any grantor. Revocation matches
+scope columns exactly: `NULL` in a schema target is not a delete wildcard over
+all table/column grants. Role membership is checked when issuing a grant; changing
+the issuing user's membership does not itself revoke grants already issued as
+that role. Dropping the role or its supporting grant removes their dependent grants.
+
+Initialization lives only in V105 of `pangrova-schema-migrations`. The parent
+foreign key and mutation guard also prevent trusted low-level Store mutations
+from leaving orphan delegated privileges. Existing migrations are unchanged;
+there is no historical data migration, dual write or compatibility layer.
+
+The query UUID is the mutation request ID. A successful SQL result contains
+`request_id`, `authorization_revision`, `changed_grants`, and `recorded_at`.
+The repository returns the same durable outcome for same-ID, same-principal,
+same-payload replay; different content or principal is rejected. Commit
+acknowledgement loss raises `PrivilegeMutationOutcomeUnknownException`, retaining
+the request ID. Callers of the repository confirm by replaying that exact request,
+not by assigning a new ID. End users confirm with
+`SHOW PRIVILEGE MUTATION '<request UUID>'`. Only the original authenticated
+principal can see the receipt, even after its delegation authority has been
+revoked. `CONFIRMED` carries the committed revision, count and timestamp.
+`UNCONFIRMED` means there is no visible committed receipt yet (or it belongs to
+another principal); it is not proof of rollback. Storage read failures propagate
+rather than being reported as unconfirmed. A query failure alone is not proof
+that no privilege change committed.
+
+Authorization readers use current database grants rather than process-local
+cached allow decisions. Subsequent checks on another coordinator observe the
+committed revoke. Compilation applies current policy before optimization; the
+legacy coordinator result-cache facade does not serve cached result bytes.
+This does not promise cancellation of queries already admitted before revocation.
+
+Tests: `PrivilegeDdlParserTest`, `JdbcPrivilegeMutationRepositoryTest`, and
+`PrivilegeSqlExecutionTest` cover grammar/printing, real PostgreSQL transactions,
+current-role races, lost commit acknowledgement, audit rollback, dependency
+cleanup, production registration/dispatch, and cross-instance authority reads.
+`SqlPrivilegeAuthorityE2ETest` additionally submits GRANT/REVOKE/receipt SQL through
+HTTP, removes broad fixture authority before executing an actual Native query,
+proves the SQL-issued grant enables reads and a subsequent SQL revoke denies the
+same query, and rejects unauthenticated submission. Production OAuth2/LDAP checks
+remain separately exercised by `SecurityAuthFlowE2ETest`; the Native SQL test uses
+the fixture's explicit bearer authenticator, not a bypass or an assumed user name.

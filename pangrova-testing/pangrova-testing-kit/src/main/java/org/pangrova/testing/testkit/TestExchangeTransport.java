@@ -1,7 +1,7 @@
 package org.pangrova.testing.testkit;
 
 import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 
 import java.util.List;

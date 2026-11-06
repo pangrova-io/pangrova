@@ -103,7 +103,7 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
         postInternal("/v1/workers/register", MAPPER.writeValueAsBytes(request));
         postInternal("/v1/worker/heartbeat", MAPPER.writeValueAsBytes(new HeartbeatRequest(actual.workerId(),
                 actual.memoryPressure().name(), actual.cpuUtilization(), actual.runningTaskCount(),
-                actual.availableMemoryBytes())));
+                actual.availableMemoryBytes(), actual.workerExecutionIdentity())));
     }
 
     private static void postInternal(String path, byte[] body) throws Exception {

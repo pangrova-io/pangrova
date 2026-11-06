@@ -15,13 +15,13 @@ class HighAvailabilityLeaderSwitchoverTest {
 
     @Test
     void standbyTakesOverAfterLeaderFailure() throws Exception {
-        org.pangrova.persistence.memory.coordination.InMemoryDistributedLease sharedLease =
-                new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
+        org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease sharedLease =
+                new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease();
         HighAvailabilityCoordinationService.CoordinationConfig fastConfig =
                 new HighAvailabilityCoordinationService.CoordinationConfig(200, 50);
 
-        HighAvailabilityCoordinationService node1 = new HighAvailabilityCoordinationService(sharedLease, fastConfig);
-        HighAvailabilityCoordinationService node2 = new HighAvailabilityCoordinationService(sharedLease, fastConfig);
+        HighAvailabilityCoordinationService node1 = new HighAvailabilityCoordinationService(sharedLease, fastConfig, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
+        HighAvailabilityCoordinationService node2 = new HighAvailabilityCoordinationService(sharedLease, fastConfig, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
 
         try {
             // node-1 starts first and becomes leader

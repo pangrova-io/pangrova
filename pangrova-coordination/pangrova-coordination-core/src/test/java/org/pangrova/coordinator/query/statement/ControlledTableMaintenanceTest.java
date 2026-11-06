@@ -9,40 +9,37 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.table.store.memory.control.InMemoryTableControlMaintenanceStore;
-import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
+import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
+import org.pangrova.persistence.table.memory.maintenance.InMemoryTableControlMaintenanceStore;
+import org.pangrova.persistence.table.memory.control.InMemoryTableControlStore;
 import org.pangrova.table.api.maintenance.MaintenanceOperation;
 import org.pangrova.table.api.maintenance.MaintenanceRunState;
-import org.pangrova.table.maintenance.TableControlMaintenanceService;
-import org.pangrova.table.api.control.TableControlRecord;
-import org.pangrova.table.control.TableControlService;
-import org.pangrova.table.control.TableControlSettings;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.spi.security.audit.AuditEventWriter;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
-import org.pangrova.persistence.api.coordination.DistributedLease;
-import org.pangrova.spi.coordination.LeaseEntry;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.table.core.maintenance.TableControlMaintenanceService;
+import org.pangrova.table.api.ownership.TableControlRecord;
+import org.pangrova.table.core.ownership.TableControlService;
+import org.pangrova.table.core.config.TableControlSettings;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.security.spi.audit.AuditEventWriter;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.coordination.api.lease.LeaseEntry;
+import org.pangrova.security.api.error.AccessDeniedException;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 
 import java.time.Clock;
@@ -81,7 +78,7 @@ class ControlledTableMaintenanceTest {
         metadata.create("default", "external", "uuid-external");
         ConnectorHandleFactory factory = descriptor ->
                 new ConnectorCatalogHandle(descriptor, new TestConnector(metadata));
-        registry = new CatalogRegistry(new EmptyMetadataStore(), factory, null, null);
+        registry = new CatalogRegistry(new EmptyCatalogDeployments(), factory, null, null);
         registry.register(new CatalogDescriptor(
                 "test_cat", CatalogType.CONNECTOR, "test",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -92,7 +89,7 @@ class ControlledTableMaintenanceTest {
                 new InMemoryTableControlMaintenanceStore(), CLOCK);
         lease = new TestLease();
         maintenance = new ControlledTableMaintenance(
-                registry, policies, lease, "coordinator-1", Duration.ofMinutes(5), CLOCK);
+                registry, policies, lease, "coordinator-1", Duration.ofMinutes(5), CLOCK, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 
     @AfterEach
@@ -132,7 +129,7 @@ class ControlledTableMaintenanceTest {
         assertThat(policies.listRuns(record.tableId(), 10).get(0).state())
                 .isEqualTo(MaintenanceRunState.FAILED);
         assertThat(registry.tableControl().find("test_cat", "default", "external").orElseThrow().state())
-                .isEqualTo(org.pangrova.table.api.control.TableControlState.QUARANTINED);
+                .isEqualTo(org.pangrova.table.api.ownership.TableControlState.QUARANTINED);
     }
 
     @Test
@@ -270,7 +267,7 @@ class ControlledTableMaintenanceTest {
                     .until(() -> lease.renewals.get() >= before + 2);
         };
         var executor = new ControlledTableMaintenance(
-                registry, policies, lease, "renewing", Duration.ofMillis(30), CLOCK);
+                registry, policies, lease, "renewing", Duration.ofMillis(30), CLOCK, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         executor.execute(MaintenanceOperation.COMPACT,
                 Identifier.of("test_cat", "default", "orders"), context());
         assertThat(lease.released).isTrue();
@@ -280,9 +277,9 @@ class ControlledTableMaintenanceTest {
     void requestsOnTheSameCoordinatorCannotReenterAnotherAttemptsLease() {
         var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
                 Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
-        var realLease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease(CLOCK);
+        var realLease = new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease(CLOCK);
         var executor = new ControlledTableMaintenance(
-                registry, policies, realLease, "same-coordinator", Duration.ofMinutes(5), CLOCK);
+                registry, policies, realLease, "same-coordinator", Duration.ofMinutes(5), CLOCK, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         var nested = new java.util.concurrent.atomic.AtomicBoolean();
         metadata.onExecute = () -> {
             if (nested.compareAndSet(false, true)) {
@@ -305,7 +302,7 @@ class ControlledTableMaintenanceTest {
     void procedureCannotWeakenRetentionOrPassUnrecognizedArguments() {
         registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
                 Optional.of(identity("orders")), Optional.of(version()));
-        var ref = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+        var ref = new org.pangrova.connector.api.metadata.table.QualifiedTableName(
                 "test_cat", "default", "orders");
         assertThatThrownBy(() -> maintenance.executeProcedure("expire_snapshots", ref,
                 Map.of("arg0", "default.orders", "arg1", "1"), context()))
@@ -324,7 +321,7 @@ class ControlledTableMaintenanceTest {
         var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
                 Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
         maintenance.executeProcedure("expire_snapshots",
-                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("test_cat", "default", "orders"),
+                new org.pangrova.connector.api.metadata.table.QualifiedTableName("test_cat", "default", "orders"),
                 Map.of("arg0", "default.orders", "arg1", "20",
                         "arg2", String.valueOf(NOW.minus(Duration.ofDays(30)).toEpochMilli()), "arg3", "true"), context());
         assertThat(metadata.procedureCalls).containsExactly("expire_snapshots|default.orders|20");
@@ -506,19 +503,19 @@ class ControlledTableMaintenanceTest {
         }
     }
 
-    private static final class EmptyMetadataStore implements MetadataStore {
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
-        @Override public void saveTable(TableMetadata m) { }
-        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
-        @Override public void deleteTable(String c, String s, String t) { }
-        @Override public java.util.List<QualifiedTableRef> searchTables(String p) { return java.util.List.of(); }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.ofNullable(descriptors.get(n)); }
         @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public java.util.List<CatalogDescriptor> listAllCatalogDescriptors() { return java.util.List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
-        @Override public void updateSyncTime(String c, Instant t) { }
-        @Override public void recordSyncHistory(SyncResult r) { }
-        @Override public void saveSchemas(String c, java.util.List<String> s) { }
+
     }
 }

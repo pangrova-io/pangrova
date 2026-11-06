@@ -1,0 +1,8 @@
+file	line	reference
+pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/GeneratedWriteAuthorityResolver.java	6	import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java	14	import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/generation/MetadataGenerationTransactionAuthority.java	8	import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/ModuleIntegrationBootstrap.java	390	tenantStore = new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(dataSource);
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/CoordinatorBootstrap.java	199	new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(metadataDataSource)));
+pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java	602	new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source)));
+pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorStore.java	11	import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;

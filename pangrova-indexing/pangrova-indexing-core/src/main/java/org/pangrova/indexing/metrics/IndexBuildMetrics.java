@@ -1,8 +1,8 @@
 package org.pangrova.indexing.metrics;
 
-import org.pangrova.spi.observability.DoubleHistogram;
-import org.pangrova.spi.observability.LongCounter;
-import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.observability.api.metrics.DoubleHistogram;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;

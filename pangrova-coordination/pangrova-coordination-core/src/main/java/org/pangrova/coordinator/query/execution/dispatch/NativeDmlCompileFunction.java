@@ -1,8 +1,10 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.parser.ast.Statement;
+import org.pangrova.query.core.task.DispatchResult;
+
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.parser.api.ast.Statement;
 
 /**
  * Functional interface for compiling a DML statement to a Substrait plan
@@ -23,6 +25,6 @@ public interface NativeDmlCompileFunction {
      * @return dispatch result with worker task information
      */
     DispatchResult apply(QueryStateMachine stateMachine,
-                         CoordinatorSessionContext session,
+                         QuerySession session,
                          Statement stmt);
 }

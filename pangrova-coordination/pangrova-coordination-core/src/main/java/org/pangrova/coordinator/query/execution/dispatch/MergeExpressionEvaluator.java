@@ -13,14 +13,14 @@
  */
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.parser.ast.Expression;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Literal;
-import org.pangrova.parser.ast.LiteralValue;
-import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.parser.ast.expression.NotExpression;
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.parser.api.ast.Expression;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Literal;
+import org.pangrova.parser.api.ast.LiteralValue;
+import org.pangrova.parser.api.ast.expression.BinaryExpression;
+import org.pangrova.parser.api.ast.expression.NotExpression;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.types.value.TypedRow;
 
 import java.util.List;
 

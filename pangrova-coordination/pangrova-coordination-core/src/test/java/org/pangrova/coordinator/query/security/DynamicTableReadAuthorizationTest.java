@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.security;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.policy.Privilege;
-import org.pangrova.spi.security.mask.ColumnMask;
-import org.pangrova.spi.security.rowfilter.RowPolicy;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.error.AccessDeniedException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Files;

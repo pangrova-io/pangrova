@@ -1,0 +1,26 @@
+[
+  {
+    "path": "pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/space/FileSpaceDefinition.java",
+    "errors": [
+      {
+        "line": "6",
+        "column": "1",
+        "severity": "error",
+        "message": "\u989d\u5916\u5bfc\u5165\u5f53\u524d\u5305\u4e0b\u5185\u5bb9\uff1aorg.pangrova.file.api.space.FileSpaceType \u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.imports.RedundantImportCheck"
+      }
+    ]
+  },
+  {
+    "path": "pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/space/FileSpace.java",
+    "errors": [
+      {
+        "line": "8",
+        "column": "1",
+        "severity": "error",
+        "message": "\u989d\u5916\u5bfc\u5165\u5f53\u524d\u5305\u4e0b\u5185\u5bb9\uff1aorg.pangrova.file.api.space.FileSpaceType \u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.imports.RedundantImportCheck"
+      }
+    ]
+  }
+]

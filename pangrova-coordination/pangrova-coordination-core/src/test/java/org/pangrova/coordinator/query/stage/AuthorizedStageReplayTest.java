@@ -6,19 +6,19 @@ import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rex.RexBuilder;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveStagePlanResolver;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
-import org.pangrova.coordinator.query.execution.split.StageSplitFetcher;
-import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.AuthorizedStageGraph.SerializedStage;
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.planner.SerializedPlanFragment;
-import org.pangrova.planner.ShuffleType;
-import org.pangrova.planner.StagePlanAccess;
-import org.pangrova.planner.StageTransfer;
-import org.pangrova.planner.substrait.SubstraitConverter;
-import org.pangrova.planner.substrait.SubstraitPlanSerializer;
+import org.pangrova.query.core.stage.QueryExecutionScope;
+import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitFetcher;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph.SerializedStage;
+import org.pangrova.planner.core.analysis.PlanFragment;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.planner.core.analysis.ShuffleType;
+import org.pangrova.planner.core.analysis.StagePlanAccess;
+import org.pangrova.planner.core.analysis.StageTransfer;
+import org.pangrova.planner.core.substrait.SubstraitConverter;
+import org.pangrova.planner.core.substrait.SubstraitPlanSerializer;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.ExchangeDistribution;
 import org.pangrova.protocol.v2.ExchangeInputDetail;
@@ -28,7 +28,7 @@ import com.google.protobuf.Any;
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;
 import io.substrait.proto.ExchangeRel;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;
@@ -62,19 +62,57 @@ class AuthorizedStageReplayTest {
     void replayRejectsEveryNonTransactionalAllocationAndCatalogLookup() throws Exception {
         var graph = graph();
         var dag = StageDAG.fromAuthorizedStageGraph(graph);
-        var context = DAGQueryContext.readOnly(new CoordinatorSessionContext("replay-query", Map.of(),
-                new UserIdentity("authenticated-owner", Set.of(), Map.of(), Instant.EPOCH), "tenant-a"));
+        var context = QueryExecutionScope.readOnly(new QuerySession("replay-query", Map.of(),
+                new UserIdentity("authenticated-owner", Set.of(), Map.of(), Instant.EPOCH), "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
         var fetcher = new StageSplitFetcher(null, null);
         assertThatThrownBy(() -> new StageSplitFetcher(null, null).fetch(
-                dag.findStageNode(0), dag, "replay-query", context))
+                dag.findStageNode(0), context.requireLiveSession(), context.snapshotOverrides(), null))
                 .hasMessageContaining("exact persisted partition gate");
         var original = graph.stages().get(0);
         var changed = new SerializedStage(0, original.parallelism(), "OUTPUT", original.serializedPlan(),
                 original.sources(), List.of("different_output"), List.of(), List.of(), -1, -1);
         assertThatThrownBy(() -> fetcher.fetch(new StageNode(0, changed, 1, "OUTPUT", List.of()),
-                dag, "replay-query", context)).hasMessageContaining("exact persisted partition gate");
-        assertThatThrownBy(() -> fetcher.fetch(dag.findStageNode(1), dag, "replay-query", context))
+                context.requireLiveSession(), context.snapshotOverrides(), null))
                 .hasMessageContaining("exact persisted partition gate");
+        assertThatThrownBy(() -> fetcher.fetch(dag.findStageNode(1),
+                context.requireLiveSession(), context.snapshotOverrides(), null))
+                .hasMessageContaining("exact persisted partition gate");
+    }
+
+    @Test
+    void everyReplayImplementationRejectsAlteredFrozenCoordinates() throws Exception {
+        var serialized = graph().stages().get(0);
+        assertCoordinatesEnforced(serialized, serialized.stageId(), serialized.parallelism(), serialized.taskType());
+        var template = org.pangrova.generation.api.graph.template.GenerationStageTemplate.of(
+                new byte[0], List.of(), List.of());
+        var persisted = org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan.of(
+                3, 2, org.pangrova.generation.api.execution.GenerationPageKind.RELATIONAL_COMPUTE,
+                serialized.serializedPlan().planBytes(), template, List.of(), serialized.outputNames(), false);
+        var replay = new org.pangrova.coordinator.generation.template.PersistedStagePlan(persisted);
+        assertCoordinatesEnforced(replay, 3, 2, "COMPUTE");
+    }
+
+    @Test
+    void replayWithoutFrozenCoordinatesIsRejectedBeforeDispatch() {
+        var replay = (StagePlanAccess) java.lang.reflect.Proxy.newProxyInstance(
+                StagePlanAccess.class.getClassLoader(), new Class<?>[]{StagePlanAccess.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "mode" -> StagePlanAccess.Mode.DURABLE_REPLAY;
+                    case "frozenCoordinates" -> java.util.Optional.empty();
+                    default -> throw new AssertionError("Unexpected stage access: " + method);
+                });
+        assertThatThrownBy(() -> new StageNode(1, replay, 2, "COMPUTE", List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("no frozen execution coordinates");
+    }
+
+    private static void assertCoordinatesEnforced(StagePlanAccess plan, int stage, int parallelism, String type) {
+        assertThat(new StageNode(stage, plan, parallelism, type, List.of()).stagePlan()).isSameAs(plan);
+        assertThatThrownBy(() -> new StageNode(stage + 1, plan, parallelism, type, List.of()))
+                .hasMessageContaining("immutable graph identity");
+        assertThatThrownBy(() -> new StageNode(stage, plan, parallelism + 1, type, List.of()))
+                .hasMessageContaining("immutable graph identity");
+        assertThatThrownBy(() -> new StageNode(stage, plan, parallelism, "OTHER", List.of()))
+                .hasMessageContaining("immutable graph identity");
     }
 
     private static AuthorizedStageGraph graph() throws Exception {

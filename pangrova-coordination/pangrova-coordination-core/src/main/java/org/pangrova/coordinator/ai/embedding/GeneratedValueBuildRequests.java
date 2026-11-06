@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.GenerationDependencySet;
-import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
-import org.pangrova.spi.generation.GenerationExecutionKind;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
-import org.pangrova.planner.generation.GenerationPlan;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.dependency.GenerationDependencySet;
+import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.planner.core.generation.GenerationPlan;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.NamedValue;
 

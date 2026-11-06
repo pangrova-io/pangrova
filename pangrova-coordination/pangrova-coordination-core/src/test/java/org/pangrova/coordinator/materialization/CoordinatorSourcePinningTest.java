@@ -15,24 +15,21 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.materialization.ChangeProof;
-import org.pangrova.spi.connector.materialization.ChangeSetMode;
-import org.pangrova.spi.connector.materialization.ChangeSetPlan;
-import org.pangrova.spi.connector.materialization.MaterializationCapabilities;
-import org.pangrova.spi.connector.materialization.PinnedSource;
-import org.pangrova.spi.connector.materialization.SourceProvider;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.materialization.ChangeProof;
+import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.materialization.ChangeSetPlan;
+import org.pangrova.connector.api.materialization.MaterializationCapabilities;
+import org.pangrova.connector.api.materialization.PinnedSource;
+import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 /** Connector resolution and capability-version fencing for source snapshot holds. */
 class CoordinatorSourcePinningTest {
@@ -267,23 +264,11 @@ class CoordinatorSourcePinningTest {
         }
     }
 
-    private static final class EmptyStore implements MetadataStore {
+    private static final class EmptyStore implements CatalogDeploymentRepository {
         @Override
-        public void saveTable(TableMetadata metadata) {
-        }
-
-        @Override
-        public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
-            return Optional.empty();
-        }
-
-        @Override
-        public void deleteTable(String catalog, String schema, String table) {
-        }
-
-        @Override
-        public List<QualifiedTableRef> searchTables(String pattern) {
-            return List.of();
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
         }
 
         @Override
@@ -304,21 +289,5 @@ class CoordinatorSourcePinningTest {
             return List.of();
         }
 
-        @Override
-        public Optional<Instant> getLastSyncTime(String catalogName) {
-            return Optional.empty();
-        }
-
-        @Override
-        public void updateSyncTime(String catalogName, Instant syncTime) {
-        }
-
-        @Override
-        public void recordSyncHistory(SyncResult result) {
-        }
-
-        @Override
-        public void saveSchemas(String catalogName, List<String> schemas) {
-        }
     }
 }

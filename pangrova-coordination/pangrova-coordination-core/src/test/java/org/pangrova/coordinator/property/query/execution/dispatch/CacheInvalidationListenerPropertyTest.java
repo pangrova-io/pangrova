@@ -11,13 +11,13 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 
-import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionListener;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.Statement;
-import org.pangrova.parser.ast.statement.CreateTableStatement;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.parser.api.ast.statement.CreateTableStatement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

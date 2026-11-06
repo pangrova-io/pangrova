@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.query.api.task.QuerySplit;
+
+import org.pangrova.query.core.task.StageDispatchRecord;
+
 import java.util.Base64;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,8 +16,8 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.StagePlanAccess;
-import org.pangrova.planner.SplitSourceDescriptor;
+import org.pangrova.planner.core.analysis.StagePlanAccess;
+import org.pangrova.planner.core.analysis.SplitSourceDescriptor;
 import org.pangrova.protocol.v2.DirectExchangeInput;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.ExchangePartitionSource;
@@ -39,7 +43,7 @@ final class ExchangeSourceBuilder {
      */
     static List<ExchangeInputBinding> buildExchangeInputs(
             StageNode stage, StageDAG dag,
-            List<DAGDispatchEngine.StageDispatchRecord> allDispatched,
+            List<StageDispatchRecord> allDispatched,
             int partitionId) {
         List<Integer> upstreamIdList = dag.edges().getOrDefault(stage.stageId(), List.of());
         if (upstreamIdList.isEmpty()) {
@@ -52,7 +56,7 @@ final class ExchangeSourceBuilder {
                     || !upstreamIds.contains(edge.upstreamStageId())) {
                 continue;
             }
-            List<DAGDispatchEngine.StageDispatchRecord> producers = allDispatched.stream()
+            List<StageDispatchRecord> producers = allDispatched.stream()
                     .filter(record -> record.stageId() == edge.upstreamStageId())
                     .toList();
             Stage upstream = dag.findStage(edge.upstreamStageId());
@@ -77,9 +81,9 @@ final class ExchangeSourceBuilder {
      * Fetches splits with file path metadata for cache affinity routing.
      * Non-leaf stages return an empty list.
      */
-    static List<SplitFetcher.SplitWithPaths> fetchSplitsWithFilePaths(
+    static List<QuerySplit> fetchSplitsWithFilePaths(
             StageNode stage, StageDAG dag, CatalogRegistry catalogRegistry,
-            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            org.pangrova.query.api.session.QuerySession session) {
         return fetchSplitsWithFilePaths(stage, dag, catalogRegistry, java.util.Map.of(), session);
     }
 
@@ -87,10 +91,10 @@ final class ExchangeSourceBuilder {
      * Fetches splits with snapshot overrides for time-travel queries.
      * Non-leaf stages return an empty list.
      */
-    static List<SplitFetcher.SplitWithPaths> fetchSplitsWithFilePaths(
+    static List<QuerySplit> fetchSplitsWithFilePaths(
             StageNode stage, StageDAG dag, CatalogRegistry catalogRegistry,
             java.util.Map<String, Long> snapshotOverrides,
-            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            org.pangrova.query.api.session.QuerySession session) {
         List<Integer> upstreamIds = dag.edges().getOrDefault(stage.stageId(), List.of());
         if (!upstreamIds.isEmpty()) {
             return List.of();
@@ -106,12 +110,12 @@ final class ExchangeSourceBuilder {
      * Fetches splits with index-based filtering for leaf stages.
      * Non-leaf stages return an empty list.
      */
-    static List<SplitFetcher.SplitWithPaths> fetchSplitsWithIndexFiltering(
+    static List<QuerySplit> fetchSplitsWithIndexFiltering(
             StageNode stage, StageDAG dag,
             org.pangrova.coordinator.indexing.IndexAwareSplitFetcher fetcher,
             java.util.Map<String, Long> snapshotOverrides,
             String queryId,
-            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
+            org.pangrova.query.api.session.QuerySession session) {
         List<Integer> upstreamIds = dag.edges().getOrDefault(stage.stageId(), List.of());
         if (!upstreamIds.isEmpty()) {
             return List.of();
@@ -121,11 +125,11 @@ final class ExchangeSourceBuilder {
     }
 
     private static ExchangeInputBinding directInput(
-            List<DAGDispatchEngine.StageDispatchRecord> producers,
+            List<StageDispatchRecord> producers,
             StageEdge edge,
             int partitionId) {
         DirectExchangeInput.Builder direct = DirectExchangeInput.newBuilder();
-        for (DAGDispatchEngine.StageDispatchRecord producer : producers) {
+        for (StageDispatchRecord producer : producers) {
             direct.addSources(directSource(producer, edge, partitionId));
         }
         return ExchangeInputBinding.newBuilder()
@@ -139,7 +143,7 @@ final class ExchangeSourceBuilder {
     }
 
     private static ExchangePartitionSource directSource(
-            DAGDispatchEngine.StageDispatchRecord rec,
+            StageDispatchRecord rec,
             StageEdge edge,
             int partitionId) {
         var endpoint = rec.result().shuffleEndpoint();

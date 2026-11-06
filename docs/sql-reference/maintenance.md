@@ -190,7 +190,10 @@ a read operation and requires SELECT permission.
 The table argument is a nonempty string literal in `schema.table` form. The
 catalog comes from the procedure prefix; admission and execution resolve the
 same fully identified table. `warmup_table` also accepts separate schema and
-table arguments.
+table arguments. These two arguments preserve literal dots and case within each component.
+Warmup accepts exactly one or two nonempty string literals; extra arguments are rejected
+before authorization or execution. The exact catalog prefix and bound target are shared
+by admission and execution.
 
 ```sql
 -- Compact data files (Iceberg)

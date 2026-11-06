@@ -13,11 +13,11 @@
  */
 package org.pangrova.testing.integration.e2e.arch;
 
-import org.pangrova.scheduler.api.placement.NoOpSchedulerControlLoop;
+import org.pangrova.scheduler.core.control.NoOpSchedulerControlLoop;
 import org.pangrova.testing.testkit.TestProjectPaths;
-import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
-import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
-import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>This prevents dead wiring accumulation: SPI implementations that are
  * compiled but never instantiated or referenced from any production path.</p>
  *
- * <p>SPI contracts are the package roots of central {@code pangrova-spi} and every {@code -api}/{@code -spi}
+ * <p>SPI contracts are the package roots of every {@code -api}/{@code -spi}
  * artifact declared in {@code .pangrova/modules.yaml}; adding a contract
  * artifact to the manifest enrolls it here automatically.</p>
  *
@@ -68,7 +68,7 @@ class SpiWiringVerificationTest {
     // ZooKeeperLeaseProvider → ZooKeeperCoordinatorRegistry/DistributedLease)
     // that QueryManager never references directly.
     private static final String ENTRY_POINT_COORDINATOR_BOOTSTRAP =
-            "org.pangrova.coordinator.bootstrap.CoordinatorBootstrap";
+            "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap";
     private static final String DEAD_CODE_ANNOTATION =
             "org.pangrova.common.annotation.DeadCode";
     private static final String EXPERIMENTAL_ANNOTATION =
@@ -148,10 +148,10 @@ class SpiWiringVerificationTest {
             // Coordinator — pending wiring
             "org.pangrova.coordinator.ai.branch.BranchConnectorSession",
             "org.pangrova.coordinator.bootstrap.DefaultAiModuleContext",
-            "org.pangrova.coordinator.bootstrap.IndexingBootstrap",
-            "org.pangrova.coordinator.bootstrap.ModuleIntegrationBootstrap",
+            "org.pangrova.server.coordinator.bootstrap.IndexingBootstrap",
+            "org.pangrova.server.coordinator.bootstrap.ModuleIntegrationBootstrap",
             "org.pangrova.coordinator.clustering.ClusteringConnectorSession",
-            "org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry",
+            "org.pangrova.persistence.coordination.memory.membership.InMemoryCoordinatorRegistry",
             "org.pangrova.coordinator.indexing.lifecycle.IndexCommitHandler",
             "org.pangrova.coordinator.query.lifecycle.CoordinatorQueryLifecycle",
             "org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager",
@@ -159,52 +159,49 @@ class SpiWiringVerificationTest {
             "org.pangrova.streaming.coordinator.ConnectorPageSinkCdcWriter",
             "org.pangrova.streaming.coordinator.KafkaCdcSourceReader",
             // Indexing — pending index build pipeline P0
-            "org.pangrova.indexing.engine.bitmap.provider.BitmapStrategyProvider",
-            "org.pangrova.indexing.engine.bloom.provider.BloomFilterStrategyProvider",
-            "org.pangrova.indexing.engine.btree.provider.BTreeStrategyProvider",
-            "org.pangrova.indexing.engine.gin.provider.GinStrategyProvider",
-            "org.pangrova.indexing.engine.hash.provider.HashStrategyProvider",
-            "org.pangrova.indexing.engine.ngram.provider.NGramBloomStrategyProvider",
-            "org.pangrova.indexing.engine.prefix.provider.PrefixStrategyProvider",
-            "org.pangrova.indexing.engine.rtree.provider.RTreeStrategyProvider",
-            "org.pangrova.indexing.engine.sparse.provider.SparseStrategyProvider",
-            "org.pangrova.indexing.eval.defaults.DefaultIndexFileEvaluator",
-            "org.pangrova.indexing.eval.defaults.DefaultIndexFileEvaluatorFactory",
+            "org.pangrova.indexing.builtin.bitmap.provider.BitmapStrategyProvider",
+            "org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider",
+            "org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider",
+            "org.pangrova.indexing.builtin.gin.provider.GinStrategyProvider",
+            "org.pangrova.indexing.builtin.hash.provider.HashStrategyProvider",
+            "org.pangrova.indexing.builtin.ngram.provider.NGramBloomStrategyProvider",
+            "org.pangrova.indexing.builtin.prefix.provider.PrefixStrategyProvider",
+            "org.pangrova.indexing.builtin.rtree.provider.RTreeStrategyProvider",
+            "org.pangrova.indexing.builtin.sparse.provider.SparseStrategyProvider",
             "org.pangrova.indexing.fs.LocalFileSystemAccessor",
-            "org.pangrova.indexing.storage.CachedBloomFilterIndexData",
+            "org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData",
             // Metadata — pending metadata P0 wiring
             "org.pangrova.metadata.adapter.FederationColumnHandle",
             "org.pangrova.metadata.adapter.FederationConnectorMetadata",
             "org.pangrova.metadata.adapter.FederationTableHandle",
             "org.pangrova.metadata.checkpoint.JdbcCheckpointStore",
-            "org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry",
-            "org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease",
-            "org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal",
-            "org.pangrova.persistence.jdbc.coordination.JdbcWorkerRegistry",
+            "org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry",
+            "org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease",
+            "org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal",
+            "org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry",
             "org.pangrova.metadata.service.DefaultConnectorSession",
             // Resilience — checkpoint removed per streaming positioning clarification
             // Security
-            "org.pangrova.security.mask.empty.EmptyColumnMaskStore",
             // SPI data structures (used by connectors via dynamic loading)
-            "org.pangrova.spi.connector.data.block.ArrayBlock",
-            "org.pangrova.spi.connector.data.block.DictionaryBlock",
-            "org.pangrova.spi.connector.data.block.DoubleBlock",
-            "org.pangrova.spi.connector.data.block.IntBlock",
-            "org.pangrova.spi.connector.data.block.LazyBlock",
-            "org.pangrova.spi.connector.data.block.LongBlock",
-            "org.pangrova.spi.connector.data.block.RunLengthEncodedBlock",
-            "org.pangrova.spi.connector.data.block.SliceBlock",
-            "org.pangrova.planner.type.StandardTypeRegistry",
-            "org.pangrova.spi.connector.metadata.FixedSplitSource",
-            "org.pangrova.spi.indexing.data.BTreeIndexData",
-            "org.pangrova.spi.indexing.data.BloomFilterIndexData",
-            "org.pangrova.spi.indexing.data.HashIndexData",
-            "org.pangrova.spi.indexing.data.bitmap.BitmapIndexData",
-            "org.pangrova.spi.indexing.data.spatial.RTreeIndexData",
-            "org.pangrova.spi.indexing.data.spatial.SparseIndexData",
-            "org.pangrova.spi.indexing.data.text.GinIndexData",
-            "org.pangrova.spi.indexing.data.text.NGramBloomIndexData",
-            "org.pangrova.spi.indexing.data.text.PrefixIndexData",
+            "org.pangrova.batch.api.block.ArrayBlock",
+            "org.pangrova.batch.api.block.DictionaryBlock",
+            "org.pangrova.batch.api.block.DoubleBlock",
+            "org.pangrova.batch.api.block.IntBlock",
+            "org.pangrova.batch.api.block.LazyBlock",
+            "org.pangrova.batch.api.block.LongBlock",
+            "org.pangrova.batch.api.block.RunLengthEncodedBlock",
+            "org.pangrova.batch.api.block.SliceBlock",
+            "org.pangrova.planner.core.type.StandardTypeRegistry",
+            "org.pangrova.connector.runtime.scan.FixedSplitSource",
+            "org.pangrova.indexing.api.data.BTreeIndexData",
+            "org.pangrova.indexing.api.data.BloomFilterIndexData",
+            "org.pangrova.indexing.api.data.HashIndexData",
+            "org.pangrova.indexing.api.data.bitmap.BitmapIndexData",
+            "org.pangrova.indexing.api.data.spatial.RTreeIndexData",
+            "org.pangrova.indexing.api.data.spatial.SparseIndexData",
+            "org.pangrova.indexing.api.data.text.GinIndexData",
+            "org.pangrova.indexing.api.data.text.NGramBloomIndexData",
+            "org.pangrova.indexing.api.data.text.PrefixIndexData",
             // Streaming — pending streaming P0 wiring
             "org.pangrova.streaming.cdc.CdcRegistrationHandler",
             "org.pangrova.streaming.store.memory.InMemoryCdcRegistrationStore",
@@ -218,10 +215,10 @@ class SpiWiringVerificationTest {
             "org.pangrova.streaming.writer.lake.LakeTableWriter",
             "org.pangrova.streaming.writer.mergetree.MergeTreeTableWriter",
             // Exchange/shuffle — pending distributed correctness P0
-            "org.pangrova.worker.exchange.remote.HybridExchangeManager",
-            "org.pangrova.worker.exchange.remote.RemoteShuffleExchangeManager",
-            "org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSink",
-            "org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource",
+            "org.pangrova.shuffle.pangrova.client.HybridExchangeManager",
+            "org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeManager",
+            "org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSink",
+            "org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource",
             "org.pangrova.worker.exchange.source.BufferedExchangeSink",
             "org.pangrova.worker.exchange.source.RemoteExchangeManager",
             "org.pangrova.worker.exchange.source.RemoteExchangeSource",
@@ -230,14 +227,11 @@ class SpiWiringVerificationTest {
             // Module integration — pending bootstrap wiring
             "org.pangrova.coordinator.cache.CacheEvictionBroadcaster",
             "org.pangrova.coordinator.columnar.ColumnarSessionContext",
-            "org.pangrova.persistence.memory.coordination.InMemoryDistributedLease",
-            "org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal",
+            "org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease",
+            "org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal",
             "org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFactory",
             "org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter",
             "org.pangrova.coordinator.query.resourcegroup.ResourceGroupAdmissionController",
-            // Coordinator — in-memory default StorageProfileRegistry, wired in QueryExecutionBootstrap
-            // (bootstrap wiring is not traversed by the arch reachability roots).
-            "org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry",
             "org.pangrova.streaming.coordinator.KafkaStreamSourceReader",
             // Governance — pending lineage wiring
             "org.pangrova.governance.core.lineage.LineageQueryEventListener",
@@ -245,23 +239,22 @@ class SpiWiringVerificationTest {
             // the durable write-commit journal when a metadata datasource is configured — A-COMMIT-01).
             // It stays listed here only because the reachability roots (QueryManager/WorkerBootstrap)
             // do not traverse bootstrap wiring classes, same as the other Jdbc* bootstrap-wired impls.
-            "org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal",
+            "org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal",
             // Metadata — pending metadata service wiring
             "org.pangrova.metadata.service.DefaultMetadataService",
             // Observability — pending event listener wiring
-            "org.pangrova.persistence.jdbc.query.event.JdbcQueryEventListener",
-            "org.pangrova.observability.sdk.logging.mdc.MdcTaskWrapping",
+            "org.pangrova.persistence.query.postgresql.event.JdbcQueryEventListener",
+            "org.pangrova.observability.core.logging.MdcTaskWrapping",
             // Resilience — pending checkpoint wiring
             "org.pangrova.coordinator.resilience.checkpoint.InMemoryCheckpointStore",
             "org.pangrova.coordinator.resilience.checkpoint.InMemoryQueryCheckpoint",
             // Resource — pending memory ledger wiring
             "org.pangrova.worker.resource.memory.UnifiedMemoryLedger",
             // Security — pending RBAC/mask/tenant wiring
-            "org.pangrova.security.authz.DynamicRbacAccessControl",
-            "org.pangrova.security.mask.memory.InMemoryEnrichedColumnMaskStore",
-            "org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore",
+            "org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl",
+            "org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore",
             // Coordinator — no-op scheduler control loop (pending wiring)
-            "org.pangrova.scheduler.api.placement.NoOpSchedulerControlLoop",
+            "org.pangrova.scheduler.core.control.NoOpSchedulerControlLoop",
             // Coordinator — AI index lifecycle (wired via ServiceLoader)
             "org.pangrova.coordinator.indexing.ai.lifecycle.DefaultIndexAvailabilityPublisher",
             // AI Worker — optional runtime installed on the Worker classpath; its
@@ -390,8 +383,7 @@ class SpiWiringVerificationTest {
             if (line.startsWith("  ") && !line.startsWith("    ") && line.endsWith(":")) {
                 String artifact = line.trim();
                 artifact = artifact.substring(0, artifact.length() - 1);
-                contractArtifact = artifact.equals("pangrova-spi")
-                        || artifact.endsWith("-api") || artifact.endsWith("-spi");
+                contractArtifact = artifact.endsWith("-api") || artifact.endsWith("-spi");
                 blockRoots = false;
                 continue;
             }

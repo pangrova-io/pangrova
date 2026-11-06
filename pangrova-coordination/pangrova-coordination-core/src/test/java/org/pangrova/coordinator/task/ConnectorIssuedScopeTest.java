@@ -1,7 +1,9 @@
 package org.pangrova.coordinator.task;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.QueryStateMachine;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -38,7 +40,7 @@ class ConnectorIssuedScopeTest {
         registry.bindTarget(request, org.pangrova.coordinator.worker.TestWorkerInfoBuilder.active(
                 "worker", "original-host", 8001, 8002));
         registry.enterDispatch(request);
-        state.tryTransition(QueryStateMachine.State.CANCELLED);
+        state.tryTransition(QueryState.CANCELLED);
         registry.sealQuery(authority.queryId());
         assertThatThrownBy(authority::requireDrained).hasMessageContaining("lacks its exact");
         // This is retained canonical receipt validation, not a claim that a Native executor ran.
@@ -61,7 +63,7 @@ class ConnectorIssuedScopeTest {
         var registry = new TaskIdentityRegistry(clock::get);
         var oldState = new QueryStateMachine();
         var old = oldState.bindConnectorAuthority(registry.openQuery("same-text-id"));
-        oldState.tryTransition(QueryStateMachine.State.CANCELLED);
+        oldState.tryTransition(QueryState.CANCELLED);
         registry.sealQuery("same-text-id");
         old.requireDrained();
         registry.retireQuery("same-text-id");

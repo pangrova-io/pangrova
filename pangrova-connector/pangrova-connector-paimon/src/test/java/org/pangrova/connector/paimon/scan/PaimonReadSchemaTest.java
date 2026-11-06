@@ -5,7 +5,7 @@ import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.types.PangrovaType;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

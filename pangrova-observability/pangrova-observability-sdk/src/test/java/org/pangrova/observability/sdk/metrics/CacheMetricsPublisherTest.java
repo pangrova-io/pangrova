@@ -3,8 +3,8 @@ package org.pangrova.observability.sdk.metrics;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.LongRange;
-import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
-import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.observability.noop.NoOpMetricsProvider;
+import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

@@ -1,9 +1,9 @@
 package org.pangrova.testing.integration.e2e.security;
 
-import org.pangrova.spi.security.policy.GroupRoleMapping;
-import org.pangrova.security.authz.InMemoryRoleStore;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.persistence.api.security.policy.RoleStore;
+import org.pangrova.security.api.policy.GroupRoleMapping;
+import org.pangrova.testing.testkit.security.policy.InMemoryRoleStore;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.persistence.security.api.policy.RoleStore;
 
 import java.util.Map;
 

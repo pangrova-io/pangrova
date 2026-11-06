@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
-import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
+import org.pangrova.query.core.stage.binding.RetrievalMergeIntent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder.DistributedRetrieval;
 
@@ -11,8 +11,8 @@ import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.planner.RetrievalTopKPlanHint;
-import org.pangrova.planner.SerializedPlanFragment;
+import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.protocol.v2.ScoreDirection;
 
 import static org.assertj.core.api.Assertions.assertThat;

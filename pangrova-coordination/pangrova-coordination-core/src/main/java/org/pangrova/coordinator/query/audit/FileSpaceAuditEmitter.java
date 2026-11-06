@@ -6,15 +6,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.spi.file.space.FileOperationAudit;
-import org.pangrova.spi.security.audit.AccessedObject;
-import org.pangrova.spi.security.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.spi.security.audit.AuditEventType;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.query.api.audit.QueryAuditAttribution;
+import org.pangrova.file.spi.audit.FileOperationAudit;
+import org.pangrova.security.api.audit.AccessedObject;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceType;
 
 /**
  * Converts Volume and Stage namespace mutations into durable audit events.
@@ -33,17 +32,17 @@ public final class FileSpaceAuditEmitter implements FileOperationAudit {
         this.emitter = emitter;
     }
 
-    public void created(StatementExecutionContext context, FileSpace space) {
-        emit(eventType(space.type(), Mutation.CREATE), context, space, "CREATE", Map.of());
+    public void created(QueryAuditAttribution attribution, FileSpace space) {
+        emit(eventType(space.type(), Mutation.CREATE), attribution, space, "CREATE", Map.of());
     }
 
-    public void altered(StatementExecutionContext context, FileSpace space, String action,
+    public void altered(QueryAuditAttribution attribution, FileSpace space, String action,
             Map<String, String> extra) {
-        emit(eventType(space.type(), Mutation.ALTER), context, space, action, extra);
+        emit(eventType(space.type(), Mutation.ALTER), attribution, space, action, extra);
     }
 
-    public void dropped(StatementExecutionContext context, FileSpace space) {
-        emit(eventType(space.type(), Mutation.DROP), context, space, "DROP", Map.of());
+    public void dropped(QueryAuditAttribution attribution, FileSpace space) {
+        emit(eventType(space.type(), Mutation.DROP), attribution, space, "DROP", Map.of());
     }
 
     /** Records one authorized file operation; the event never contains file contents. */
@@ -100,19 +99,19 @@ public final class FileSpaceAuditEmitter implements FileOperationAudit {
                 true, null, 0, 0, 0, Map.copyOf(properties)));
     }
 
-    private void emit(AuditEventType eventType, StatementExecutionContext context, FileSpace space,
+    private void emit(AuditEventType eventType, QueryAuditAttribution attribution, FileSpace space,
             String accessType, Map<String, String> extra) {
         if (emitter == null) {
             return;
         }
         Map<String, String> properties = properties(space);
-        if (context.session() != null && context.session().tenantId() != null) {
-            properties.put("tenant_id", context.session().tenantId());
+        if (attribution.tenantId() != null) {
+            properties.put("tenant_id", attribution.tenantId());
         }
         properties.putAll(extra);
         emitter.emit(new AuditEvent(
                 UUID.randomUUID().toString(), eventType, Instant.now(),
-                principal(context), null, null, null, context.queryId(), null,
+                attribution.principal(), null, null, null, attribution.queryId(), null,
                 space.catalog(), space.schema(),
                 List.of(new AccessedObject(space.type().name(), space.catalog(), space.schema(),
                         space.name(), List.of(), accessType)),
@@ -152,12 +151,6 @@ public final class FileSpaceAuditEmitter implements FileOperationAudit {
             case ALTER -> AuditEventType.STAGE_ALTERED;
             case DROP -> AuditEventType.STAGE_DROPPED;
         };
-    }
-
-    private static String principal(StatementExecutionContext context) {
-        CoordinatorSessionContext session = context.session();
-        return session == null || session.userIdentity() == null
-                ? SYSTEM_PRINCIPAL : session.userIdentity().principal();
     }
 
     private enum Mutation {

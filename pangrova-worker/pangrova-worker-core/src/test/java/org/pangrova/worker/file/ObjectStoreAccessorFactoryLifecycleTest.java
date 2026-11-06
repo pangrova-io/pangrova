@@ -24,6 +24,17 @@ class ObjectStoreAccessorFactoryLifecycleTest {
     @TempDir Path directory;
 
     @Test
+    void defaultFactorySelectsInstalledLocalAndS3Providers() {
+        try (var factory = new ObjectStoreAccessorFactory()) {
+            assertThat(factory.accessor(profile("local"))).isInstanceOf(LocalObjectStoreAccessor.class);
+            var s3 = new StorageProfile("remote", StorageType.S3, "bucket", "landing", "", "us-east-1",
+                    Map.of(), Map.of());
+            assertThat(factory.accessor(s3))
+                    .isInstanceOf(org.pangrova.filesystem.s3.object.S3ObjectStoreAccessor.class);
+        }
+    }
+
+    @Test
     void closedFactoryCannotReopenCachedOrNewProfilesAndClosesItsProviders() {
         var provider = new CountingProvider();
         var factory = new ObjectStoreAccessorFactory(java.util.List.of(provider));

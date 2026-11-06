@@ -7,25 +7,21 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.exception.MetadataResolutionException;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.api.error.MetadataResolutionException;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.apache.calcite.schema.Table;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -115,7 +111,7 @@ class LazyMetadataSchemaResolutionFailureTest {
                 CATALOG, CatalogType.CONNECTOR, "test-provider",
                 CatalogState.ACTIVE, Map.of(), "", null);
 
-        EmptyMetadataStore store = new EmptyMetadataStore();
+        EmptyCatalogDeployments store = new EmptyCatalogDeployments();
         CatalogRegistry registry = new CatalogRegistry(
                 store,
                 desc -> new ConnectorCatalogHandle(desc, connector),
@@ -262,19 +258,18 @@ class LazyMetadataSchemaResolutionFailureTest {
         }
     }
 
-    /** Minimal MetadataStore that stores nothing (sufficient for test registry bootstrap). */
-    private static final class EmptyMetadataStore implements MetadataStore {
-        @Override public void saveTable(TableMetadata metadata) { }
-        @Override public Optional<TableMetadata> loadTable(String catalog, String schema, String table) { return Optional.empty(); }
-        @Override public void deleteTable(String catalog, String schema, String table) { }
-        @Override public List<QualifiedTableRef> searchTables(String pattern) { return List.of(); }
+    /** Minimal CatalogDeploymentRepository that stores nothing (sufficient for test registry bootstrap). */
+    private static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         @Override public void saveCatalogDescriptor(CatalogDescriptor descriptor) { }
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String name) { return Optional.empty(); }
         @Override public void deleteCatalogDescriptor(String name) { }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
-        @Override public Optional<Instant> getLastSyncTime(String catalogName) { return Optional.empty(); }
-        @Override public void updateSyncTime(String catalogName, Instant syncTime) { }
-        @Override public void recordSyncHistory(SyncResult result) { }
-        @Override public void saveSchemas(String catalogName, List<String> schemas) { }
+
     }
 }

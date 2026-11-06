@@ -1,0 +1,181 @@
+[
+  {
+    "report": "pangrova-query/pangrova-query-core/target/spotbugsXml.xml",
+    "sha256": "803ee732966a84a5c1c2771b4319fb5ec79437b84d6003b6296ce86bec14eb2f",
+    "findings": [],
+    "missing_classes": [
+      "apply",
+      "applyAsLong",
+      "equals",
+      "hashCode",
+      "makeConcatWithConstants",
+      "newThread",
+      "run",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-indexing/pangrova-indexing-codec/target/spotbugsXml.xml",
+    "sha256": "de69157f920e1d6614ea532a6685a7d2559f94e8f4bf51f522dff3f09661faa2",
+    "findings": [],
+    "missing_classes": [
+      "makeConcatWithConstants"
+    ]
+  },
+  {
+    "report": "pangrova-indexing/pangrova-indexing-strategies-builtin/target/spotbugsXml.xml",
+    "sha256": "ed85fb4146d2b29de85042393466471638cf2917f996db1c85c273e3b266c250",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "applyAsDouble",
+      "compare",
+      "equals",
+      "hashCode",
+      "makeConcatWithConstants",
+      "read",
+      "test",
+      "toString",
+      "write"
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-query-postgresql/target/spotbugsXml.xml",
+    "sha256": "e386b7697d6517293e7f9d978cd519c1227ab920b303288e15b4daa6ecc38df1",
+    "findings": [],
+    "missing_classes": [
+      "accept",
+      "apply",
+      "equals",
+      "get",
+      "hashCode",
+      "makeConcatWithConstants",
+      "perform",
+      "run",
+      "test",
+      "toString"
+    ]
+  },
+  {
+    "report": "pangrova-query/pangrova-query-core/target/checkstyle-result.xml",
+    "sha256": "383b0ab6ab30f8b1bc59e621327cee0f8b8de7029460a7c9335bb138d820ba21",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-indexing/pangrova-indexing-codec/target/checkstyle-result.xml",
+    "sha256": "3892babfead3dba806e23d47c7e7f5d8eddd274b67fdb9c666af5aeb58a227c4",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-indexing/pangrova-indexing-strategies-builtin/target/checkstyle-result.xml",
+    "sha256": "051df5acdddbb25ca37bf630731e91a0ef5750b92820f961b8cfbec9af814bac",
+    "diagnostics": []
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-security-postgresql/target/checkstyle-result.xml",
+    "sha256": "1436b5674e35d65a3285f1739cacf231a7189578b13597f3cc630cf8e36a849a",
+    "diagnostics": [
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java",
+        "line": "233",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 133\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java",
+        "line": "244",
+        "severity": "error",
+        "message": "\u672c\u884c\u5b57\u7b26\u6570 127\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java",
+        "line": "251",
+        "column": "21",
+        "severity": "error",
+        "message": "\u7b2c 21 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java",
+        "line": "251",
+        "column": "75",
+        "severity": "error",
+        "message": "\u7b2c 75 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/tenant/JdbcTenantStore.java",
+        "line": "251",
+        "column": "105",
+        "severity": "error",
+        "message": "\u7981\u6b62\u4e00\u884c\u6709\u591a\u53e5\u4ee3\u7801\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.coding.OneStatementPerLineCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/transaction/AuthorizationTransactionGate.java",
+        "line": "10",
+        "column": "5",
+        "severity": "error",
+        "message": "\u201cCTOR_DEF\u201d\u4e4b\u524d\u5e94\u8be5\u6709\u4e00\u4e2a\u7a7a\u767d\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/PrivilegeGrantRows.java",
+        "line": "19",
+        "column": "5",
+        "severity": "error",
+        "message": "\u201cCTOR_DEF\u201d\u4e4b\u524d\u5e94\u8be5\u6709\u4e00\u4e2a\u7a7a\u767d\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.whitespace.EmptyLineSeparatorCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/PrivilegeGrantRows.java",
+        "line": "56",
+        "column": "5",
+        "severity": "warning",
+        "message": "\u5708\u590d\u6742\u5ea6\uff1a 16 \uff08\u6700\u591a\uff1a 15 \uff09\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.metrics.CyclomaticComplexityCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/JdbcPrivilegeMutationRepository.java",
+        "line": "48",
+        "column": "49",
+        "severity": "error",
+        "message": "'255' \u662f\u4e00\u4e2a\u9b54\u672f\u6570\u5b57\uff08\u76f4\u63a5\u5e38\u6570\uff09\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.coding.MagicNumberCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/JdbcPrivilegeMutationRepository.java",
+        "line": "100",
+        "column": "21",
+        "severity": "error",
+        "message": "\u7b2c 21 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/JdbcPrivilegeMutationRepository.java",
+        "line": "100",
+        "column": "77",
+        "severity": "error",
+        "message": "\u7b2c 77 \u4e2a\u5b57\u7b26 '{' \u540e\u5e94\u6362\u884c\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.blocks.LeftCurlyCheck"
+      },
+      {
+        "file": "pangrova-persistence/pangrova-persistence-security-postgresql/src/main/java/org/pangrova/persistence/security/postgresql/grant/JdbcPrivilegeMutationRepository.java",
+        "line": "100",
+        "column": "109",
+        "severity": "error",
+        "message": "\u7981\u6b62\u4e00\u884c\u6709\u591a\u53e5\u4ee3\u7801\u3002",
+        "source": "com.puppycrawl.tools.checkstyle.checks.coding.OneStatementPerLineCheck"
+      }
+    ]
+  },
+  {
+    "report": "pangrova-persistence/pangrova-persistence-query-postgresql/target/checkstyle-result.xml",
+    "sha256": "c0fec5246b17753ec8abbfebadf99930061299e1a5c7a7e82ab9f9847a75d296",
+    "diagnostics": []
+  }
+]

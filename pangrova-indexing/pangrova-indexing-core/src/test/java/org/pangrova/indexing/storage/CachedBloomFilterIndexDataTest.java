@@ -1,9 +1,12 @@
 package org.pangrova.indexing.storage;
 
+import org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData;
+import org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider;
+
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.spi.indexing.descriptor.IndexType;
-import org.pangrova.spi.indexing.data.BloomFilterIndexData;
-import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.data.BloomFilterIndexData;
+import org.pangrova.indexing.api.data.IndexData;
 
 import org.junit.jupiter.api.Test;
 
@@ -12,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link CachedBloomFilterIndexData} wrapper and
- * {@link IndexCache} bloom filter enrichment at insertion time.
+ * provider preparation followed by {@link IndexCache} insertion.
  */
 class CachedBloomFilterIndexDataTest {
 
@@ -25,7 +28,7 @@ class CachedBloomFilterIndexDataTest {
         CachedBloomFilterIndexData cached = new CachedBloomFilterIndexData(delegate, filter);
 
         assertThat(cached.indexType()).isEqualTo(IndexType.BLOOM_FILTER);
-        assertThat(cached.estimatedSizeInBytes()).isEqualTo(delegate.estimatedSizeInBytes());
+        assertThat(cached.estimatedSizeInBytes()).isGreaterThanOrEqualTo(delegate.estimatedSizeInBytes() + filter.sizeInBytes());
         assertThat(cached.delegate()).isSameAs(delegate);
         assertThat(cached.filter()).isSameAs(filter);
         assertThat(cached.filterData()).isEqualTo(delegate.filterData());
@@ -47,13 +50,13 @@ class CachedBloomFilterIndexDataTest {
     }
 
     @Test
-    void indexCachePutEnrichesBloomFilterData() {
+    void providerPreparesBloomFilterBeforeCacheInsertion() {
         IndexCache cache = new IndexCache(1024 * 1024);
         SplitBlockBloomFilter filter = buildFilter("alpha", "beta", "gamma");
         byte[] serialized = filter.toByteArray();
         BloomFilterIndexData original = new BloomFilterIndexData(serialized, 8, filter.numBlocks() * 256L);
 
-        cache.put("idx-1", "file-1", 0, original);
+        cache.put("idx-1", "file-1", 0, new BloomFilterStrategyProvider().prepareForEvaluation(original));
         IndexData retrieved = cache.get("idx-1", "file-1", 0);
 
         assertThat(retrieved).isInstanceOf(CachedBloomFilterIndexData.class);
@@ -66,30 +69,24 @@ class CachedBloomFilterIndexDataTest {
     }
 
     @Test
-    void indexCachePutDoesNotDoubleWrap() {
+    void providerPreparationDoesNotDoubleWrap() {
         IndexCache cache = new IndexCache(1024 * 1024);
         SplitBlockBloomFilter filter = buildFilter("x");
         byte[] serialized = filter.toByteArray();
         BloomFilterIndexData delegate = new BloomFilterIndexData(serialized, 8, filter.numBlocks() * 256L);
         CachedBloomFilterIndexData alreadyCached = new CachedBloomFilterIndexData(delegate, filter);
 
-        cache.put("idx-1", "file-1", 0, alreadyCached);
+        cache.put("idx-1", "file-1", 0, new BloomFilterStrategyProvider().prepareForEvaluation(alreadyCached));
         IndexData retrieved = cache.get("idx-1", "file-1", 0);
 
         assertThat(retrieved).isSameAs(alreadyCached);
     }
 
     @Test
-    void indexCachePutFallsBackOnMalformedBloomData() {
-        IndexCache cache = new IndexCache(1024 * 1024);
+    void providerRejectsMalformedBloomDataBeforeCaching() {
         BloomFilterIndexData malformed = new BloomFilterIndexData(new byte[]{1, 2, 3}, 3, 24);
-
-        cache.put("idx-1", "file-1", 0, malformed);
-        IndexData retrieved = cache.get("idx-1", "file-1", 0);
-
-        // Malformed data should be stored as-is (no wrapping)
-        assertThat(retrieved).isInstanceOf(BloomFilterIndexData.class);
-        assertThat(retrieved).isNotInstanceOf(CachedBloomFilterIndexData.class);
+        assertThatThrownBy(() -> new BloomFilterStrategyProvider().prepareForEvaluation(malformed))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -102,7 +99,7 @@ class CachedBloomFilterIndexDataTest {
         // Insert enough entries to trigger eviction
         for (int i = 0; i < 10; i++) {
             BloomFilterIndexData data = new BloomFilterIndexData(serialized, 8, filter.numBlocks() * 256L);
-            cache.put("idx-" + i, "file-" + i, 0, data);
+            cache.put("idx-" + i, "file-" + i, 0, new BloomFilterStrategyProvider().prepareForEvaluation(data));
         }
 
         // Cache should respect max size — some entries evicted

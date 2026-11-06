@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.coordination.api.lease.LeaseEntry;
 
 /**
  * Leader election for index maintenance tasks, delegating to

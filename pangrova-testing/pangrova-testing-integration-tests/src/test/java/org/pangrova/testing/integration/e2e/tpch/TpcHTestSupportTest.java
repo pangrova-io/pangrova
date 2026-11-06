@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.tpch;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.types.value.TypedRow;
 
 import java.util.List;
 import java.util.Map;

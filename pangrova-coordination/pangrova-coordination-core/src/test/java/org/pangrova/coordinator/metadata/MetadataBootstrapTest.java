@@ -3,15 +3,11 @@ package org.pangrova.coordinator.metadata;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.catalog.MetadataStore;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.metadata.outbox.MetadataSyncService;
-import org.pangrova.metadata.api.catalog.SyncResult;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,15 +16,15 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests MetadataBootstrap initialization sequence with an in-memory MetadataStore.
+ * Tests MetadataBootstrap initialization sequence with an in-memory CatalogDeploymentRepository.
  * Validates: Requirements 15.1, 15.3, 15.4.
  */
 class MetadataBootstrapTest {
 
     @Test
     void initializeCreatesRegistryAndService() {
-        InMemoryMetadataStore store = new InMemoryMetadataStore();
-        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store);
+        InMemoryCatalogDeployments store = new InMemoryCatalogDeployments();
+        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository());
 
         assertThat(bootstrap.catalogRegistry()).isNotNull();
         assertThat(bootstrap.metadataService()).isNotNull();
@@ -38,10 +34,10 @@ class MetadataBootstrapTest {
 
     @Test
     void initializeLoadsCatalogsFromStore() {
-        InMemoryMetadataStore store = new InMemoryMetadataStore();
+        InMemoryCatalogDeployments store = new InMemoryCatalogDeployments();
         store.saveCatalogDescriptor(internalCatalog("system"));
 
-        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store);
+        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository());
 
         assertThat(bootstrap.catalogRegistry().listCatalogNames()).contains("system");
         bootstrap.shutdown();
@@ -49,8 +45,8 @@ class MetadataBootstrapTest {
 
     @Test
     void buildCalciteSchemaReturnsNonNull() {
-        InMemoryMetadataStore store = new InMemoryMetadataStore();
-        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store);
+        InMemoryCatalogDeployments store = new InMemoryCatalogDeployments();
+        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository());
 
         CalciteSchema schema = bootstrap.buildCalciteSchema(MetadataPlanningTestSessions.session());
 
@@ -60,8 +56,8 @@ class MetadataBootstrapTest {
 
     @Test
     void shutdownIsIdempotent() {
-        InMemoryMetadataStore store = new InMemoryMetadataStore();
-        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store);
+        InMemoryCatalogDeployments store = new InMemoryCatalogDeployments();
+        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository());
 
         bootstrap.shutdown();
         // Second shutdown should not throw
@@ -70,8 +66,8 @@ class MetadataBootstrapTest {
 
     @Test
     void initializeWiresSyncService() {
-        InMemoryMetadataStore store = new InMemoryMetadataStore();
-        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store);
+        InMemoryCatalogDeployments store = new InMemoryCatalogDeployments();
+        MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, new org.pangrova.coordinator.metadata.UnsupportedTableProjectionRepository(), new org.pangrova.coordinator.metadata.UnsupportedMetadataProjectionTransactions(), new org.pangrova.coordinator.metadata.UnsupportedMetadataSyncRepository());
 
         MetadataSyncService syncService = bootstrap.syncService();
         assertThat(syncService).isNotNull();
@@ -86,27 +82,18 @@ class MetadataBootstrapTest {
     }
 
     /**
-     * In-memory MetadataStore for testing without database dependency.
+     * In-memory CatalogDeploymentRepository for testing without database dependency.
      * Stores catalog descriptors in a simple list.
      */
-    static final class InMemoryMetadataStore implements MetadataStore {
+    static final class InMemoryCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
 
         private final java.util.concurrent.CopyOnWriteArrayList<CatalogDescriptor> catalogs =
                 new java.util.concurrent.CopyOnWriteArrayList<>();
-
-        @Override
-        public void saveTable(TableMetadata metadata) { }
-
-        @Override
-        public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
-            return Optional.empty();
-        }
-
-        @Override
-        public void deleteTable(String catalog, String schema, String table) { }
-
-        @Override
-        public List<QualifiedTableRef> searchTables(String pattern) { return List.of(); }
 
         @Override
         public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
@@ -129,16 +116,5 @@ class MetadataBootstrapTest {
             return List.copyOf(catalogs);
         }
 
-        @Override
-        public Optional<Instant> getLastSyncTime(String catalogName) { return Optional.empty(); }
-
-        @Override
-        public void updateSyncTime(String catalogName, Instant syncTime) { }
-
-        @Override
-        public void recordSyncHistory(SyncResult result) { }
-
-        @Override
-        public void saveSchemas(String catalogName, List<String> schemas) { }
     }
 }

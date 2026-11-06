@@ -24,23 +24,20 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.parser.ast.Identifier;
-import org.pangrova.parser.ast.statement.CreateTagStatement;
-import org.pangrova.spi.connector.plugin.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
+import org.pangrova.parser.api.ast.Identifier;
+import org.pangrova.parser.api.ast.statement.CreateTagStatement;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.security.api.identity.UserIdentity;
 
 /**
  * Property-based tests for tag immutability (P4).
@@ -59,9 +56,9 @@ class TagImmutabilityPropertyTest {
     private static final String TABLE = "test_table";
     private static final UserIdentity TEST_USER = new UserIdentity(
             "admin", Set.of("ADMIN"), Map.of(), Instant.now());
-    private static final org.pangrova.coordinator.query.session.CoordinatorSessionContext TEST_SESSION =
-            new org.pangrova.coordinator.query.session.CoordinatorSessionContext(
-                    "branch-query", Map.of("catalog", CATALOG, "schema", SCHEMA), TEST_USER, "tenant-a");
+    private static final org.pangrova.query.api.session.QuerySession TEST_SESSION =
+            new org.pangrova.query.api.session.QuerySession(
+                    "branch-query", Map.of("catalog", CATALOG, "schema", SCHEMA), TEST_USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     @Provide
     Arbitrary<String> tagNames() {
@@ -152,7 +149,7 @@ class TagImmutabilityPropertyTest {
                 CatalogState.ACTIVE, Map.of(), "", Set.of());
 
         CatalogRegistry registry = new CatalogRegistry(
-                new InMemoryMetadataStore(),
+                new InMemoryCatalogDeployments(),
                 d -> new ConnectorCatalogHandle(d, connector),
                 null,
                 null);
@@ -253,11 +250,17 @@ class TagImmutabilityPropertyTest {
     record TestTableHandle(String schema, String table) implements ConnectorTableHandle {}
 
     /**
-     * In-memory MetadataStore for CatalogRegistry construction.
+     * In-memory CatalogDeploymentRepository for CatalogRegistry construction.
      * Provides functional catalog descriptor persistence for the registry's
      * register/getCatalog lifecycle used in these property tests.
      */
-    static final class InMemoryMetadataStore implements MetadataStore {
+    static final class InMemoryCatalogDeployments implements CatalogDeploymentRepository {
+        @Override
+        public java.util.Optional<org.pangrova.metadata.api.catalog.CatalogDescriptor>
+                findCatalogDescriptorRevision(String name, String incarnationId, long revision) {
+            throw new UnsupportedOperationException("This fixture does not store deployment history");
+        }
+
         private final Map<String, CatalogDescriptor> catalogs = new HashMap<>();
 
         @Override
@@ -280,44 +283,5 @@ class TagImmutabilityPropertyTest {
             catalogs.remove(name);
         }
 
-        @Override
-        public void saveTable(TableMetadata metadata) {
-            // Intentional no-op: tag immutability tests do not exercise table persistence
-        }
-
-        @Override
-        public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
-            return Optional.empty();
-        }
-
-        @Override
-        public void deleteTable(String catalog, String schema, String table) {
-            // Intentional no-op: tag immutability tests do not exercise table persistence
-        }
-
-        @Override
-        public List<QualifiedTableRef> searchTables(String pattern) {
-            return List.of();
-        }
-
-        @Override
-        public Optional<Instant> getLastSyncTime(String catalogName) {
-            return Optional.empty();
-        }
-
-        @Override
-        public void updateSyncTime(String catalogName, Instant syncTime) {
-            // Intentional no-op: tag immutability tests do not exercise sync tracking
-        }
-
-        @Override
-        public void recordSyncHistory(SyncResult result) {
-            // Intentional no-op: tag immutability tests do not exercise sync tracking
-        }
-
-        @Override
-        public void saveSchemas(String catalogName, List<String> schemas) {
-            // Intentional no-op: tag immutability tests do not exercise schema persistence
-        }
     }
 }

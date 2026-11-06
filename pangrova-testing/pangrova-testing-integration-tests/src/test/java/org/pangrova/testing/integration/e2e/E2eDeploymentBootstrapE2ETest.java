@@ -1,9 +1,9 @@
 package org.pangrova.testing.integration.e2e;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.spi.security.tenant.ResourceQuota;
-import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.setup.TestCatalogRegistrar;

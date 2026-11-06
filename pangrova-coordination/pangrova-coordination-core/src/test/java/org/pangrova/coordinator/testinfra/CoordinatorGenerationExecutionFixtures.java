@@ -2,11 +2,11 @@ package org.pangrova.coordinator.testinfra;
 
 import org.pangrova.coordinator.generation.GenerationExecutionOwnership;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
-import org.pangrova.spi.generation.job.GenerationJobKey;
-import org.pangrova.spi.generation.execution.GenerationExecutionOwner;
-import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.generation.api.identity.GenerationJobKey;
+import org.pangrova.generation.api.execution.GenerationExecutionOwner;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.util.HashMap;
@@ -27,8 +27,8 @@ public final class CoordinatorGenerationExecutionFixtures implements AutoCloseab
     public synchronized GenerationExecutionOwnership ownership(String owner) {
         var service = processes.computeIfAbsent(owner, id -> {
             var started = new HighAvailabilityCoordinationService(new InMemoryDistributedLease(),
-                    HighAvailabilityCoordinationService.CoordinationConfig.defaults());
-            started.setExecutionAnchorStore(new JdbcExecutionAnchorStore(dataSource));
+                    HighAvailabilityCoordinationService.CoordinationConfig.defaults(), new JdbcExecutionAnchorStore(dataSource));
+
             started.start(id);
             return started;
         });

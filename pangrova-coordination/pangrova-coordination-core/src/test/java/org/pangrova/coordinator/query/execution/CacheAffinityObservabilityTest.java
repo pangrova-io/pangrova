@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Instant;
 import java.util.List;
 
-import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.execution.split.SplitAssignment;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.scheduler.api.placement.HealthState;

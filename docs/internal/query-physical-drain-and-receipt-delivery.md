@@ -1,8 +1,9 @@
 # Query physical closure and terminal receipt delivery
 
-Status: source implementation checkpoint; not yet compiled or run against the
-current packaged Native library. This document does not claim production or HA
-closure. Historical Native/JNI test results do not validate this checkpoint.
+Historical checkpoint: the original implementation below preceded its packaged
+Native validation. Current modularization changes and their exact validation
+scope are recorded in [the implementation ledger](project-structure-refactoring/domain-modularization-progress.md).
+Neither document claims final production or HA closure for the entire project.
 
 ## One execution ownership authority
 
@@ -12,6 +13,15 @@ receipt. Planning/submission and task publication use the same query issuance
 gate. Sealing prevents new identities/transport entry; already entered operations
 must exit. Registry locks cover only local metadata, never HTTP, JNI, connector
 cleanup or journal I/O.
+
+`org.pangrova.query.api.lifecycle.QueryOperation` is the caller-facing ownership
+handle. `CoordinatorTaskTracker` creates it only after admission to the original
+issued scope; `QueryIssuanceOperation` is private to its owner package. Submission,
+state transitions and deferred terminal work use the contract. The Connector
+operation contract remains separate and shares the same actual scope owner.
+Repeated/concurrent close releases one operation at most once. Logical cancellation
+does not authorize early close, and a notification failure does not reopen the
+operation or permit a query-ID lookup to substitute a new scope.
 
 `QueryManager` owns a submission operation before leaving its local admission
 lock. `QueryDispatcher` additionally owns its real frontend operation through
@@ -130,3 +140,18 @@ backend-issued Worker process incarnation remain mandatory production gates.
 In-memory finite ACK retention does not solve restart/HA. Runtime CPU/scan quota
 charging and existing synthetic in-progress TaskStats are separate unresolved
 production facts; physical-count correctness does not validate those metrics.
+
+## 超时调度与实际查询 owner
+
+`QueryTimeoutScheduler` 位于 Query Core，只负责周期触发、截止时间计算及其线程的退出屏障。
+Server 显式注入 Query API 制品中的 `QueryTimeoutHandler`，由实际 `QueryManager` 实现。
+没有未设置 callback 时直接修改状态机的备用路径，也不允许启动后替换 handler。
+
+截止时间包含边界，基于查询创建时间，因此排队时间仍计入超时。QueryManager 对实际观察到的
+状态实例尝试 FAILED 转换；并发完成或取消已经获胜时，不发布超时错误。获胜的超时继续走
+原 journal、审计、任务取消与终态清理路径，不按 query ID 重新查找另一个生命周期。
+重复扫描不会重写已终态查询的错误。
+
+超时不构成物理退出证据。仍在运行的 frontend/metadata/native 操作继续持有其原始 handle，
+ReaderPin、准入与执行资源只能在真实 drain 后释放。调度器关闭会等待当前 handler 回调实际
+退出；正常进程停机仍会拒绝把未释放的查询资源当作已经关闭。

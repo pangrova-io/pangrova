@@ -1,10 +1,14 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.stage.StageState;
+
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
+import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
-import org.pangrova.generation.protocol.GenerationStageGraphCodec;
+import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 
 import com.google.protobuf.CodedOutputStream;
 import org.junit.jupiter.api.AfterEach;
@@ -14,7 +18,6 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
@@ -22,38 +25,37 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStag
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTerminalRegistry;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.coordinator.query.task.report.DurableGenerationWorkReportSink;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationJobKey;
-import org.pangrova.spi.generation.job.GenerationJobState;
-import org.pangrova.spi.generation.job.GenerationLease;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.execution.GenerationExchangeRegistration;
-import org.pangrova.spi.generation.execution.GenerationExecutionOwner;
-import org.pangrova.spi.generation.execution.GenerationStageGraph;
-import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.spi.generation.GenerationDependencySet;
-import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
-import org.pangrova.spi.generation.GenerationExecutionKind;
-import org.pangrova.spi.generation.GenerationOutputTypeIds;
-import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
-import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.SerializedPlanFragment;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.identity.GenerationJobKey;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.page.GenerationLease;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
+import org.pangrova.generation.api.execution.GenerationExecutionOwner;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
+import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.dependency.GenerationDependencySet;
+import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
+import org.pangrova.observability.noop.NoOpTracingProvider;
+import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
@@ -64,10 +66,10 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.query.coordination.ExecutionAnchor;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 
 import javax.sql.DataSource;
 import java.io.ByteArrayOutputStream;
@@ -123,14 +125,14 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         producer.addTaskId(TASK);
         terminal.register(KEY.executionId(), TASK, producer);
         producer.stateMachine().addStateChangeListener((stageId, oldState, newState) -> {
-            if (newState == StageStateMachine.State.FINISHED) {
+            if (newState == StageState.FINISHED) {
                 committedAtStageFinish.set(builds.findJob(KEY.tenantId(), KEY.jobId()).orElseThrow().completedPages() == 1);
             }
         });
         StageCompletionCallback callback = new StageCompletionCallback() {
             @Override
             public void onTaskTerminal(String queryId, String taskId, String state,
-                    org.pangrova.client.error.ErrorDetail error) {
+                    org.pangrova.query.api.error.QueryFailure error) {
                 terminal.onTerminal(queryId, taskId, state, error);
             }
 
@@ -140,7 +142,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
             }
         };
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queries, tracker, workers,
-                null, null, null, null, null, null, callback, null, null,
+                null, null, null, null, null, null, callback, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal(),
                 new DurableGenerationWorkReportSink(builds, stages)));
         request = request(7);
         registerTask(request);
@@ -159,7 +161,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(committedAtStageFinish).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
                 .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED);
-        assertThat(producer.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(producer.stateMachine().getState()).isEqualTo(StageState.FINISHED);
         assertThat(queries.getQueryState(KEY.executionId())).isEmpty();
         assertThat(stages.preparePartition(claim(0, 1), value -> value.lease())).isEmpty();
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
@@ -179,7 +181,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     void aFormerOwnerCannotAdvanceTheOrdinaryDagOrThePersistedPage() throws Exception {
         executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement-coordinator", 9);
         assertThat(receiver.onTaskStatus(status(request, originalWire(request)))).isFalse();
-        assertThat(producer.stateMachine().getState()).isEqualTo(StageStateMachine.State.RUNNING);
+        assertThat(producer.stateMachine().getState()).isEqualTo(StageState.RUNNING);
         assertThat(builds.findJob(KEY.tenantId(), KEY.jobId()).orElseThrow().completedPages()).isZero();
         assertThat(committedAtStageFinish).isFalse();
     }
@@ -193,7 +195,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         var finished = status(request, originalWire(request));
         assertThat(receiver.onTaskStatus(finished)).isFalse();
         assertThat(builds.findJob(KEY.tenantId(), KEY.jobId()).orElseThrow().completedPages()).isZero();
-        assertThat(producer.stateMachine().getState()).isEqualTo(StageStateMachine.State.RUNNING);
+        assertThat(producer.stateMachine().getState()).isEqualTo(StageState.RUNNING);
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
                 .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.PENDING);
         tracker.markScheduled(KEY.executionId(), TASK);
@@ -212,7 +214,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 finished.attempt(), finished.canonicalTaskReport());
         assertThat(receiver.onTaskStatus(duplicate)).isFalse();
         assertThat(builds.findJob(KEY.tenantId(), KEY.jobId()).orElseThrow().completedPages()).isEqualTo(1);
-        assertThat(producer.stateMachine().getState()).isEqualTo(StageStateMachine.State.FINISHED);
+        assertThat(producer.stateMachine().getState()).isEqualTo(StageState.FINISHED);
     }
 
     @Test
@@ -222,7 +224,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         tracker.registerTaskAttempt(TASK, TaskAttemptDescriptor.from(request.taskRequest().getAttempt()));
         assertThat(receiver.onTaskStatus(status(request, originalWire(request)))).isFalse();
         assertThat(builds.findJob(KEY.tenantId(), KEY.jobId()).orElseThrow().completedPages()).isZero();
-        assertThat(producer.stateMachine().getState()).isEqualTo(StageStateMachine.State.RUNNING);
+        assertThat(producer.stateMachine().getState()).isEqualTo(StageState.RUNNING);
         assertThat(committedAtStageFinish).isFalse();
     }
 
@@ -265,9 +267,9 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     private DurableStageRuntime runtime(ExecutionAnchor current) {
         return new DurableStageRuntime(stages.prepareExecution(KEY, current), new DurableStageRuntime.Dependencies(
                 stages, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
-                new TaskScheduler(new WorkerPerformanceScorer()), () -> 9, Duration.ofMinutes(2),
+                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), () -> 9, Duration.ofMinutes(2),
                 (task, acknowledgement) -> { throw new AssertionError("Winner replay must not dispatch a Worker"); },
-                ModelAuthorityFixtures.artifacts().exchanges(dataSource)));
+                ModelAuthorityFixtures.artifacts().exchanges(dataSource), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
     }
 
     private void registerTask(SubmitTaskRequest submitted) {
@@ -316,8 +318,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         var serialized = new AuthorizedStageGraph.SerializedStage(1, 1, "COMPUTE",
                 new SerializedPlanFragment(new byte[]{1}, List.of(), List.of()), List.of(), List.of("id"), List.of(), List.of(), -1, -1);
         var stage = Stage.create(new StageNode(1, serialized, 1, "COMPUTE", List.of()), KEY.executionId());
-        stage.stateMachine().tryTransitionTo(StageStateMachine.State.SCHEDULING);
-        stage.stateMachine().tryTransitionTo(StageStateMachine.State.RUNNING);
+        stage.stateMachine().tryTransitionTo(StageState.SCHEDULING);
+        stage.stateMachine().tryTransitionTo(StageState.RUNNING);
         return stage;
     }
 
@@ -356,10 +358,10 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     private static QueryManager queryManager(WorkerManager workers, CoordinatorTaskTracker tracker) {
-        var scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        var scheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
         var remote = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
         var dispatcher = new QueryDispatcher(QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null,
                 remote, scheduler, workers, tracker, null, null, null, 0L), null, null);
-        return new QueryManager(QueryManagerContext.minimal(dispatcher, new NoOpTracingProvider()));
+        return new QueryManager(QueryManagerTestContexts.minimal(dispatcher, new NoOpTracingProvider()));
     }
 }

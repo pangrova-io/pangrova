@@ -13,17 +13,19 @@
  */
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.spi.invocation.AttemptAdmission;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.spi.ai.error.AiInvocationException;
-import org.pangrova.spi.ai.embedding.BlobReference;
-import org.pangrova.spi.ai.invocation.GenerationParameters;
-import org.pangrova.spi.ai.invocation.InferenceProvider;
-import org.pangrova.spi.ai.invocation.InferenceResult;
-import org.pangrova.spi.ai.capability.Modality;
-import org.pangrova.spi.ai.invocation.MultimodalPrompt;
+import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.embedding.BlobReference;
+import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.invocation.InferenceResult;
+import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.invocation.MultimodalPrompt;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 import org.pangrova.ai.worker.context.AiHttpTransport;
 
@@ -169,7 +171,7 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         GenerationParameters params = parameters;
         String invocationKey = AiProviderCallContext.currentIdempotencyKey().orElse(null);
         Instant invocationDeadline = AiProviderCallContext.currentDeadline().orElse(null);
-        AiProviderCallContext.AttemptAdmission attemptAdmission =
+        AttemptAdmission attemptAdmission =
                 AiProviderCallContext.currentAttemptAdmission().orElse(null);
         return InferenceBatch.execute(prompts.size(), batchExecutor, index -> invocationKey == null
                 ? callOnce(prompts.get(index), params)

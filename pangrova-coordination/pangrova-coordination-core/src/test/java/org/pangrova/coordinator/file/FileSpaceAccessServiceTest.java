@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.file;
 
-import org.pangrova.spi.file.access.FileAccessGrant;
+import org.pangrova.file.api.access.FileAccessGrant;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -19,17 +19,17 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.FileSpaceAccessControl;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.spi.authorization.FileSpaceAccessControl;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.spi.file.space.FileSpace;
-import org.pangrova.spi.file.space.FileSpaceDefinition;
-import org.pangrova.spi.file.space.FileSpaceMutation;
-import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
-import org.pangrova.common.file.FileSpaceType;
-import org.pangrova.file.space.FileSpaceAccessService;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.persistence.file.api.space.FileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.core.access.FileSpaceAccessService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,9 +43,46 @@ class FileSpaceAccessServiceTest {
 
     private final ObjectMapper mapper = JsonMapperFactory.create();
     private final FakeSpaces spaces = new FakeSpaces();
-    private final org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry profiles =
-            new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
+    private final org.pangrova.testing.testkit.file.InMemoryStorageProfileRegistry profiles =
+            new org.pangrova.testing.testkit.file.InMemoryStorageProfileRegistry();
     private final RecordingAccessControl access = new RecordingAccessControl();
+
+    @Test
+    void explicitSpaceProfileOverridesDefaultBeforeDescriptorIssuance() throws Exception {
+        profiles.register(profile("media", "default"));
+        profiles.register(profile("team", "team-root"));
+        spaces.put(space(FileSpaceType.STAGE, false, "team", ""));
+        var grant = service(List.of("http://w1:8080"))
+                .grant(USER, "stages", "media", "raw", "landing", "file.txt", "read");
+        assertThat(descriptor(grant)).containsEntry("profileName", "team")
+                .containsEntry("baseKey", "team-root/stages/media/raw/landing");
+    }
+
+    @Test
+    void managedDefaultIsUsedOnlyWhenConfiguredAndSpaceHasNoExplicitProfile() throws Exception {
+        profiles.register(profile("media", "warehouse"));
+        spaces.put(space(FileSpaceType.VOLUME, false, "", ""));
+        var grant = service(List.of("http://w1:8080"))
+                .grant(USER, "volumes", "media", "raw", "landing", "file.txt", "read");
+        assertThat(descriptor(grant)).containsEntry("profileName", "media")
+                .containsEntry("baseKey", "warehouse/volumes/media/raw/landing");
+        assertThatThrownBy(() -> service(List.of("http://w1:8080"), "")
+                .grant(USER, "volumes", "media", "raw", "landing", "file.txt", "read"))
+                .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.FILE_STORAGE_NOT_CONFIGURED));
+    }
+
+    @Test
+    void externalLocationOutsideProfileIsRejectedBeforeDescriptorIssuance() {
+        profiles.register(profile("media", "landing"));
+        for (String location : List.of("s3://other/landing", "s3://acme/landing-sibling")) {
+            spaces.put(space(FileSpaceType.STAGE, true, "media", location));
+            assertThatThrownBy(() -> service(List.of("http://w1:8080"))
+                    .grant(USER, "stages", "media", "raw", "landing", "file.txt", "read"))
+                    .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                            assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.FILE_STORAGE_NOT_CONFIGURED));
+        }
+    }
 
     @Test
     void managedVolumeReadIssuesSignedDescriptorAtTheManagedRoot() throws Exception {
@@ -217,7 +254,11 @@ class FileSpaceAccessServiceTest {
     }
 
     private FileSpaceAccessService service(List<String> workers) {
-        var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
+        return service(workers, "media");
+    }
+
+    private FileSpaceAccessService service(List<String> workers, String managedProfile) {
+        var context = new FileSpaceAccessService.FileSpaceAccessContext(managedProfile,
                 Duration.ofMinutes(5), () -> NOW, () -> workers,
                 new FileSpaceAuditEmitter(null), SECRET,
                 org.pangrova.coordinator.file.FileAuthorityTestFixture.authority());

@@ -1,19 +1,19 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
 import org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver;
-import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.protocol.batch.ColumnarPageSink;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.value.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.batch.api.reader.ReadableBatch;
+import org.pangrova.connector.spi.data.ColumnarPageSink;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.types.value.TypedRow;
+import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.DecimalVector;
@@ -167,7 +167,7 @@ public final class WriteBatchFixtures {
         }
     }
 
-    static Page snapshot(ColumnarBatch batch) {
+    static Page snapshot(ReadableBatch batch) {
         List<TypedRow> rows = new ArrayList<>();
         for (int row = 0; row < batch.rowCount(); row++) {
             TypedRow.Builder builder = TypedRow.builder();
@@ -236,18 +236,18 @@ public final class WriteBatchFixtures {
     }
 
     static final class BatchSink extends RowSink implements ColumnarPageSink {
-        private final Consumer<ColumnarBatch> onBatch;
+        private final Consumer<ReadableBatch> onBatch;
         int batchCalls;
         // Retained only to assert that the borrowed view is invalid after return.
-        ColumnarBatch borrowed;
+        ReadableBatch borrowed;
 
-        BatchSink(Consumer<ColumnarBatch> onBatch) {
+        BatchSink(Consumer<ReadableBatch> onBatch) {
             super(page -> { throw new AssertionError("Columnar capability must not receive a Page"); });
             this.onBatch = onBatch;
         }
 
         @Override
-        public void appendColumnarBatch(ColumnarBatch batch) {
+        public void appendColumnarBatch(ReadableBatch batch) {
             batchCalls++;
             borrowed = batch;
             onBatch.accept(batch);
@@ -293,7 +293,7 @@ public final class WriteBatchFixtures {
 
     private static final class WriteSession implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

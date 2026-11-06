@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
@@ -7,18 +9,18 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
 import org.apache.calcite.rel.RelNode;
 import org.junit.jupiter.api.AfterEach;
@@ -72,7 +74,7 @@ class CompilerSnapshotConsistencyTest {
         SecurityPolicyApplier applier = sourceFreeApplier();
 
         // Compile with compilerV2 as the snapshot — should succeed using V2
-        CoordinatorSessionContext session = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("snap-1");
+        QuerySession session = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("snap-1");
         RelNode relNode = applier.compileAndApplyPolicies("SELECT 1", session, compilerV2).plan();
 
         assertNotNull(relNode, "RelNode should be compiled using the provided snapshot");
@@ -91,7 +93,7 @@ class CompilerSnapshotConsistencyTest {
      */
     @Test
     void queryDispatcher_capturesCompilerOnce_usesConsistentlyThroughDispatch() throws Exception {
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
 
         httpDispatcher = new RemoteTaskDispatcher(
@@ -100,7 +102,7 @@ class CompilerSnapshotConsistencyTest {
         httpDispatcher.setExecutionOwnerResolver(ignored ->
                 new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
                         "test-coordinator", "test-incarnation", 1L));
-        TaskScheduler taskScheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        TaskScheduler taskScheduler = new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty());
 
         var tracker = new CoordinatorTaskTracker();
         var deps = QueryDispatcherContext.withDefaults(
@@ -110,15 +112,15 @@ class CompilerSnapshotConsistencyTest {
         worker.connect(dispatcher, tracker, workerManager);
 
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "snap-2", Map.of(), TEST_IDENTITY, "default");
+        QuerySession session = new QuerySession(
+                "snap-2", Map.of(), TEST_IDENTITY, "default", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         // Execute a query — compiler V1 is captured once and used for both
         // compile (compileAndApplyPolicies) and serialize (convertValidateAndSerializeWithRetry)
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
         assertNotNull(result, "Query should dispatch successfully with consistent compiler");
-        assertEquals(QueryStateMachine.State.RUNNING, sm.getState());
+        assertEquals(QueryState.RUNNING, sm.getState());
     }
 
     /**
@@ -128,7 +130,7 @@ class CompilerSnapshotConsistencyTest {
     @Test
     void compileAndApplyPolicies_snapshotIsolatedFromUpdate() {
         SecurityPolicyApplier applier = sourceFreeApplier();
-        CoordinatorSessionContext session = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("snap-3");
+        QuerySession session = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("snap-3");
 
         // Capture snapshot before update
         SqlCompiler snapshot = applier.getCompiler();
@@ -198,7 +200,7 @@ class CompilerSnapshotConsistencyTest {
         assertSame(compilerV2, applier.getCompiler(), "Current compiler must be V2");
 
         // Thread A can still compile with its V1 snapshot
-        CoordinatorSessionContext session = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("snap-race");
+        QuerySession session = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("snap-race");
         RelNode relNode = applier.compileAndApplyPolicies("SELECT 1", session, snapshot).plan();
         assertNotNull(relNode, "Compile with stale V1 snapshot must still succeed");
     }

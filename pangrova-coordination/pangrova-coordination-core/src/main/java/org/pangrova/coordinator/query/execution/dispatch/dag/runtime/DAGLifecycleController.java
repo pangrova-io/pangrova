@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
+import org.pangrova.query.api.stage.StageState;
+
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.List;
@@ -13,11 +15,10 @@ import java.util.function.Consumer;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGCompletionEvaluator;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine.StageDispatchRecord;
-import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
+import org.pangrova.query.core.task.DispatchResult;
+import org.pangrova.query.core.task.StageDispatchRecord;
+import org.pangrova.query.core.stage.QueryExecutionScope;
+import org.pangrova.execution.core.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
@@ -26,10 +27,9 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTermina
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,7 +46,7 @@ public final class DAGLifecycleController {
     private final LineageEventEmitter lineageEmitter;
     private final List<StageLifecycleHandler> handlers;
     private final TaskTerminalRegistry terminalRegistry = new TaskTerminalRegistry();
-    private final ConcurrentHashMap<String, DAGQueryContext> queryContexts =
+    private final ConcurrentHashMap<String, QueryExecutionScope> queryContexts =
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, StageDAG> queryDags =
             new ConcurrentHashMap<>();
@@ -71,7 +71,7 @@ public final class DAGLifecycleController {
 
     /** Registers the DAG and optional immutable context before dispatch. */
     public void registerQuery(
-            String queryId, StageDAG dag, DAGQueryContext context) {
+            String queryId, StageDAG dag, QueryExecutionScope context) {
         terminalSignals.putIfAbsent(queryId, new CompletableFuture<>());
         queryDags.put(queryId, dag);
         if (context != null) {
@@ -109,7 +109,7 @@ public final class DAGLifecycleController {
     }
 
     /** Returns the registered immutable query context. */
-    public DAGQueryContext queryContext(String queryId) {
+    public QueryExecutionScope queryContext(String queryId) {
         return queryContexts.get(queryId);
     }
 
@@ -120,7 +120,7 @@ public final class DAGLifecycleController {
 
     /** Routes a terminal task report to its owning stage. */
     public void onTaskTerminal(
-            String queryId, String taskId, String state, ErrorDetail error) {
+            String queryId, String taskId, String state, QueryFailure error) {
         terminalRegistry.onTerminal(queryId, taskId, state, error);
     }
 
@@ -135,7 +135,7 @@ public final class DAGLifecycleController {
             Stage stage,
             StageDAG dag,
             String queryId,
-            org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext execution,
+            org.pangrova.execution.core.authority.StageExecutionContext execution,
             BiConsumer<StageLifecycleHandler, StageLifecycleEvent> call) {
         StageLifecycleEvent event = new StageLifecycleEvent(
                 stage, dag, queryId, execution);
@@ -149,7 +149,7 @@ public final class DAGLifecycleController {
             } else {
                 invokeHandler(handler, call, event, stage, queryId);
             }
-            if (stage.stateMachine().getState() == StageStateMachine.State.PLANNED) {
+            if (stage.stateMachine().getState() == StageState.PLANNED) {
                 break;
             }
         }
@@ -181,7 +181,7 @@ public final class DAGLifecycleController {
             completion.completeExceptionally(dispatchFailure);
             return;
         }
-        ErrorDetail error = failed.lastError();
+        QueryFailure error = failed.lastError();
         String message = error == null
                 ? "Stage " + failed.stageId() + " failed" : error.message();
         completion.completeExceptionally(new PangrovaException(
@@ -280,9 +280,9 @@ public final class DAGLifecycleController {
     }
 
     private void cancelStage(Stage stage, List<StageDispatchRecord> dispatched) {
-        StageStateMachine.State state = stage.stateMachine().getState();
-        stage.stateMachine().tryTransitionTo(state == StageStateMachine.State.PLANNED
-                ? StageStateMachine.State.CANCELLED : StageStateMachine.State.FAILED);
+        StageState state = stage.stateMachine().getState();
+        stage.stateMachine().tryTransitionTo(state == StageState.PLANNED
+                ? StageState.CANCELLED : StageState.FAILED);
         for (String taskId : stage.taskIds()) {
             StageDispatchRecord record =
                     DAGCompletionEvaluator.findDispatchRecord(taskId, dispatched);
@@ -294,10 +294,10 @@ public final class DAGLifecycleController {
     }
 
     private static boolean isTerminal(Stage stage) {
-        StageStateMachine.State state = stage.stateMachine().getState();
-        return state == StageStateMachine.State.FINISHED
-                || state == StageStateMachine.State.FAILED
-                || state == StageStateMachine.State.CANCELLED;
+        StageState state = stage.stateMachine().getState();
+        return state == StageState.FINISHED
+                || state == StageState.FAILED
+                || state == StageState.CANCELLED;
     }
 
     private void fireQueryCompleted(String queryId) {

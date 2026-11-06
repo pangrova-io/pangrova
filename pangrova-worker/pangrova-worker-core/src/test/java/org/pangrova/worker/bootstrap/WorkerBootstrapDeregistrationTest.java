@@ -23,12 +23,16 @@ class WorkerBootstrapDeregistrationTest {
     void startupRollbackDeregistersAcknowledgedRegistrationBeforeClosingDependencies() throws Exception {
         var registered = new AtomicBoolean();
         var deletes = new AtomicInteger();
+        var withdrawal = new java.util.concurrent.atomic.AtomicReference<String>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/workers/", exchange -> {
-            exchange.getRequestBody().readAllBytes();
+            String received = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             boolean registration = exchange.getRequestMethod().equals("POST");
             registered.set(registration);
-            if (!registration) deletes.incrementAndGet();
+            if (!registration) {
+                deletes.incrementAndGet();
+                withdrawal.set(received);
+            }
             String status = registration ? "registered" : "deregistered";
             byte[] body = ("{\"status\":\"" + status + "\",\"coordinator_epoch\":1}")
                     .getBytes(StandardCharsets.UTF_8);
@@ -58,6 +62,9 @@ class WorkerBootstrapDeregistrationTest {
                     new WorkerObservabilitySetup());
 
             assertThat(deletes).hasValue(1);
+            assertThat(org.pangrova.common.json.jackson.JsonMapperFactory.shared().readValue(withdrawal.get(),
+                    org.pangrova.protocol.execution.identity.WorkerExecutionIdentity.class))
+                    .isEqualTo(request.workerExecutionIdentity());
             assertThat(registered).isFalse();
             assertThat(refs.registrationClient()).isNull();
         } finally { server.stop(0); }
@@ -71,6 +78,7 @@ class WorkerBootstrapDeregistrationTest {
         var pipe = Pipe.open();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/workers/", exchange -> {
+            if (ackRegistration(exchange)) return;
             deletes.incrementAndGet();
             if (pipe.source().isOpen()) premature.set(true);
             byte[] body = "{\"status\":\"deregistered\"}".getBytes(StandardCharsets.UTF_8);
@@ -86,6 +94,7 @@ class WorkerBootstrapDeregistrationTest {
                 if (blocked.get()) throw new java.io.IOException("Actual owner still retained");
                 source.close();
             });
+            register(client, "ordered-deregister");
             var config = WorkerBootstrapConfig.withDefaults("ordered-deregister");
             assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config,
                     new WorkerObservabilitySetup())).hasMessageContaining("CDC consumer");
@@ -108,6 +117,7 @@ class WorkerBootstrapDeregistrationTest {
         var deletes = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/workers/", exchange -> {
+            if (ackRegistration(exchange)) return;
             deletes.incrementAndGet();
             byte[] body = (accepted.get() ? "{\"status\":\"deregistered\"}" : "{\"status\":\"registered\"}")
                     .getBytes(StandardCharsets.UTF_8);
@@ -121,6 +131,7 @@ class WorkerBootstrapDeregistrationTest {
             var refs = new WorkerComponentRefs();
             refs.setRegistrationClient(client);
             refs.retainNativeFunctionResource(source);
+            register(client, "unacknowledged-deregister");
             var config = WorkerBootstrapConfig.withDefaults("unacknowledged-deregister");
             assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config,
                     new WorkerObservabilitySetup())).hasMessageContaining("expected 'deregistered'");
@@ -138,6 +149,7 @@ class WorkerBootstrapDeregistrationTest {
     void interruptedDeregistrationIsNotAcknowledged() throws Exception {
         try (var server = StubCoordinatorServer.start();
              var client = new WorkerRegistrationClient(server.baseUrl())) {
+            register(client, "interrupted-worker");
             Thread.currentThread().interrupt();
             try {
                 assertThatThrownBy(() -> client.deregister("interrupted-worker"))
@@ -145,5 +157,24 @@ class WorkerBootstrapDeregistrationTest {
                 assertThat(Thread.currentThread().isInterrupted()).isTrue();
             } finally { Thread.interrupted(); }
         }
+    }
+    private static boolean ackRegistration(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+        if (!exchange.getRequestMethod().equals("POST")) return false;
+        exchange.getRequestBody().readAllBytes();
+        byte[] body = "{\"status\":\"registered\",\"coordinator_epoch\":1}".getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(200, body.length);
+        try (var output = exchange.getResponseBody()) { output.write(body); }
+        return true;
+    }
+
+    private static void register(WorkerRegistrationClient client, String workerId) throws Exception {
+        String inventory = org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec.encode(
+                org.pangrova.protocol.v2.CapabilityInventory.parseFrom(
+                        org.pangrova.testing.testkit.function.ActualNativeCatalogue.bytes()));
+        client.register(new org.pangrova.protocol.rest.worker.WorkerRegistrationRequest(
+                workerId, "127.0.0.1", 0, 0, 0, 2, null, java.util.List.of(), null, inventory,
+                new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
+                        "00000000-0000-0000-0000-000000000001",
+                        "00000000-0000-0000-0000-000000000002"))).requireCoordinatorEpoch();
     }
 }

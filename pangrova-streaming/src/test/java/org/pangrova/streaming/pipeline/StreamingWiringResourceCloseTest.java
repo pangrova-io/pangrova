@@ -1,7 +1,13 @@
 package org.pangrova.streaming.pipeline;
 
-import org.pangrova.spi.connector.data.write.TableWriter;
-import org.pangrova.spi.connector.data.write.model.*;
+import org.pangrova.connector.api.write.TableFormat;
+import org.pangrova.connector.api.write.WriteContext;
+import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.api.write.WriteRecord;
+import org.pangrova.connector.api.write.WriteResult;
+
+import org.pangrova.connector.spi.write.TableWriter;
+
 import org.pangrova.streaming.maintenance.*;
 import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
 import org.pangrova.streaming.watermark.WatermarkTracker;

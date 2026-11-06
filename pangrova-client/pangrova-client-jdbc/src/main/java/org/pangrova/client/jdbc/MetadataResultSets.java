@@ -2,7 +2,7 @@ package org.pangrova.client.jdbc;
 
 import org.pangrova.client.api.MetadataTableIdentifier;
 import org.pangrova.client.api.MetadataColumnInfo;
-import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.transport.client.http.PangrovaRestClient;
 
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;

@@ -272,7 +272,7 @@ The Native layer's `NativeError.error_code` is mapped to the Java layer's `Pangr
 
 > **Design note:** The mapping table below is a target consolidation. Current Java
 > error handling uses `PangrovaErrorCode`, `PangrovaException`, and transport-specific
-> mapping such as `TransportStatusMapper`; there is no standalone native error mapper.
+> mapping such as `BatchStreamProducer` for Flight status conversion; there is no standalone native error mapper.
 
 Mapping implementation:
 
@@ -1040,6 +1040,15 @@ class ShuffleOutputValidator:
 
 
 ## 13. Lineage-Based Recovery Mode (OPT-017)
+
+> Implementation status (2026-11-02): the previously unassembled FteStageHandler (retired) /
+> FteAwareTaskFaultHandler (retired) and their in-place upstream recomputation helper have been
+> retired. They did not provide a production recovery path and could report success
+> after the state machine rejected reopening FINISHED output. The active DAG chain uses
+> `RetryStageHandler`; its bounded failed-stage retry is not proof of upstream output
+> regeneration. The lineage/RECOMPUTE design below remains a proposal requiring a new
+> exchange generation, explicit committed-attempt selection and verified resource drain.
+> Do not enable or advertise it from the presence of policy/scheduler model classes.
 
 This section adds a `RECOMPUTE` shuffle recovery mode that skips S3 persistence and relies on re-executing upstream stages on failure. For short queries (< 30s), recomputation is cheaper than S3 upload overhead.
 

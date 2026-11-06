@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 
 /**
  * Bundles the dependencies for {@link PlanExecutionFactory} construction,
@@ -18,7 +18,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 public record PlanExecutionFactoryContext(
         NativeDmlCompileFunction dmlDispatch,
         Consumer<String> writeCompleteCallback,
-        BiFunction<String, CoordinatorSessionContext, String> explainCompiler,
+        BiFunction<String, QuerySession, String> explainCompiler,
         org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry,
         org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
                 generatedValueMaterialization) {}

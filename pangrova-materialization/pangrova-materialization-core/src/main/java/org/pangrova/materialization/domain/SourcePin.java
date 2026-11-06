@@ -1,8 +1,8 @@
 package org.pangrova.materialization.domain;
 
 import java.time.Instant;
-import org.pangrova.spi.connector.materialization.SourceRef;
-import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.connector.api.materialization.SourceRef;
+import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 /**
  * Durable pin of one source snapshot for the lifetime of an attempt.

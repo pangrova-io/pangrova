@@ -9,7 +9,9 @@ import org.pangrova.protocol.v2.ShuffleServiceAddress;
 import org.pangrova.protocol.v2.ShuffleServiceEndpoint;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
+import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
+import org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead;
 import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 
 /** Maps canonical exchange domain objects to the Native runtime protocol. */
@@ -34,6 +36,14 @@ final class ExchangeProtocolMapper {
                 .setExpectedRows(source.expectedRows())
                 .setExpectedBytes(source.expectedBytes())
                 .build();
+    }
+
+    static PangrovaPartitionRead partitionRead(
+            ExternalShuffleTransport input) {
+        return new PangrovaPartitionRead(
+                input.shuffleId(), new ExchangeChannelContext(
+                        input.consumerAttempt(), input.outputPartitionId(), input.deadlineEpochMs()),
+                input.planEpoch(), input.expectedProducerPartitions(), input.expectedProducerSetChecksum());
     }
 
     static ExternalShuffleInput externalInput(ExternalShuffleTransport input) {

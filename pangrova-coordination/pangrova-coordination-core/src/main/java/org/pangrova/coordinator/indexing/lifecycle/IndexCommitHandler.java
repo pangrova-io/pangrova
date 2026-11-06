@@ -1,24 +1,24 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
 import org.pangrova.indexing.build.DataFileInfo;
-import org.pangrova.coordinator.indexing.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
-import org.pangrova.metadata.event.MetadataEvent;
-import org.pangrova.metadata.event.MetadataEventListener;
-import org.pangrova.indexing.store.CommitEventRequest;
-import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.indexing.store.IndexGenerationManifest;
-import org.pangrova.spi.connector.index.CommitEvent;
-import org.pangrova.spi.connector.index.CommitEventType;
-import org.pangrova.spi.connector.index.CommitListener;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
-import org.pangrova.spi.connector.index.SnapshotDataFile;
-import org.pangrova.spi.connector.index.SnapshotFileDelta;
-import org.pangrova.spi.connector.index.SnapshotRelation;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
-import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.metadata.api.event.MetadataEvent;
+import org.pangrova.metadata.spi.event.MetadataEventListener;
+import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
+import org.pangrova.connector.api.index.CommitEvent;
+import org.pangrova.connector.api.index.CommitEventType;
+import org.pangrova.connector.spi.index.CommitListener;
+import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotDataFile;
+import org.pangrova.connector.api.index.SnapshotFileDelta;
+import org.pangrova.connector.api.index.SnapshotRelation;
+import org.pangrova.metadata.api.schema.SchemaChange;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.lifecycle.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -284,7 +284,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
     private void collectFileStatistics(IndexMetadataStore store, MergedCommitFiles files,
                                        ConnectorAccessorResolver accessors) {
         try {
-            List<org.pangrova.spi.connector.index.statistics.DataFileStatistics> statistics =
+            List<org.pangrova.connector.api.index.statistics.DataFileStatistics> statistics =
                     accessors.resolveFileStatistics(
                             files.catalog, files.schema, files.table, files.addedFiles);
             if (statistics.isEmpty()) {
@@ -298,7 +298,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                             + "filesRequested={} statsReturned={}",
                     files.catalog, files.schema, files.table,
                     files.addedFiles.size(), statistics.size());
-        } catch (org.pangrova.spi.security.AccessDeniedException denied) {
+        } catch (org.pangrova.security.api.error.AccessDeniedException denied) {
             // Missing or revoked maintenance authority is not a best-effort
             // statistics failure: the durable commit event must remain pending.
             throw denied;

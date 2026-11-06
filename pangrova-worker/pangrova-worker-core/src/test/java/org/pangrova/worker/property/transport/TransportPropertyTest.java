@@ -1,7 +1,7 @@
 package org.pangrova.worker.property.transport;
 
 import org.pangrova.worker.transport.TransportClient;
-import org.pangrova.worker.transport.TransportServer;
+import org.pangrova.transport.flight.TransportServer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.scheduler.failure.CircuitBreakerOpenException;
+import org.pangrova.scheduler.api.error.CircuitBreakerOpenException;
 
 import java.time.Instant;
 import java.util.List;
@@ -8,11 +8,11 @@ import java.util.Map;
 
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.coordinator.resilience.breaker.CircuitBreaker;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.junit.jupiter.api.Test;
 

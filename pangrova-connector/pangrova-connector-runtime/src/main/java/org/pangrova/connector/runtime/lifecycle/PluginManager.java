@@ -5,9 +5,8 @@ import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.runtime.classloader.ConnectorClassLoaderFactory;
 import org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFactory;
-import org.pangrova.connector.runtime.classloader.PluginClassLoader;
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
-import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.connector.spi.plugin.ConnectorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Manages connector plugin lifecycle: discovery, classloading, and factory registration.
  *
  * <p>Each immediate child directory of the plugin directory is one plugin; its
- * JARs are loaded through an isolated {@link PluginClassLoader} and its
+ * JARs are loaded through an isolated {@code PluginClassLoader} and its
  * {@link ConnectorFactory} providers are registered by connector name.
  *
  * <p>Concurrency strategy: ConcurrentHashMap for classloader and factory

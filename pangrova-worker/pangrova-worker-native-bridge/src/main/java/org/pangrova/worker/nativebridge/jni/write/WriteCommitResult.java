@@ -7,7 +7,7 @@ import java.util.List;
  * write transaction's file materialization phase completes.
  *
  * <p>Contains commit metadata fragments produced by
- * {@link org.pangrova.spi.connector.data.ConnectorPageSink#finishWithMetadata()}.
+ * {@link org.pangrova.connector.spi.data.ConnectorPageSink#finishWithMetadata()}.
  * The coordinator aggregates these fragments from all workers and performs
  * a single atomic catalog commit.</p>
  *

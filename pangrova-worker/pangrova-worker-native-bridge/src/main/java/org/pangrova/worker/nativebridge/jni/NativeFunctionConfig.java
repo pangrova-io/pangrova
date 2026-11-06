@@ -8,11 +8,11 @@ import java.util.Map;
  * <p>Controls whether UDF/UDAF auto-registration is enabled and provides
  * per-plugin configuration properties.</p>
  *
- * @param autoRegister  when true, discovers {@link org.pangrova.spi.function.registry.FunctionFactory}
+ * @param autoRegister  when true, discovers {@link org.pangrova.function.spi.registry.FunctionFactory}
  *                      implementations via ServiceLoader at startup and registers them
  *                      with the native engine
  * @param pluginConfigs per-plugin configuration properties keyed by plugin name
- *                      (from {@link org.pangrova.spi.function.registry.FunctionFactory#getName()})
+ *                      (from {@link org.pangrova.function.spi.registry.FunctionFactory#getName()})
  */
 public record NativeFunctionConfig(
         boolean autoRegister,
@@ -48,7 +48,7 @@ public record NativeFunctionConfig(
      * Returns the configuration properties for the given plugin name.
      * Returns an empty map if no plugin-specific config is defined.
      *
-     * @param pluginName the plugin name from {@link org.pangrova.spi.function.registry.FunctionFactory#getName()}
+     * @param pluginName the plugin name from {@link org.pangrova.function.spi.registry.FunctionFactory#getName()}
      * @return plugin configuration properties, never null
      */
     public Map<String, String> configForPlugin(String pluginName) {

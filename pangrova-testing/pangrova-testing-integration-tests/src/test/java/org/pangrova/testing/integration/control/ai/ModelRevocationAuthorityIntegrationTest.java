@@ -2,14 +2,14 @@ package org.pangrova.testing.integration.control.ai;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
 import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.ai.control.store.jdbc.embedding.JdbcEmbeddingModelRegistry;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
-import org.pangrova.spi.security.policy.Role;
-import org.pangrova.spi.security.policy.UserRoleAssignment;
-import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
@@ -39,7 +39,6 @@ class ModelRevocationAuthorityIntegrationTest extends ContainerTestBase {
     void setUp() throws Exception {
         dataSource = MigratedPostgres.create();
         roles = new JdbcRoleStore(dataSource);
-        roles.initSchema();
         roles.createRole(Role.of(ADMIN_GROUP));
         roles.createRole(Role.of(USAGE_GROUP));
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));
@@ -62,7 +61,7 @@ class ModelRevocationAuthorityIntegrationTest extends ContainerTestBase {
         assertTrue(registry.find("m", ADMIN).isPresent());
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            assertThrows(org.pangrova.spi.security.AuthorizationDeniedException.class,
+            assertThrows(org.pangrova.security.api.error.AuthorizationDeniedException.class,
                     () -> ModelAuthorityFixtures.models().requireCurrent(
                             connection, USER.principal(), observed));
         }

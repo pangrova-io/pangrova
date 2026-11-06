@@ -1,33 +1,35 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.generation.assembly.GenerationStageGraphFactory;
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
 
-import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
+import org.pangrova.generation.core.submission.GenerationStageGraphFactory;
+
+import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
-import org.pangrova.coordinator.generation.template.FrozenStageBindings;
+import org.pangrova.generation.core.execution.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
-import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
-import org.pangrova.scheduler.placement.WorkerCapabilityMatcher;
-import org.pangrova.spi.generation.job.GenerationDispatchSpec;
-import org.pangrova.spi.generation.job.GenerationJob;
-import org.pangrova.spi.generation.job.GenerationPage;
-import org.pangrova.spi.generation.GenerationPageKind;
-import org.pangrova.spi.generation.job.GenerationSplit;
-import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
+import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.page.GenerationPage;
+import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.page.GenerationSplit;
+import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmission;
-import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
-import org.pangrova.planner.generation.GenerationPlan;
-import org.pangrova.planner.generation.GeneratedValueGenerationPlan;
-import org.pangrova.planner.generation.GeneratedValueGenerationPlanBuilder;
+import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
+import org.pangrova.planner.core.generation.GenerationPlan;
+import org.pangrova.planner.core.generation.GeneratedValueGenerationPlan;
+import org.pangrova.planner.core.generation.GeneratedValueGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
-import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
@@ -37,10 +39,10 @@ import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
 import org.pangrova.protocol.v2.TypedValue;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -62,6 +64,7 @@ import java.util.Objects;
  * serialization remain in the Native Worker data plane.</p>
  */
 public final class DurableGeneratedValueBuildService {
+    private final ExecutionTraceContextFactory traceContexts;
 
     private static final int DEFAULT_MAX_ATTEMPTS = 5;
     private static final long DEFAULT_MEMORY_BYTES = 1024L * 1024 * 1024;
@@ -86,7 +89,7 @@ public final class DurableGeneratedValueBuildService {
 
     GeneratedSourceReads.ObservedRead compileSource(QualifiedTableName table, List<String> columns,
                                                    ConnectorSession session) {
-        return GeneratedSourceReads.compile(sourceCompiler, table, columns, session);
+        return GeneratedSourceReads.compile(sourceCompiler, table, columns, session, traceContexts);
     }
 
     /** Uses the sole durable artifact store and the same metadata database outbox. */
@@ -96,7 +99,8 @@ public final class DurableGeneratedValueBuildService {
             SnapshotGenerationSplitPlanner splitPlanner,
             WorkerSelector workerSelector,
             String baseArtifactUri,
-            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs) {
+            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs, ExecutionTraceContextFactory traceContexts) {
+        this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.submissions = Objects.requireNonNull(
                 submissions, "submissions must not be null");
@@ -130,9 +134,9 @@ public final class DurableGeneratedValueBuildService {
                 || !write.principal().equals(connectorSession.getUser())
                 || !write.tenantId().equals(connectorSession.getProperties().get("tenant_id"))
                 || !write.authorizationReceipt().declaration().generatedColumnsSha256().equals(
-                        org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot.generatedColumnsDigest(
+                        org.pangrova.connector.api.commit.WriteDeclarationSnapshot.generatedColumnsDigest(
                                 definitions.toByteArray()))) {
-            throw new org.pangrova.spi.security.AuthorizationDeniedException(
+            throw new org.pangrova.security.api.error.AuthorizationDeniedException(
                     "Generated maintenance must preserve its exact committed writer, tenant and declaration");
         }
         var user = new UserIdentity(write.principal(), java.util.Set.of(),
@@ -160,10 +164,10 @@ public final class DurableGeneratedValueBuildService {
         for (GeneratedColumnDefinition definition : definitions.getDefinitionsList()) {
             validateDefinitionCapability(definition);
             OperatorBinding model = AiInvocationOperatorBinder.bindTemplate(
-                    new org.pangrova.planner.AiInvocationPlanHint(
+                    new org.pangrova.planner.api.invocation.AiInvocationPlanHint(
                             GeneratedValueGenerationPlanBuilder.MODEL_INVOCATION_ID, "AI_EMBED",
                             definition.getLogicalModelName(),
-                            org.pangrova.planner.AiInvocationPlanHint.Operation.EMBEDDING, false),
+                            org.pangrova.planner.api.invocation.AiInvocationPlanHint.Operation.EMBEDDING, false),
                     workerSelector, user);
             requireModelDimension(definition, model);
             OperatorBinding sink = OperatorBinding.newBuilder()
@@ -266,14 +270,14 @@ public final class DurableGeneratedValueBuildService {
         sourceSchemaVerifier.verify(table, sourceSnapshot, connectorSession, source.relation());
         var declaredReads = authorizationScope.permissions().stream().filter(permission ->
                 permission.table().equals(table)
-                        && permission.privilege() == org.pangrova.spi.security.policy.Privilege.SELECT)
+                        && permission.privilege() == org.pangrova.security.api.policy.Privilege.SELECT)
                 .toList();
         if (!declaredReads.contains(source.permission())) {
-            throw new org.pangrova.spi.security.AuthorizationDeniedException(
+            throw new org.pangrova.security.api.error.AuthorizationDeniedException(
                     "Generated source policies changed since admission; securely resubmit the write intent");
         }
         return GeneratedValueGenerationPlanBuilder.build(
-                        org.pangrova.planner.generation.PhysicalRowLocatorPlanAugmenter.prepend(
+                        org.pangrova.planner.core.generation.PhysicalRowLocatorPlanAugmenter.prepend(
                                 source.relation().planBytes(), List.of(table.catalog(), table.schema(), table.table())),
                         definition.getTargetColumn(),
                         definition.getSourceColumnsList(),
@@ -286,7 +290,7 @@ public final class DurableGeneratedValueBuildService {
         List<OperatorBinding> bindings = List.of(model, sink);
         var selected = workerSelector.selectForBindings(
                 tenantId, List.of(), bindings);
-        if (selected == null || !WorkerCapabilityMatcher.supports(selected, bindings)) {
+        if (selected == null || !WorkerCapabilityMatcher.supports(selected.capabilityInventory(), bindings)) {
             throw new PangrovaException(
                     PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "No active Native Worker jointly advertises the exact generated-value "
@@ -342,7 +346,7 @@ public final class DurableGeneratedValueBuildService {
 
     private static void validateDefinitionCapability(
             GeneratedColumnDefinition definition) {
-        if (!WorkerCapabilityMatcher.matchesCapabilityRef(
+        if (!org.pangrova.protocol.capability.CapabilityIdentities.matches(
                 definition.getCapability(),
                 BuiltInCapabilityCatalog.aiEmbeddingPlanRef())) {
             throw new PangrovaException(
@@ -434,7 +438,7 @@ public final class DurableGeneratedValueBuildService {
 
     private record GeneratedInputSession(QualifiedTableName table, UserIdentity user) implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

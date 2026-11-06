@@ -1,5 +1,11 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,19 +21,19 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.scheduler.scoring.WorkerPerformanceScorer;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
+import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
+import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real local frontend admission/exit ownership; no Worker task or Native exit is simulated. */
 class QueryTerminalFrontendOwnershipTest {
     private final AtomicLong clock = new AtomicLong();
-    private final List<org.pangrova.coordinator.task.QueryIssuanceOperation> operations = new ArrayList<>();
+    private final List<org.pangrova.query.api.lifecycle.QueryOperation> operations = new ArrayList<>();
     private CoordinatorTaskTracker tracker;
     private QueryManager manager;
     private RemoteTaskDispatcher transport;
@@ -37,15 +43,15 @@ class QueryTerminalFrontendOwnershipTest {
         tracker = new CoordinatorTaskTracker();
         transport = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
         var dispatcher = new QueryDispatcher(QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null,
-                transport, new TaskScheduler(new WorkerPerformanceScorer()),
+                transport, new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()), tracker,
                 null, null, null, 0L), null, null);
-        manager = new QueryManager(QueryManagerContext.minimal(dispatcher, TestObservability.TRACING), clock::get);
+        manager = new QueryManager(QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING), clock::get);
     }
 
     @AfterEach
     void closeActualControlOwners() {
-        operations.forEach(org.pangrova.coordinator.task.QueryIssuanceOperation::close);
+        operations.forEach(org.pangrova.query.api.lifecycle.QueryOperation::close);
         manager.getActiveQueryIds().forEach(manager::cancelQuery);
         clock.addAndGet(TimeUnit.SECONDS.toNanos(31));
         manager.retryPendingTerminalCompletions();
@@ -60,7 +66,7 @@ class QueryTerminalFrontendOwnershipTest {
         manager.onAllTasksFinished(id);
         assertThat(manager.getActiveQueryCount()).isEqualTo(1);
         assertThat(manager.cleanupTerminalQueries(Duration.ZERO)).isZero();
-        assertThat(manager.getQueryState(id)).contains(QueryStateMachine.State.FINISHED);
+        assertThat(manager.getQueryState(id)).contains(QueryState.FINISHED);
         assertThat(manager.awaitAllQueries(1)).isFalse();
         operation.close();
         advanceRetry();
@@ -74,7 +80,7 @@ class QueryTerminalFrontendOwnershipTest {
         var published = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         manager.getStateMachine(id).addStateChangeListener((previous, current) -> {
-            if (current == QueryStateMachine.State.FINISHED) {
+            if (current == QueryState.FINISHED) {
                 published.countDown();
                 await(release);
             }
@@ -84,7 +90,7 @@ class QueryTerminalFrontendOwnershipTest {
             var completion = executor.submit(() -> manager.onAllTasksFinished(id));
             assertThat(published.await(3, TimeUnit.SECONDS)).isTrue();
             assertThat(manager.cleanupTerminalQueries(Duration.ZERO)).isZero();
-            assertThat(manager.getQueryState(id)).contains(QueryStateMachine.State.FINISHED);
+            assertThat(manager.getQueryState(id)).contains(QueryState.FINISHED);
             release.countDown();
             completion.get(3, TimeUnit.SECONDS);
             assertThat(manager.cleanupTerminalQueries(Duration.ZERO)).isEqualTo(1);
@@ -107,7 +113,7 @@ class QueryTerminalFrontendOwnershipTest {
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
         manager.retryPendingTerminalCompletions();
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
-        operations.forEach(org.pangrova.coordinator.task.QueryIssuanceOperation::close);
+        operations.forEach(org.pangrova.query.api.lifecycle.QueryOperation::close);
         drainRetries();
         assertThat(manager.getActiveQueryCount()).isZero();
     }
@@ -121,10 +127,10 @@ class QueryTerminalFrontendOwnershipTest {
         manager.onAllTasksFinished(id); // Explicit real cleanup succeeds before the queued ticket is due.
         assertThat(manager.cleanupTerminalQueries(Duration.ZERO)).isEqualTo(1);
         var replacement = new QueryStateMachine();
-        replacement.tryTransition(QueryStateMachine.State.PLANNING);
+        replacement.tryTransition(QueryState.PLANNING);
         manager.registerStateMachine(id, replacement);
         advanceRetry();
-        assertThat(manager.getQueryState(id)).contains(QueryStateMachine.State.PLANNING);
+        assertThat(manager.getQueryState(id)).contains(QueryState.PLANNING);
         assertThat(manager.getActiveQueryCount()).isEqualTo(1);
     }
 
@@ -151,7 +157,7 @@ class QueryTerminalFrontendOwnershipTest {
             assertThat(executor.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
         }
         assertThat(manager.getActiveQueryCount()).isEqualTo(12);
-        operations.forEach(org.pangrova.coordinator.task.QueryIssuanceOperation::close);
+        operations.forEach(org.pangrova.query.api.lifecycle.QueryOperation::close);
         drainRetries();
         assertThat(manager.getActiveQueryCount()).isZero();
     }
@@ -204,14 +210,14 @@ class QueryTerminalFrontendOwnershipTest {
     private String registerRunningQuery() {
         String id = "frontend-" + UUID.randomUUID();
         var state = new QueryStateMachine();
-        state.tryTransition(QueryStateMachine.State.PLANNING);
-        state.tryTransition(QueryStateMachine.State.SCHEDULING);
-        state.tryTransition(QueryStateMachine.State.RUNNING);
+        state.tryTransition(QueryState.PLANNING);
+        state.tryTransition(QueryState.SCHEDULING);
+        state.tryTransition(QueryState.RUNNING);
         manager.registerStateMachine(id, state);
         return id;
     }
 
-    private org.pangrova.coordinator.task.QueryIssuanceOperation enter(String id) {
+    private org.pangrova.query.api.lifecycle.QueryOperation enter(String id) {
         var operation = tracker.enterQueryOperation(id);
         operations.add(operation);
         return operation;

@@ -136,7 +136,7 @@ public final class WorkerResourceBootstrap {
     public static void releaseResources(WorkerComponentRefs refs, WorkerObservabilitySetup observability) {
         WorkerResourceShutdown resources = new WorkerResourceShutdown(
                 refs.metricsExecutor(), refs.resourceManager(), refs.nativeMetricsPublisher(),
-                observability.otelInitializer(), refs.nativeAvailable(),
+                observability.metricsScope(), observability.otelInitializer(), refs.nativeAvailable(),
                 refs.shuffleServiceMemoryLease(), refs.shuffleBufferManager());
         WorkerShutdownSequence.releaseResources(resources, () -> refs.setNativeAvailable(false));
     }

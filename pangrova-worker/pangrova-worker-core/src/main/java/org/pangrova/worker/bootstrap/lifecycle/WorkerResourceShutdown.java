@@ -2,6 +2,7 @@ package org.pangrova.worker.bootstrap.lifecycle;
 
 import java.util.concurrent.ScheduledExecutorService;
 
+import org.pangrova.observability.core.metrics.MetricsScope;
 import org.pangrova.observability.sdk.config.TelemetryInitializer;
 import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
 import org.pangrova.worker.buffer.ShuffleBufferManager;
@@ -13,6 +14,7 @@ public record WorkerResourceShutdown(
         ScheduledExecutorService metricsExecutor,
         ResourceManager resourceManager,
         NativeMetricsPublisher nativeMetricsPublisher,
+        MetricsScope metricsScope,
         TelemetryInitializer otelInitializer,
         boolean nativeAvailable,
         ShuffleServiceMemoryLease shuffleServiceMemoryLease,

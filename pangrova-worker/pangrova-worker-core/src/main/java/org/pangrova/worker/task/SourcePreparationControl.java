@@ -98,7 +98,7 @@ final class SourcePreparationControl implements AutoCloseable {
         try {
             return leases.replay(request, terminal.usage(), terminal.error(), terminal.succeeded());
         } catch (RuntimeException denied) {
-            boolean policy = denied instanceof org.pangrova.spi.security.AccessDeniedException
+            boolean policy = denied instanceof org.pangrova.security.api.error.AccessDeniedException
                     || denied instanceof org.pangrova.worker.copy.CopySourceReadClient.Rejected rejected
                             && rejected.isPolicyDenial();
             if (!policy) throw denied;

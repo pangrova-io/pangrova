@@ -112,7 +112,7 @@ class SourcePreparationControlTest {
             budget.reserveRead(5);
             return PROOF;
         }, (nonce, scope, proof) -> {
-            if (!allowed.get()) throw new org.pangrova.spi.security.AccessDeniedException("revoked");
+            if (!allowed.get()) throw new org.pangrova.security.api.error.AccessDeniedException("revoked");
             return PROOF;
         })) {
             var request = request("replay", fixture.manager);

@@ -1,28 +1,30 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
+
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.worker.ClusterResourcePressureMonitor;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.spi.query.audit.QueryAuditSink;
-import org.pangrova.spi.observability.event.QueryEventDispatcher;
+import org.pangrova.query.spi.audit.QueryAuditSink;
+import org.pangrova.query.core.event.QueryEventDispatcher;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
-import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
-import org.pangrova.persistence.api.query.state.QueryStateJournal;
-import org.pangrova.spi.observability.MetricsProvider;
-import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.security.tenant.QuotaChecker;
-import org.pangrova.security.tenant.TenantResolver;
-import org.pangrova.planner.throttle.QueryThrottlingService;
+import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.security.core.tenant.QuotaChecker;
+import org.pangrova.security.core.tenant.TenantResolver;
+import org.pangrova.planner.core.throttle.QueryThrottlingService;
 
 import java.util.concurrent.ExecutorService;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 /**
- * Groups QueryManager dependencies into a single parameter object.
- * Keeps the constructor within the manageable param governance limit.
+ * QueryManager dependencies supplied by the process composition root.
+ * The journal is mandatory: domain code must never choose a persistence backend.
+ * The process owner closes the journal after query drain; QueryManager borrows it.
  *
  * <p>Task 186: async submit fields ({@code asyncSubmitConfig}, {@code asyncExecutor})
  * are optional -- when present, QueryManager returns RUNNING as soon as the
@@ -43,13 +45,15 @@ public record QueryManagerContext(
         ClusterResourcePressureMonitor clusterPressureMonitor,
         QueryEventDispatcher eventDispatcher,
         AsyncSubmitConfig asyncSubmitConfig,
-        ExecutorService asyncExecutor
-) {
+        ExecutorService asyncExecutor,
+        ExecutionTraceContextFactory traceContexts) {
     public QueryManagerContext {
+        checkNotNull(traceContexts, "traceContexts must be selected explicitly");
         checkNotNull(tracingProvider, "tracingProvider must not be null");
+        checkNotNull(stateJournal, "stateJournal must be selected explicitly");
     }
 
-    /** Backward-compatible 13-arg constructor -- null async config and executor. */
+    /** Synchronous submission dependencies with no async executor. */
     // CHECKSTYLE.OFF: ParameterNumber -- wiring context aggregation kept stable for callers
     public QueryManagerContext(
             QueryDispatcher queryDispatcher,
@@ -64,16 +68,16 @@ public record QueryManagerContext(
             QueryThrottlingService throttlingService,
             QueryStateJournal stateJournal,
             ClusterResourcePressureMonitor clusterPressureMonitor,
-            QueryEventDispatcher eventDispatcher) {
+            QueryEventDispatcher eventDispatcher, ExecutionTraceContextFactory traceContexts) {
         this(queryDispatcher, tracingProvider, metricsProvider,
                 tenantResolver, quotaChecker, lineageEmitter,
                 auditEmitter, queryAuditService, resilienceRegistry,
                 throttlingService, stateJournal,
-                clusterPressureMonitor, eventDispatcher, null, null);
+                clusterPressureMonitor, eventDispatcher, null, null, traceContexts);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
-    /** Backward-compatible 12-arg constructor -- null event dispatcher. */
+    /** Dependencies without an optional event dispatcher. */
     // CHECKSTYLE.OFF: ParameterNumber -- wiring context aggregation kept stable for callers
     public QueryManagerContext(
             QueryDispatcher queryDispatcher,
@@ -87,16 +91,16 @@ public record QueryManagerContext(
             ResilienceRegistry resilienceRegistry,
             QueryThrottlingService throttlingService,
             QueryStateJournal stateJournal,
-            ClusterResourcePressureMonitor clusterPressureMonitor) {
+            ClusterResourcePressureMonitor clusterPressureMonitor, ExecutionTraceContextFactory traceContexts) {
         this(queryDispatcher, tracingProvider, metricsProvider,
                 tenantResolver, quotaChecker, lineageEmitter,
                 auditEmitter, queryAuditService, resilienceRegistry,
                 throttlingService, stateJournal,
-                clusterPressureMonitor, null, null, null);
+                clusterPressureMonitor, null, null, null, traceContexts);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
-    /** Backward-compatible 11-arg constructor. */
+    /** Dependencies without optional pressure monitoring. */
     // CHECKSTYLE.OFF: ParameterNumber -- wiring context aggregation kept stable for callers
     public QueryManagerContext(
             QueryDispatcher queryDispatcher,
@@ -109,33 +113,12 @@ public record QueryManagerContext(
             QueryAuditSink queryAuditService,
             ResilienceRegistry resilienceRegistry,
             QueryThrottlingService throttlingService,
-            QueryStateJournal stateJournal) {
+            QueryStateJournal stateJournal, ExecutionTraceContextFactory traceContexts) {
         this(queryDispatcher, tracingProvider, metricsProvider,
                 tenantResolver, quotaChecker, lineageEmitter,
                 auditEmitter, queryAuditService, resilienceRegistry,
-                throttlingService, stateJournal, null);
+                throttlingService, stateJournal, null, traceContexts);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
-    /** Minimal dependencies -- only dispatcher and tracing, all others null/default. */
-    public static QueryManagerContext minimal(
-            QueryDispatcher queryDispatcher, TracingProvider tracingProvider) {
-        return new QueryManagerContext(queryDispatcher, tracingProvider,
-                null, null, null, null, null, null, null, null,
-                new InMemoryQueryStateJournal(), null, null, null, null);
-    }
-
-    /**
-     * Task 186: Minimal context with async submit configuration.
-     * Used by tests to validate that query submission returns RUNNING
-     * before full DAG execution completes.
-     */
-    public static QueryManagerContext minimalAsync(
-            QueryDispatcher queryDispatcher, TracingProvider tracingProvider,
-            AsyncSubmitConfig asyncSubmitConfig, ExecutorService asyncExecutor) {
-        return new QueryManagerContext(queryDispatcher, tracingProvider,
-                null, null, null, null, null, null, null, null,
-                new InMemoryQueryStateJournal(), null, null,
-                asyncSubmitConfig, asyncExecutor);
-    }
 }

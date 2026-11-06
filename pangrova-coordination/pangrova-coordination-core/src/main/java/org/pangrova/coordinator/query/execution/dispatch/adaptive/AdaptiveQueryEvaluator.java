@@ -1,21 +1,24 @@
 package org.pangrova.coordinator.query.execution.dispatch.adaptive;
 
+import org.pangrova.planner.api.adaptive.AdaptiveDecision;
+
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.pangrova.coordinator.query.stage.Stage;
-import org.pangrova.planner.SubPlanReoptimizer;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.CoalesceResult;
-import org.pangrova.planner.adaptive.JoinStrategy;
-import org.pangrova.planner.adaptive.PartitionCoalescer;
-import org.pangrova.planner.adaptive.ReOptimizationResult;
-import org.pangrova.planner.adaptive.ShuffleStageStats;
-import org.pangrova.planner.adaptive.SkewJoinHandler;
-import org.pangrova.planner.adaptive.SkewResult;
+import org.pangrova.planner.core.analysis.SubPlanReoptimizer;
+import org.pangrova.planner.core.adaptive.AdaptiveQueryExecutor;
+import org.pangrova.planner.core.adaptive.AdaptiveQueryConfig;
+import org.pangrova.planner.api.adaptive.CoalesceResult;
+import org.pangrova.planner.api.adaptive.JoinStrategy;
+import org.pangrova.planner.core.adaptive.PartitionCoalescer;
+import org.pangrova.planner.api.adaptive.ReOptimizationResult;
+import org.pangrova.planner.core.adaptive.ShuffleStageStats;
+import org.pangrova.planner.core.adaptive.SkewJoinHandler;
+import org.pangrova.planner.api.adaptive.SkewResult;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShufflePartitionStats;
+import org.pangrova.shuffle.api.SkewDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +28,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Integrates {@link AdaptiveQueryExecutor} for re-optimization triggers,
  * {@link PartitionCoalescer} for small-partition merging, and
- * {@link SkewJoinHandler} for skew detection and split planning.</p>
+ * {@link SkewJoinHandler} for skew detection. Split recommendations do not establish range execution support.</p>
  *
  * <p>Gated by {@link AdaptiveQueryConfig#enabled()}. When disabled,
  * {@link #evaluateStageCompletion} is a no-op returning {@link AdaptiveDecision#NONE}.
@@ -42,18 +45,19 @@ public final class AdaptiveQueryEvaluator {
     private final SubPlanReoptimizer subPlanReoptimizer;
 
     /** Creates an adaptive evaluator with its executor and reoptimizer. */
-    public AdaptiveQueryEvaluator(AdaptiveQueryConfig config,
+    public AdaptiveQueryEvaluator(SkewDetector skewDetector, AdaptiveQueryConfig config,
                                   AdaptiveQueryExecutor adaptiveQueryExecutor,
                                   SubPlanReoptimizer subPlanReoptimizer) {
         this.config = config != null ? config : AdaptiveQueryConfig.DISABLED;
         this.adaptiveQueryExecutor = adaptiveQueryExecutor;
         this.partitionCoalescer = new PartitionCoalescer();
-        this.skewJoinHandler = new SkewJoinHandler();
+        this.skewJoinHandler = new SkewJoinHandler(skewDetector);
         this.subPlanReoptimizer = subPlanReoptimizer;
     }
 
-    public AdaptiveQueryEvaluator(AdaptiveQueryConfig config, AdaptiveQueryExecutor adaptiveQueryExecutor) {
-        this(config, adaptiveQueryExecutor, null);
+    public AdaptiveQueryEvaluator(SkewDetector skewDetector, AdaptiveQueryConfig config,
+                                  AdaptiveQueryExecutor adaptiveQueryExecutor) {
+        this(skewDetector, config, adaptiveQueryExecutor, null);
     }
 
     /**

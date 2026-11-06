@@ -17,11 +17,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
-import org.pangrova.planner.PlannedQuery;
-import org.pangrova.planner.PlanResult;
-import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.core.analysis.PlannedQuery;
+import org.pangrova.planner.core.analysis.PlanResult;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -39,7 +39,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
     /** Applies security policies (access control, column masking, row filtering) to a compiled plan. */
     @FunctionalInterface
     public interface SecurityPolicyEnforcer {
-        ProtectedPlan applyPolicies(PlannedQuery plan, CoordinatorSessionContext session);
+        ProtectedPlan applyPolicies(PlannedQuery plan, QuerySession session);
     }
 
     /**
@@ -57,7 +57,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
     /** Extracts time-travel specs from SQL, returning stripped SQL and snapshot overrides. */
     @FunctionalInterface
     public interface TimeTravelExtractor {
-        TimeTravelResult extract(String sql, SqlCompiler compiler, CoordinatorSessionContext session);
+        TimeTravelResult extract(String sql, SqlCompiler compiler, QuerySession session);
     }
 
     /** Result of time-travel extraction. */

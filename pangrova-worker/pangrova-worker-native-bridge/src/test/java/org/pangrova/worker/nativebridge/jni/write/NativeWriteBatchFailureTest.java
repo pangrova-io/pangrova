@@ -1,7 +1,7 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.protocol.batch.ColumnarBatch;
+import org.pangrova.batch.arrow.ColumnarBatch;
 import org.pangrova.worker.nativebridge.jni.NativeRuntimeException;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.BatchSink;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.RowSink;

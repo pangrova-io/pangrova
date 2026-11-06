@@ -39,9 +39,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-import static org.pangrova.common.jdbc.JdbcSupport.canonicalInstant;
-import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
-import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
+import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 
 /** PostgreSQL implementation of immutable Semantic View metadata and fenced publication. */
 public final class JdbcSemanticViewStore implements SemanticViewStore {

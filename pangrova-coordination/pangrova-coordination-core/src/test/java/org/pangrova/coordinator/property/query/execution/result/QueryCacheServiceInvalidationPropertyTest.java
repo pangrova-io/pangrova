@@ -13,12 +13,12 @@ import net.jqwik.api.Arbitraries;
 
 import org.pangrova.coordinator.query.cache.ResultCacheCoordinator;
 import org.pangrova.coordinator.query.execution.result.QueryCacheService;
-import org.pangrova.planner.cache.CacheEntryMetadata;
-import org.pangrova.planner.cache.CacheHint;
-import org.pangrova.planner.cache.CacheKey;
-import org.pangrova.planner.cache.CachedResult;
-import org.pangrova.planner.cache.InMemoryL2CacheStore;
-import org.pangrova.planner.cache.QueryResultCache;
+import org.pangrova.planner.core.cache.CacheEntryMetadata;
+import org.pangrova.planner.core.cache.CacheHint;
+import org.pangrova.planner.core.cache.CacheKey;
+import org.pangrova.planner.core.cache.CachedResult;
+import org.pangrova.planner.core.cache.InMemoryL2CacheStore;
+import org.pangrova.planner.core.cache.QueryResultCache;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

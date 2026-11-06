@@ -13,8 +13,8 @@
  */
 package org.pangrova.coordinator.ai.layout;
 
-import org.pangrova.planner.advisor.QueryPatternRecorder;
-import org.pangrova.planner.advisor.QueryPatternRecorder.QueryPattern;
+import org.pangrova.planner.core.advisor.QueryPatternRecorder;
+import org.pangrova.planner.core.advisor.QueryPatternRecorder.QueryPattern;
 
 import java.util.HashMap;
 import java.util.List;

@@ -1,10 +1,10 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.spi.connector.data.value.ColumnValue;
-import org.pangrova.spi.function.aggregate.AggregateFunction;
-import org.pangrova.spi.function.registry.FunctionFactory;
-import org.pangrova.spi.function.metadata.FunctionMetadata;
-import org.pangrova.spi.function.scalar.ScalarFunction;
+import org.pangrova.types.value.ColumnValue;
+import org.pangrova.function.spi.aggregate.AggregateFunction;
+import org.pangrova.function.spi.registry.FunctionFactory;
+import org.pangrova.function.api.metadata.FunctionMetadata;
+import org.pangrova.function.spi.scalar.ScalarFunction;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionBridge;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
@@ -110,6 +110,39 @@ class NativeFunctionBootstrapTest {
 
         assertThat(closed).containsExactly("duplicate");
         assertThat(refs.nativeFunctionResources()).isEmpty();
+    }
+
+    @Test
+    void duplicateFactoryIdsFailEvenWhenTheyProvideNoFunctions() {
+        List<String> closed = new ArrayList<>();
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        var first = new CloseTrackingFactory("same-id", closed, false);
+        var second = new CloseTrackingFactory("same-id", closed, false);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> NativeFunctionBootstrap.initialize(
+                refs, NativeFunctionConfig.DEFAULT, List.of(first, second)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Duplicate function factory ID: same-id");
+
+        assertThat(closed).containsExactly("same-id", "same-id");
+        assertThat(refs.nativeFunctionResources()).isEmpty();
+        assertThat(refs.nativeFunctionBridge()).isNull();
+    }
+
+    @Test
+    void blankFactoryIdFailsAndReleasesItsResources() {
+        List<String> closed = new ArrayList<>();
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+        var factory = new CloseTrackingFactory(" ", closed, false);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> NativeFunctionBootstrap.initialize(
+                refs, NativeFunctionConfig.DEFAULT, List.of(factory)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Function factory ID must not be blank");
+
+        assertThat(closed).containsExactly(" ");
+        assertThat(refs.nativeFunctionResources()).isEmpty();
+        assertThat(refs.nativeFunctionBridge()).isNull();
     }
 
     /**

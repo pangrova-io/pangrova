@@ -11,7 +11,7 @@ import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.spi.query.identity.QueryId;
+import org.pangrova.query.api.identity.QueryId;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.junit.jupiter.api.Test;
 

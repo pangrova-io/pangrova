@@ -1,8 +1,12 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.query.core.lifecycle.QueryStateMachine;
+
+import org.pangrova.query.api.lifecycle.QueryState;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
+import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -24,7 +28,7 @@ class ConnectorQueryAuthorityTest {
         var bound = state.bindConnectorAuthority(issued);
         assertThat(ConnectorMetadataScope.require(bound)).isSameAs(bound);
         assertThat(state.connectorAuthority()).isSameAs(bound);
-        state.tryTransition(QueryStateMachine.State.CANCELLED);
+        state.tryTransition(QueryState.CANCELLED);
         tracker.sealQueryIssuance(bound.queryId());
         bound.cleanupMetadata().requireSuccess();
         tracker.retireQueryIssuance(bound.queryId());
@@ -36,7 +40,7 @@ class ConnectorQueryAuthorityTest {
         var state = new QueryStateMachine();
         var authority = state.bindConnectorAuthority(tracker.openQueryIssuance("owned-reader"));
         var reader = authority.enterOperation();
-        state.tryTransition(QueryStateMachine.State.CANCELLED);
+        state.tryTransition(QueryState.CANCELLED);
         tracker.sealQueryIssuance(authority.queryId());
         assertThat(authority.isClosed()).isTrue();
         assertThatThrownBy(authority::requireDrained).isInstanceOf(IllegalStateException.class);
@@ -68,7 +72,7 @@ class ConnectorQueryAuthorityTest {
         });
         var executor = Executors.newSingleThreadExecutor();
         try {
-            var transition = executor.submit(() -> state.tryTransition(QueryStateMachine.State.CANCELLED));
+            var transition = executor.submit(() -> state.tryTransition(QueryState.CANCELLED));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(authority.isClosed()).isFalse();
             assertThatThrownBy(authority::enterOperation).hasMessageContaining("admission is closed");
@@ -76,13 +80,13 @@ class ConnectorQueryAuthorityTest {
             release.countDown();
             assertThatThrownBy(() -> transition.get(5, TimeUnit.SECONDS))
                     .hasRootCauseMessage("Actual terminal recorder failed");
-            assertThat(state.getState()).isEqualTo(QueryStateMachine.State.QUEUED);
+            assertThat(state.getState()).isEqualTo(QueryState.QUEUED);
             assertThat(authority.isClosed()).isFalse();
             try (var operation = authority.enterOperation()) {
                 assertThatThrownBy(authority::requireDrained).isInstanceOf(IllegalStateException.class);
             }
             state.setTransitionRecorder((previous, next) -> { });
-            state.tryTransition(QueryStateMachine.State.CANCELLED);
+            state.tryTransition(QueryState.CANCELLED);
             tracker.sealQueryIssuance(authority.queryId());
             authority.requireDrained();
             tracker.retireQueryIssuance(authority.queryId());
