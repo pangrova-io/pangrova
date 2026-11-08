@@ -99,4 +99,3 @@ helm install pangrova deploy/helm/pangrova \
 ```
 `developmentMode=true` selects the embedded NOOP profile for local evaluation.
 Configure OAUTH2 or LDAP and remove it for production.
-
