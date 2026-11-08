@@ -229,7 +229,7 @@ Additional coordinator behavior is tuned via JVM system properties
 | System property | Default | Description |
 |-----------------|---------|-------------|
 | `pangrova.http.max-requests-per-minute` | `100` | Public HTTP requests per actual transport-peer IP per fixed one-minute window |
-| `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Base directory for index build artifacts |
+| `pangrova.index.basePath` | — (required when indexing is enabled) | Base directory for index build artifacts; startup fails if indexing is enabled and this is unset |
 
 The server captures the actual connection peer before authentication. Caller-supplied
 `X-Forwarded-For` is not trusted for authentication, brute-force tracking or this

@@ -40,7 +40,7 @@ Measure concurrency, Native/JVM memory, spill, exchange, and storage on the targ
 
 | Component | Starting point | Notes |
 |-----------|---------------|-------|
-| Coordinator | 4 CPU / 8 GiB, JVM heap up to 16 GiB | Scale with concurrent query count, not data volume |
+| Coordinator | 4 CPU / 16 GiB, JVM heap 4–8 GiB | Scale with concurrent query count, not data volume |
 | Worker | 8–16 CPU / 32–64 GiB | Keep the JVM heap small (`-Xmx` 8–16 GiB); give the rest to off-heap execution memory (`worker.memory.budget-bytes`) and direct memory |
 | Spill disk | SSD, sized to the largest expected spill | Configure `worker.spill.directory` |
 | Object storage | Bandwidth-bound | Prefer same-region buckets; enable checksums / versioning per your storage policy |

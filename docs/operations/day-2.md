@@ -374,6 +374,11 @@ ORDER BY created_at DESC;
 
 ### 4.2 Metadata Replication
 
+> **Status: experimental/target.** `MetadataReplicationService` is not wired into a
+> production coordinator lifecycle; the current implementation is asynchronous with
+> a retry queue and no production `ReplicationTarget`. `replication.mode` and
+> `replication.sync-timeout` are not current config keys.
+
 ```java
 /**
  * Metadata replication service
@@ -480,6 +485,10 @@ public class FailoverController {
 ```
 
 ### 4.4 Shared State Disaster Recovery
+
+> The default deployment uses PostgreSQL `distributed_lease` and a JDBC Worker
+> registry; ZooKeeper and Redis are optional backends. The rows below describe
+> those optional deployments, not prerequisites.
 
 Disaster recovery flow for each shared-state component:
 
@@ -1087,7 +1096,7 @@ ZooKeeper    PgSQL    Redis    Coordinator-1    Coordinator-2    Worker-1    Wor
 | ZK unavailable | Coordinator/Worker cannot start | fail-fast, process exits, restart after ZK recovers |
 | PostgreSQL unavailable | Coordinator cannot load Catalog | fail-fast, process exits |
 | Redis unavailable | Metadata cache unavailable | degraded start, skip cache warm-up, log WARN |
-| Native library load failure | Worker cannot start | fail-fast, process exits, check LD_LIBRARY_PATH |
+| Native library load failure | Worker cannot start | fail-fast, process exits, check the packaged Native library and startup log |
 | Connector plugin load failure | Corresponding Catalog unavailable | degraded start, mark Catalog as DEGRADED, other Catalogs work |
 | No Worker registered | System cannot execute queries | Coordinator starts normally but `/v1/health` returns 503 |
 
@@ -1100,7 +1109,7 @@ bin/pangrova-coordinator.sh --daemon
 bin/pangrova-worker.sh --daemon
 bin/pangrova-health-check.sh <host>:8080
 bin/pangrova-cluster-status.sh
-curl -s -X POST http://<coordinator>:8080/v1/query \
+curl -s -X POST http://<coordinator>:8080/v1/query/submit \
   -H "Content-Type: application/json" \
   -d '{"query":"SELECT 1","session_properties":{}}'
 ```
@@ -1201,13 +1210,13 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 │  Diagnostic steps:                                                              │
 │  1. Check process status: ps aux | grep pangrova-coordinator                      │
 │  2. Check port listening: netstat -tlnp | grep 8080                             │
-│  3. Check logs: tail -f /var/log/pangrova/pangrova-coordinator.log                         │
+│  3. Check logs: tail -f /var/log/pangrova/coordinator.log                         │
 │  4. Check ZK registration: zkCli.sh ls /pangrova/coordinators                     │
 │                                                                                  │
 │  Recovery steps:                                                                │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │  Step 1: Confirm the other Coordinators are healthy                     │   │
-│  │          curl http://coordinator-2:8080/health                          │   │
+│  │          curl http://coordinator-2:8080/v1/health                          │   │
 │  │                                                                          │   │
 │  │  Step 2: Remove the failed node from the LB                             │   │
 │  │          haproxy-cli disable server pangrova/coordinator-1                │   │
@@ -1216,7 +1225,7 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 │  │          /opt/pangrova/bin/pangrova-stop.sh --coordinator && /opt/pangrova/bin/pangrova-coordinator.sh --daemon                           │   │
 │  │                                                                          │   │
 │  │  Step 4: Check startup logs, confirm no anomalies                       │   │
-│  │          tail -f /var/log/pangrova/pangrova-coordinator.log                            │   │
+│  │          tail -f /var/log/pangrova/coordinator.log                            │   │
 │  │                                                                          │   │
 │  │  Step 5: After the health check passes, add back to the LB              │   │
 │  │          haproxy-cli enable server pangrova/coordinator-1                 │   │

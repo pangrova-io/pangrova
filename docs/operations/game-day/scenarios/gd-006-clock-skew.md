@@ -141,7 +141,7 @@ echo "Query on skewed node: HTTP ${STATUS}"
 # Check the coordinator log for auth/time-related warnings (there is no dedicated
 # clock-skew log message; skew surfaces through JWT and lease errors)
 ssh "${TARGET_NODE}" "
-  grep -iE 'expired|token|401|lease' /var/log/pangrova/pangrova-coordinator.log | tail -10
+  grep -iE 'expired|token|401|lease' /var/log/pangrova/coordinator.log | tail -10
 "
 
 # Check the leader still holds the lease (authoritative source: database clock)
@@ -315,7 +315,7 @@ done
 # Verify no lingering 401 errors in error logs
 for node in coordinator-1 coordinator-2 coordinator-3; do
   RECENT_401=$(ssh "${node}" "
-    grep '401\|Unauthorized\|clock skew' /var/log/pangrova/pangrova-coordinator.log | \
+    grep '401\|Unauthorized\|clock skew' /var/log/pangrova/coordinator.log | \
     grep \"\$(date -u +%Y-%m-%d)\" | tail -3
   ")
   echo "=== ${node} recent auth errors ==="

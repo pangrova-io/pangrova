@@ -101,7 +101,7 @@ Coordinator:
 | `pangrova.coordination.lease.zookeeper.connectString` | — | ZK ensemble (zookeeper backend) |
 | `pangrova.coordination.lease.zookeeper.basePath` | `/pangrova/leases` | ZK lease parent znode |
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit |
-| `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Index artifact directory |
+| `pangrova.index.basePath` | — (required when indexing is enabled) | Index artifact directory; no default |
 
 ## Environment Variables
 
@@ -113,7 +113,7 @@ Launch scripts (`bin/`):
 | `PANGROVA_CONF_DIR` | Config directory (default: `$PANGROVA_HOME/etc`) |
 | `PANGROVA_LOG_DIR` | Log directory |
 | `PANGROVA_JAVA_OPTS` | Extra JVM options |
-| `PANGROVA_ROLE` | Coordinator role override |
+| `PANGROVA_ROLE` | Logback log role and filename override; it does not select the process role |
 | `PANGROVA_COORDINATOR_URL` | Coordinator URL for worker scripts |
 
 Config overrides: any YAML key can be overridden by a `PANGROVA_*` environment

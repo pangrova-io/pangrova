@@ -59,7 +59,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} recent metadata errors ==="
   ssh "${coord}" "
     grep -E 'metadata.*timeout|connection.*refused|HikariPool|JDBC.*error|circuit.*open' \
-      /var/log/pangrova/pangrova-coordinator.log | tail -10
+      /var/log/pangrova/coordinator.log | tail -10
   "
 done
 
@@ -213,7 +213,7 @@ curl -s \
 # Check if any DDL operations that were queued during the partition need to be re-run
 ssh coordinator-1 "
   grep -E 'DDL.*failed|CREATE.*failed|DROP.*failed|ALTER.*failed' \
-    /var/log/pangrova/pangrova-coordinator.log | tail -20
+    /var/log/pangrova/coordinator.log | tail -20
 "
 
 # There is no metadata consistency-check endpoint. Compare a spot-checked table

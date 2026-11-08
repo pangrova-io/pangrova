@@ -50,7 +50,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} ==="
   HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 \
     "http://${coord}:8080/v1/health" 2>/dev/null || echo "000")
-  ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log 2>/dev/null | tail -1" \
+  ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log 2>/dev/null | tail -1" \
     | grep -o 'role=[A-Z]*' | cut -d= -f2 || true)
   echo "  health=HTTP ${HTTP} lastRole=${ROLE:-UNKNOWN}"
 done
@@ -82,7 +82,7 @@ END_TIME=$(( $(date +%s) + 60 ))
 while [[ $(date +%s) -lt $END_TIME ]]; do
   echo "=== $(date -u +%H:%M:%S) ==="
   for coord in coordinator-1 coordinator-2 coordinator-3; do
-    ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log 2>/dev/null | tail -1" \
+    ROLE=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log 2>/dev/null | tail -1" \
       | grep -o 'role=[A-Z]*' | cut -d= -f2 || echo "ERR")
     echo "  ${coord}: ${ROLE:-ERR}"
   done
@@ -147,7 +147,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "Attempting election via restart on ${coord}..."
   ssh "${coord}" "sudo systemctl restart pangrova-coordinator"
   sleep 20
-  LEADER=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log | tail -1")
+  LEADER=$(ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log | tail -1")
   echo "  Latest HA event: ${LEADER}"
   if echo "${LEADER}" | grep -q "role=LEADER"; then
     echo "  ${coord} acquired leadership"
@@ -165,18 +165,18 @@ psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
 
 ## Step 6: Verify Workers Re-Registered
 
-After a partition, workers on the minority side may have lost their coordinator connection. Verify all workers are HEALTHY:
+After a partition, workers on the minority side may have lost their coordinator connection. Verify all workers are ACTIVE:
 
 ```bash
 curl -s http://coordinator-1:8080/api/workers | \
   python3 -c "
 import json, sys
 workers = json.load(sys.stdin)
-healthy   = [w for w in workers if w['healthState'] == 'HEALTHY']
-unhealthy = [w for w in workers if w['healthState'] != 'HEALTHY']
-print(f'HEALTHY: {len(healthy)}/{len(workers)}')
+healthy   = [w for w in workers if w['healthState'] == 'ACTIVE']
+unhealthy = [w for w in workers if w['healthState'] != 'ACTIVE']
+print(f'ACTIVE: {len(healthy)}/{len(workers)}')
 for w in unhealthy:
-    print(f'  NOT HEALTHY: {w[\"host\"]} healthState={w[\"healthState\"]}')
+    print(f'  NOT ACTIVE: {w[\"host\"]} healthState={w[\"healthState\"]}')
 "
 
 # If workers are missing or unhealthy, they re-register automatically; wait up to 60s
@@ -210,7 +210,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} partition-related log entries ==="
   ssh "${coord}" "
     grep -E 'lease.*(expired|lost)|demoted|STANDBY|partition|heartbeat.*failed' \
-      /var/log/pangrova/pangrova-coordinator.log | tail -20
+      /var/log/pangrova/coordinator.log | tail -20
   "
 done
 ```
@@ -219,7 +219,7 @@ done
 
 ## Step 8: Restore Redundancy
 
-After confirming the isolated coordinator has rejoined as STANDBY and all workers are HEALTHY, verify the cluster is back to full redundancy:
+After confirming the isolated coordinator has rejoined as STANDBY and all workers are ACTIVE, verify the cluster is back to full redundancy:
 
 ```bash
 # Confirm all 3 coordinators are healthy and exactly one holds the lease
@@ -250,7 +250,7 @@ echo "SPLIT-BRAIN DETECTED: Escalating to on-call lead"
 # 2. Capture the HA role state of every coordinator at this instant
 for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} HA events at $(date -u) ==="
-  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log | tail -5"
+  ssh "${coord}" "grep 'event=ha_started' /var/log/pangrova/coordinator.log | tail -5"
 done > /tmp/split-brain-state-$(date +%Y%m%d-%H%M%S).txt
 
 # 3. Capture the JDBC lease table directly

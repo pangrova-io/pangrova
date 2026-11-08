@@ -203,16 +203,16 @@ curl -s "http://coordinator:8080/v1/query/${QUERY_ID}/state"
 ssh "${TARGET_WORKER}" "
   echo '=== Spill errors ==='
   grep -E 'spill|SPILL|no space|disk full|ENOSPC' \
-    /var/log/pangrova/pangrova-worker.log | tail -30
+    /var/log/pangrova/worker.log | tail -30
 
   echo ''
   echo '=== Velox cache write failures ==='
   grep -E 'velox.*cache.*write|cache.*failed|SSD.*full' \
-    /var/log/pangrova/pangrova-worker.log | tail -20
+    /var/log/pangrova/worker.log | tail -20
 
   echo ''
   echo '=== Recent error log entries ==='
-  tail -50 /var/log/pangrova/pangrova-worker-error.log
+  tail -50 /var/log/pangrova/worker-error.log
 "
 
 # Check if disk growth is expected (large join spills, data ingestion) or unexpected

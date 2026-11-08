@@ -87,7 +87,7 @@ TOKEN="${PANGROVA_TOKEN}"
 
 # Also record a baseline of recent spill/cache-related worker log lines
 # (Pangrova has no Prometheus /metrics scrape endpoint; use logs + OTLP export)
-ssh "${TARGET_WORKER}" "grep -iE 'spill|cache' /var/log/pangrova/pangrova-worker.log | tail -50" \
+ssh "${TARGET_WORKER}" "grep -iE 'spill|cache' /var/log/pangrova/worker.log | tail -50" \
   > /tmp/gd-005-log-baseline.txt
 cat /tmp/gd-005-log-baseline.txt
 ```
@@ -144,7 +144,7 @@ wait $WORKLOAD_PID
 WORKLOAD_EXIT=$?
 echo "Workload exit code: ${WORKLOAD_EXIT}"  # Expected: non-zero (query failed)
 
-# Verify worker is still HEALTHY
+# Verify worker is still ACTIVE
 curl -s https://coordinator:8080/api/workers | \
   python3 -c "
 import json, sys
@@ -166,7 +166,7 @@ curl -s \
 # Check the error in worker logs
 ssh "${TARGET_WORKER}" "
   grep -i 'spill\|QUERY_SPILL_FAILED\|disk full\|no space' \
-    /var/log/pangrova/pangrova-worker.log | tail -20
+    /var/log/pangrova/worker.log | tail -20
 "
 ```
 
@@ -232,7 +232,7 @@ ssh "${TARGET_WORKER}" "
   ls /var/log/pangrova/hs_err_pid*.log 2>/dev/null && echo 'JVM crash found!' || echo 'No JVM crash'
   ls /tmp/core* 2>/dev/null && echo 'Core dump found!' || echo 'No core dump'
   grep -i 'SIGSEGV\|SIGABRT\|fatal error\|Caught signal' \
-    /var/log/pangrova/pangrova-worker.log | tail -5 || echo 'No fatal signals'
+    /var/log/pangrova/worker.log | tail -5 || echo 'No fatal signals'
 "
 
 # Verify worker still HEALTHY
@@ -274,7 +274,7 @@ curl -s https://coordinator:8080/api/workers | python3 -m json.tool | grep -A8 "
 
 # Check error log is clean after recovery
 ssh "${TARGET_WORKER}" "
-  grep -c 'ERROR' /var/log/pangrova/pangrova-worker-error.log || echo '0 errors'
+  grep -c 'ERROR' /var/log/pangrova/worker-error.log || echo '0 errors'
 "
 ```
 

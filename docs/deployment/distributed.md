@@ -138,12 +138,9 @@ Pangrova requires PostgreSQL for HA leader election and metadata storage.
 ```sql
 -- Connect as superuser
 CREATE DATABASE pangrova_meta;
-CREATE DATABASE pangrova_meta;
 
 CREATE USER pangrova WITH PASSWORD '<strong-password>';
 GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
-GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
-GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
 GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
 ```
 
@@ -173,7 +170,7 @@ export AWS_SECRET_ACCESS_KEY="<your-secret-key>"
 Create the catalog config:
 
 ```bash
-cp /opt/pangrova/config/catalog/s3-iceberg.yml /etc/pangrova/catalog/lakehouse.yml
+cp /opt/pangrova/etc/catalog/s3-iceberg.yml /etc/pangrova/catalog/lakehouse.yml
 ```
 
 Edit `/etc/pangrova/catalog/lakehouse.yml`:
@@ -213,7 +210,7 @@ export ALIBABA_CLOUD_ACCESS_KEY_SECRET="<your-access-key-secret>"
 Create the catalog config:
 
 ```bash
-cp /opt/pangrova/config/catalog/oss-iceberg.yml /etc/pangrova/catalog/lakehouse.yml
+cp /opt/pangrova/etc/catalog/oss-iceberg.yml /etc/pangrova/catalog/lakehouse.yml
 ```
 
 Edit `/etc/pangrova/catalog/lakehouse.yml`:
@@ -266,7 +263,7 @@ export MINIO_SECRET_KEY="<your-secret-key>"
 Create the catalog config:
 
 ```bash
-cp /opt/pangrova/config/catalog/minio-iceberg.yml /etc/pangrova/catalog/lakehouse.yml
+cp /opt/pangrova/etc/catalog/minio-iceberg.yml /etc/pangrova/catalog/lakehouse.yml
 ```
 
 Edit `/etc/pangrova/catalog/lakehouse.yml`:
@@ -325,7 +322,7 @@ export PANGROVA_CONF_DIR="/etc/pangrova"
 # Database
 export PANGROVA_DB_HOST="postgres.internal"
 export PANGROVA_DB_PORT="5432"
-export PANGROVA_DB_USER="pangrova"
+export PANGROVA_DB_USERNAME="pangrova"
 export PANGROVA_DB_PASSWORD="<inject-from-secrets-manager>"
 
 # Security
@@ -345,7 +342,7 @@ chown root:pangrova /etc/pangrova/pangrova-env.sh
 ### 4.2 Coordinator Configuration
 
 ```bash
-cp /opt/pangrova/config/coordinator.yml /etc/pangrova/coordinator.yml
+cp /opt/pangrova/etc/coordinator.yml /etc/pangrova/coordinator.yml
 ```
 
 Key settings to customize in `/etc/pangrova/coordinator.yml`:
@@ -362,6 +359,8 @@ coordinator:
   query:
     timeout: "10m"
     max-concurrent: 200
+
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"   # >= 32 bytes; required in production
 
   worker:
     heartbeat-timeout: "30s"
@@ -381,15 +380,15 @@ observability:
   enabled: true
 ```
 
-> The HA and metadata JDBC connections use empty username/password —
-> authenticate via connection-string parameters or instance-level trust
-> (e.g. IAM database authentication, `.pgpass`).
+> The bundled template supplies `metadata.jdbc-username` and
+> `metadata.jdbc-password` from `PANGROVA_DB_USERNAME` / `PANGROVA_DB_PASSWORD`;
+> configure both (or an equivalent credential provider) before startup.
 
 
 ### 4.3 JVM Configuration
 
 ```bash
-cp /opt/pangrova/config/jvm-coordinator.config /etc/pangrova/jvm-coordinator.config
+cp /opt/pangrova/etc/jvm-coordinator.config /etc/pangrova/jvm-coordinator.config
 ```
 
 Adjust heap based on node RAM (see the JVM Sizing Guide in the [Worker configuration reference](../configuration/worker.md)).
@@ -438,7 +437,7 @@ Same as Coordinator (Step 4.1), but on Worker nodes you can skip OAuth2 settings
 ### 5.2 Worker Configuration
 
 ```bash
-cp /opt/pangrova/config/worker.yml /etc/pangrova/worker.yml
+cp /opt/pangrova/etc/worker.yml /etc/pangrova/worker.yml
 ```
 
 Key settings to customize in `/etc/pangrova/worker.yml`:
@@ -497,7 +496,7 @@ observability:
 ### 5.3 JVM Configuration
 
 ```bash
-cp /opt/pangrova/config/jvm-worker.config /etc/pangrova/jvm-worker.config
+cp /opt/pangrova/etc/jvm-worker.config /etc/pangrova/jvm-worker.config
 ```
 
 ### 5.4 Systemd Service
@@ -584,8 +583,8 @@ systemctl start pangrova-worker
 # use the coordinator's worker API and health checks instead
 
 curl -s http://coordinator-0:8080/api/workers | python3 -m json.tool
-# Expected: every entry shows "healthState": "HEALTHY", e.g.
-#   {"workerId": "worker-0", "host": "worker-0", "healthState": "HEALTHY", ...}
+# Expected: every entry shows "healthState": "ACTIVE", e.g.
+#   {"workerId": "worker-0", "host": "worker-0", "healthState": "ACTIVE", ...}
 
 /opt/pangrova/bin/pangrova-health-check.sh coordinator-0:8080
 # Output: healthy

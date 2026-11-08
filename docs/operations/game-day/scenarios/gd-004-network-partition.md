@@ -62,11 +62,11 @@ ssh coordinator-1 "sudo iptables -L OUTPUT -n | head -5"
 ssh coordinator-2 "sudo iptables -L OUTPUT -n | head -5"
 ssh coordinator-3 "sudo iptables -L OUTPUT -n | head -5"
 
-# Verify baseline health (all workers HEALTHY)
+# Verify baseline health (all workers ACTIVE)
 curl -s http://coordinator-1:8080/api/workers | python3 -c "
 import json, sys
 workers = json.load(sys.stdin)
-print(sum(1 for w in workers if w['healthState'] == 'HEALTHY'), '/', len(workers), 'workers HEALTHY')
+print(sum(1 for w in workers if w['healthState'] == 'ACTIVE'), '/', len(workers), 'workers ACTIVE')
 "
 ```
 
@@ -143,10 +143,10 @@ echo "Partition injected at: ${INJECT_TIME}"
 ```bash
 # Watch the majority side for leader election (roles come from coordinator logs
 # and the JDBC lease table — there is no cluster-status REST endpoint)
-watch -n 2 'ssh coordinator-2 "grep event=ha_started /var/log/pangrova/pangrova-coordinator.log | tail -1"'
+watch -n 2 'ssh coordinator-2 "grep event=ha_started /var/log/pangrova/coordinator.log | tail -1"'
 
 # In another terminal, watch coordinator-1 (minority side) behavior
-watch -n 2 'ssh coordinator-1 "grep event=ha_started /var/log/pangrova/pangrova-coordinator.log | tail -1" || echo "UNREACHABLE"'
+watch -n 2 'ssh coordinator-1 "grep event=ha_started /var/log/pangrova/coordinator.log | tail -1" || echo "UNREACHABLE"'
 ```
 
 **Expected observations (within 30s of injection):**
@@ -214,18 +214,18 @@ LEADER_COUNT=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_met
 echo "Active lease holders: ${LEADER_COUNT}"
 [[ "${LEADER_COUNT}" -eq 1 ]] && echo "PASS: exactly 1 leader" || echo "CRITICAL: not exactly 1 leader!"
 
-# 2. Verify all workers are HEALTHY
+# 2. Verify all workers are ACTIVE
 WORKER_COUNT=$(curl -s http://coordinator-1:8080/api/workers \
   | python3 -c "
 import json, sys
 workers = json.load(sys.stdin)
-healthy = [w for w in workers if w['healthState'] == 'HEALTHY']
-print(f'{len(healthy)}/{len(workers)} workers HEALTHY')
+healthy = [w for w in workers if w['healthState'] == 'ACTIVE']
+print(f'{len(healthy)}/{len(workers)} workers ACTIVE')
 ")
 echo "$WORKER_COUNT"
 
 # 3. Verify coordinator-1 rejoined as STANDBY (not attempting to steal leadership)
-NODE1_ROLE=$(ssh coordinator-1 "grep 'event=ha_started' /var/log/pangrova/pangrova-coordinator.log | tail -1" \
+NODE1_ROLE=$(ssh coordinator-1 "grep 'event=ha_started' /var/log/pangrova/coordinator.log | tail -1" \
   | grep -o 'role=[A-Z]*' | cut -d= -f2)
 echo "coordinator-1 role after heal: ${NODE1_ROLE}"
 # Expected: STANDBY
@@ -257,7 +257,7 @@ done
 | 2 | **Minority surrenders within 30s** — coordinator-1 stops acting as LEADER within one lease period | Logs: `role=LEADER` followed by `role=STANDBY` within 30s of partition |
 | 3 | **Majority continues serving** — queries to coordinator-2 succeed during partition | `HTTP 200` on all 10 probe queries to coordinator-2 |
 | 4 | **Minority rejects leadership** — coordinator-1 does not serve write queries as LEADER | Minority query returns `HTTP 503` or `503` during partition |
-| 5 | **Full recovery after heal** — coordinator-1 rejoins as STANDBY, all workers HEALTHY | Lease table shows 1 holder; coordinator-1 log shows `role=STANDBY`; all workers HEALTHY in `GET /api/workers` |
+| 5 | **Full recovery after heal** — coordinator-1 rejoins as STANDBY, all workers ACTIVE | Lease table shows 1 holder; coordinator-1 log shows `role=STANDBY`; all workers ACTIVE in `GET /api/workers` |
 | 6 | **No data corruption** — catalog remains consistent after heal | `SHOW CATALOGS` returns the same catalogs as the baseline |
 | 7 | **Error codes are retryable** — queries during partition return retryable error codes, not permanent failures | Error response body contains `"retryable": true` |
 

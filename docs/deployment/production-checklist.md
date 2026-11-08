@@ -71,7 +71,7 @@ Work through each section in order. Check off each item before proceeding to the
 
 ### 1.3 JDK
 
-- [ ] JDK 17 installed on all nodes (exact version, not 11 or 21)
+- [ ] JDK 17 installed on all nodes (the qualified baseline; the launcher requires >= 17)
   ```bash
   java -version   # must show 17.x.x
   ```
@@ -89,15 +89,12 @@ Work through each section in order. Check off each item before proceeding to the
 - [ ] Dedicated databases created:
   ```sql
   CREATE DATABASE pangrova_meta;
-  CREATE DATABASE pangrova_meta;
   ```
 - [ ] `pangrova` database user created with limited privileges:
   ```sql
   CREATE USER pangrova WITH PASSWORD '...';
   GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
-  GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
   -- Grant DDL rights for schema creation on first startup:
-  GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
   GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
   ```
 - [ ] Database connection string verified from each Coordinator:
@@ -112,9 +109,10 @@ Work through each section in order. Check off each item before proceeding to the
 
 ## Phase 3 — TLS at the Load Balancer
 
-Pangrova nodes do not terminate TLS themselves — TLS is terminated at the load
-balancer / ingress in front of the Coordinators. Coordinator and Worker HTTP
-endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
+The public client HTTP endpoint does not terminate TLS itself — terminate public
+TLS at the load balancer / ingress. Internal Worker control, transport, and COPY
+channels may require the configured mTLS material; this does not turn the public
+Coordinator port into a TLS endpoint.
 
 - [ ] Server certificate installed on the load balancer / ingress
   - Subject Alternative Names (SANs) include the public FQDN
@@ -252,7 +250,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 - [ ] Startup smoke check passes on each Worker:
   ```bash
   /opt/pangrova/bin/pangrova-worker.sh --daemon
-  curl -sf http://localhost:8081/v1/health || tail -n 50 /var/log/pangrova/pangrova-worker.log
+  curl -sf http://localhost:8081/v1/health || tail -n 50 /var/log/pangrova/worker.log
   ```
 - [ ] **Start Coordinators first** (in order; wait for each to reach LEADER/STANDBY state before starting the next):
   ```bash
@@ -268,10 +266,10 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   ```bash
   /opt/pangrova/bin/pangrova-worker.sh --daemon
   ```
-- [ ] All Workers registered and HEALTHY:
+- [ ] All Workers registered and ACTIVE:
   ```bash
   curl -s http://coordinator:8080/api/workers | python3 -m json.tool
-  # All workers should show healthState: "HEALTHY"
+  # All workers should show healthState: "ACTIVE"
   ```
 
 ---
@@ -296,12 +294,12 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   ```
 - [ ] Application logs being written to rolling files:
   ```bash
-  ls -la /var/log/pangrova/pangrova-coordinator.log
-  ls -la /var/log/pangrova/pangrova-worker.log
+  ls -la /var/log/pangrova/coordinator.log
+  ls -la /var/log/pangrova/worker.log
   ```
 - [ ] Error log file is empty on a clean startup (no errors on start):
   ```bash
-  wc -l /var/log/pangrova/pangrova-coordinator-error.log   # should be 0
+  wc -l /var/log/pangrova/coordinator-error.log   # should be 0
   ```
 - [ ] Alert rules configured for: Coordinator leader loss, Worker DEAD, heap OOM, query timeout rate spike
 

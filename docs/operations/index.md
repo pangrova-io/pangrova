@@ -94,5 +94,9 @@ cd deploy/docker && docker compose up -d
 
 # Kubernetes
 helm install pangrova deploy/helm/pangrova \
-  --namespace pangrova --create-namespace
+  --namespace pangrova --create-namespace \
+  --set developmentMode=true
 ```
+`developmentMode=true` selects the embedded NOOP profile for local evaluation.
+Configure OAUTH2 or LDAP and remove it for production.
+

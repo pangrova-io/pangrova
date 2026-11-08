@@ -131,7 +131,7 @@ The Iceberg connector supports **hadoop** (default) and **REST** catalog modes.
 | Property | Type | Default | Required | Description |
 |----------|------|---------|----------|-------------|
 | `type` | string | `"hadoop"` | No | Iceberg catalog type passed to `CatalogUtil.buildIcebergCatalog()`. Alternatives: `hive`, `glue`, custom `catalog-impl` |
-| `warehouse` | string | `$TMPDIR/iceberg-<name>` | Yes (prod) | Root storage path for table data and metadata (e.g. `s3://bucket/warehouse`) |
+| `warehouse` | string | — | Yes (required for `hadoop`/`jdbc`) | Root storage path for table data and metadata (e.g. `s3://bucket/warehouse`) |
 | `catalog-impl` | string | — | No | Fully-qualified class name for a custom Iceberg catalog implementation |
 
 All other properties are passed through to Hadoop Configuration (supporting S3, HDFS, GCS, ADLS settings):

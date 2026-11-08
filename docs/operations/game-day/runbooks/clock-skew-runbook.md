@@ -156,7 +156,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "=== ${coord} lease/role events (last 30 min) ==="
   ssh "${coord}" "
     grep -E 'lease.*(expired|lost)|demoted|event=ha_started|STANDBY.*LEADER' \
-      /var/log/pangrova/pangrova-coordinator.log | tail -10
+      /var/log/pangrova/coordinator.log | tail -10
   " 2>/dev/null
 done
 
