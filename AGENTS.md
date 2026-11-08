@@ -41,6 +41,9 @@ for native work. Do not commit secrets or machine-specific state.
 5. Select validation using `development.md`. JNI, protocol, native runtime, and
 	execution-path changes require the affected Java/native integration chain in
 	`build-pipeline.md`; full production regression remains a CI/release gate.
+6. Before ending a development session, run `.pangrova/scripts/clean-dev-artifacts.sh`
+	and confirm `.pangrova/scripts/check-dev-artifacts.sh` passes. Keep the retired
+	non-published documentation directory absent.
 
 Never hand-edit generated protocol sources, hide failures with fallback behavior,
 or revert user changes outside the task.

@@ -55,7 +55,7 @@ The source inventory below identifies the contracts that must change together:
 
 | Boundary | Sources and required change |
 | --- | --- |
-| Connector SPI type and aliases | `pangrova-connector-spi/.../data/type/primitive/temporal/TimestampType.java`, `PangrovaTypeMapping.java`, `PangrovaType.java`: precision-aware construction/signature; enum aliases cannot be the authoritative temporal metadata. |
+| Connector API type and aliases | `pangrova-types/src/main/java/org/pangrova/types/primitive/temporal/TimestampType.java`, `PangrovaTypeMapping.java`, `PangrovaType.java`: precision-aware construction/signature; enum aliases cannot be the authoritative temporal metadata. |
 | Type signature codec | SPI `TypeSignature.java` and planner `type/StandardTypeRegistry.java`: serialize precision with the timezone base and resolve it exactly; reject malformed/out-of-range signatures instead of ignoring parameters. |
 | Direct connector-SPI callers | `PangrovaTypeMapping`, `StandardTypeRegistry`, coordinator `query/statement/DdlTypeMapper`, and the example row in `PangrovaTypeMapping`; update all `WITHOUT_TIMEZONE`/`WITH_TIMEZONE` uses deliberately. |
 | SQL DDL/AST | Parser `PangrovaSql.g4`, `ast/type/BaseType.java`, `DataTypeSpec.java`, `DataTypeSpecParser.java`, `AstDdlDmlBuilder.java`; coordinator `DdlTypeMapper`, `DdlExecutor`; carry `TIMESTAMP(p)` and timezone into column metadata. |

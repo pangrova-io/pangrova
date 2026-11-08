@@ -1,3 +1,8 @@
+---
+title: "Darwin arm64 ASAN Runtime"
+description: "macOS arm64 AddressSanitizer runtime qualification"
+---
+
 # macOS arm64 ASAN runtime qualification
 
 LLVM compiler-rt 17.0.6 reads TPIDRRO_EL0 but masks in the CPU-id bits rather
@@ -47,7 +52,7 @@ Mode 2 clears a real owning key and must detect a 193-byte leak. Modes 3 and 4
 must detect actual use-after-free and heap overflow with nonzero termination.
 An abort is a valid sanitizer failure status; do not require exit code 1.
 
-Also compile the unchanged `test-tools/toolchain/RuntimeErrorDiagnostic.cpp` with the
+Also compile the unchanged `pangrova-worker-native/test-tools/toolchain/RuntimeErrorDiagnostic.cpp` with the
 same flags and run its exception construction/copy/throw/rethrow and naturally
 joined worker modes 0, 1, 2, 3, 4 and 8 at 1, 32 and 4096 iterations. Keep the original-runtime
 results separately. Native CTest uses only the existing repository suppression,

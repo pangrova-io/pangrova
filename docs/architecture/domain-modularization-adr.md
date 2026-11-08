@@ -1,13 +1,16 @@
+---
+title: "Domain Modularization ADR"
+description: "Accepted decisions for domain contracts, implementations, and process assembly"
+---
+
 # ADR: 领域契约、实现与进程装配分离
 
-状态：已接受，实施中。决定日期：2026-11-01。
+状态：已接受；P0–P12 已完成（2026-11-08）。决定日期：2026-11-01。
 
-本 ADR 落实本轮用户批准的《Pangrova 全仓模块、API/SPI、存储与运行时重构实施计划》
-（[计划全文](../internal/project-structure-refactoring/full-repo-modularization-plan.md)），
-替代此前中央 SPI、合并领域 owner 和独立 SPI 制品的目标决策。
-阶段编号与批次目标以该计划 P0–P12 为准；本 ADR 只记录不可轻易变更的架构决策。
-历史执行记录仍是对应批次的证据，不是本轮完成证明。
-实际生效的模块边界以 `.pangrova/modules.yaml` 为准；未实施的目标不得写成现状。
+本 ADR 替代此前中央 SPI、合并领域 owner 和独立 SPI 制品的目标决策。
+阶段划分与退出条件见下文“实施顺序及退出条件”；历史执行记录保留在 git 历史与 CI
+记录中，不是本轮完成证明。实际生效的模块边界以 `.pangrova/modules.yaml` 为准；
+未实施的目标不得写成现状。
 
 ## 决策
 
@@ -122,8 +125,8 @@ JNI/协议/Native 行为改变按 build-pipeline 执行完整链路，涉及内�
 
 ## 本轮证据
 
-见 [实施记录](../internal/project-structure-refactoring/domain-modularization-progress.md)
-及同目录 FQN 处置台账。该记录只给已执行事项标记完成。
+执行证据保留在 git 历史与 CI 记录中；本 ADR 只保留决策与阶段退出条件，不复制
+批次过程记录。
 
 
 ## 已实施的 Execution 基础与共享编码边界
@@ -158,8 +161,7 @@ DeferredAuthorizationScope 的规范编码与摘要，依赖 Security/Connector 
 不依赖数据库或运行时 Core。编码从 PostgreSQL Provider 原样迁出，Security API
 不承担复杂序列化，事务与当前权限判断仍归原 owner。
 
-具体语义、调用方、未完成边界见
-[契约基础与执行绑定证据](../internal/project-structure-refactoring/contract-foundations-ownership.md)。
+具体语义、调用方与未完成边界以当前代码、测试和 `.pangrova/modules.yaml` 为准。
 
 
 ## Shuffle 独立能力与有效保证
@@ -268,11 +270,11 @@ PostgreSQL Provider 不依赖 Metadata Core。原表元数据编码由缓存与 
 
 ### Metadata 同步进度的领域端口（2026-11-03）
 
-同步进度及诊断已从组合 MetadataStore 抽出到 Catalog Persistence 的 `synchronization` 契约，PostgreSQL Provider 由 Server 显式装配。进度绑定部署 incarnation/revision，仅允许来源声明的完整覆盖边界推进；本地结束时间和诊断历史不构成进度。原子完成、幂等回执、提交未知确认及实际未完成边界见 [同步所有权记录](../internal/project-structure-refactoring/metadata-sync-ownership.md)。投影事务、其余组合 Store 和 Federation SPI 的拆分仍按目标计划继续。
+同步进度及诊断已从组合 MetadataStore 抽出到 Catalog Persistence 的 `synchronization` 契约，PostgreSQL Provider 由 Server 显式装配。进度绑定部署 incarnation/revision，仅允许来源声明的完整覆盖边界推进；本地结束时间和诊断历史不构成进度。原子完成、幂等回执与提交未知确认的边界由当前 Catalog Persistence 实现与测试约束。投影事务、其余组合 Store 和 Federation SPI 的拆分仍属后续工作。
 
 ### Catalog 部署与投影组合 Store 退役（2026-11-03）
 
-组合 MetadataStore 及 PostgresMetadataStore 已退役，无转发壳。部署、表投影、schema 投影、同步进度分别通过独立端口注入；Server 选择 PostgreSQL Provider。领域 Core 不依赖后端辅助类，事务支持包通过 manifest 限制为制品内部使用。原 SQL 与逐操作 outbox 原子性保留；完整扫描的条件投影事务仍是后续工作，不能由这次职责拆分推导为已完成。详见 [本批能力边界](../internal/project-structure-refactoring/metadata-projection-ownership.md)。
+组合 MetadataStore 及 PostgresMetadataStore 已退役，无转发壳。部署、表投影、schema 投影、同步进度分别通过独立端口注入；Server 选择 PostgreSQL Provider。领域 Core 不依赖后端辅助类，事务支持包通过 manifest 限制为制品内部使用。原 SQL 与逐操作 outbox 原子性保留；完整扫描的条件投影事务仍是后续工作，不能由这次职责拆分推导为已完成。
 
 ### Binary scalar and heap batch ownership
 
@@ -287,7 +289,7 @@ PostgreSQL 在同一行锁及事务下校验部署、读取前值与 tenant impa
 同 ID 同内容返回原回执；不同内容拒绝；提交未知通过原 ID 确认，不能重新生成 ID 盲目重试。
 V108 是统一空库初始化资源，不建设历史数据迁移。Server 负责选择该 Provider，Core 无 JDBC/SDK 泄漏。
 这些约束替代上文“逐操作条件投影事务尚未实现”的历史状态，但整轮扫描、source version、同部署并行
-同步与生命周期仍未完成。详细证据与限制见 [事务所有权](../internal/project-structure-refactoring/projection-fence-ownership.md)。
+同步与生命周期仍未完成。
 
 ### Metadata durable request recovery (2026-11-03 implementation update)
 
@@ -297,5 +299,4 @@ Metadata Core must recover pending work before observing a new source batch. New
 bypass pending operations. Obsolete requests are rejected under the current deployment fence.
 Projection/outbox/receipt and checkpoint/run receipt retain their separate atomic owners.
 This closes the per-operation recovery barrier, not the remaining whole-scan ownership,
-source-version, cancellation, event-recovery or retention work. See
-[the implementation evidence](../internal/project-structure-refactoring/projection-recovery-ownership.md).
+source-version, cancellation, event-recovery or retention work.

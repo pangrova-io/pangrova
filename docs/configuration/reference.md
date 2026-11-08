@@ -17,12 +17,13 @@ descriptions live in the per-component pages.
 | `coordinator.host` | `"0.0.0.0"` | HTTP bind address |
 | `coordinator.port` | `8080` | HTTP listen port |
 | `coordinator.role` | `"COMBINED"` | `QUERY` / `MAINTENANCE` / `COMBINED` |
-| `coordinator.ha.enabled` | `false` | Enable HA leader election |
-| `coordinator.ha.jdbc-url` | — | HA coordination JDBC store (required when HA enabled) |
+| `coordinator.ha.enabled` | `false` | Declared in `CoordinatorOptions`; not read by the current bootstrap |
 | `coordinator.ha.ddl-leader-routing` | `false` | Route DDL only to the leader |
 | `coordinator.query.timeout` | `"5m"` | Query execution timeout |
 | `coordinator.query.max-concurrent` | `100` | Max concurrent queries |
-| `coordinator.task.spill.max-bytes` | `0` | Per-task spill byte ceiling; requires `worker.spill.directory`; zero disables task spilling |
+| `coordinator.task.spill.max-bytes` | `8589934592` | Per-task spill byte ceiling; requires `worker.spill.directory`; zero disables task spilling |
+| `coordinator.shuffle.mode` | `NATIVE` | `REMOTE` uses the external shuffle service |
+| `coordinator.shuffle.endpoints` | `""` | Comma-separated `host:port`; required for `REMOTE` |
 | `coordinator.worker.heartbeat-timeout` | `"30s"` | Worker liveness timeout |
 | `coordinator.worker.max-retry` | `3` | Task dispatch retries per worker |
 | `state-store.type` | `IN_MEMORY` | State store backend: `IN_MEMORY` / `JDBC` |
@@ -57,7 +58,8 @@ descriptions live in the per-component pages.
 | `worker.memory.node-bytes` | 1 GB | Node memory pool capacity |
 | `worker.memory.pressure-threshold-{low,medium,high,critical}` | 50 / 70 / 85 / 95 | Memory pressure levels (%) |
 | `worker.threads.query` / `io` / `scheduler` | 4 / 2 / 1 | Thread pool sizes |
-| `worker.spill.directory` | — | Spill directory (unset = spill disabled) |
+| `worker.spill.directory` | `data/worker-spill` | Spill directory; empty disables spill |
+| `worker.shuffle.mode` | `NATIVE` | `NATIVE` or `REMOTE`; must match the Coordinator |
 | `worker.native.path` | — | Explicit native library path |
 | `worker.native.workdir` | — | Native library extraction directory |
 | `worker.native.delete-after-load` | `true` | Delete extracted library after load |
@@ -99,11 +101,7 @@ Coordinator:
 | `pangrova.coordination.lease.zookeeper.connectString` | — | ZK ensemble (zookeeper backend) |
 | `pangrova.coordination.lease.zookeeper.basePath` | `/pangrova/leases` | ZK lease parent znode |
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit |
-| `pangrova.shuffle.manager` | (auto) | Shuffle provider (`native`, `local-spill`, or `object-store`); unset = highest-durability provider |
 | `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Index artifact directory |
-| `pangrova.cache.result.redis-url` | — | External result cache Redis URL |
-| `pangrova.cache.result.ttl-seconds` | `3600` | Result cache TTL |
-| `pangrova.cache.result.max-entry-bytes` | `10485760` | Max cached result size |
 
 ## Environment Variables
 

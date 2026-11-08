@@ -945,103 +945,28 @@ RESET CONFIG 'resource.max_concurrency';
 
 ## 7. Operations Configuration Summary
 
-### 7.1 Complete Configuration Example
+### 7.1 Operations configuration
 
-```yaml
-# pangrova-config.yaml
+Rolling upgrade, online DDL, disaster recovery, auto-scaling, and ZooKeeper-backed
+config hot reload are not implemented as typed runtime configuration. Do not add
+`rolling-upgrade`, `online-ddl`, `disaster-recovery`, `auto-scaling`, or
+`config.source` blocks to `coordinator.yml` or `worker.yml`. Supported keys are the
+typed options in [Configuration](../configuration/index.md) and the bundled
+`etc/coordinator.yml` / `etc/worker.yml`. The supported operations interface is the
+shipped `bin/pangrova-*.sh` scripts and the runbooks in this section.
 
-# Rolling upgrade configuration
-rolling-upgrade:
-  drain-timeout: 5m
-  health-check-interval: 10s
-  max-parallel-upgrades: 1
-  rollback-on-failure: true
+### 7.2 Operations command summary
 
-# Online DDL configuration
-online-ddl:
-  async-executor-threads: 4
-  max-concurrent-jobs: 10
-  job-timeout: 24h
-  checkpoint-interval: 1000
+No `system.*` SQL procedures for rolling upgrade, online DDL, disaster recovery,
+auto-scaling, or cache maintenance are registered. Use the shipped operations
+scripts instead:
 
-# Disaster recovery configuration
-disaster-recovery:
-  mode: active-standby  # active-standby | active-active
-  replication:
-    type: sync  # sync | async
-    max-lag: 5m
-  failover:
-    auto-failover: false
-    health-check-interval: 10s
-    failure-threshold: 3
-
-# Auto-scaling configuration
-auto-scaling:
-  enabled: true
-  min-workers: 3
-  max-workers: 100
-  scale-out-threshold: 0.8
-  scale-in-threshold: 0.3
-  cooldown:
-    scale-out: 3m
-    scale-in: 10m
-  metrics:
-    cpu-weight: 0.3
-    memory-weight: 0.2
-    queue-weight: 0.3
-    latency-weight: 0.2
-  predictive:
-    enabled: true
-    lookahead: 15m
-    min-confidence: 0.8
-
-# Config hot reload
-config:
-  source: zookeeper  # zookeeper (designated) | file (local fallback)
-  zookeeper:
-    connect-string: zk1:2181,zk2:2181,zk3:2181
-    base-path: /pangrova/config
-  refresh-interval: 30s
-
-# Proposed hot-reloadable runtime configuration
-#
-runtime:
-  coordinator.query.max-concurrent-queries: 100
-  coordinator.query.max-execution-time: 30m
-  memory.spill.threshold: 0.8
-  observability.logging.level: INFO
+```bash
+bin/pangrova-rolling-upgrade.sh --help
+bin/pangrova-cluster-status.sh
+bin/pangrova-health-check.sh --help
+bin/pangrova-stop.sh --help
 ```
-
-### 7.2 Operations Command Summary
-
-```sql
--- Rolling upgrade
-CALL system.start_rolling_upgrade('2.0.0');
-CALL system.check_upgrade_status();
-CALL system.rollback_upgrade();
-
--- Online DDL
-SHOW DDL JOBS;
-SHOW DDL JOB 'job-uuid';
-CANCEL DDL JOB 'job-uuid';
-
--- Disaster recovery
-CALL system.failover('region-b');
-CALL system.failback();
-SHOW REPLICATION STATUS;
-
--- Scaling
-CALL system.scale_workers(10);
-SHOW SCALING STATUS;
-SHOW SCALING HISTORY;
-
--- Configuration management
-SHOW CONFIG;
-SET CONFIG 'key' = 'value';
-RESET CONFIG 'key';
-```
-
----
 
 ## 8. System Bootstrap Sequence
 
@@ -1150,10 +1075,10 @@ ZooKeeper    PgSQL    Redis    Coordinator-1    Coordinator-2    Worker-1    Wor
 
 | Component | Endpoint | Readiness condition | Purpose |
 |------|------|---------|------|
-| Coordinator | `GET /v1/health` | HTTP port ready | LB health check |
-| Coordinator | `GET /v1/health/ready` | HTTP ready + ≥1 Worker ACTIVE + ≥1 Catalog ACTIVE | LB readiness check (accepts queries only when ready) |
-| Worker | `GET /v1/health` | HTTP + Flight ports ready | Coordinator health check |
-| Worker | `GET /v1/health/ready` | HTTP + Flight ready + Native engine initialized | Coordinator readiness check |
+| Coordinator | `GET /v1/health/live` | HTTP port ready | LB liveness check |
+| Coordinator | `GET /v1/health` | HTTP ready + ≥1 Worker ACTIVE + ≥1 Catalog ACTIVE | LB readiness check |
+| Worker | `GET /v1/health/live` | HTTP port ready | Liveness check |
+| Worker | `GET /v1/health` | HTTP + Flight ready + Native engine initialized | Coordinator readiness check |
 
 ### 8.4 Startup Failure Handling
 
@@ -1164,51 +1089,26 @@ ZooKeeper    PgSQL    Redis    Coordinator-1    Coordinator-2    Worker-1    Wor
 | Redis unavailable | Metadata cache unavailable | degraded start, skip cache warm-up, log WARN |
 | Native library load failure | Worker cannot start | fail-fast, process exits, check LD_LIBRARY_PATH |
 | Connector plugin load failure | Corresponding Catalog unavailable | degraded start, mark Catalog as DEGRADED, other Catalogs work |
-| No Worker registered | System cannot execute queries | Coordinator starts normally but `/v1/health/ready` returns 503 |
+| No Worker registered | System cannot execute queries | Coordinator starts normally but `/v1/health` returns 503 |
 
-### 8.5 Startup Script Reference
+### 8.5 Startup scripts
+
+Use the shipped scripts rather than ad-hoc `java -jar` commands:
 
 ```bash
-#!/bin/bash
-# bin/start-cluster.sh — full cluster startup script
-
-set -euo pipefail
-
-echo "=== Phase A: Verify Infrastructure ==="
-./bin/check-zookeeper.sh   || { echo "ZooKeeper not ready"; exit 1; }
-./bin/check-postgresql.sh  || { echo "PostgreSQL not ready"; exit 1; }
-./bin/check-redis.sh       || { echo "Redis not ready"; exit 1; }
-echo "Infrastructure ready."
-
-echo "=== Phase B: Start Coordinators ==="
-for host in $COORDINATOR_HOSTS; do
-    ssh $host "nohup java -jar pangrova-coordination-core.jar &"
-done
-# Wait for Coordinators to be ready
-for host in $COORDINATOR_HOSTS; do
-    ./bin/wait-for-health.sh "http://$host:8080/v1/health" 60
-done
-echo "Coordinators ready."
-
-echo "=== Phase C: Start Workers ==="
-for host in $WORKER_HOSTS; do
-    ssh $host "nohup java -jar pangrova-worker-core.jar &"
-done
-# Wait for Workers to register
-for host in $WORKER_HOSTS; do
-    ./bin/wait-for-health.sh "http://$host:8080/v1/health/ready" 120
-done
-echo "Workers ready."
-
-echo "=== Phase D: System Readiness Check ==="
-COORDINATOR=${COORDINATOR_HOSTS%% *}
-./bin/wait-for-health.sh "http://$COORDINATOR:8080/v1/health/ready" 30
-# Smoke test
-curl -s -X POST "http://$COORDINATOR:8080/v1/query" \
-    -H "Content-Type: application/json" \
-    -d '{"sql":"SELECT 1","sessionProperties":{}}' | jq .
-echo "=== SYSTEM READY ==="
+bin/pangrova-coordinator.sh --daemon
+bin/pangrova-worker.sh --daemon
+bin/pangrova-health-check.sh <host>:8080
+bin/pangrova-cluster-status.sh
+curl -s -X POST http://<coordinator>:8080/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 1","session_properties":{}}'
 ```
+
+Coordinator and Worker scripts accept `--config <path>` and `--daemon`. There is no
+`bin/start-cluster.sh`, `check-zookeeper.sh`, `check-postgresql.sh`,
+`check-redis.sh`, or `wait-for-health.sh`; check infrastructure readiness with the
+actual database, ZooKeeper, and object-store clients.
 
 > **Cross-Reference**: For the Coordinator startup sequence see [distributed.md §1.2](../architecture/distributed.md); for the Worker startup sequence see [distributed.md §2.4](../architecture/distributed.md); for Catalog initialization see [metadata.md §3.2](../architecture/metadata.md).
 
@@ -1239,68 +1139,57 @@ echo "=== SYSTEM READY ==="
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │  PangrovaErrorCode          │ Failure domain │ SOP section                │   │
 │  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  COORDINATOR_UNAVAILABLE  │ Coordinator     │ §9.2                   │   │
-│  │  (4203)                   │                 │                        │   │
-│  │  WORKER_UNAVAILABLE       │ Worker          │ §9.3                   │   │
-│  │  (4204)                   │                 │                        │   │
-│  │  NATIVE_ERROR (3101)      │ Worker/Native   │ §9.3 (Native crash)    │   │
-│  │  JNI_ERROR (3102)         │ Worker/Native   │ §9.3 (Native crash)    │   │
-│  │  MEMORY_EXCEEDED (2002)   │ Query/Resource  │ §9.4                   │   │
-│  │  QUERY_TIMEOUT (2101)     │ Query/Resource  │ §9.4                   │   │
-│  │  RESOURCE_EXHAUSTED (2001)│ Query/Resource  │ §9.4                   │   │
-│  │  STORAGE_ERROR (4001)     │ Storage         │ §9.5                   │   │
-│  │  NETWORK_ERROR (4101)     │ Network/Storage │ §9.5                   │   │
+│  │  TRANSPORT-0001           │ Coordinator     │ §9.2                   │   │
+│  │  TRANSPORT_CONNECTION_FAILED│                │                        │   │
+│  │  WORKER-0002              │ Worker          │ §9.3                   │   │
+│  │  WORKER_LOST              │                 │                        │   │
+│  │  NATIVE-0001..0007        │ Worker/Native   │ §9.3 (Native crash)    │   │
+│  │  NATIVE-0001              │ Worker/Native   │ §9.3 (Native crash)    │   │
+│  │  RESOURCE-0001            │ Query/Resource  │ §9.4                   │   │
+│  │  RUNTIME-0003             │ Query/Resource  │ §9.4                   │   │
+│  │  RUNTIME-0004             │ Query/Resource  │ §9.4                   │   │
+│  │  FILE-0005               │ Storage         │ §9.5                   │   │
+│  │  TRANSPORT-0001           │ Network/Storage │ §9.5                   │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 9.1.1 Global Error Code -> Module -> Recovery Action Mapping
+### 9.1.1 Error-code routing
 
-> This table covers all PangrovaErrorCode values defined in [resilience.md §2.2](../architecture/resilience.md), mapping each to its responsible module, typical trigger scenarios, and recovery actions. Operators can use the error code to directly locate the recovery path.
+`PangrovaErrorCode` values are strings in `CATEGORY-NNNN` form. The REST body is
+`ErrorDetail` with `error_code`, `error_type`, and `message`; `error_type` is
+`USER_ERROR` for 4xx responses and `INTERNAL_ERROR` otherwise. Use the code string,
+not a numeric range.
 
-| Error code | Name | Scope | Responsible module | Typical trigger scenario | Retryable | Recovery action | SOP |
-|--------|------|------|---------|------------|--------|---------|-----|
-| 1001 | `SYNTAX_ERROR` | USER_ERROR | Coordinator (Parser) | SQL syntax error | ✗ | Fix the SQL statement | — |
-| 1101 | `TABLE_NOT_FOUND` | USER_ERROR | Coordinator (Metadata) | Table name misspelled or table does not exist | ✗ | `SHOW TABLES` to confirm the table name | — |
-| 1102 | `COLUMN_NOT_FOUND` | USER_ERROR | Coordinator (Metadata) | Column name misspelled | ✗ | `DESCRIBE table` to confirm the column name | — |
-| 1201 | `ACCESS_DENIED` | USER_ERROR | Security ([12](../architecture/security.md)) | Insufficient RBAC permissions | ✗ | Contact the administrator for authorization | — |
-| 1301 | `SCHEMA_INCOMPATIBLE` | USER_ERROR | Governance ([11](../architecture/data-governance.md)) | Schema Evolution compatibility check failed | ✗ | Check Schema change compatibility rules | — |
-| 1302 | `COLUMN_TYPE_MISMATCH` | USER_ERROR | Governance ([11](../architecture/data-governance.md)) | Column type mismatch | ✗ | Fix the ALTER TABLE statement | — |
-| 1401 | `CDC_PARSE_ERROR` | USER_ERROR | Streaming ([10](../architecture/streaming.md)) | CDC message format error | ✗ | Check Debezium configuration and message format | — |
-| 1402 | `CDC_OFFSET_ERROR` | USER_ERROR | Streaming ([10](../architecture/streaming.md)) | CDC offset commit failed | ✗ | Check Kafka connectivity, reset offset | — |
-| 1501 | `CACHE_MISS` | USER_ERROR | Cache ([09](../architecture/caching.md)) | Cache miss (informational) | ✗ | Normal behavior, no recovery needed | — |
-| 1502 | `CACHE_INVALIDATION_FAILED` | USER_ERROR | Cache ([09](../architecture/caching.md)) | Cache invalidation operation failed | ✗ | Check Redis connectivity | — |
-| 1601 | `TENANT_NOT_FOUND` | USER_ERROR | Multi-tenancy ([13](../architecture/multi-tenancy.md)) | Tenant does not exist | ✗ | `SHOW TENANTS` to confirm the tenant name | — |
-| 1602 | `TENANT_QUOTA_EXCEEDED` | USER_ERROR | Multi-tenancy ([13](../architecture/multi-tenancy.md)) | Tenant quota exceeded | ✗ | Wait for the quota to recover or contact the administrator to scale up | §9.4 |
-| 1603 | `TENANT_ACCESS_DENIED` | USER_ERROR | Multi-tenancy ([13](../architecture/multi-tenancy.md)) | Tenant not authorized to access the Catalog | ✗ | Contact the administrator to configure allowed_catalogs | — |
-| 2001 | `RESOURCE_EXHAUSTED` | RESOURCE_ERROR | Resource ([06](../architecture/resource-management.md)) | Insufficient cluster resources | ✓ | Wait for resources to free up or scale out Workers | §9.4 |
-| 2002 | `MEMORY_EXCEEDED` | RESOURCE_ERROR | Resource ([06](../architecture/resource-management.md)) + Native ([03](../architecture/native-execution.md)) | Query memory limit exceeded | ✓ | Enable Spill or increase the memory quota | §9.4 |
-| 2101 | `QUERY_TIMEOUT` | RESOURCE_ERROR | Coordinator (Scheduler) | Query execution timeout | ✓ | Optimize the query or increase the timeout | §9.4 |
-| 2201 | `QUERY_CANCELLED` | RESOURCE_ERROR | Coordinator (QueryManager) | Query cancelled by user or system | ✓ | Check the cancellation reason | — |
-| 3001 | `INTERNAL_ERROR` | INTERNAL_ERROR | Any module | Unexpected internal error | ✓ | Collect logs, file a bug | §9.2/§9.3 |
-| 3101 | `NATIVE_ERROR` | INTERNAL_ERROR | Native ([03](../architecture/native-execution.md)) | Velox execution error | ✓ | Check Core Dump, file a bug | §9.3 |
-| 3102 | `JNI_ERROR` | INTERNAL_ERROR | Worker (JNI Bridge) | JNI call failed | ✓ | Check Native library version compatibility | §9.3 |
-| 4001 | `STORAGE_ERROR` | EXTERNAL_ERROR | Connector ([04](../architecture/connectors.md)) | S3/HDFS access failed | ✓ | Check storage service status and credentials | §9.5 |
-| 4101 | `NETWORK_ERROR` | EXTERNAL_ERROR | Network layer | Network connection failed | ✓ | Check network connectivity | §9.5 |
-| 4203 | `COORDINATOR_UNAVAILABLE` | EXTERNAL_ERROR | Coordinator ([01](../architecture/distributed.md)) | Coordinator unreachable | ✓ | Check the Coordinator process and ZK | §9.2 |
-| 4204 | `WORKER_UNAVAILABLE` | EXTERNAL_ERROR | Worker ([01](../architecture/distributed.md)) | Worker unreachable | ✓ | Check the Worker process and ZK registration | §9.3 |
-| 5001 | `UPSTREAM_TASK_FAILED` | EXCHANGE_ERROR | Exchange ([02](../architecture/query-execution.md)) | Upstream Task failure leaves downstream without data | ✓ | Automatic retry, check the upstream Task failure cause | §9.3 |
-| 5101 | `EXCHANGE_CONNECTION_LOST` | EXCHANGE_ERROR | Exchange ([02](../architecture/query-execution.md)) | Shuffle connection dropped | ✓ | Automatic reconnect, check the Worker network | §9.3 |
-| 5102 | `EXCHANGE_DATA_TIMEOUT` | EXCHANGE_ERROR | Exchange ([02](../architecture/query-execution.md)) | Shuffle data fetch timeout | ✓ | Check upstream Worker load and network | §9.3 |
+| Code | Name | Domain | Typical trigger | Recovery | SOP |
+|---|---|---|---|---|---|
+| `PARSER-0001` | `PARSER_SYNTAX_ERROR` | Coordinator (parser) | SQL syntax error | Fix the SQL statement | — |
+| `PLANNER-0001` | `PLANNER_VALIDATION_FAILURE` | Coordinator (planner) | Query validation failure | Fix the query or metadata | — |
+| `METADATA-0008` | `METADATA_TABLE_NOT_FOUND` | Coordinator (metadata) | Table missing or misspelled | `SHOW TABLES` | — |
+| `SECURITY-*` | Security codes | Security | RBAC, RLS, or masking failure | Check grants and policies | — |
+| `RESOURCE-0001` | `RESOURCE_MEMORY_EXCEEDED` | Query/resource + Native | Memory quota exceeded | Enable Spill or raise the quota | §9.4 |
+| `RESOURCE-0002` | `RESOURCE_SPILL_FAILED` | Query/resource | Spill write failed | Check disk capacity and spill path | §9.4 |
+| `RUNTIME-0003` | `RUNTIME_QUERY_TIMEOUT` | Coordinator/scheduler | Query execution timeout | Optimize the query or raise the timeout | §9.4 |
+| `RUNTIME-0004` | `RUNTIME_RESOURCE_EXHAUSTED` | Coordinator/resource | Resource exhausted | Scale out or wait for capacity | §9.4 |
+| `COORDINATOR-0001` | `COORDINATOR_NO_AVAILABLE_WORKER` | Coordinator | No Worker for dispatch | Check Worker registration and capacity | §9.3 |
+| `COORDINATOR-0007` | `COORDINATOR_MEMORY_EXCEEDED` | Coordinator | Coordinator row allocation limit | Reduce split/row materialization | §9.4 |
+| `WORKER-0002` | `WORKER_LOST` | Worker/coordination | Worker died while executing tasks | Check the Worker process and registration | §9.3 |
+| `NATIVE-0001..0007` | `NATIVE_*` | Worker/Native | JNI, execution, library, or plan failure | Check the Native library and logs | §9.3 |
+| `EXCHANGE-0001..0004` | `EXCHANGE_*` | Exchange | Upstream/shuffle unavailable or corrupt | Check the upstream Worker and network | §9.3 |
+| `TRANSPORT-0001..0003` | `TRANSPORT_*` | Transport | Connection, stream, or result-size failure | Check network and result limits | §9.5 |
+| `FILE-0005` / `FILE-0006` | `FILE_STORAGE_*` | File plane | Object storage unavailable or not configured | Check storage configuration and credentials | §9.5 |
+| `OPS-0001..0009` | `OPS_*` | Operations | Upgrade, failover, scaling, or config reload failure | Follow the matching runbook | §9.2 |
 
-**Native error code mapping** (supplementary): The Native layer's `NativeError.error_code` is mapped via `NativeErrorMapper` ([resilience.md §3.3](../architecture/resilience.md)) to the Java error codes in the table above:
-
-| Native error_code range | Mapped PangrovaErrorCode | Recovery action |
-|------------------------|----------------------|---------|
-| 100-199 (MEMORY_ERROR) | `MEMORY_EXCEEDED` (2002) | Enable Spill, increase Native memory quota |
-| 200-299 (IO_ERROR) | `STORAGE_ERROR` (4001) | Check S3/HDFS connectivity and credentials |
-| 300-699 (COMPUTE_ERROR) | `INTERNAL_ERROR` (3001) | Collect Core Dump, file a bug |
-| 700-799 (CANCELLED) | `QUERY_CANCELLED` (2201) | Normal cancellation, no recovery needed |
+Native errors are not mapped by numeric buckets. A negative JNI return code raises
+`NativeExecutionException` with `NATIVE-0001` and retains the raw native code;
+canonical task reports carry `ExecutionError` with `error_class`, `code`, `message`,
+`retryable`, `failed_component`, and `failed_partition_ids`. See
+[resilience.md §3.3](../architecture/resilience.md).
 
 ### 9.2 Coordinator Failure Recovery
 
-> **Related error code**: `COORDINATOR_UNAVAILABLE` (4203) — see [resilience.md §2.2](../architecture/resilience.md)
+> **Related error code**: `TRANSPORT-0001` (`TRANSPORT_CONNECTION_FAILED`) — see [resilience.md §2.2](../architecture/resilience.md)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1312,7 +1201,7 @@ echo "=== SYSTEM READY ==="
 │  Diagnostic steps:                                                              │
 │  1. Check process status: ps aux | grep pangrova-coordinator                      │
 │  2. Check port listening: netstat -tlnp | grep 8080                             │
-│  3. Check logs: tail -f /var/log/pangrova/coordinator.log                         │
+│  3. Check logs: tail -f /var/log/pangrova/pangrova-coordinator.log                         │
 │  4. Check ZK registration: zkCli.sh ls /pangrova/coordinators                     │
 │                                                                                  │
 │  Recovery steps:                                                                │
@@ -1324,10 +1213,10 @@ echo "=== SYSTEM READY ==="
 │  │          haproxy-cli disable server pangrova/coordinator-1                │   │
 │  │                                                                          │   │
 │  │  Step 3: Attempt to restart the service                                 │   │
-│  │          systemctl restart pangrova-coordinator                           │   │
+│  │          /opt/pangrova/bin/pangrova-stop.sh --coordinator && /opt/pangrova/bin/pangrova-coordinator.sh --daemon                           │   │
 │  │                                                                          │   │
 │  │  Step 4: Check startup logs, confirm no anomalies                       │   │
-│  │          journalctl -u pangrova-coordinator -f                            │   │
+│  │          tail -f /var/log/pangrova/pangrova-coordinator.log                            │   │
 │  │                                                                          │   │
 │  │  Step 5: After the health check passes, add back to the LB              │   │
 │  │          haproxy-cli enable server pangrova/coordinator-1                 │   │
@@ -1347,7 +1236,7 @@ echo "=== SYSTEM READY ==="
 
 ### 9.3 Worker Failure Recovery
 
-> **Related error codes**: `WORKER_UNAVAILABLE` (4204), `NATIVE_ERROR` (3101), `JNI_ERROR` (3102) — see [resilience.md §2.2](../architecture/resilience.md)
+> **Related error codes**: `WORKER-0002` (`WORKER_LOST`), `NATIVE-0004` (`NATIVE_INIT_FAILED`), `NATIVE-0001` (`NATIVE_JNI_EXCEPTION`) — see [resilience.md §2.2](../architecture/resilience.md)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1365,13 +1254,13 @@ echo "=== SYSTEM READY ==="
 │  Recovery steps:                                                                │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │  Step 1: Mark the Worker as DRAINING (if still responsive)              │   │
-│  │          curl -X POST http://worker-1:8081/admin/drain                  │   │
+│  │          ssh worker-1 /opt/pangrova/bin/pangrova-stop.sh --worker                  │   │
 │  │                                                                          │   │
 │  │  Step 2: Wait for existing tasks to finish or time out (up to 5 minutes)│   │
-│  │          watch "curl http://worker-1:8081/admin/tasks | jq '.count'"    │   │
+│  │          watch "bin/pangrova-cluster-status.sh"    │   │
 │  │                                                                          │   │
 │  │  Step 3: Stop the Worker service                                        │   │
-│  │          systemctl stop pangrova-worker                                   │   │
+│  │          /opt/pangrova/bin/pangrova-stop.sh --worker                                   │   │
 │  │                                                                          │   │
 │  │  Step 4: Clean up the Spill directory (if the disk is full)             │   │
 │  │          rm -rf /data/spill/*                                           │   │
@@ -1380,10 +1269,10 @@ echo "=== SYSTEM READY ==="
 │  │          gdb /opt/pangrova/lib/libpangrova_native.so /var/log/pangrova/core.* │   │
 │  │                                                                          │   │
 │  │  Step 6: Restart the Worker                                             │   │
-│  │          systemctl start pangrova-worker                                  │   │
+│  │          /opt/pangrova/bin/pangrova-worker.sh --daemon                                  │   │
 │  │                                                                          │   │
 │  │  Step 7: Verify the Worker registered successfully                      │   │
-│  │          curl http://coordinator:8080/admin/workers | jq                │   │
+│  │          curl http://coordinator:8080/api/workers | jq                │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
 │  Common causes of Native crashes:                                               │
@@ -1396,9 +1285,9 @@ echo "=== SYSTEM READY ==="
 
 ### 9.4 Query Timeout/OOM Recovery
 
-> **Related error codes**: `MEMORY_EXCEEDED` (2002), `QUERY_TIMEOUT` (2101), `RESOURCE_EXHAUSTED` (2001) — see [resilience.md §2.2](../architecture/resilience.md)
+> **Related error codes**: `RESOURCE-0001` (`RESOURCE_MEMORY_EXCEEDED`), `RUNTIME-0003` (`RUNTIME_QUERY_TIMEOUT`), `RUNTIME-0004` (`RUNTIME_RESOURCE_EXHAUSTED`) — see [resilience.md §2.2](../architecture/resilience.md)
 >
-> Diagnostic tip: If the error code is `MEMORY_EXCEEDED`, check Native layer memory first (the `pangrova.native.memory.peak` metric), because a Native OOM is mapped to this error code via NativeErrorMapper (see [resilience.md §3.3](../architecture/resilience.md), Native error_code 100-199).
+> Diagnostic tip: If the error code is `RESOURCE-0001`, check Native layer memory first (the `pangrova.native.memory_used_bytes` metric), because a Native OOM is mapped to this error code by the Native-to-Java error path documented in [resilience.md §3.3](../architecture/resilience.md).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1439,7 +1328,7 @@ echo "=== SYSTEM READY ==="
 
 ### 9.5 Storage Failure Recovery
 
-> **Related error codes**: `STORAGE_ERROR` (4001), `NETWORK_ERROR` (4101) — see [resilience.md §2.2](../architecture/resilience.md)
+> **Related error codes**: `FILE-0005` (`FILE_STORAGE_UNAVAILABLE`), `TRANSPORT-0001` (`TRANSPORT_CONNECTION_FAILED`) — see [resilience.md §2.2](../architecture/resilience.md)
 >
 > Diagnostic tip: If the error code is `STORAGE_ERROR` and originates from the Native layer (NativeError error_code 200-299, error_type=`IO_ERROR`), it indicates a read failure in the Native I/O layer; check S3/HDFS connectivity and credentials.
 

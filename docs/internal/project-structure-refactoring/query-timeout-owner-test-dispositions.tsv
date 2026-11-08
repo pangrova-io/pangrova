@@ -1,2 +1,0 @@
-old_test	replacement	reason	evidence
-QueryLifecycleResponsibilityBoundaryTest.queryManager_usesParameterObject	QueryLifecycleResponsibilityBoundaryTest.queryManager_requiresExplicitDependenciesAndTypedReaderPinPort	Baseline already has two typed public constructors; exact generic type signatures replace obsolete one-parameter cap; no Context expansion or allowed-signature wildcard	focused failure retained; focused-final and clean-package replacement passes

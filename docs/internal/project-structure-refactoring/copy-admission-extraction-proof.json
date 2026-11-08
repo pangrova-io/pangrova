@@ -1,7 +1,0 @@
-{
-  "provider_remaining_body_equivalence": "Exact after removing relocated values/validation, import changes, implements/@Override declarations and decoding already validated Ticket bytes.",
-  "relocated_records": 6,
-  "relocated_validation_blocks": 4,
-  "digest_helper_preserved": true,
-  "source_sql_fencing_and_transactions_preserved": true
-}

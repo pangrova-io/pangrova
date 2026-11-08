@@ -23,12 +23,14 @@ sidebar_label: "Streaming & CDC"
 
 > **Summary.** CDC ingestion, incremental queries, streaming writes, and watermark tracking.
 
-> **Code ownership.** The `pangrova-streaming` artifact owns the full slice:
-> `api.{source,cdc,checkpoint,watermark,aggregation,query}`, `core.*`,
-> `store.jdbc.*`, `provider.cdcformat.*`, `provider.writer.*` and
-> `adapter.coordinator` (stream DDL, scheduling, Kafka readers and the
-> connector page-sink CDC writer). The Coordinator only constructs the adapter
-> during bootstrap; it does not own a second CDC registration, scheduler or
+> **Code ownership.** `pangrova-streaming` owns
+> `api.{aggregation,cdc,checkpoint,commit,source,watermark}` and `core.*`
+> (including `store/memory` and `coordinator`). CDC format and writer providers
+> live under `org.pangrova.streaming.{cdcformat,writer}`. JDBC offset and
+> watermark persistence lives in
+> `pangrova-persistence/pangrova-persistence-streaming-postgresql`
+> (`org.pangrova.persistence.streaming.postgresql`). The Coordinator constructs
+> the streaming bootstrap; it does not own a second registration, scheduler or
 > offset/watermark store.
 
 The JDBC offset batch store owns one connection and commits the complete batch
@@ -609,7 +611,7 @@ public class PaimonTableWriter implements TableWriter {
 ### 2.9 TableMaintenanceSpi
 
 This interface describes maintenance operations, not their statement wiring. The
-default standalone `COMPACT`/`OPTIMIZE`/`VACUUM` executor uses a no-op provider;
+default bootstrap injects `ControlledTableMaintenance` into `MaintenanceExecutor`;
 catalog-qualified `CALL` uses a separate connector path. See
 [Maintenance SQL](../sql-reference/maintenance.md).
 

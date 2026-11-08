@@ -53,6 +53,7 @@ const sidebars: SidebarsConfig = {
           items: [
             {type: 'doc', id: 'getting-started/catalogs/catalog-management', label: 'Catalog Management'},
             {type: 'doc', id: 'getting-started/catalogs/storage-backends', label: 'Storage Backends'},
+        {type: 'doc', id: 'getting-started/catalogs/volumes-stages-files', label: 'Volumes, Stages & Files'},
             {type: 'doc', id: 'getting-started/catalogs/multi-catalog-example', label: 'Multi-Catalog Example'},
           ],
         },
@@ -71,6 +72,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'sql-reference/streaming', label: 'Streaming'},
         {type: 'doc', id: 'sql-reference/versioning', label: 'Versioning'},
         {type: 'doc', id: 'sql-reference/session', label: 'Session'},
+        {type: 'doc', id: 'sql-reference/feature-views', label: 'Feature Views'},
         {
           type: 'category',
           label: 'Functions',
@@ -236,6 +238,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'architecture/query-execution', label: 'Query Execution'},
             {type: 'doc', id: 'architecture/query-optimization', label: 'Query Optimization'},
             {type: 'doc', id: 'architecture/native-execution', label: 'Native Execution Layer'},
+            {type: 'doc', id: 'architecture/dynamic-table-manual-full-refresh', label: 'Dynamic Table Refresh'},
           ],
         },
         {
@@ -244,9 +247,10 @@ const sidebars: SidebarsConfig = {
           items: [
             {type: 'doc', id: 'architecture/connectors', label: 'Connector Design'},
             {type: 'doc', id: 'architecture/metadata', label: 'Metadata Management'},
-            {type: 'doc', id: 'architecture/indexing', label: 'Indexing (Target)'},
+            {type: 'doc', id: 'architecture/indexing', label: 'Indexing'},
             {type: 'doc', id: 'architecture/streaming', label: 'Streaming & CDC'},
             {type: 'doc', id: 'architecture/distributed-writes', label: 'Distributed Write'},
+            {type: 'doc', id: 'architecture/file-storage', label: 'File & Blob Storage'},
           ],
         },
         {
@@ -260,6 +264,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'architecture/security', label: 'Security'},
             {type: 'doc', id: 'architecture/multi-tenancy', label: 'Multi-Tenancy'},
             {type: 'doc', id: 'architecture/data-governance', label: 'Data Governance'},
+            {type: 'doc', id: 'architecture/query-lineage', label: 'Query Lineage'},
           ],
         },
         {
@@ -275,6 +280,7 @@ const sidebars: SidebarsConfig = {
           items: [
             {type: 'doc', id: 'architecture/jni-bridge', label: 'JNI Bridge'},
             {type: 'doc', id: 'architecture/dynamic-filtering', label: 'Dynamic Filter Lifecycle'},
+            {type: 'doc', id: 'architecture/domain-modularization-adr', label: 'Domain Modularization ADR'},
           ],
         },
       ],
@@ -327,6 +333,13 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'contributing/testing', label: 'Testing Framework'},
         {type: 'doc', id: 'contributing/documentation', label: 'Documentation Guide'},
         {type: 'doc', id: 'contributing/repository-guide', label: 'Repository & Scripts'},
+        {type: 'doc', id: 'contributing/script-inventory', label: 'Script Inventory'},
+        {type: 'doc', id: 'contributing/quality-gate-audit', label: 'Quality Gate Audit'},
+        {type: 'doc', id: 'testing/tpc-benchmark-methodology', label: 'TPC Benchmark Methodology'},
+        {type: 'doc', id: 'testing/dml-copy-on-write-policy', label: 'DML Copy-on-Write Policy'},
+        {type: 'doc', id: 'testing/speculative-process-e2e', label: 'Speculative Execution E2E'},
+        {type: 'doc', id: 'development/darwin-arm64-asan-runtime', label: 'Darwin ASAN Runtime'},
+        {type: 'doc', id: 'development/darwin-function-sanitizer', label: 'Darwin Function Sanitizer'},
       ],
     },
   ],

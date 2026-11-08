@@ -1,3 +1,8 @@
+---
+title: "Query Lineage Publication"
+description: "Logical query START and terminal publication with ownership boundaries"
+---
+
 # Query lineage publication
 
 A logical query emits START from `QueryManager.submitQuery`, after its local state and

@@ -1,3 +1,8 @@
+---
+title: "Volume and Stage File Access"
+description: "Volume, stage, and governed FILE operations with current qualification limits"
+---
+
 # Volume and Stage File Access
 
 Volumes and stages name non-table file namespaces. This page documents the file

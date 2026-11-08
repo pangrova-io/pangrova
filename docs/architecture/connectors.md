@@ -241,7 +241,7 @@ state so an external drop or recreation is visible immediately.
 │                                │                                             │
 │                    ┌───────────▼─────────────┐                               │
 │                    │   Pangrova Core Loader    │                               │
-│                    │ • pangrova-connector-spi   │                               │
+│                    │ • pangrova-connector-api   │                               │
 │                    │ • pangrova-common         │                               │
 │                    │ • pangrova-protocol       │                               │
 │                    │ • Shared Dependencies   │                               │
@@ -281,12 +281,9 @@ Worker catalog runtime.
  */
 public class PluginClassLoader extends URLClassLoader {
 
-    private static final Set<String> SPI_PACKAGES = Set.of(
-        "org.pangrova.connector.spi", "org.pangrova.spi",
-        "org.pangrova.common", "org.pangrova.protocol");
-
     // Resolved once by DefaultConnectorClassLoaderFactory from SharedPackagePolicy
-    // (BROAD/NARROW/CUSTOM) instead of being hard-coded here.
+    // (BROAD/NARROW/CUSTOM). SPI_PACKAGES and BASELINE_SHARED_PACKAGES live in
+    // SharedPackagePolicy; do not hard-code package names here.
     private final Set<String> sharedPackages;
 
     private final String pluginName;
@@ -668,22 +665,19 @@ public class IcebergSplitConverter implements SplitConverter {
 
 ### 4.1 Module Structure
 
-```
-pangrova-connector-iceberg/
+```text
+pangrova-connector/pangrova-connector-iceberg/
 ├── src/main/java/org/pangrova/connector/iceberg/
-│   ├── IcebergConnectorFactory.java     # factory class
-│   ├── IcebergConnector.java            # main connector class
+│   ├── IcebergConnectorFactory.java     # ServiceLoader factory
+│   ├── IcebergConnector.java            # connector entry point
 │   ├── IcebergMetadata.java             # metadata implementation
-│   ├── IcebergSplitManager.java         # split management
-│   ├── IcebergPageSourceProvider.java   # read implementation
-│   ├── IcebergPageSinkProvider.java     # write implementation
-│   ├── handle/                          # Handle classes
-│   ├── type/                            # type mapping
-│   ├── predicate/                       # predicate conversion
-│   └── statistics/                      # statistics
-├── src/main/resources/
-│   └── META-INF/services/
-│       └── org.pangrova.connector.spi.ConnectorFactory
+│   ├── IcebergSplitManager.java         # split discovery
+│   ├── handle/                          # catalog/table handles
+│   ├── read/                            # page source and expression conversion
+│   ├── write/                           # page sink and write support
+│   └── type/                            # type mapping
+├── src/main/resources/META-INF/services/
+│   └── org.pangrova.connector.spi.plugin.ConnectorFactory
 └── pom.xml
 ```
 
@@ -778,8 +772,8 @@ CDC Consumer / SQL Write Task
 | Input format | `ConnectorPageSink.appendPage(Page)` — Pangrova internal Page format | `write(List<WriteRecord>)` for CDC, `writeBatch(VectorSchemaRoot)` for SQL |
 | CDC support | Not directly — no CDC-specific API | Explicit CDC support with UPSERT mode |
 | Relationship | **Internal implementation detail** of TableWriter | **Delegates to** ConnectorPageSinkProvider internally |
-| File Format Reader (C++) | pangrova-worker-native/src/connector/ | Reads specific file formats (Parquet/ORC/Avro) | Implement the DataSourceFactory interface |
-| Delete Handler (C++) | pangrova-worker-native/src/connector/delete/ | Handles different types of delete files | Implement the DeleteHandler interface |
+| File Format Reader (C++) | pangrova-worker-native/src/engine/ | Reads specific file formats (Parquet/ORC/Avro) | Implement the DataSourceFactory interface |
+| Delete Handler (C++) | pangrova-worker-native/src/engine/delete/ | Handles different types of delete files | Implement the DeleteHandler interface |
 | TableMaintenanceSpi (Java) | pangrova-connector-{format}/ | Async compaction, orphan cleanup, snapshot expiration | Implement TableMaintenanceSpi interface, see [streaming.md §2.9](./streaming.md) (authoritative) |
 | Properties Handler | properties map in protocol | Passes format-specific metadata | Convention-based key prefix |
 
@@ -831,6 +825,17 @@ Rules:
 - A Key must be prefixed with a Connector name or `pangrova`
 - The value type is uniformly `string` (map<string, string>)
 - New Keys must be registered in this table
+
+### 5.4 Extension point status
+
+Every extension family must end in one explicit state: **wired** (a production
+`ServiceLoader` site or explicit construction on a reachable path), **test-only**,
+**descriptor-only**, **zero-provider**, **zero-impl**, or **unwired**.
+`.pangrova/modules.yaml` declares providers per artifact and
+`ModuleDependencyPropertyTest` fails when descriptors and declared families diverge.
+"Future extension" is not an acceptable resting state: a descriptor with no
+production loader must be wired or deleted, and a registered provider that no
+production caller reaches must not be described as supported.
 
 ---
 
@@ -1058,3 +1063,34 @@ OAuth2 via `/v1/oauth/tokens`: `client_credentials` and `token_exchange` grants.
 **Spark**: `spark.sql.catalog.pangrova.type=rest`, `uri=http://coordinator:8080`
 **Trino**: `iceberg.catalog.type=rest`, `iceberg.rest-catalog.uri=http://coordinator:8080`
 **Polaris**: `catalog.type: rest`, `uri: http://coordinator:8080`
+
+---
+
+## 8. Connector query lifetime and admission
+
+Connector reads are admitted through the authority issued by the Coordinator query
+creation owner. The authority binds the query state machine to one
+`TaskIdentityRegistry.Scope`; session copies preserve that object. A query identifier
+or session property cannot create a read lifetime.
+
+- The authority is indexed before compilation. A selected catalog lookup retains an
+  operation permit, retains the original authenticated metadata instance before
+  `BEGIN`, and keeps a failed `BEGIN` instance for cleanup. Catalog `BEGIN` is
+  single-flight. Schema discovery without an issued query stays metadata-only and
+  registers no splits or readers.
+- Cleanup requires closed admission plus drain of the exact Scope's issued tasks and
+  operations. The drain check claims cleanup and is not a read-only status query.
+  Metadata cleanup traverses retained instances outside locks; successful instances
+  are released once, failed instances stay retryable. Pending terminal transitions
+  reject new operations but are not physical-drain evidence.
+- Paimon retains selected SDK tables, splits, and readers in the same query Scope.
+  A reader owns its operation permit until the SDK reader close succeeds. The first
+  read binding is frozen per table; changing an explicit snapshot or schema selector
+  fails instead of silently repinning. Reusing the exact historical bound handle,
+  including its historical schema, remains valid; limit-only variation preserves the
+  source. Multiple historical occurrences of one table in a single query remain
+  unsupported.
+- Connector shutdown seals admission before checking readers and incomplete SDK
+  binding resolutions. A rejected close retains ownership and leaves the catalog open
+  for retry after real I/O exits. Diagnostics expose only pending split and active
+  reader counts, never mutable registries or SDK handles.

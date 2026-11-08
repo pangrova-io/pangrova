@@ -1,9 +1,0 @@
-{
-  "sdk_implementation": "Exact body match after package/class/constructor renaming, API implements declaration, and capture visibility reduction; no ID, flags, vendor-state or activation algorithm change.",
-  "session": "Immutable maps, snapshot/range exclusion, exact admitted authority, query-ID constraint retained. Implicit SDK capture constructors removed; withTenantId added and used at actual admission boundary.",
-  "tenant_defect_scope": "Existing six-argument reconstruction discarded trusted selectors/marker. Actual admission-to-dispatch regression now proves preservation. Not evidence that an existing materialization production request lost selectors: that path currently binds them later.",
-  "worker_listener_failure": "Failed test logged wildcard Worker 0.0.0.0:50071; OS listener inventory found the long-running local Clash process at 127.0.0.1:50071. Tests now explicitly bind their advertised loopback interface. No external process stopped, no HTTP 404 retry semantics changed.",
-  "worker_startup_cleanup": "New occupied-loopback test first exposed Jetty graceful shutdown of STOPPED context. Start now cleans acquired endpoints, keeps primary exception, suppresses cleanup exceptions; non-started context uses direct stop. Collision, authentication and first request tests pass.",
-  "trace_verification_limit": "New SQL E2E inspects actual canonical TaskRequest valid/nonzero unique unsampled identities and consumes real Native results. Disabled tracing fixture does not prove incoming HTTP traceparent propagation or exported Native span continuity.",
-  "full_goal": "Query orchestration still resides in transitional Coordination Core; Observability SDK/provider split and all remaining plan phases are not completed."
-}

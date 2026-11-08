@@ -1,3 +1,8 @@
+---
+title: "Dynamic Table Refresh"
+description: "Dynamic Table SQL and scheduling behavior on the shared materialization kernel"
+---
+
 # Dynamic Table refresh
 
 This document describes the implemented Dynamic Table refresh behavior. The

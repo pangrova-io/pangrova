@@ -13,7 +13,7 @@ Binary data types for raw bytes, fixed-size encodings, and universally unique id
 | Property | Value |
 |----------|-------|
 | Storage | Variable-length binary data |
-| Aliases | `BLOB`, `VARBINARY`, `BINARY` |
+| Aliases | `BLOB`, `VARBINARY` |
 | Literal | Hex literal `X'...'` |
 
 ```sql

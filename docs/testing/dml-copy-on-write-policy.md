@@ -1,3 +1,8 @@
+---
+title: "DML Copy-on-Write Policy"
+description: "Copy-on-write DML authorization and masking regression expectations"
+---
+
 # Copy-on-write DML policy regression
 
 `DmlCopyOnWritePolicyE2ETest` exercises authenticated public SQL against the real

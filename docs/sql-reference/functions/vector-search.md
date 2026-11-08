@@ -140,12 +140,11 @@ CREATE INDEX [IF NOT EXISTS] index_name ON table_name(vector_column)
 | Property | Values | Default | Description |
 |----------|--------|---------|-------------|
 | `algorithm` | `'HNSW'`, `'IVFPQ'`, `'DISK_ANN'` | `'HNSW'` | Index algorithm |
-| `metric` | `'L2'`, `'COSINE'`, `'INNER_PRODUCT'` | `'L2'` | Distance metric (IVFPQ supports `L2` only) |
-| `hnsw.M` | Integer | 16 | HNSW: max edges per node |
-| `hnsw.efConstruction` | Integer | 200 | HNSW: construction search depth |
-| `hnsw.efSearch` | Integer | 64 | HNSW: query-time search depth |
-| `ivfpq.nlist` | Integer | 256 | IVFPQ: number of Voronoi cells |
-| `ivfpq.m` | Integer | 8 | IVFPQ: number of sub-vectors |
+| `metric` | `'L2'`, `'COSINE'`, `'INNER_PRODUCT'` | `'L2'` | IVFPQ supports all three; DISK_ANN requires `L2` |
+| `max_connections` | Integer | 16 | HNSW: max edges per node |
+| `ef_construction` | Integer | 200 | HNSW: construction depth |
+| `ivfpq.nlist` | Integer | 64 | IVF coarse clusters |
+| `ivfpq.m` | Integer | greatest divisor of dimension <= 32 | PQ sub-vectors |
 | `ivfpq.nbits` | Integer | 8 | IVFPQ: bits per sub-vector quantizer |
 
 **Examples:**
@@ -159,7 +158,7 @@ CREATE INDEX idx_embedding ON articles(embedding)
 -- Create HNSW with cosine metric and custom parameters
 CREATE INDEX idx_cos ON products(embedding)
     USING VECTOR
-    WITH ('algorithm'='HNSW', 'metric'='COSINE', 'hnsw.M'='32', 'hnsw.efConstruction'='400');
+    WITH ('algorithm'='HNSW', 'metric'='COSINE', 'max_connections'='32', 'ef_construction'='400');
 
 -- Create IVFPQ index for large datasets
 CREATE INDEX idx_pq ON documents(embedding)

@@ -45,165 +45,58 @@ sidebar_label: "Resilience"
 
 ### 2.1 Error Classification
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Error Classification                                     │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Error classification:                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Category          │ Code range    │ Retry policy  │ Examples           │   │
-│  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  USER_ERROR        │ 1000-1999     │ No retry      │ Syntax, no access  │   │
-│  │  RESOURCE_ERROR    │ 2000-2999     │ Retryable     │ No resources, t/o  │   │
-│  │  INTERNAL_ERROR    │ 3000-3999     │ No retry      │ Internal error, bug│   │
-│  │  EXTERNAL_ERROR    │ 4000-4999     │ Retryable     │ Storage, network   │   │
-│  │  EXCHANGE_ERROR    │ 5000-5999     │ Retryable     │ Upstream task, conn lost │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+`PangrovaErrorCode` values use the string format `CATEGORY-NNNN` (for example
+`PARSER-0001`, `RESOURCE-0001`, `NATIVE-0001`). `ErrorClassifier` maps the prefix
+before the first hyphen to an `ErrorCategory`; unknown prefixes default to
+`INTERNAL_ERROR`.
+
+| Prefixes | ErrorCategory | Retryable | Max retries |
+|---|---|---|---|
+| `USER`, `VALIDATION`, `TENANT` | `USER_ERROR` | No | 0 |
+| `RESOURCE`, `MEMORY` | `RESOURCE_ERROR` | Yes | 1 |
+| `INTERNAL`, `CONFIG`, unknown | `INTERNAL_ERROR` | No | 0 |
+| `EXTERNAL`, `METADATA`, `NATIVE` | `EXTERNAL_ERROR` | Yes | 3 |
+| `EXCHANGE`, `FLIGHT`, `TRANSPORT` | `EXCHANGE_ERROR` | Yes | 3 |
+| `TIMEOUT` | `TIMEOUT` | Yes | 2 |
+
+Prefixes outside this map (for example `PARSER`, `PLANNER`, `SECURITY`, `AI`) are
+currently classified as `INTERNAL_ERROR`. That is the current `ErrorClassifier`
+behavior, not a claim that every prefix is semantically ideal.
 
 ### 2.2 Error-Code Definition
 
+`PangrovaErrorCode` is an enum of string codes and descriptions:
+
 ```java
-/**
- * Pangrova unified error codes
- */
-public enum PangrovaErrorCode {
-
-    // ========== USER_ERROR (1000-1999): user errors, non-retryable ==========
-    SYNTAX_ERROR(1001, "SQL syntax error"),
-    TABLE_NOT_FOUND(1101, "Table not found"),
-    COLUMN_NOT_FOUND(1102, "Column not found"),
-    ACCESS_DENIED(1201, "Access denied"),
-
-    // Schema Evolution errors (1300-1399)
-    SCHEMA_INCOMPATIBLE(1301, "Schema change is incompatible"),
-    COLUMN_TYPE_MISMATCH(1302, "Column type mismatch during schema evolution"),
-
-    // CDC errors (1400-1499)
-    CDC_PARSE_ERROR(1401, "Failed to parse CDC message"),
-    CDC_OFFSET_ERROR(1402, "CDC offset commit failed"),
-    //
-    CDC_CONNECTION_FAILED(1403, "Kafka connection failed"),
-    CDC_QUOTA_EXCEEDED(1404, "CDC consumer resource quota exceeded"),
-    CDC_REBALANCE_FAILED(1405, "Kafka consumer group rebalance failed"),
-    STREAMING_BUFFER_OVERFLOW(1410, "Streaming ingestion buffer overflow"),
-    STREAMING_FLUSH_FAILED(1411, "Streaming flush to storage failed"),
-    MAINTENANCE_TASK_TIMEOUT(1420, "Maintenance task exceeded timeout"),
-    MAINTENANCE_COMPACTION_FAILED(1421, "Compaction task failed"),
-    WATERMARK_INFERENCE_FAILED(1430, "Watermark inference failed — missing timestamp field or empty record set"),
-
-    //
-    // Cache errors (1500-1599) — internal system events, NOT user-facing errors
-    // These codes are used for internal metrics/logging only; they are never
-    // returned to clients. On CACHE_MISS the system transparently reads from
-    // the data source. On CACHE_INVALIDATION_FAILED the system logs a warning
-    // and schedules a retry.
-    CACHE_MISS(1501, "Cache entry not found"),              // internal-only, not returned to client
-    CACHE_INVALIDATION_FAILED(1502, "Cache invalidation failed"), // internal-only, logged as warning
-
-    // Multi-tenancy errors (1600-1699)
-    TENANT_NOT_FOUND(1601, "Tenant not found"),
-    TENANT_QUOTA_EXCEEDED(1602, "Tenant resource quota exceeded"),
-    TENANT_ACCESS_DENIED(1603, "Tenant access denied to catalog"),
-
-    //
-    // Metadata errors (1700-1799)
-    CATALOG_NOT_FOUND(1701, "Catalog not found"),
-    CATALOG_ALREADY_EXISTS(1702, "Catalog already exists"),
-    CATALOG_SUSPENDED(1703, "Catalog is suspended"),
-    CATALOG_PROVIDER_NOT_FOUND(1704, "Catalog provider not found"),
-    CATALOG_BACKEND_ERROR(1705, "Catalog backend unreachable"),
-    METASTORE_ERROR(1706, "Internal metastore persistence error"),
-    METADATA_SERIALIZATION_ERROR(1707, "Metadata serialization/deserialization error"),
-
-    //
-    // Security errors (1800-1899)
-    AUTHENTICATION_FAILED(1801, "Authentication failed"),
-    TOKEN_EXPIRED(1802, "Authentication token expired"),
-    RLS_POLICY_ERROR(1803, "Row-level security policy evaluation error"),
-    COLUMN_MASK_ERROR(1804, "Column masking policy evaluation error"),
-    AUDIT_WRITE_FAILED(1805, "Audit log write failed"),
-
-    //
-    // Governance errors (1850-1899)
-    DATA_QUALITY_CHECK_FAILED(1851, "Data quality check failed"),
-    DATA_QUALITY_RULE_INVALID(1852, "Data quality rule expression invalid"),
-    LINEAGE_EMISSION_FAILED(1853, "OpenLineage event emission failed"),
-    CLASSIFICATION_TAG_INVALID(1854, "Data classification tag invalid"),
-
-    // ========== RESOURCE_ERROR (2000-2999): resource errors, retryable ==========
-    RESOURCE_EXHAUSTED(2001, "Resource exhausted"),
-    MEMORY_EXCEEDED(2002, "Memory limit exceeded"),
-    QUERY_TIMEOUT(2101, "Query execution timeout"),
-    QUERY_CANCELLED(2201, "Query was cancelled"),
-
-    // ========== INTERNAL_ERROR (3000-3999): internal errors, non-retryable ==========
-    // [DSC-011 resolved] INTERNAL_ERROR is NOT retryable — these indicate bugs
-    // that should fail immediately and be logged for investigation.
-    INTERNAL_ERROR(3001, "Internal error"),
-    NATIVE_ERROR(3101, "Native execution error"),
-    JNI_ERROR(3102, "JNI bridge error"),
-
-    // ========== EXTERNAL_ERROR (4000-4999): external errors, retryable ==========
-    STORAGE_ERROR(4001, "Storage access error"),
-    NETWORK_ERROR(4101, "Network error"),
-    COORDINATOR_UNAVAILABLE(4203, "Coordinator unavailable"),
-    WORKER_UNAVAILABLE(4204, "Worker unavailable"),
-
-    // ========== EXCHANGE_ERROR (5000-5999): data exchange errors, retryable ==========
-    UPSTREAM_TASK_FAILED(5001, "Upstream task failed"),
-    EXCHANGE_CONNECTION_LOST(5101, "Exchange connection lost"),
-    EXCHANGE_DATA_TIMEOUT(5102, "Exchange data fetch timeout");
-
-    private final int code;
-    private final String message;
-
-    /**
-     * Retryable error codes are RESOURCE_ERROR (2000-2999),
-     * EXTERNAL_ERROR (4000-4999), and EXCHANGE_ERROR (5000-5999).
-     *
-     * USER_ERROR (1000-1999) and INTERNAL_ERROR (3000-3999) are NOT retryable.
-     * [DSC-011 resolved] INTERNAL_ERROR was previously marked retryable;
-     * aligned with query-execution.md — internal errors (bugs) must fail
-     * immediately and be logged for investigation, not retried.
-     */
-    public boolean isRetryable() {
-        return (code >= 2000 && code < 3000) || code >= 4000;
-    }
-}
+PARSER_SYNTAX_ERROR("PARSER-0001", "SQL syntax error"),
+PLANNER_VALIDATION_FAILURE("PLANNER-0001", "Query validation failure"),
+RESOURCE_MEMORY_EXCEEDED("RESOURCE-0001", "Memory quota exceeded"),
+RUNTIME_QUERY_TIMEOUT("RUNTIME-0003", "Query execution timeout"),
+NATIVE_JNI_EXCEPTION("NATIVE-0001", "C++ exception during JNI call"),
+METADATA_TABLE_NOT_FOUND("METADATA-0008", "Table not found"),
 ```
+
+`getCode()` returns the string code and `getDescription()` returns the description.
+There is no numeric code field and no `isRetryable()` method on the enum;
+retryability is derived by `ErrorClassifier` from the category prefix.
 
 ### 2.3 Exception Class Hierarchy
 
 ```java
-/**
- * Pangrova base exception class
- */
 public class PangrovaException extends RuntimeException {
     private final PangrovaErrorCode errorCode;
-    private final Map<String, Object> context;
-    private final String traceId;
 
-    public boolean isRetryable() {
-        return errorCode.isRetryable();
-    }
-
-    public ErrorResponse toErrorResponse() {
-        return ErrorResponse.builder()
-            .errorCode(errorCode.getCode())
-            .errorType(errorCode.name())
-            .message(getMessage())
-            .traceId(traceId)
-            .context(sanitizeContext(context))
-            .build();
-    }
+    public PangrovaException(PangrovaErrorCode errorCode, String message) { ... }
+    public PangrovaException(PangrovaErrorCode errorCode, String message, Throwable cause) { ... }
+    public PangrovaErrorCode getErrorCode() { ... }
 }
 ```
 
----
+The base exception carries only the error code and message/cause. There is no
+context map, trace ID, or `toErrorResponse()` method on the base class. Domain
+subclasses add their own context (for example `NativeExecutionException` retains
+the raw native code). REST responses are produced by `CoordinatorExceptionMapper`,
+not by the exception itself.
 
 ## 3. Java ↔ Native Exception Propagation
 
@@ -256,167 +149,58 @@ message NativeError {
 
 ### 3.3 Native → Java Error-Code Mapping
 
-The Native layer's `NativeError.error_code` is mapped to the Java layer's `PangrovaErrorCode` according to the following rules:
+Current implementation is not a hundreds-bucket mapper:
 
-| Native error_code range | Native error_type | PangrovaErrorCode | Description |
-|---|---|---|---|
-| 100-199 | `MEMORY_ERROR` | `MEMORY_EXCEEDED` (2002) | Velox memory allocation failure, spill failure |
-| 200-299 | `IO_ERROR` | `STORAGE_ERROR` (4001) | File read failure, S3/HDFS unreachable |
-| 300-399 | `FORMAT_ERROR` | `INTERNAL_ERROR` (3001) | Parquet/ORC format parse error |
-| 400-499 | `EXPRESSION_ERROR` | `INTERNAL_ERROR` (3001) | Expression evaluation error, type conversion failure |
-| 500-599 | `OPERATOR_ERROR` | `INTERNAL_ERROR` (3001) | Operator execution error (Join/Agg/Sort) |
-| 600-699 | `SCHEMA_ERROR` | `INTERNAL_ERROR` (3001) | Schema Evolution mapping failure |
-| 700-799 | `CANCEL_ERROR` | `QUERY_CANCELLED` (2201) | Task cancelled |
-| 800-899 | `SPILL_ERROR` | `STORAGE_ERROR` (4001) | Spill write/read failure (disk full, IO error) |
-| 900-999 | `UNKNOWN_ERROR` | `NATIVE_ERROR` (3101) | Unclassified Native error |
+- A negative JNI return code raises `NativeExecutionException`, which uses
+  `PangrovaErrorCode.NATIVE_JNI_EXCEPTION` and retains the raw `nativeErrorCode()`.
+- Canonical task reports carry an `ExecutionError` with `error_class`, `code`,
+  `message`, `retryable`, `failed_component`, and `failed_partition_ids`.
+- `TaskCompletionMonitor` surfaces the code, class, and message to query failure
+  handling.
+- `ErrorClassifier` classifies Java `PangrovaErrorCode` prefixes only; it does not
+  map native integer buckets.
 
-> **Design note:** The mapping table below is a target consolidation. Current Java
-> error handling uses `PangrovaErrorCode`, `PangrovaException`, and transport-specific
-> mapping such as `BatchStreamProducer` for Flight status conversion; there is no standalone native error mapper.
+### 3.4 HTTP Status Mapping
 
-Mapping implementation:
+`CoordinatorExceptionMapper` resolves the HTTP status and writes an `ErrorDetail`
+JSON body. It does not derive status from numeric error-code ranges.
 
-```java
-/**
- * Native error code → PangrovaErrorCode mapping
- *
- * Mapping rules:
- * - Classify by error_code / 100; each hundreds bucket maps to one Native error type
- * - Unregistered ranges are uniformly mapped to NATIVE_ERROR (3101)
- * - The mapping table must stay in sync with the Native-layer error_code definitions
- */
-public class NativeErrorMapper {
+| Exception | HTTP status | Error code |
+|---|---|---|
+| `WebApplicationException` | its response status | retained or status token |
+| `IllegalArgumentException` | 400 | `BAD_REQUEST` |
+| `AuthenticationRequiredException` | 401 | `AUTHENTICATION_REQUIRED` |
+| `AccessDeniedException` / `ForbiddenException` | 403 | `ACCESS_DENIED` |
+| not-found exceptions; `METADATA_FILE_SPACE_NOT_FOUND`; `FILE_OBJECT_NOT_FOUND` | 404 | actual Pangrova code |
+| `FILE_PATH_INVALID` | 400 | actual Pangrova code |
+| `UnregisteredWorkerException` | 409 | actual Pangrova code |
+| `TenantQuotaExceededException` | 429 | actual Pangrova code or `RATE_LIMITED` |
+| `NoAvailableWorkerException`; `FILE_STORAGE_UNAVAILABLE`; `FILE_STORAGE_NOT_CONFIGURED` | 503 | actual Pangrova code or `SERVICE_UNAVAILABLE` |
+| other exceptions | 500 | `INTERNAL_ERROR` |
 
-    public static PangrovaErrorCode map(int nativeErrorCode) {
-        int category = nativeErrorCode / 100;
-        return switch (category) {
-            case 1 -> PangrovaErrorCode.MEMORY_EXCEEDED;       // 100-199: Memory
-            case 2 -> PangrovaErrorCode.STORAGE_ERROR;         // 200-299: IO
-            case 3, 4, 5, 6 -> PangrovaErrorCode.INTERNAL_ERROR; // 300-699: Format/Expr/Op/Schema
-            case 7 -> PangrovaErrorCode.QUERY_CANCELLED;       // 700-799: Cancel
-            case 8 -> PangrovaErrorCode.STORAGE_ERROR;         // 800-899: Spill IO
-            default -> PangrovaErrorCode.NATIVE_ERROR;         // 900-999 + unknown
-        };
-    }
+`error_type` is `USER_ERROR` for statuses from 400 through 499 and
+`INTERNAL_ERROR` otherwise. A `PangrovaException` supplies its
+`getErrorCode().getCode()` string; JAX-RS protocol statuses retain status tokens
+such as `METHOD_NOT_ALLOWED`, `NOT_ACCEPTABLE`, `PAYLOAD_TOO_LARGE`, and
+`UNSUPPORTED_MEDIA_TYPE`.
 
-    /**
-     * Extract detailed error context for diagnostics.
-     * Enriches PangrovaException with Native-specific information.
-     */
-    public static Map<String, String> extractContext(NativeError nativeError) {
-        Map<String, String> ctx = new LinkedHashMap<>();
-        ctx.put("native_error_code", String.valueOf(nativeError.getErrorCode()));
-        ctx.put("native_error_type", nativeError.getErrorType());
-        ctx.put("operator_type", nativeError.getOperatorType());
-        ctx.put("operator_id", String.valueOf(nativeError.getOperatorId()));
-        ctx.put("rows_processed", String.valueOf(nativeError.getRowsProcessed()));
-        ctx.putAll(nativeError.getPropertiesMap());
-        return ctx;
-    }
-}
-```
+### 3.5 Arrow Flight CallStatus Mapping
 
----
+`BatchStreamProducer.wireFailure` maps a `DataProducerException.Status` to an
+Arrow `CallStatus` for the result stream:
 
-### 3.4 PangrovaErrorCode → HTTP Status Code Mapping
+| DataProducer status | Arrow CallStatus |
+|---|---|
+| `NOT_FOUND` | `NOT_FOUND` |
+| `INVALID_ARGUMENT` | `INVALID_ARGUMENT` |
+| `RESOURCE_EXHAUSTED` | `RESOURCE_EXHAUSTED` |
+| `UNAVAILABLE` | `UNAVAILABLE` |
+| `CANCELLED` | `CANCELLED` |
+| `OK`, `INTERNAL` | `INTERNAL` |
 
-The HTTP status code returned by the REST API is determined by the PangrovaErrorCode category:
-
-| PangrovaErrorCode range | ErrorCategory | HTTP Status Code | Description |
-|---|---|---|---|
-| 1000-1099 | USER_ERROR (syntax) | 400 Bad Request | SQL syntax error |
-| 1100-1199 | USER_ERROR (object) | 404 Not Found | Table/column/schema not found |
-| 1200-1299 | USER_ERROR (permission) | 403 Forbidden | Insufficient permissions |
-| 1300-1499 | USER_ERROR (Schema/CDC) | 400 Bad Request | Schema incompatible, CDC parse error |
-| 1500-1599 | USER_ERROR (cache) | — (internal only) | Cache miss/invalidation — internal metrics only, never returned to client (transparent fallback to data source) |
-| 1600-1699 | USER_ERROR (tenant) | 403 Forbidden / 429 Too Many Requests | Tenant not found / quota exceeded |
-| 1700-1799 | USER_ERROR (metadata) | 404 Not Found / 500 Internal Server Error | Catalog/Metadata error |
-| 1800-1899 | USER_ERROR (security) | 401 Unauthorized / 403 Forbidden | Authentication failure / RLS policy error |
-| 2001-2002 | RESOURCE_ERROR | 503 Service Unavailable | Resource exhausted, memory exceeded |
-| 2101 | RESOURCE_ERROR (timeout) | 504 Gateway Timeout | Query execution timeout |
-| 2201 | RESOURCE_ERROR (cancel) | 499 Client Closed Request | Query cancelled |
-| 3000-3999 | INTERNAL_ERROR | 500 Internal Server Error | Internal error, Native error |
-| 4000-4999 | EXTERNAL_ERROR | 502 Bad Gateway | Storage/network/upstream service error |
-| 5000-5999 | EXCHANGE_ERROR | 502 Bad Gateway | Data exchange error |
-
-Mapping implementation:
-
-```java
-public class HttpStatusMapper {
-
-    public static int toHttpStatus(PangrovaErrorCode errorCode) {
-        int code = errorCode.getCode();
-        if (code >= 1000 && code < 1100) return 400;  // Syntax
-        if (code >= 1100 && code < 1200) return 404;  // Not Found
-        if (code >= 1200 && code < 1300) return 403;  // Forbidden
-        if (code >= 1300 && code < 1500) return 400;  // Bad Request
-        // 1500-1599: Cache errors — internal only, should not reach HTTP layer.
-        // If they do, return 500 as a safety fallback.
-        if (code >= 1500 && code < 1600) return 500;  // Cache (internal)
-        if (code == 1602) return 429;                  // Tenant Quota
-        if (code >= 1600 && code < 1700) return 403;  // Tenant Access
-        if (code >= 1700 && code < 1800) return 404;  // Metadata/Catalog
-        //
-        if (code == 1801 || code == 1802) return 401;  // Authentication
-        if (code >= 1803 && code < 1900) return 403;  // Authorization/RLS
-        if (code == 2101) return 504;                  // Timeout
-        if (code == 2201) return 499;                  // Cancelled
-        if (code >= 2000 && code < 3000) return 503;  // Resource
-        if (code >= 3000 && code < 4000) return 500;  // Internal
-        if (code >= 4000 && code < 6000) return 502;  // External/Exchange
-        return 500;                                    // Unknown
-    }
-}
-```
-
-REST API error response example (the JSON format in §8.1 is unchanged; the HTTP status code is determined by the table above):
-```
-HTTP/1.1 404 Not Found
-Content-Type: application/json
-
-{
-    "errorCode": 1101,
-    "errorType": "TABLE_NOT_FOUND",
-    "message": "Table 'iceberg.db.orders' not found",
-    ...
-}
-```
-
----
-
-### 3.5 PangrovaErrorCode → Arrow Flight CallStatus Mapping
-
-
-
-Arrow Flight (gRPC) interactions use `CallStatus` codes instead of HTTP status codes. The Flight Server in Worker nodes maps Pangrova error categories to Arrow Flight `CallStatus` as follows:
-
-| ErrorCategory | Arrow Flight CallStatus | gRPC Code | Usage Context |
-|---|---|---|---|
-| USER_ERROR (1000-1999) | `INVALID_ARGUMENT` | 3 | SQL errors, schema mismatch, permission denied |
-| RESOURCE_ERROR (2000-2999) | `RESOURCE_EXHAUSTED` | 8 | OOM, query timeout |
-| RESOURCE_ERROR (2201 cancel) | `CANCELLED` | 1 | Query cancelled by user |
-| INTERNAL_ERROR (3000-3999) | `INTERNAL` | 13 | Bugs, native errors, JNI errors |
-| EXTERNAL_ERROR (4000-4999) | `UNAVAILABLE` | 14 | Storage errors, upstream service unavailable |
-| EXCHANGE_ERROR (5000-5999) | `UNAVAILABLE` | 14 | Upstream task failed, exchange connection lost |
-
-The target Flight mapping carries structured error detail in
-`CallStatus.description()`. Current REST responses use `ErrorDetail`, while Java
-domain failures carry `PangrovaErrorCode` through `PangrovaException`.
-
-```java
-// Flight Server error mapping (Worker-side)
-public static CallStatus toFlightStatus(PangrovaErrorCode errorCode, String message) {
-    int code = errorCode.getCode();
-    if (code == 2201) return CallStatus.CANCELLED.withDescription(message);
-    if (code >= 1000 && code < 2000) return CallStatus.INVALID_ARGUMENT.withDescription(message);
-    if (code >= 2000 && code < 3000) return CallStatus.RESOURCE_EXHAUSTED.withDescription(message);
-    if (code >= 3000 && code < 4000) return CallStatus.INTERNAL.withDescription(message);
-    if (code >= 4000 && code < 6000) return CallStatus.UNAVAILABLE.withDescription(message);
-    return CallStatus.INTERNAL.withDescription(message);
-}
-```
-
----
+An existing `FlightRuntimeException` is rethrown unchanged. Producer timeout and
+interruption paths use `TIMED_OUT` and `CANCELLED` directly. This is a transport
+mapping, not a second error-code taxonomy.
 
 ## 4. Circuit Breaker Design
 
@@ -663,33 +447,22 @@ public class BackpressureController {
 
 ### 7.1 Retry Configuration
 
+Retry eligibility comes from `ErrorClassifier` categories, not a hard-coded set of
+enum values:
+
 ```java
-/**
- * Retry strategy configuration
- */
-public class RetryPolicy {
-    private final int maxRetries = 3;
-    private final Duration initialBackoff = Duration.ofMillis(100);
-    private final Duration maxBackoff = Duration.ofSeconds(10);
-    private final double backoffMultiplier = 2.0;
-    private final Set<PangrovaErrorCode> retryableErrors = Set.of(
-        RESOURCE_EXHAUSTED, QUERY_TIMEOUT, NETWORK_ERROR,
-        COORDINATOR_UNAVAILABLE, WORKER_UNAVAILABLE
-    );
+ErrorClassifier classifier = new ErrorClassifier();
+ErrorCategory category = classifier.classify(error.getErrorCode());
+boolean retryable = classifier.isRetryable(category)
+        && attempt < classifier.maxRetries(category);
 
-    public boolean shouldRetry(PangrovaException e, int attemptCount) {
-        if (attemptCount >= maxRetries) return false;
-        if (!e.isRetryable()) return false;
-        return retryableErrors.contains(e.getErrorCode());
-    }
-
-    public Duration getBackoff(int attemptCount) {
-        long backoffMs = (long) (initialBackoff.toMillis() *
-                                  Math.pow(backoffMultiplier, attemptCount));
-        return Duration.ofMillis(Math.min(backoffMs, maxBackoff.toMillis()));
-    }
-}
+RetryPolicy policy = new RetryPolicy(); // 100 ms -> 10 s, x2, +/-50% jitter
+Duration backoff = policy.getBackoff(attempt);
 ```
+
+`RetryPolicy.shouldRetry(category, attempt, idempotent)` also refuses TIMEOUT retries
+for non-idempotent operations. Max retries by category are defined in
+`ErrorClassifier`: USER/INTERNAL 0, RESOURCE 1, TIMEOUT 2, EXTERNAL/EXCHANGE 3.
 
 ### 7.2 Idempotency Design
 
@@ -747,46 +520,23 @@ This fallback is attempted once per source task. If S3 recovery also fails, the 
 
 ### 8.1 Error Response Format
 
+`ErrorDetail` is the actual REST error body:
+
 ```json
 {
-    "errorCode": 1101,
-    "errorType": "TABLE_NOT_FOUND",
-    "message": "Table 'iceberg.db.orders' not found",
-    "traceId": "abc123def456",
-    "queryId": "query-789",
-    "context": {
-        "catalog": "iceberg",
-        "schema": "db",
-        "table": "orders"
-    },
-    "suggestion": "Check if the table exists using 'SHOW TABLES IN iceberg.db'",
-    "documentationUrl": "https://docs.pangrova.io/errors/TABLE_NOT_FOUND"
+  "error_code": "METADATA-0008",
+  "error_type": "USER_ERROR",
+  "message": "Table 'iceberg.db.orders' not found"
 }
 ```
+
+`stack_trace` is optional and omitted when null. There is no `traceId`, `queryId`,
+`context`, `suggestion`, or `documentationUrl` field in `ErrorDetail`.
 
 ### 8.2 Error Suggestion Generation
 
-```java
-public class ErrorSuggestionGenerator {
-
-    public static String generateSuggestion(PangrovaException e) {
-        return switch (e.getErrorCode()) {
-            case TABLE_NOT_FOUND ->
-                "Check if the table exists using 'SHOW TABLES'. " +
-                "If recently created, try refreshing the catalog.";
-            case ACCESS_DENIED ->
-                "Contact your administrator to request access.";
-            case MEMORY_EXCEEDED ->
-                "Try reducing query complexity or increasing memory limits.";
-            case QUERY_TIMEOUT ->
-                "Consider optimizing the query or increasing timeout.";
-            default -> null;
-        };
-    }
-}
-```
-
----
+There is no server-side suggestion generator in the current code. Clients may
+map `error_code` values to local guidance; the server does not attach suggestions.
 
 ## 9. Error Monitoring and Alerting
 
@@ -810,7 +560,8 @@ public class ErrorMonitor {
 
     private boolean shouldAlert(PangrovaException e) {
         // Alert immediately on internal errors
-        if (e.getErrorCode().getCode() >= 3000 && e.getErrorCode().getCode() < 4000) {
+        if (new ErrorClassifier().classify(e.getErrorCode())
+                == ErrorClassifier.ErrorCategory.INTERNAL_ERROR) {
             return true;
         }
         // Check error rate

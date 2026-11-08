@@ -1,4 +1,13 @@
+---
+title: "Indexing Architecture"
+description: "Index contracts, build and maintenance paths, and pruning boundaries"
+---
+
 # Indexing Architecture
+
+> **Accuracy scope.** This is a living architecture document. JVM file-pruning
+> indexes and durable Native retrieval artifacts are implemented paths; lifecycle,
+> provider, and maintenance items explicitly marked remaining are target design.
 
 ## Scope and execution boundary
 
@@ -31,7 +40,7 @@ Index state and index orchestration have separate owners:
   PostgreSQL production artifact does not depend on Metadata or Indexing Core.
   Narrower persistence ports and removal of permissive optional defaults remain
   separate work; moving the existing broad port does not complete that redesign.
-- `pangrova-coordinator` owns only the control-plane adapter under
+- `pangrova-coordination/pangrova-coordination-core` owns only the control-plane adapter under
   `org.pangrova.coordinator.indexing` (DDL, filter, lifecycle/GC and the
   AI retrieval-index lifecycle). It depends on indexing contracts and store
   ports; it never owns a second index metadata store.
@@ -123,9 +132,8 @@ focused methods, avoiding bulk copies in predicate evaluation and tree building.
 Serialization may request owned snapshots. The binary layouts are unchanged.
 
 This boundary does not yet establish immutability of arbitrary Comparable keys
-or runtime wiring of every statistics DTO. See the detailed
-[ownership review](../internal/project-structure-refactoring/index-buffer-ownership.md)
-for verified scope and remaining work.
+or runtime wiring of every statistics DTO. The verified scope and remaining work
+are bounded by the current Codec and evaluation tests.
 
 Complete JVM BTree tuple keys now use `CompositeIndexKey` in Indexing API rather
 than a Provider-private class. The generic comparable codec owns tag 11: a bounded

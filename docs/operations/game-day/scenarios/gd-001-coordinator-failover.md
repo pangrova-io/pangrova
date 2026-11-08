@@ -25,7 +25,7 @@ Validate that the Pangrova cluster survives coordinator failure with minimal que
 - Staging cluster with 2+ coordinator instances (active/standby)
 - Active workload generating queries (use `pangrova-client-cli` benchmark mode)
 - Monitoring dashboards open (coordinator health, query latency, error rate)
-- Recovery time measurement tool ready (`tools/measure-recovery-time.sh`)
+- Recovery time measurement tool ready (`../tools/measure-recovery-time.sh`)
 
 ## Execution Steps
 
@@ -33,7 +33,7 @@ Validate that the Pangrova cluster survives coordinator failure with minimal que
 
 ```bash
 # Start continuous query workload
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint http://coordinator-active:8080 \
   --query "SELECT count(*) FROM benchmark.lineitem" \
   --interval 1s \
@@ -52,7 +52,7 @@ Record:
 ssh coordinator-active "kill -9 \$(pgrep -f pangrova-coordinator)"
 
 # Start recovery time measurement
-./tools/measure-recovery-time.sh measure \
+../tools/measure-recovery-time.sh measure \
   --endpoint http://coordinator-standby:8080 \
   --probe-query "SELECT 1" \
   --timeout 60s \
@@ -90,7 +90,7 @@ Monitor and record:
 
 If the standby fails to assume leadership:
 1. Restart the original coordinator: `ssh coordinator-active "systemctl start pangrova-coordinator"`
-2. Verify cluster health via `GET /v1/health` on each coordinator and the HA lease table (`distributed_lease` in `pangrova_ha`)
+2. Verify cluster health via `GET /v1/health` on each coordinator and the HA lease table (`distributed_lease` in `pangrova_meta`)
 3. Investigate standby logs for leadership election failure
 
 ## Observability Checklist

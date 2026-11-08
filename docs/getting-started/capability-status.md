@@ -19,7 +19,6 @@ the exact connector, query shape, deployment, and failure scenario still need va
 | [SQL reference](../sql-reference/index.md) | Syntax, dispatch boundaries, and runtime prerequisites |
 | [Architecture](../architecture/index.md) | Implementation details and explicitly labelled design constraints or targets |
 | [Production checklist](../deployment/production-checklist.md) | Work required before deployment acceptance |
-| Repository `docs/internal/` records | Historical audits, experiments, proposals, and recorded validation; not a release support contract |
 
 ## Execution and Lakehouse Access
 
@@ -31,14 +30,14 @@ the exact connector, query shape, deployment, and failure scenario still need va
 | Volume and Stage DDL | Definitions, RBAC, audit, and the file access-ticket flow are wired against the metadata authority | `SHOW`/`DESCRIBE` plus `LIST @stage`/`REMOVE @stage` for SQL. File transfer (single-request, ranged, multipart), recursive listing, version-checked delete, presigned URLs, and role-authorized stable Stage URLs work through the [file access API](catalogs/volumes-stages-files.md). Manual `ALTER STAGE ... REFRESH` publishes a durable directory index after a complete Worker listing. Native Directory projections, automatic index updates, `PUT`/`GET`, SQL URL functions, and `COPY INTO`/`read_files` ingestion are not implemented |
 | Iceberg and Paimon | Connector implementations exist | Table-format capability does not imply equivalent Pangrova SQL support. Paimon merge/file policies have explicit limits |
 | Cross-catalog queries | Shared planning and connector paths exist | Validate the actual join and pushdown shape; no qualified performance advantage is claimed |
-| Standalone `COMPACT`, `OPTIMIZE`, `VACUUM` | Registered, but **default executor uses a no-op maintenance provider** | A successful statement does not prove files were rewritten or removed. `OPTIMIZE` maps to compaction; `VACUUM` maps only to orphan cleanup, not snapshot expiration |
+| Standalone `COMPACT`, `OPTIMIZE`, `VACUUM` | Registered; the default bootstrap injects `ControlledTableMaintenance` into `MaintenanceExecutor` | A successful statement does not prove files were rewritten or removed. `OPTIMIZE` maps to compaction; `VACUUM` maps only to orphan cleanup, not snapshot expiration |
 | Catalog maintenance `CALL` | Distinct connector procedure dispatch is wired | Use the connector-specific procedure and arguments. This is not the same path as the standalone statements |
 | `COPY INTO` | Subquery form executes through the relational `INSERT ... SELECT` write path | URI sources and file-loading options fail closed in the parser. Server-side file ingestion is not implemented |
 | Clustering DDL / `RECLUSTER` | Parser and executor/task code exist; no default production registration found | Syntax examples describe partial work, not a usable maintenance lifecycle |
 | Server-side `SET` | Registered handler logs the property and returns an empty result | It does not mutate server session state. Supply supported context in query requests or client connection settings |
 | Catalog YAML auto-registration | Documented format, automatic startup loading remains planned | Use SQL `CREATE CATALOG` for the documented registration path |
 
-Source evidence: [statement bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java),
+Source evidence: [statement bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java),
 [plan dispatch](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java),
 [maintenance executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceExecutor.java),
 [DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java),
@@ -59,9 +58,9 @@ See [DML](../sql-reference/dml.md), [maintenance](../sql-reference/maintenance.m
 | `FILE` values | Governed claim-check references | The stored URI is an opaque `pangrova-blob://` reference, not a public storage credential or an unrestricted URL |
 | Feature Store / training datasets / embodied workflows | Partial components or product direction | Complete serving, training-export, and operational lifecycles are not established |
 
-Source evidence: [vector rewriter](https://github.com/pangrova/pangrova/blob/main/pangrova-planner/src/main/java/org/pangrova/planner/vector/VectorSearchRewriter.java),
+Source evidence: [vector rewriter](https://github.com/pangrova/pangrova/blob/main/pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/planner/vector/VectorSearchRewriter.java),
 [retrieval intent collection](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java),
-and [HTTPS importer](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/blob/HttpsBlobImporter.java).
+and [HTTPS importer](https://github.com/pangrova/pangrova/blob/main/pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/blob/HttpsBlobImporter.java).
 Read the [vector reference](../sql-reference/functions/vector-search.md),
 [AI functions](../sql-reference/functions/ai-functions.md), and [FILE type](../data-types/ai-native/file.md)
 for examples and prerequisites.
@@ -76,8 +75,8 @@ for examples and prerequisites.
 | Dynamic-table lifecycle | Create/alter/drop/show/describe handlers register when durable metadata publication is configured; the planner rewrites published targets | Continuous-query materialization returns unsupported, and automatic refresh scheduling or exactly-once refresh is not established |
 | Complete automatic materialized-view lifecycle | Definitions can be persisted and recovered for query rewriting | No materialized-view DDL/refresh execution path is registered; do not infer an automatic create/refresh/recovery service from rewrite classes or refresh syntax |
 
-Source evidence: [streaming bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/StreamingBootstrap.java),
-[planner wiring](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/PlannerWiring.java),
+Source evidence: [streaming bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/StreamingBootstrap.java),
+[planner wiring](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/PlannerWiring.java),
 and the statement bootstrap linked above. See [streaming SQL](../sql-reference/streaming.md)
 and the [current CDC boundary](../architecture/streaming.md).
 
@@ -112,7 +111,7 @@ and the [current CDC boundary](../architecture/streaming.md).
   PB-scale capacity, unlimited scaling, or semantic-cache hit-rate improvements.
   Customer profiles describe intended users; they are not verified customer deployments.
 
-Evidence records: [AI roadmap and validation history](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md)
-and [performance audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-research/performance-current-audit.md).
-These repository records are dated evidence, not promises that the current checkout
-or another platform has passed the same checks.
+Current status and open items are tracked in the [Roadmap](roadmap.md) and the
+focused tests named in the supported-capability rows. These records are dated
+evidence, not promises that the current checkout or another platform has passed
+the same checks.

@@ -5,7 +5,7 @@ description: "Diagnose and recover from metadata-store network partitions"
 
 # Runbook: Metadata Store Partition
 
-**Use this runbook when:** The Coordinator cannot reach the PostgreSQL metadata store (pangrova_meta / pangrova_ha), causing DDL failures, metadata cache fallback, or circuit breaker trips.
+**Use this runbook when:** The Coordinator cannot reach the PostgreSQL metadata store (pangrova_meta), causing DDL failures, metadata cache fallback, or circuit breaker trips.
 
 | Field | Value |
 |-------|-------|
@@ -145,10 +145,9 @@ ssh "${PANGROVA_DB_HOST:-metadata-store}" "
   pg_isready -h localhost -p 5432 -U pangrova && echo 'PostgreSQL: UP'
 "
 
-# Verify pangrova_meta and pangrova_ha databases are accessible
+# Verify the pangrova_meta database is accessible
 ssh "${PANGROVA_DB_HOST:-metadata-store}" "
   psql -U pangrova -d pangrova_meta -c 'SELECT 1;' && echo 'pangrova_meta: OK'
-  psql -U pangrova -d pangrova_ha   -c 'SELECT 1;' && echo 'pangrova_ha: OK'
 "
 ```
 

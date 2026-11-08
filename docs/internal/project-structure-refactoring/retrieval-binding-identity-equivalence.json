@@ -1,7 +1,0 @@
-{
-  "old_fqn": "org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher.matchesCapabilityRef",
-  "new_fqn": "org.pangrova.protocol.capability.CapabilityIdentities.matches",
-  "method_body_tokens_identical": true,
-  "old_source_sha256": "d0d685681827d8672a71a028356db985ade3baf865eb135b6a9f384a471ebd8d",
-  "new_source_sha256": "de7a15e70286317e3526550a6bf121713e1533326f1d5438e34a17667a60ddda"
-}

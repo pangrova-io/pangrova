@@ -162,10 +162,11 @@ retain fresh checks and the same transaction-scoped preparation callbacks. Their
 private current-authority context implements a read-only view; that view is not an
 authorization credential and is never accepted as a JDBC authorization input.
 
-The generic generation runtime now has three physical artifacts under
-`pangrova-generation`: core owns the contracts, storage SPI and codecs;
-transaction-spi owns the five borrowed-connection ports; store-postgresql owns
-the actual SQL providers. Core has no transaction/provider dependency.
+Generation storage contracts and PostgreSQL implementations now belong to
+`pangrova-persistence-generation-api` and
+`pangrova-persistence-generation-postgresql`; the five same-connection participant
+interfaces belong to `pangrova-persistence-jdbc-api`. Generation Core owns canonical
+encoding, graph construction and publication routing, with no JDBC dependency.
 The private `PostgresCurrentGenerationAuthority` is issued only by fresh provider
 resolution; its `CurrentGenerationAuthority` view is not an authorization input.
 This split does not complete domain publication and process-assembly migration.
@@ -350,7 +351,7 @@ public enum CatalogType {
 /**
  * Catalog descriptor — the unified Catalog metadata model
  *
- * Key distinction (see pangrova-implementation-guide.md):
+ * Key distinction (see the domain-modularization ADR):
  * - Pangrova Catalog: three-part SQL table-name routing (catalog.schema.table)
  * - Iceberg Catalog: Iceberg table metadata management (org.apache.iceberg.catalog.Catalog)
  * The Pangrova Catalog is the routing layer; the Iceberg Catalog is the storage layer.
@@ -1246,8 +1247,7 @@ The complete external scan is **not** one transaction: source-version conditiona
 concurrent same-deployment inventory, omitted deletions, and the scheduler's full
 lease/lifecycle remain unfinished. The former leader-only and
 wall-clock-watermark examples were not evidence that those guarantees existed.
-See [current synchronization guarantees](../internal/project-structure-refactoring/metadata-sync-ownership.md)
-and [projection transaction ownership](../internal/project-structure-refactoring/projection-fence-ownership.md).
+Those guarantees are bounded by the current Catalog Persistence ports and tests.
 
 ### 3.7 SchemaEvolutionValidator — Schema Change Validation
 
@@ -1359,8 +1359,8 @@ public class SchemaEvolutionValidator {
 
 ### 3.8 FederatedCatalog SPI — External Catalog Federation Interface
 
-`FederatedCatalog` currently lives in Metadata Core's adapter package; moving this
-extension boundary into the unified Metadata API/SPI artifact is still planned.
+`FederatedCatalog` lives in `pangrova-metadata/pangrova-metadata-api` under
+`org.pangrova.metadata.api.catalog`.
 It exposes schema/table enumeration, table metadata and statistics, incremental
 `readChangesSince(Instant)` returning `MetadataChangeBatch`, and adapter close.
 The caching decorator forwards incremental batches without caching them.
@@ -1781,6 +1781,42 @@ has no production caller. It is not a full-text search feature or an advertised 
 entry point. Inventory search requirements and its eventual endpoint/retirement remain
 an explicit capability-review item.
 
+### 5.3 Catalog deployment revision lifecycle
+
+Canonical write tasks bind a catalog name, incarnation ID, revision, provider and
+fingerprint. The authenticated deployment endpoint reads the immutable
+`catalog_descriptor_revisions` snapshot for that exact identity; it never substitutes
+the current `catalog_definitions` row. Current-row compare-and-swap and historical
+insert commit in one metadata PostgreSQL transaction. V35 backfills the current row of
+every existing catalog; revisions overwritten before V35 cannot be reconstructed and
+exact requests for them fail closed.
+
+Catalog `DROP` deletes only the current row. `DROP`/re-`CREATE` gets a new incarnation,
+so old and new snapshots remain distinguishable. Historical rows are not deleted
+automatically; this is intentional capacity debt. Operators should monitor total
+historical row count, `pg_total_relation_size(catalog_descriptor_revisions)`, growth
+per catalog/incarnation and oldest `recorded_at`. Manual deletion is unsafe until a
+durable revision lease/GC protocol exists:
+
+1. Reserve the exact revision in the same transaction that commits a dispatchable
+   `TaskRequest`/outbox record; never transmit before that commit.
+2. Renew the reservation under the live execution anchor and exact owner fence;
+   retain references needed by write-commit reconciliation after a task reply.
+3. Mark the reservation terminal only after replay and write-commit paths are
+   impossible; unknown owner, deadline or journal outcome retains the revision.
+4. GC may delete a non-current revision only when no live or recoverable reference
+   exists and the safety horizon has elapsed; a lease/GC race must preserve the
+   snapshot or reject dispatch before it leaves the Coordinator.
+
+A missing snapshot remains a hard error; never return a newer revision or use
+provider-level defaults as a compatibility path.
+
+The shared `X-Internal-Auth` secret is not tenant-scoped and the endpoint does not
+itself require TLS. Any Worker holding that secret can request another tenant's
+descriptor, and descriptor properties can contain connector secrets. Workload mTLS,
+exact task/tenant/descriptor authorization, and secret references resolved at the
+Worker remain required security work.
+
 ## 6. SQL DDL Support
 
 ### 6.1 Catalog DDL
@@ -2013,14 +2049,10 @@ verified typed runtime surface.
 ```yaml
 # metadata-config.yaml
 metadata:
-  # ── Metastore persistence ──
-  store:
-    type: postgresql                                # postgresql | embedded (for testing)
-    jdbc-url: jdbc:postgresql://localhost:5432/pangrova_metastore
-    username: ${METASTORE_USER}
-    password: ${METASTORE_PASSWORD}
-    pool-size: 10
-    connection-timeout-ms: 5000
+  enabled: true
+  jdbc-url: jdbc:postgresql://localhost:5432/pangrova_meta
+  jdbc-username: ${METASTORE_USER}
+  jdbc-password: ${METASTORE_PASSWORD}
 
   # ── Metadata cache ──
   cache:
@@ -2240,8 +2272,7 @@ pangrova-schema-migrations/  # sole canonical initialization resource bundle
 This is the currently implemented ownership, not a claim that all Metadata adapters,
 graph providers or Coordinator assembly have reached their final locations. The
 [modularization ADR](domain-modularization-adr.md) defines the complete target and the
-[implementation ledger](../internal/project-structure-refactoring/domain-modularization-progress.md)
-records each verified batch and remaining work.
+current tests and `.pangrova/modules.yaml` record the verified state.
 
 ## 12. Observability Integration
 
@@ -2303,5 +2334,4 @@ intents are fenced and rejected, never reauthorized with a current descriptor.
 
 This is per-operation recovery, not a lease or an atomic publication of an entire scan. A new scan
 may create new observations after pending work is recovered. Generic cache invalidation is durable;
-process-local schema-evolution event recovery, retention and scan lifecycle remain incomplete. See
-[the implementation and verification record](../internal/project-structure-refactoring/projection-recovery-ownership.md).
+process-local schema-evolution event recovery, retention and scan lifecycle remain incomplete.

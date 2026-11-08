@@ -354,6 +354,12 @@ public class QueryFingerprintCalculator {
 
 ### 3.3 Cache Invalidation Triggers (Security Policy Changes)
 
+> **Status: target design.** `SecurityPolicyChangeEvent` and
+> `SecurityPolicyEventPublisher` exist in `pangrova-security-api`, but no production
+> cache-invalidation subscriber is wired. The invalidation behavior and
+> `result-cache.l1.degraded-ttl` described below are design intent, not current
+> configuration.
+
 When security policies change, related caches must be proactively invalidated to prevent cached results under old policies from continuing to be hit after new policies take effect.
 
 | Trigger event | Invalidation scope | Note |
@@ -362,25 +368,21 @@ When security policies change, related caches must be proactively invalidated to
 | Column mask change | All cache entries for the table | Column masks affect returned data content; all cached results for the same table may become stale |
 | Role assignment change | All cache entries for the user | Role changes affect active_roles_hash; all cache fingerprints for the user are invalidated |
 
-**Invalidation mechanism**:
+**Target invalidation mechanism**:
 
-```
-SecurityPolicyChangeListener:
-  onRlsPolicyChange(table)       → cacheManager.invalidateByTable(table)
-  onColumnMaskChange(table)      → cacheManager.invalidateByTable(table)
-  onRoleAssignmentChange(user)   → cacheManager.invalidateByUser(user)
+```text
+SecurityPolicyEventPublisher.publish(SecurityPolicyChangeEvent)
+  RlsPolicyChanged       -> invalidate cached entries for the table
+  ColumnMaskChanged      -> invalidate cached entries for the table
+  RoleAssignmentChanged  -> invalidate cached entries for the principal
 ```
 
 **Design points**:
-- Policy change events are observed via `SecurityPolicyChangeListener`, published by the security module (see `security.md`)
-- Per-table invalidation uses a cache tag mechanism: each cache entry is associated with the list of tables it involves, and is invalidated in bulk by tag on change
-- Per-user invalidation uses a user index: cache entries are given a secondary index by `tenant_id + user_principal`
-- Both L1 (JVM Heap) and L2 (Redis) must perform invalidation; L2 broadcasts invalidation events to all Coordinator nodes via Redis Pub/Sub
--
-- **Redis unavailability degradation**: When Redis Pub/Sub is unreachable, L1 cache TTL automatically shrinks to `result-cache.l1.degraded-ttl` (default 10s) to bound the window during which stale security-policy results may be served. This ensures security policy changes propagate within the degraded TTL even without Redis broadcast. See also [distributed.md §3.4](./distributed.md) — Redis failure impact should be understood as "performance degradation; security cache invalidation may be delayed up to degraded-TTL"
-
-Note: the security module is responsible for publishing `SecurityPolicyChangeEvent` (RLS / column masking / role changes); the Query Result Cache only consumes events and performs invalidation, without directly perceiving security policy details.
-```
+- Events are defined in `pangrova-security-api`; the only current implementation is the test-kit `LocalSecurityPolicyEventBus`. A production subscriber and cache-tag/user-index invalidation remain to be implemented.
+- Per-table invalidation uses a cache tag mechanism: each cache entry is associated with the list of tables it involves, and is invalidated in bulk by tag on change.
+- Per-user invalidation uses a user index: cache entries are given a secondary index by `tenant_id + user_principal`.
+- L1/L2 invalidation and Redis Pub/Sub broadcast are target design; no `result-cache.l1.degraded-ttl` config key exists today.
+- The security module owns event publication; the query result cache should only consume events and perform invalidation, without perceiving security policy details.
 
 ### 3.4 Cache Control SQL
 
@@ -738,13 +740,13 @@ CREATE TABLE table_statistics (
 
 ```
 CBO Optimizer requests statistics
-  → StatisticsProvider.getTableStatistics(catalogSchemaTable)
+  → ConnectorMetadata.getTableStatistics(catalogSchemaTable)
     → if Iceberg/Paimon: read from TableMetadata.properties (via ConnectorMetadata.getTableStatistics() — see 04 §1.2)
     → if Federation: read from PostgreSQL table_statistics (via MetadataStore)
     → if not found: return UNKNOWN (CBO falls back to heuristic estimation)
 ```
 
-**StatisticsCollector as Connector SPI**: `StatisticsCollector.collectIncremental()` (§6.3) is not a standalone class but delegates to `ConnectorMetadata.getTableStatistics()` ([connectors.md §1.2](./connectors.md)) for connector-specific collection. Each connector implements its own collection strategy (Iceberg: file metadata scan; Paimon: snapshot stats; JDBC: `SHOW TABLE STATUS` or sampling). The `StatisticsProvider` in the read path is a thin wrapper over `ConnectorMetadata.getTableStatistics()`.
+**StatisticsCollector as Connector SPI**: `StatisticsCollector.collectIncremental()` (§6.3) is not a standalone class but delegates to `ConnectorMetadata.getTableStatistics()` ([connectors.md §1.2](./connectors.md)) for connector-specific collection. Each connector implements its own collection strategy (Iceberg: file metadata scan; Paimon: snapshot stats; JDBC: `SHOW TABLE STATUS` or sampling). The read path uses `ConnectorMetadata.getTableStatistics()` directly; there is no separate StatisticsProvider type.
 
 **Timeout and failure handling** (§6.3 `max-collect-time: 30s`): If collection exceeds the timeout, the partial results collected so far are stored with a `confidence_score < 1.0` (see OPT-004 §8.1 staleness-aware CBO). The table is re-enqueued for full collection in the next scheduled cycle. No data is discarded — partial stats are always better than no stats.
 
@@ -983,12 +985,16 @@ function getStatisticsWithConfidence(table: Table):
 
 ## 9. Dynamic Partition Pruning & Runtime Filter (OPT-002)
 
+> **Status: target design.** Only static partition pruning is currently available.
+> The runtime-filter components below, including the target Native dynamic-filter
+> sink and Bloom-filter delivery, are proposed and are not current behavior.
+
 
 
 
 ### 9.1 Architecture Description
 
-Static partition pruning (performed by Calcite optimization rules at planning time) is the only pruning mechanism currently available. No runtime filter propagation exists — the `DynamicFilterSink` placeholder in the native reader pipeline (see [native-execution.md](./native-execution.md)) receives no filters because none are generated. This means star-schema queries scan all fact-table partitions even when a dimension filter could eliminate 90%+ of I/O.
+Static partition pruning (performed by Calcite optimization rules at planning time) is the only pruning mechanism currently available. No runtime filter propagation exists — the target Native dynamic-filter sink placeholder in the native reader pipeline (see [native-execution.md](./native-execution.md)) receives no filters because none are generated. This means star-schema queries scan all fact-table partitions even when a dimension filter could eliminate 90%+ of I/O.
 
 OPT-002 introduces a two-phase runtime filter framework: filter generation on the build side of a join, and multi-level filter application on the probe side. The framework leverages the enhanced statistics from OPT-004 (§8) — specifically file-level column stats and histograms — to estimate filter selectivity and decide filter type.
 
@@ -1030,7 +1036,7 @@ OPT-002 introduces a two-phase runtime filter framework: filter generation on th
 **Affected SPI Interfaces**:
 - New `RuntimeFilter` Protobuf message in `TaskRequest` for filter delivery
 - `ConnectorSplitSource` — new `applyDynamicFilter(RuntimeFilter)` method for partition pruning
-- `DynamicFilterSink` in native reader pipeline — activated to receive and apply filters
+- The target Native dynamic-filter sink in the reader pipeline — activated to receive and apply filters
 - `PangrovaCostModel` — updated to estimate runtime filter selectivity in join costing (uses OPT-004 histograms from §8 when available)
 
 ### 9.2 Pseudocode
@@ -1097,11 +1103,11 @@ function propagateRuntimeFilter(buildStageId, probeStageId, filter):
 ### 9.4 Migration Path
 
 1. **Phase 1 — Min/Max Runtime Filter** (this task): Implement min/max range filter for partition pruning only. Coordinator collects build-side min/max and pushes to probe-side `ConnectorSplitSource`. Simplest form with highest ROI.
-2. **Phase 2 — Bloom Filter** (Task 6.5): Add bloom filter generation for high-cardinality join keys. Push to native `DynamicFilterSink` for row-group and row-level filtering.
+2. **Phase 2 — Bloom Filter** (Task 6.5): Add bloom filter generation for high-cardinality join keys. Push to the target Native dynamic-filter sink for row-group and row-level filtering.
 3. **Phase 3 — Cross-Stage Propagation** (Task 6.5): Enable filter propagation across shuffle boundaries (build stage → probe stage via Coordinator).
 4. **Phase 4 — Multi-Join Filter Chaining** (future): Support filter propagation through multiple join levels (e.g., fact → dim1 → dim2).
 
-> **Cross-reference**: This section depends on the statistics foundation in §8 (OPT-004) — specifically file-level column stats for row-group pruning and histograms for selectivity estimation. The `DynamicFilterSink` in the native reader pipeline is defined in [native-execution.md](./native-execution.md). Filter delivery uses the `RuntimeFilter` Protobuf message added to `TaskRequest` (see [query-execution.md](./query-execution.md)).
+> **Cross-reference**: This section depends on the statistics foundation in §8 (OPT-004) — specifically file-level column stats for row-group pruning and histograms for selectivity estimation. The target Native dynamic-filter sink in the reader pipeline is defined in [native-execution.md](./native-execution.md). Filter delivery uses the `RuntimeFilter` Protobuf message added to `TaskRequest` (see [query-execution.md](./query-execution.md)).
 
 ### 9.5 Phase 2 — Bloom Filter Runtime Filter
 
@@ -1147,11 +1153,11 @@ class BloomFilterApplicator:
                 if NOT filter.overlaps(stats.min, stats.max):
                     rowGroup.skip()
 
-        // Level 3: Row-level filtering (native DynamicFilterSink)
+        // Level 3: Row-level filtering (target Native dynamic-filter sink)
         scan.addNativeFilter(RuntimeRowFilter(filter))
 ```
 
-The native `DynamicFilterSink` (see [native-execution.md](./native-execution.md)) is activated to receive the serialized Bloom filter and apply row-level filtering during scan execution.
+The target Native dynamic-filter sink (see [native-execution.md](./native-execution.md)) is activated to receive the serialized Bloom filter and apply row-level filtering during scan execution.
 
 #### 9.5.3 Bloom Filter Trade-offs
 
@@ -1252,7 +1258,7 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 
-> **Cross-reference (§2.2 incrementalRefresh)**: The `getChanges()` method in INCREMENTAL MV refresh delegates to [streaming.md §3](./streaming.md) for change detection — specifically `IncrementalScanPlanner` (Iceberg snapshot diff) or `ChangelogReader` (Paimon changelog). See 10 §3 for the authoritative CDC/incremental query design.
+> **Cross-reference (§2.2 incrementalRefresh)**: The `getChanges()` method in INCREMENTAL MV refresh delegates to [streaming.md §3](./streaming.md) for change detection — specifically the streaming module incremental-read design (Iceberg snapshot diff / Paimon changelog). See 10 §3 for the authoritative CDC/incremental query design.
 
 ---
 

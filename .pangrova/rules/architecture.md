@@ -10,14 +10,11 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | Module | Responsibility |
 |--------|---------------|
 | `pangrova-common` | Shared utilities and base types; embedded HTTP server implementation belongs to Transport HTTP |
-| `pangrova-cache/pangrova-cache-api` | Query result cache contract and cached-result value; Common/JDK only |
-| `pangrova-cache/pangrova-cache-memory` | In-process query result cache provider |
-| `pangrova-cache/pangrova-cache-redis` | Redis-backed query result cache provider over Jedis |
 | `pangrova-types` | Connector-independent engine logical types, signatures, declarations and Java scalar/row values; Common/JDK only |
 | `pangrova-batch/pangrova-batch-api` | SDK-independent block/page values and synchronous readable-batch ownership contract; Types/Common only |
 | `pangrova-batch/pangrova-batch-arrow` | Arrow decoding, stream validation, detached values and borrowed projections; owns readers, borrows allocators |
 | `pangrova-config` | Configuration management |
-| `pangrova-indexing-api` | Index descriptors, data, evaluation and pruning contracts; API and provider SPI share one artifact |
+| `pangrova-indexing/pangrova-indexing-api` | Index descriptors, data, evaluation and pruning contracts; API and provider SPI share one artifact |
 | `pangrova-indexing/pangrova-indexing-core` | Index build/evaluation orchestration and planner vector integration in `org.pangrova.indexing.planner`; scheduled GC control plane lives in Coordinator; concrete strategies and payload serializers live in builtin; storage implementations live in Persistence |
 | `pangrova-ai/pangrova-ai-api` | AI model/capability/invocation values, provider extensions and physical request resource ports; configuration parsing remains in AI Control, invocation state and ownership in AI Worker |
 | `pangrova-function/pangrova-function-api` | Function metadata and table argument/result values in `.api`; scalar, aggregate, table, factory and callback extension contracts in `.spi`; Common/Types only |
@@ -28,6 +25,9 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-filesystem/pangrova-filesystem-oss` | OSS blob publication, owned SDK/transport and encryption; OSS object/COPY support remains pending |
 | `pangrova-persistence/pangrova-persistence-generation-api` | Generation storage ports, facts and errors without JDBC participants; File, Table, Query, Security and Coordination have their own persistence API artifacts |
 | `pangrova-persistence/pangrova-persistence-generation-postgresql` | Existing Generation PostgreSQL job/page/exchange storage and current-authority evidence; no domain Core, Protocol or schema initialization owner |
+| `pangrova-persistence/pangrova-persistence-indexing-api` | Index descriptor, state, publication, queue and statistics ports plus event values; no JDBC participant |
+| `pangrova-persistence/pangrova-persistence-indexing-postgresql` | Index descriptor, state, mapping, publication, queue, statistics and GC SQL over a borrowed DataSource |
+| `pangrova-persistence/pangrova-persistence-jdbc-support` | Shared JDBC resource helpers for Persistence providers; not a domain transaction API |
 | `pangrova-persistence/pangrova-persistence-coordination-api` | Membership, lease and exact-query reservation ports plus quorum provider SPI in one artifact; Common and Coordination API only |
 | `pangrova-persistence/pangrova-persistence-coordination-postgresql` | PostgreSQL membership, lease and admission implementations over a borrowed DataSource; canonical schema initialization only, no provider DDL |
 | `pangrova-persistence/pangrova-persistence-coordination-memory` | Process-local membership and lease implementations; no production Memory admission implementation; Core must receive explicit contracts |
@@ -50,6 +50,10 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-planner/pangrova-planner-api` | SDK-free planning intent, result origins, lineage/statistics values, metadata observation and adaptive callback contracts; Common/JDK only |
 | `pangrova-planner/pangrova-planner-core` | Calcite logical/physical planning, authorization-aware rewrites, fragmentation, cost/statistics algorithms and Substrait conversion; implementation state stays outside API |
 | `pangrova-protocol` | Network protocol layer (gRPC / Arrow Flight) |
+| `pangrova-transport/pangrova-transport-api` | Transport-neutral request/response and server contracts |
+| `pangrova-transport/pangrova-transport-client` | Shared client-side transport implementation |
+| `pangrova-transport/pangrova-transport-flight` | Arrow Flight transport provider |
+| `pangrova-transport/pangrova-transport-http` | HTTP transport provider |
 | `pangrova-observability/pangrova-observability-api` | SDK-free observability API/SPI, execution correlation capture/activation and profiling contracts; Common only; query events belong to Query API |
 | `pangrova-observability/pangrova-observability-core` | MDC propagation and profiling delegation; query event dispatcher belongs to Query Core; no Query or OpenTelemetry SDK dependency |
 | `pangrova-observability/pangrova-observability-noop` | Explicit disabled telemetry implementations; unsupported profiling rejects, never fabricates success |
@@ -77,6 +81,9 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-persistence/pangrova-persistence-catalog-postgresql` | Existing deployment/projection transactions and durable invalidation polling over borrowed DataSource/cache; no Metadata Core dependency |
 | `pangrova-table/pangrova-table-api` | Immutable identity/ownership/observation/rename/maintenance/statistics values and policy authority calling port; Common/Connector API only |
 | `pangrova-table/pangrova-table-core` | Table control, policy binding, maintenance and statistics over Persistence contracts; maintenance defaults belong to Core; backends are selected by Metadata/Server assembly |
+| `pangrova-semantic/pangrova-semantic-api` | Semantic View identity, immutable versions and definition contracts |
+| `pangrova-semantic/pangrova-semantic-core` | Definition validation, publication fencing and semantic runtime services |
+| `pangrova-persistence/pangrova-persistence-semantic-postgresql` | Semantic View JDBC persistence over a borrowed DataSource; schema initialization remains in Schema Migrations |
 | `pangrova-file/pangrova-file-api` | File namespace and access values plus audit, current-authority and delegated-operation ports; Common, Filesystem API and Security API only |
 | `pangrova-file/pangrova-file-core` (`org.pangrova.file.worker`) | HTTP/Jackson implementation of delegated listing, version-conditional deletion and signed-URL exchange; injected clients keep it free of Worker Core and JDBC implementation dependencies |
 | `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and atomic catalog-export association semantics; no JDBC provider |
@@ -141,7 +148,8 @@ library is assembled from them.
 | `pangrova_native_udf_objects` | `src/udf/` | Native UDF registry and JVM scalar-function callbacks |
 | `pangrova_native_lance_objects` | `src/lance/` | Lance format batch reader/writer |
 | — | `lance-ffi/` | Rust→C FFI for Lance vector storage |
-| — | `proto/` | Empty/non-authoritative; C++ generates the canonical v2 sources from `pangrova-protocol` |
+C++ generates the canonical v2 protocol sources from `pangrova-protocol`; there is
+no separate `proto/` source directory.
 
 Include paths are rooted at `src/`, so headers are addressed as
 `engine/velox/...`, `capabilities/capability/...`, `indexing/text/...`,
@@ -200,9 +208,9 @@ pangrova-worker (Java)
 
 ## Module Dependency Policy
 
-The authoritative target decisions are in `docs/architecture/domain-modularization-adr.md`;
-the active module targets, P0–P12 batches and exit conditions are in
-`docs/internal/project-structure-refactoring/full-repo-modularization-plan.md`.
+The authoritative target decisions and the P0–P12 exit conditions are in
+`docs/architecture/domain-modularization-adr.md`; `.pangrova/modules.yaml` owns the
+effective module boundaries.
 Each domain has one `pangrova-<domain>-api` artifact containing its `.api` and actual
 `.spi` contracts. Core consumes contracts; replaceable Providers consume contracts;
 Server owns process composition. Do not create new central SPI contracts or new

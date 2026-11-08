@@ -16,6 +16,5 @@ A successful SQL run or 99 filenames is not full correctness or a QphDS score.
 Reference truth requires Spark and Trino to agree on every typed result, including
 legitimate empty sets, on identical shared Iceberg snapshots.
 
-See [the methodology](../../../../docs/testing/tpc-benchmark-methodology.md),
-[the audit](../../../../docs/internal/tpc-benchmark-audit.md) and
+See [the methodology](../../../../docs/testing/tpc-benchmark-methodology.md) and
 [the provenance notice](../NOTICE.md).

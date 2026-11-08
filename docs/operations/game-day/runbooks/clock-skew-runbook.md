@@ -161,7 +161,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
 done
 
 # Verify current cluster state is stable (exactly one active lease holder)
-ACTIVE_LEASES=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+ACTIVE_LEASES=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT COUNT(*) FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;")
 echo "Leaders: ${ACTIVE_LEASES}"
 if [[ "${ACTIVE_LEASES}" -eq 1 ]]; then

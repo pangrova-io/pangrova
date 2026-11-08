@@ -303,7 +303,7 @@ success, abort and cancellation have distinct terminal outcomes. A slow
 consumer must propagate pressure through the Native handoff, and retained
 pages must remain charged until the last reader or linger cleanup releases
 them. The current queue has a known byte-accounting gap, tracked in
-[ai-native-roadmap.md](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md); count-only capacity
+the [Roadmap](../getting-started/roadmap.md); count-only capacity
 is not proof of bounded memory.
 
 ### 5.3 Canonical Protocol
@@ -339,7 +339,7 @@ cancellation or failure aborts it. The queue takes ownership independent of
 the producer's Velox task pool so Flight readers may finish after producer
 teardown. Queue and Flight retention must both be byte-accounted and bounded;
 the current producer-queue gap is tracked in the
-[AI Native audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+[Roadmap](../getting-started/roadmap.md).
 
 The result reader records a Flight stream failure against the exact registered
 Native executor before releasing its output buffer. Both Arrow error statuses
@@ -418,7 +418,7 @@ memory-arbitration boundary. Native Flight demux/spill and producer-queue
 retention have distinct lifetimes; a task's pool usage alone is not a complete
 shuffle-memory accounting figure. The exact resource gap and acceptance
 criteria are in [resource-management.md](./resource-management.md) and the
-[AI Native audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+[Roadmap](../getting-started/roadmap.md).
 
 The Velox allocator retains a strong reference to its registered
 `AsyncDataCache`. Native shutdown joins task and I/O owners, clears the global

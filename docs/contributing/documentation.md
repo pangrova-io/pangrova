@@ -6,7 +6,7 @@ description: "Structure, naming, accuracy, and validation rules for Pangrova doc
 # Documentation Guide
 
 Pangrova documentation is organized by reader task. Published guides, architecture references,
-internal roadmap material, runtime configuration, and deployment assets have separate homes.
+roadmap material, runtime configuration, and deployment assets have separate homes.
 “Internal” excludes content from the website only; tracked files remain public when
 the repository is made public. Do not store confidential material there.
 
@@ -23,7 +23,8 @@ the repository is made public. Do not store confidential material there.
 | `docs/architecture/` | Current system design, boundaries, invariants, and known gaps |
 | `docs/operations/` | Day-2 procedures, runbooks, game-day scenarios, and templates |
 | `docs/contributing/` | Developer, test, and documentation workflows |
-| `docs/internal/` | Non-published audits and roadmap inputs; never a user-facing capability contract |
+| `docs/testing/` | Test methodology and qualified acceptance evidence |
+| `docs/development/` | Platform-specific developer environment qualification |
 | `etc/` | Runtime configuration templates used by launch scripts |
 | `deploy/` | Docker and Helm deployment assets |
 
@@ -56,7 +57,7 @@ Sources of truth, in descending order:
 2. Focused integration and E2E tests.
 3. Typed configuration definitions and bundled defaults.
 4. `.pangrova/rules/` for architectural and repository policy.
-5. Architecture documentation and internal roadmaps.
+5. Architecture documentation and the public roadmap.
 
 ## Format
 

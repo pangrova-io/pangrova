@@ -1,9 +1,0 @@
-[
-  {
-    "path": "pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/synchronization/SyncCompletionRows.java",
-    "line": "54",
-    "severity": "error",
-    "message": "\u672c\u884c\u5b57\u7b26\u6570 125\u4e2a\uff0c\u6700\u591a\uff1a120\u4e2a\u3002",
-    "source": "com.puppycrawl.tools.checkstyle.checks.sizes.LineLengthCheck"
-  }
-]

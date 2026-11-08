@@ -107,7 +107,7 @@ SELECT CEIL(3.2) AS ceiled;            -- 4
 
 ## Notes
 
-- Division by zero returns NULL (not an error)
+- Division by zero fails the query with a Velox `ARITHMETIC_ERROR`
 - Integer division truncates: `7 / 2 = 3`
 - For decimal division, cast to DOUBLE: `CAST(7 AS DOUBLE) / 2 = 3.5`
 

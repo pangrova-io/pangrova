@@ -33,7 +33,7 @@ Validate that a worker crash during shuffle does not corrupt data or leave the c
 
 ```bash
 # Run shuffle-heavy query to identify active shuffle workers
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint http://coordinator:8080 \
   --query "SELECT l_orderkey, sum(l_extendedprice) FROM lineitem JOIN orders ON l_orderkey = o_orderkey GROUP BY l_orderkey LIMIT 1000" \
   --interval 2s \
@@ -50,7 +50,7 @@ WORKER_PID=$(ssh worker-2 "pgrep -f pangrova-worker")
 ssh worker-2 "kill -9 ${WORKER_PID}"
 
 # Measure recovery
-./tools/measure-recovery-time.sh measure \
+../tools/measure-recovery-time.sh measure \
   --endpoint http://coordinator:8080 \
   --probe-query "SELECT 1" \
   --timeout 120s \

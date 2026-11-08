@@ -391,7 +391,7 @@ RUN DATA QUALITY CHECK ON iceberg.sales.orders;
 `org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore` owns the
 PostgreSQL `quality_rules` and `quality_check_results` tables; governance is the
 single owner of the store, while metadata decorates it with the stable
-table-identity projection (`metadata.adapter.governance`). V53 converges the old
+table-identity projection (`org.pangrova.metadata.governance`). V53 converges the old
 CDC-prefixed tables into this authority. Rule definitions may be updated;
 execution results append history.
 

@@ -250,14 +250,14 @@ This is a selected ownership map, not a fixed count of Maven reactor modules.
 |---|---|
 | Shared contracts/configuration | `pangrova-protocol`, `pangrova-common`, `pangrova-config`, `pangrova-types`, `pangrova-batch/pangrova-batch-api`, `pangrova-transport/pangrova-transport-api` |
 | Parsing and planning | `pangrova-parser/pangrova-parser-api`, `pangrova-parser/pangrova-parser-core`, `pangrova-planner` |
-| Coordination and metadata | `pangrova-coordination/pangrova-coordination-core`, `pangrova-metadata-core` |
-| Query and durable generation contracts/runtime | `pangrova-query/pangrova-query-api`, `pangrova-query/pangrova-query-core`; `pangrova-generation` contains API, codec and core leaves; immutable generation values belong to Generation API, wire layouts/encoding to Codec, and storage contracts and PostgreSQL implementations live in `persistence-generation-api` / `persistence-generation-postgresql`, with borrowed-connection ports in `persistence-jdbc-api` (authority/publication adapters still reside in Metadata) |
+| Coordination and metadata | `pangrova-coordination/pangrova-coordination-core`, `pangrova-metadata/pangrova-metadata-core` |
+| Query and durable generation contracts/runtime | `pangrova-query/pangrova-query-api`, `pangrova-query/pangrova-query-core`; `pangrova-generation` contains API, codec and core leaves; immutable generation values belong to Generation API, wire layouts/encoding to Codec, and storage contracts and PostgreSQL implementations live in `pangrova-persistence/pangrova-persistence-generation-api` / `pangrova-persistence-generation-postgresql`, with borrowed-connection ports in `pangrova-persistence/pangrova-persistence-jdbc-api` (authority/publication adapters still reside in Metadata) |
 | Execution | `pangrova-worker/pangrova-worker-core`, `pangrova-worker-native`, `pangrova-shuffle`, `pangrova-transport` |
-| Connectors | `pangrova-connector-api` (API/SPI), `pangrova-connector-runtime`, Iceberg / Paimon / Lance providers |
+| Connectors | `pangrova-connector/pangrova-connector-api` (API/SPI), `pangrova-connector/pangrova-connector-runtime`, `pangrova-connector-{iceberg,paimon,lance}` providers |
 | Platform services | Security API/Core, PostgreSQL/Tenant-memory persistence, and authentication/policy/secret/KMS Providers, `pangrova-operations`, `pangrova-governance`, `pangrova-streaming`, `pangrova-observability`, `pangrova-indexing` |
 | Server, clients and packaging | `pangrova-server/pangrova-server-coordinator`, `pangrova-client`, `pangrova-standalone`, `pangrova-native-bundle` |
 | Validation | `pangrova-testing` and module-local test sources |
-| Documentation | `docs/`, `website/`; proposals and historical audits in `docs/internal/` |
+| Documentation | `docs/`, `website/`; open work is tracked in the public roadmap |
 
 ## 7. Module Dependencies
 
@@ -302,8 +302,8 @@ for Worker execution; a Java-only build is not a substitute.
 Query 契约现由 `pangrova-query-api` 的 `.api/.spi` 拥有；QueryState 与 StageState
 均为唯一领域状态值。Query Core 拥有已迁移的 stage 状态转换和 audit/profile 服务，
 后端选择归 Server Coordinator。Query API 不依赖中央 SPI、Protocol、Planner 或后端。
-其余 Coordinator 中的查询编排迁移尚未完成，实际支持与后续事项以
-[实施记录](../internal/project-structure-refactoring/domain-modularization-progress.md)为准。
+其余 Coordinator 中的查询编排迁移尚未完成；实际支持与后续事项以
+[Roadmap](../getting-started/roadmap.md) 和当前测试为准。
 
 Connector 契约现由 `pangrova-connector-api` 的 `.api/.spi` 独占，依赖仅为 Common、
 Types、Batch API。写提交 journal/outbox 及其他 Query 存储端口归

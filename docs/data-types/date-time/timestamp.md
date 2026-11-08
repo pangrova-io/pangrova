@@ -23,6 +23,7 @@ seconds and a nonnegative nanosecond remainder for both projections and `VALUES`
 writes. Timestamp literals with a timezone use the same unit contract after the
 planner has resolved the timezone.
 
-Ordinary timestamp columns default to precision 6; explicit timestamp precision
-may range from 0 to 9. `TIME` uses up to six fractional digits, matching the
+Ordinary timestamp columns default to precision 6. The current DDL grammar
+accepts only bare `TIMESTAMP`; `TIMESTAMP(p)` is not parsed, and `TIMESTAMP_NS`
+is the precision-9 spelling. `TIME` uses up to six fractional digits, matching the
 Native Worker's microsecond time storage.

@@ -23,7 +23,6 @@ Canonical schema initialization owns the admission reservation tables (V106).
 Creating a PostgreSQL reservation provider validates existing authority, never
 creates a parallel schema or resets active reservations. Test-only Memory admission
 slots remain in Testing Kit and are not advertised as a production provider.
-See [the extraction evidence](../internal/project-structure-refactoring/coordination-persistence-ownership.md).
 
 Coordination backend failures now propagate through the shared API error contract and the HA
 registry adapter. ZooKeeper errors do not become missing membership/lease or successful updates;
@@ -31,14 +30,13 @@ CAS exhaustion and invalid payloads also fail explicitly. A lost mutation acknow
 mean the write committed and requires authoritative confirmation. HA startup failures roll back
 local scheduling; demotion precedes remote release, and close attempts all cleanup stages while
 preserving failures. Singleton maintenance uses its separate lease lifecycle.
-See [failure and lifecycle evidence](../internal/project-structure-refactoring/coordination-failures-ownership.md).
 
 Query persistence has separate PostgreSQL and process-local Memory artifacts under
 `pangrova-persistence-query-*`. HA receives its anchor store explicitly and cannot replace
 that backend when binding the process authority. Task completion also requires an explicit
 write journal; Core cannot create an implicit Memory fallback. PostgreSQL write journal
 construction checks the canonical schema and performs no DDL. Memory provides no restart
-or multi-process durability. See [the Query persistence evidence](../internal/project-structure-refactoring/query-persistence-ownership.md).
+or multi-process durability.
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
@@ -84,7 +82,6 @@ stops automatic heartbeat repair. Existing execution, status, cancellation, outp
 shutdown keep their actual resource owners. Draining rejects canonical task submissions with
 503. This nonblocking admission seal is not a physical drain receipt or shutdown permit;
 readiness/admission integration and temporary-network-degradation policy remain separate work.
-See [the identity implementation evidence](../internal/project-structure-refactoring/worker-heartbeat-identity-ownership.md).
 
 > **Summary.** The Coordinator–Worker topology, multi-active high availability and leader election, worker registration and health checking, and shuffle durability.
 
@@ -140,6 +137,10 @@ a committed replacement of the prior Worker identity merely through cleanup.
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **Topology note.** The diagram shows the optional ZooKeeper/Redis topology. The
+> default bootstrap uses a JDBC lease in the metadata database (`pangrova_meta`);
+> Redis is an optional cache, not a consistency authority.
 
 ### 1.2 Coordinator Core Components
 
@@ -322,42 +323,34 @@ Note: On the write path, the Worker-side Java `TableWriter` is responsible for f
 
 ### 2.3 Worker Module Structure
 
-```
+```text
 pangrova-worker/pangrova-worker-core/
-├── src/main/java/org/pangrova/worker/
-│   ├── PangrovaWorker.java                # Main entry point
-│   ├── WorkerConfig.java                # Configuration
-│   ├── server/                          # Service layer
-│   │   ├── http/                        # HTTP REST API
-│   │   └── flight/                      # Arrow Flight service
-│   ├── task/                            # Task management
-│   │   ├── TaskManager.java
-│   │   └── TaskExecutor.java
-│   ├── execution/                       # Execution layer
-│   │   └── ExecutionManager.java
-│   ├── memory/                          # Native/JVM memory coordination
-│   │   ├── NativeMemoryCoordinator.java
-│   │   └── NativeSpillBridge.java
-│   ├── exchange/                        # Data exchange
-│   │   └── ExchangeManager.java
-│   ├── jni/                             # JNI bridge
-│   │   ├── NativeRuntime.java
-│   │   └── NativeLibraryLoader.java
-│   ├── connector/                       # Connector management
-│   │   └── ConnectorManager.java
-│   └── registry/                        # Service registration
-│       └── ServiceRegistry.java
+└── src/main/java/org/pangrova/worker/
+    ├── bootstrap/        # config/, phase/, lifecycle/, ownership/, registration/
+    ├── http/             # WorkerHttpServer
+    ├── execution/        # TaskExecutor and task execution
+    ├── task/             # task tracking and completion
+    ├── memory/           # NativeMemoryCoordinator, NativeSpillBridge
+    ├── exchange/         # shuffle/exchange integration
+    ├── split/            # split fetching and delivery
+    ├── result/           # result publication
+    └── ...               # cache, copy, file, heartbeat, resource, transport
 
-pangrova-worker-native/                    # C++ native layer
+pangrova-worker/pangrova-worker-native-bridge/
+└── src/main/java/org/pangrova/worker/nativebridge/jni/
+    # NativeRuntime, NativeLibraryLoader and JNI command entry points
+
+pangrova-worker-native/
 ├── CMakeLists.txt
 ├── src/
-│   ├── jni/                             # JNI interface
-│   ├── velox/                           # Velox integration
-│   ├── io/                              # Native I/O
-│   ├── memory/                          # Memory management
-│   └── flight/                          # Arrow Flight
-├── include/                             # Header files
-└── test/                                # Tests
+│   ├── bridge/           # JNI exports and lifecycle
+│   ├── capabilities/     # capability catalog, function registry, artifact retrieval
+│   ├── engine/           # Velox execution, shuffle/Flight, memory, write, delete
+│   ├── indexing/         # index pruning, BM25 and retrieval fusion
+│   ├── lance/            # Lance batch reader/writer
+│   ├── udf/              # Native UDF registry and JVM callbacks
+│   └── vector/           # distance functions and ANN indexes
+└── test/                 # Native tests
 ```
 
 ### 2.4 Worker Startup Sequence
@@ -679,9 +672,9 @@ public class WorkerServiceRegistry {
 
 
 **Key design decisions**:
-- ZooKeeper is the single source of consistency; all coordination operations that require strong consistency (leader election, distributed lock, service registry) uniformly use ZooKeeper
-- Redis is used only for caching and does not store any consistency-critical state. When Redis is unavailable, system functionality is unaffected — only performance degrades
-- Worker service registration uses a ZooKeeper Ephemeral Node; when a Worker crashes the node is automatically deleted, requiring no additional health-check mechanism
+- The metadata PostgreSQL authority is the default consistency source for leases, Worker registration, query state, and durable journals. ZooKeeper is an optional coordination backend for leader election and locks; it is not required by the default bootstrap.
+- Redis is optional and used only for caching; it stores no consistency-critical state. When Redis is unavailable, functionality is unaffected and only performance degrades.
+- Worker registration is persisted in the metadata authority. The optional ZooKeeper backend uses an ephemeral node; a Worker crash removes that node and triggers the same registration-loss handling.
 
 
 **Redis Consistency Refinement**: The "lossy" semantics for Redis apply to cached data only — cache misses result in re-computation, not data loss. However, cache *invalidation* operations (especially security-policy-triggered invalidations from [05 §3.3](./query-optimization.md)) must be treated as best-effort with a safety fallback: all Redis cache entries carry a mandatory TTL upper bound (default: 1 hour). On Redis restart, all Query Result Cache entries are purged (Redis configured with `save ""` to disable RDB persistence for cache databases). This ensures that stale cache entries from a previous security policy epoch cannot survive a Redis restart, preventing cross-security-boundary data leakage.

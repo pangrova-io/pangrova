@@ -95,7 +95,7 @@ When memory pressure rises, intermediate data spills to disk:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `worker.spill.directory` | — | Spill directory; leaving it unset disables spill |
+| `worker.spill.directory` | `data/worker-spill` | Spill directory; leaving it empty disables spill |
 | `worker.shuffle.spill-threshold` | `0.8` | Memory usage ratio (0.0–1.0) triggering shuffle spill |
 | `worker.shuffle.max-memory-bytes` | 512 MB | Total memory budget for all shuffle partitions |
 

@@ -33,7 +33,7 @@ Validate that the Pangrova cluster handles metadata store unavailability gracefu
 
 ```bash
 # Verify metadata store connectivity
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint http://coordinator:8080 \
   --query "SHOW TABLES IN benchmark" \
   --interval 2s \
@@ -48,7 +48,7 @@ ssh coordinator "iptables -A OUTPUT -d metadata-store -j DROP"
 ssh coordinator "iptables -A INPUT -s metadata-store -j DROP"
 
 # Start recovery measurement
-./tools/measure-recovery-time.sh measure \
+../tools/measure-recovery-time.sh measure \
   --endpoint http://coordinator:8080 \
   --probe-query "SHOW TABLES IN benchmark" \
   --timeout 180s \

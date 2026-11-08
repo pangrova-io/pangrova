@@ -121,14 +121,14 @@ All error responses use a consistent format:
 ```json
 {
   "error_code": "NOT_FOUND",
-  "error_type": null,
+  "error_type": "USER_ERROR",
   "message": "Query not found: invalid-id"
 }
 ```
 
 | HTTP Status | Error Code | Meaning |
 |-------------|-----------|---------|
-| 400 | `INVALID_REQUEST` | Malformed request (missing query field) |
+| 400 | `BAD_REQUEST` | Malformed request (missing query field) |
 | 404 | `NOT_FOUND` | Query ID not found |
 | 409 | `CONFLICT` | Unregistered worker (registration conflict) |
 | 500 | `INTERNAL_ERROR` | Server-side failure |

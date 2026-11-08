@@ -155,6 +155,44 @@ versions, disable compression, or edit generated download scripts to pass setup.
 </code_scheme>
 ```
 
+### 1.5 Local cleanup and SessionEnd hook
+
+Development runs leave ephemeral artifacts such as `javac.*.args`,
+`.jqwik-database`, `__pycache__`, and `dependency-reduced-pom.xml`. Clean them
+before ending a session and confirm the hygiene gate passes:
+
+```bash
+.pangrova/scripts/clean-dev-artifacts.sh          # ephemeral caches
+.pangrova/scripts/clean-dev-artifacts.sh --all    # also target/build outputs
+.pangrova/scripts/check-dev-artifacts.sh          # gate; --strict also rejects local leftovers
+```
+
+The cleanup script removes the retired non-published documentation directory if
+it reappears. It never touches `data/worker-admission/`, `.env*`, `.secrets/`,
+IDE directories, or `~/.qoder/plans/`.
+
+Qoder Desktop can run the cleanup at the end of every task. Add this to the
+user-level `~/.qoder/settings.json` (not committed; `.qoder/` is ignored):
+
+```json
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -x \"$root/.pangrova/scripts/clean-dev-artifacts.sh\" ] && \"$root/.pangrova/scripts/clean-dev-artifacts.sh\" --quiet || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The command is a no-op outside a Pangrova checkout and never blocks session end.
+
 ## 2. Module Development Guide
 
 ### 2.1 Module Structure Convention
@@ -318,7 +356,7 @@ public class QueryExecutor {
 │     └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                                  │
 │  3. Register SPI                                                                 │
-│     META-INF/services/org.pangrova.connector.spi.ConnectorFactory                │
+│     META-INF/services/org.pangrova.connector.spi.plugin.ConnectorFactory                │
 │                                                                                  │
 │  4. Write tests                                                                 │
 │     Use TestContainers for integration testing                                 │
@@ -352,14 +390,6 @@ public class CsvConnectorFactory implements ConnectorFactory {
         return new CsvConnector(csvConfig, context);
     }
     
-    @Override
-    public List<PropertyMetadata<?>> getConfigProperties() {
-        return List.of(
-            PropertyMetadata.stringProperty("csv.path", "CSV files directory", true),
-            PropertyMetadata.stringProperty("csv.delimiter", "Field delimiter", ","),
-            PropertyMetadata.booleanProperty("csv.header", "Has header row", true)
-        );
-    }
 }
 
 // 2. Connector
@@ -535,9 +565,9 @@ Step-by-step guide from project creation to running integration tests. Assumes J
 
 ```bash
 # From pangrova root directory
-mkdir -p pangrova-connector-mydb/src/main/java/org/pangrova/connector/mydb
-mkdir -p pangrova-connector-mydb/src/main/resources/META-INF/services
-mkdir -p pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
+mkdir -p pangrova-connector/pangrova-connector-mydb/src/main/java/org/pangrova/connector/mydb
+mkdir -p pangrova-connector/pangrova-connector-mydb/src/main/resources/META-INF/services
+mkdir -p pangrova-connector/pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
 ```
 
 ### Step 2: Add pom.xml
@@ -547,15 +577,15 @@ mkdir -p pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
 <project>
     <parent>
         <groupId>org.pangrova</groupId>
-        <artifactId>pangrova-connectors</artifactId>
-        <version>${revision}</version>
+        <artifactId>pangrova-connector</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>pangrova-connector-mydb</artifactId>
 
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
+            <artifactId>pangrova-connector-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -591,13 +621,6 @@ public class MyDbConnectorFactory implements ConnectorFactory {
         return new MyDbConnector(myDbConfig);
     }
 
-    @Override
-    public List<PropertyMetadata<?>> getConfigProperties() {
-        return List.of(
-            PropertyMetadata.stringProperty("mydb.url", "JDBC URL", true),
-            PropertyMetadata.stringProperty("mydb.user", "Username", true)
-        );
-    }
 }
 ```
 
@@ -620,10 +643,15 @@ Refer to the CSV Connector example in §3.2 for implementation patterns.
 ```bash
 # Create SPI registration file
 echo "org.pangrova.connector.mydb.MyDbConnectorFactory" > \
-  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.connector.spi.ConnectorFactory
+  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.connector.spi.plugin.ConnectorFactory
 ```
 
 ### Step 6: Write Integration Test
+
+> **Illustrative test code.** `TestConnectorContext` and
+> `CsvConnectorIntegrationTest` below are tutorial-local names, not repository
+> classes. Real connector acceptance extends
+> `org.pangrova.testing.testkit.AbstractConnectorTckTest`.
 
 ```java
 package org.pangrova.connector.mydb;
@@ -843,13 +871,13 @@ Follow the structured logging format defined in [14 §7](../architecture/observa
 
 
 
-> **Module Structure (§2.1)**: Each connector module follows the convention: `src/main/java/org/pangrova/connector/{format}/spi/` for SPI interfaces and `src/main/java/org/pangrova/connector/{format}/impl/` for implementations. This aligns with [connectors.md §2](../architecture/connectors.md) ClassLoader isolation — SPI packages are loaded by the parent ClassLoader.
+> **Module Structure (§2.1)**: Provider code lives under `src/main/java/org/pangrova/connector/{format}/` with `read/`, `write/`, `handle/`, and `type/` subpackages. SPI contracts live in `pangrova-connector/pangrova-connector-api`, not in provider modules.
 
 
 > **Code Standards (§2.2):** The authoritative policy lives in [repository code standards](https://github.com/pangrova/pangrova/blob/main/.pangrova/rules/code-standards.md). This guide is a practical reference and does not override those rules.
 
 
-> **Connector Example (§3.2)**: `ConnectorFactory.create()` signature matches [04 §1.1](../architecture/connectors.md). `getConfigProperties()` returns `Map<String, String>` (not `Properties`) to align with the Connector SPI contract in 04 §1.2.
+> **Connector Example (§3.2)**: `ConnectorFactory` exposes `getName()`, `apiVersion()`, `roles()`, `validateConfiguration(...)`, and `create(...)`; it has no `getConfigProperties()` method. See [connectors.md §1](../architecture/connectors.md).
 
 ---
 

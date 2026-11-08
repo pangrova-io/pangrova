@@ -1,7 +1,0 @@
-{
-  "org.pangrova.indexing.planner.vector.VectorSearchNode": "Class body unchanged after package/import references and API annotation normalization",
-  "org.pangrova.indexing.planner.vector.VectorSearchRewriter": "Class body unchanged after package/import references and API annotation normalization",
-  "org.pangrova.indexing.planner.vector.EmpiricalRecallEstimator": "Class body unchanged after package/import references and API annotation normalization",
-  "org.pangrova.indexing.planner.IndexHint": "Class body unchanged after package/import references and API annotation normalization",
-  "org.pangrova.indexing.planner.IndexPredicateAnalyzer": "Class body unchanged after package/import references and API annotation normalization"
-}

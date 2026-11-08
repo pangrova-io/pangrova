@@ -21,10 +21,6 @@ Broken routes, Markdown targets and anchors fail the build. Navigation is owned
 by `sidebars.ts`; documentation format is described in
 [the documentation guide](../docs/contributing/documentation.md).
 
-`docs/internal/` is excluded from the website. Those files are still visible in a
-public Git repository. Link to retained source evidence with a GitHub URL when
-needed; a local site link to an excluded document cannot resolve.
-
 `static/img/` is the shared image source for this site and the root README. The
 root README maintains the current execution diagram as Mermaid source.
 Retain `static/.nojekyll`, which is a GitHub Pages deployment marker.

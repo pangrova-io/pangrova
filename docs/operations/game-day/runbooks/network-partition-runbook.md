@@ -98,7 +98,7 @@ done
 
 ```bash
 # Count leaders by inspecting the authoritative JDBC lease table
-LEADERS=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADERS=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;" | wc -l)
 
 echo "Active lease holders: ${LEADERS}"
@@ -118,7 +118,7 @@ fi
 
 ```bash
 # Find the active leader from the lease table and verify queries succeed
-LEADER_HOST=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADER_HOST=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP LIMIT 1;")
 
 echo "Active leader: ${LEADER_HOST}"
@@ -157,7 +157,7 @@ done
 
 # Wait and verify a lease holder exists
 sleep 15
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
   -c "SELECT lease_key, holder_id, epoch, acquired_at, expires_at FROM distributed_lease;"
 ```
 
@@ -228,7 +228,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   echo "${coord}: HTTP ${HTTP}"
 done
 
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT COUNT(*) FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;" \
   | xargs -I{} echo "Active lease holders: {} (expect 1 → full redundancy restored)"
 ```
@@ -254,7 +254,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
 done > /tmp/split-brain-state-$(date +%Y%m%d-%H%M%S).txt
 
 # 3. Capture the JDBC lease table directly
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
   -c "SELECT lease_key, holder_id, epoch, acquired_at, expires_at, version
       FROM distributed_lease ORDER BY acquired_at;" | \
   tee /tmp/split-brain-lease-state.txt

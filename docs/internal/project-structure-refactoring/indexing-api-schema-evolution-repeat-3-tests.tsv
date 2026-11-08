@@ -1,4 +1,0 @@
-report	class	test	status
-pangrova-testing/pangrova-testing-integration-tests/target/surefire-reports/TEST-org.pangrova.testing.integration.e2e.index.IndexSchemaEvolutionE2ETest$DropColumnImpact.xml	org.pangrova.testing.integration.e2e.index.IndexSchemaEvolutionE2ETest$DropColumnImpact	dropColumnDropsIndex	passed
-pangrova-testing/pangrova-testing-integration-tests/target/surefire-reports/TEST-org.pangrova.testing.integration.e2e.index.IndexSchemaEvolutionE2ETest$RenameColumnImpact.xml	org.pangrova.testing.integration.e2e.index.IndexSchemaEvolutionE2ETest$RenameColumnImpact	renameColumnPreservesIndex	passed
-pangrova-testing/pangrova-testing-integration-tests/target/surefire-reports/TEST-org.pangrova.testing.integration.e2e.index.IndexSchemaEvolutionE2ETest$DropTableCascade.xml	org.pangrova.testing.integration.e2e.index.IndexSchemaEvolutionE2ETest$DropTableCascade	dropTableDropsAllIndexes	passed

@@ -58,9 +58,6 @@ const config: Config = {
           showLastUpdateTime: true,
           showLastUpdateAuthor: true,
           numberPrefixParser: false,
-          exclude: [
-            'internal/**',
-          ],
         },
         blog: {
           showReadingTime: true,

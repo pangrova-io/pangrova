@@ -76,7 +76,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
 done
 
 # The authoritative leader is the current lease holder in the HA database
-LEADER_ID=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADER_ID=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP LIMIT 1;")
 echo "Current leader (lease holder): '${LEADER_ID}'"
 ```
@@ -96,7 +96,7 @@ done
 
 # Wait and verify a lease holder exists
 sleep 15
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta \
   -c "SELECT lease_key, holder_id, epoch, acquired_at, expires_at FROM distributed_lease;"
 ```
 
@@ -214,7 +214,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
   HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://${coord}:8080/v1/health")
   echo "${coord}: HTTP ${HTTP}"
 done
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT COUNT(*) FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;" \
   | xargs -I{} echo "Active lease holders: {} (expect exactly 1)"
 ```

@@ -37,7 +37,7 @@ A class, interface, parser rule, or plan node by itself is not evidence of an en
 For user-visible support, verify the production entry point, wiring, connector/native implementation,
 and the closest integration or E2E test. The SQL reference explicitly marks recognized syntax with absent or incomplete execution
 wiring. Test existence and source inspection are not a completed runtime qualification.
-Roadmap material is kept outside the published site.
+Roadmap material lives in the [public roadmap](../getting-started/roadmap.md).
 
 ## How to read these docs
 
@@ -59,6 +59,7 @@ Roadmap material is kept outside the published site.
 | [Query Execution](./query-execution.md) | End-to-end query flow, Calcite integration, REST API, exchange protocol, write path |
 | [Query Optimization](./query-optimization.md) | Materialized views, result cache, admission control, smart routing |
 | [Native Execution Layer](./native-execution.md) | C++ native layer, read architecture, Velox integration |
+| [Dynamic Table Refresh](./dynamic-table-manual-full-refresh.md) | Dynamic Table SQL and scheduling on the shared materialization kernel |
 
 ### Data & Storage
 | Document | Scope |
@@ -68,6 +69,7 @@ Roadmap material is kept outside the published site.
 | [Indexing](./indexing.md) | Index architecture, vector (ANN) indexes, three-tier pruning, distributed maintenance |
 | [Streaming & CDC](./streaming.md) | CDC, incremental query, streaming writes, watermarks |
 | [Distributed Write](./distributed-writes.md) | Distributed write design, transaction atomicity, two-phase commit |
+| [File & Blob Storage](./file-storage.md) | Filesystem artifacts, blob transfer, directory projection, and remaining file-plane gaps |
 
 ### Platform Services
 | Document | Scope |
@@ -79,6 +81,7 @@ Roadmap material is kept outside the published site.
 | [Security](./security.md) | Authentication, authorization, row/column-level access, masking, audit |
 | [Multi-Tenancy](./multi-tenancy.md) | Tenant model, resource isolation, quota management |
 | [Data Governance](./data-governance.md) | Data lineage, data quality, data classification |
+| [Query Lineage](./query-lineage.md) | Logical query START/terminal publication and ownership |
 
 ### AI-Native
 | Document | Scope |
@@ -90,6 +93,7 @@ Roadmap material is kept outside the published site.
 |---|---|
 | [JNI Bridge](./jni-bridge.md) | Protocol boundary contract, memory ownership, known issues |
 | [Dynamic Filter Lifecycle](./dynamic-filtering.md) | Dynamic filter state machine and lifecycle |
+| [Domain Modularization ADR](./domain-modularization-adr.md) | Accepted domain contract, implementation, and assembly decisions |
 | [Configuration Reference](../configuration/reference.md) | Full configuration-key reference |
 
 ### Operations & Contributing
@@ -115,7 +119,7 @@ These design references are grouped under the **Operations** and **Contributing*
    Recovery ambiguity and incomplete paths remain explicit in [Distributed Write](distributed-writes.md);
    this design does not establish complete distributed-write qualification.
 5. **Extensibility via SPIs.** Stable contracts live in the owning `-api`/`-spi`
-   artifact (for example `pangrova-connector-spi`, `pangrova-observability-api`). Plugin-capable contracts may be discovered via `ServiceLoader`; not every
+   artifact (for example `pangrova-connector-api`, `pangrova-observability-api`). Plugin-capable contracts may be discovered via `ServiceLoader`; not every
    SPI uses service loading. Core SPIs include
    `ConnectorFactory`, `ConnectorMetadata`, `ConnectorSplitManager`, `ConnectorPageSourceProvider`,
    `ConnectorPageSinkProvider`, `TableWriter`, `TableMaintenanceSpi`,
@@ -140,12 +144,13 @@ For the complete, authoritative protocol-mapping table, see the
 | Module | Responsibility | Shared across |
 |---|---|---|
 | `pangrova-protocol` | Protobuf definitions, Arrow schemas | Java ↔ Native |
-| `pangrova-connector-spi` | Connector / Cache / Serializer SPIs + connector base abstractions | Global |
+| `pangrova-connector/pangrova-connector-api` | Connector API/SPI contracts, metadata, split and write abstractions | Global |
+| `pangrova-connector/pangrova-connector-runtime` | Connector discovery, classloader isolation, plugin lifecycle | Global |
 | `pangrova-common` | Utilities, constants, exception definitions | Global |
 
 ## Platform baseline
 
 - **Java:** 17+
 - **C++ standard:** C++20
-- **Core dependencies:** Calcite 1.42.0, Arrow 19.0.0, Velox (repository-pinned revision), Iceberg 1.11.0,
-  Paimon 1.4.1, Substrait 0.23.0, Hadoop 3.3.6
+- **Core dependencies:** Calcite 1.42.0, Arrow 19.0.0, Velox (repository-pinned revision), Iceberg 1.11.0-pangrova-schema-candidate4,
+  Paimon 1.4.1, Substrait 0.95.0, Hadoop 3.3.6

@@ -61,13 +61,14 @@ ordinary task HTTP route remains for tasks without a COPY ticket. URI-source
 
 ## coordinator.ha
 
-Controls high-availability leader election via a JDBC lease store.
+Leader election uses the metadata DataSource and the `distributed_lease` table in
+`pangrova_meta`. All Coordinators must share that metadata database. There is no
+separate HA database and no `coordinator.ha.jdbc-url` config option.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `coordinator.ha.enabled` | bool | `false` | Enable coordinator high-availability mode |
-| `coordinator.ha.jdbc-url` | string | — | JDBC URL for the HA coordination state store. Required when HA is enabled |
-| `coordinator.ha.ddl-leader-routing` | bool | `false` | When `true`, DDL statements are routed exclusively to the leader coordinator (HTTP 307 redirect). When `false` (default), DDL can execute on any coordinator — metadata consistency is guaranteed by the connector's own concurrency control and cross-node invalidation propagation |
+| `coordinator.ha.enabled` | bool | `false` | Declared in `CoordinatorOptions`; not read by the current production bootstrap |
+| `coordinator.ha.ddl-leader-routing` | bool | `false` | When `true`, DDL statements are routed exclusively to the leader coordinator (HTTP 307 redirect) |
 
 ### Distributed lease backend (JVM system properties)
 
@@ -88,7 +89,7 @@ system properties (`-D...`) on every coordinator:
 |-----|------|---------|-------------|
 | `coordinator.query.timeout` | duration | `"5m"` | Maximum query execution time before timeout |
 | `coordinator.query.max-concurrent` | int | `100` | Maximum number of concurrently executing queries |
-| `coordinator.task.spill.max-bytes` | long | `0` | Per-task spill byte ceiling; zero disables task spilling. Requires Worker-local spill directory. |
+| `coordinator.task.spill.max-bytes` | long | `8589934592` (8 GiB) | Per-task spill byte ceiling; zero disables task spilling. Requires Worker-local spill directory. |
 
 Task spill budgets are signed 64-bit non-negative byte counts. Invalid, negative,
 or overflowing values fail configuration before startup. The grant applies to
@@ -98,6 +99,19 @@ uses the smaller positive task and node limit when a node cap exists. A zero tas
 grant disables task spilling even if the Worker has a directory. The Coordinator
 never supplies a filesystem path for another machine. These settings also apply
 to Standalone, which uses the same Coordinator configuration loader.
+
+## coordinator.shuffle
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `coordinator.shuffle.mode` | enum | `NATIVE` | `NATIVE` serves shuffle from each Worker's own Flight server. `REMOTE` writes to the external shuffle service so a dead Worker's output can be re-read from another node instead of recomputing the stage chain |
+| `coordinator.shuffle.endpoints` | string (comma-separated `host:port`) | `""` | External shuffle servers. Required when `mode=REMOTE`; startup fails closed without them |
+
+`REMOTE` additionally requires shared PostgreSQL execution authority, Coordinator
+transport TLS plus `coordinator.shuffle.tls.server-identity` (the shuffle service
+demands mutual TLS), matching `worker.shuffle.mode=REMOTE` on every Worker, and a
+deployed shuffle service with a PostgreSQL database, an S3 bucket and the
+capability secret. `BROADCAST` exchange is not supported in `REMOTE` mode.
 
 ## coordinator.worker
 
@@ -215,11 +229,7 @@ Additional coordinator behavior is tuned via JVM system properties
 | System property | Default | Description |
 |-----------------|---------|-------------|
 | `pangrova.http.max-requests-per-minute` | `100` | Public HTTP requests per actual transport-peer IP per fixed one-minute window |
-| `pangrova.shuffle.manager` | (auto) | Shuffle provider name (`native`, `local-spill`, or `object-store`). When unset, the highest-durability provider on the classpath is selected automatically |
 | `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Base directory for index build artifacts |
-| `pangrova.cache.result.redis-url` | — | Redis URL to enable the external query result cache |
-| `pangrova.cache.result.ttl-seconds` | `3600` | TTL for externally cached query results |
-| `pangrova.cache.result.max-entry-bytes` | `10485760` | Maximum size (bytes) of a single externally cached result |
 
 The server captures the actual connection peer before authentication. Caller-supplied
 `X-Forwarded-For` is not trusted for authentication, brute-force tracking or this
@@ -245,7 +255,7 @@ coordinator:
   port: 8080
   ha:
     enabled: true
-    jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST:-localhost}:5432/pangrova_ha"
+    # Leader election uses the metadata DataSource; no separate HA database.
   query:
     timeout: "10m"
     max-concurrent: 200

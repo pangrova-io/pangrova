@@ -31,7 +31,7 @@ that the tested path passed for its platform, dependencies, and revision.
 | [Queries](queries.md) | Query expressions, joins, grouping, ordering, and set operations |
 | [DML](dml.md) | INSERT, UPDATE, DELETE, and MERGE routing |
 | [DDL](ddl.md) | Catalog, schema, table, view, index, volume, and stage metadata operations |
-| [Maintenance](maintenance.md) | Default no-op statements, connector procedures, and clustering gaps |
+| [Maintenance](maintenance.md) | Standalone maintenance, connector procedures, and clustering gaps |
 | [Streaming](streaming.md) | Stream wiring, CDC limitations, and dynamic-table registration limits |
 | [Versioning](versioning.md) | Snapshot, branch, tag, and incremental-read behavior |
 | [Session](session.md) | Request context and current non-persisting SET behavior |

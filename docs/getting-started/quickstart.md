@@ -48,8 +48,8 @@ setup, builds Lance and packages JNI resources. If the build fails, check:
 
 ```bash
 # Check that key JARs were produced
-ls pangrova-coordination/pangrova-coordination-core/target/pangrova-coordinator-*.jar
-ls pangrova-worker/pangrova-worker-core/target/pangrova-worker-*.jar
+ls pangrova-coordination/pangrova-coordination-core/target/pangrova-coordination-core-*.jar
+ls pangrova-worker/pangrova-worker-core/target/pangrova-worker-core-*.jar
 ls pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar
 ```
 
@@ -214,7 +214,7 @@ FOR SYSTEM_TIME AS OF 4827391056;
 -- Compact small files for better read performance
 COMPACT local_iceberg.demo.events;
 
--- Clean up expired snapshots and orphaned files
+-- Clean up orphaned files (VACUUM does not expire snapshots)
 VACUUM local_iceberg.demo.events;
 ```
 

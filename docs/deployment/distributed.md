@@ -137,13 +137,13 @@ Pangrova requires PostgreSQL for HA leader election and metadata storage.
 
 ```sql
 -- Connect as superuser
-CREATE DATABASE pangrova_ha;
+CREATE DATABASE pangrova_meta;
 CREATE DATABASE pangrova_meta;
 
 CREATE USER pangrova WITH PASSWORD '<strong-password>';
-GRANT CONNECT ON DATABASE pangrova_ha TO pangrova;
 GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
-GRANT CREATE ON DATABASE pangrova_ha TO pangrova;
+GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
+GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
 GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
 ```
 
@@ -358,7 +358,6 @@ coordinator:
 
   ha:
     enabled: true
-    jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_ha"
 
   query:
     timeout: "10m"
@@ -563,7 +562,7 @@ leadership from the HA lease table and per-node health instead:
 # Output: healthy
 
 # Exactly one coordinator must hold the unexpired lease
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;"
 
 # The standby reports healthy (its /v1/health readiness depends on workers and

@@ -1,16 +1,26 @@
 # Iceberg write-failure evaluation patches
 
 These five unified patches reproduce the isolated Iceberg 1.11.0 / Parquet 1.17.1
-write-failure candidate documented in
-[`docs/internal/iceberg-sdk-write-failure-repair-plan.md`](../../../../docs/internal/iceberg-sdk-write-failure-repair-plan.md).
-They are retained for review and are **not** applied by the current SDK build,
-included in production artifacts, or considered release-ready.
+write-failure candidate. Status: **SOURCE_READY; production dependency not switched;
+formal release acceptance BLOCKED**. They are retained for review and are **not**
+applied by the current SDK build, included in production artifacts, or considered
+release-ready.
 
-They were evaluated against the exact pinned source archives and isolated
-classpath described in that plan. Before use in any build, verify the pinned
-source commit/archive hashes and each patch checksum, apply to a fresh source
-tree, then run the upstream official build and full SDK/connector/Worker/E2E
-acceptance matrix. The candidate has not passed that release gate.
+Direct upgrade to official Iceberg 1.12.0 does not fix the failure (it still depends
+on Parquet 1.17.1), so the minimum 1.11.0 + Parquet Hadoop 1.17.1 backport is the
+review baseline. The candidate was evaluated against the exact pinned source archives
+and an isolated classpath; the patches preserve the 1.11 constructor signatures and
+row-data behavior. Before use in any build, verify the pinned source commit/archive
+hashes and each patch checksum, apply to a fresh source tree, then run the upstream
+official build and the full SDK/connector/Worker/E2E acceptance matrix. The candidate
+has not passed that release gate.
+
+Known open boundaries: the main-source `IcebergDeleteWriter` position/equality delete
+builders still lack `finally`/try-with-resources around write failures; ORC/Avro,
+other FileWriters, remote object stores, encryption, and every allocator boundary are
+not covered by this candidate. Cleanup-only failures never restore a writer's
+publication eligibility, and a real mid-write I/O failure requires deleting the whole
+uncommitted file because the public `PositionOutputStream` has no safe rollback.
 
 Patch SHA-256 values:
 

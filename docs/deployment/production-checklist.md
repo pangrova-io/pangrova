@@ -88,16 +88,16 @@ Work through each section in order. Check off each item before proceeding to the
 - [ ] PostgreSQL ≥ 14 running and accessible from all Coordinator nodes
 - [ ] Dedicated databases created:
   ```sql
-  CREATE DATABASE pangrova_ha;
+  CREATE DATABASE pangrova_meta;
   CREATE DATABASE pangrova_meta;
   ```
 - [ ] `pangrova` database user created with limited privileges:
   ```sql
   CREATE USER pangrova WITH PASSWORD '...';
-  GRANT CONNECT ON DATABASE pangrova_ha TO pangrova;
+  GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
   GRANT CONNECT ON DATABASE pangrova_meta TO pangrova;
   -- Grant DDL rights for schema creation on first startup:
-  GRANT CREATE ON DATABASE pangrova_ha TO pangrova;
+  GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
   GRANT CREATE ON DATABASE pangrova_meta TO pangrova;
   ```
 - [ ] Database connection string verified from each Coordinator:
@@ -188,7 +188,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 - [ ] Admin role group (`pangrova-admin`) provisioned in the IdP with at least one member
 - [ ] Authenticated request succeeds against the REST API:
   ```bash
-  curl -H "Authorization: Bearer <token>" https://pangrova.example.com/v1/namespaces
+  curl -H "Authorization: Bearer <token>" https://pangrova.example.com/v1/server/info
   ```
 - [ ] Unauthenticated request correctly returns `HTTP 401`
 
@@ -246,17 +246,17 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   - `/etc/pangrova/catalog/` (catalog configuration files)
 - [ ] Startup smoke check passes on each Coordinator (no `--validate` mode exists — start, then probe health):
   ```bash
-  systemctl start pangrova-coordinator
+  /opt/pangrova/bin/pangrova-coordinator.sh --daemon
   curl -sf http://localhost:8080/v1/health && echo OK
   ```
 - [ ] Startup smoke check passes on each Worker:
   ```bash
-  systemctl start pangrova-worker
-  curl -sf http://localhost:8081/v1/health || journalctl -u pangrova-worker --no-pager | tail -20
+  /opt/pangrova/bin/pangrova-worker.sh --daemon
+  curl -sf http://localhost:8081/v1/health || tail -n 50 /var/log/pangrova/pangrova-worker.log
   ```
 - [ ] **Start Coordinators first** (in order; wait for each to reach LEADER/STANDBY state before starting the next):
   ```bash
-  systemctl start pangrova-coordinator
+  /opt/pangrova/bin/pangrova-coordinator.sh --daemon
   # Wait for log line: "event=ha_started ... role=LEADER" or "role=STANDBY"
   journalctl -u pangrova-coordinator -f | grep -m1 "role="
   ```
@@ -266,7 +266,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   ```
 - [ ] **Start Workers** (all can start in parallel):
   ```bash
-  systemctl start pangrova-worker
+  /opt/pangrova/bin/pangrova-worker.sh --daemon
   ```
 - [ ] All Workers registered and HEALTHY:
   ```bash
@@ -367,6 +367,40 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   - [ ] What to do when coordinator log shows `OOM`, `LEADER_LOST`, `WORKER_DEAD`
 - [ ] Escalation path documented (who to page, with contact info)
 - [ ] Monitoring dashboards linked in the runbook (Grafana URLs, alert manager links)
+
+---
+
+## Appendix — Industry-grade qualification gates
+
+These gates are release conditions, not current results. Any failed gate makes the
+release verdict `NO-GO`; do not change the verdict by editing reports, dropping failed
+samples, raising limits, extending timeouts, or disabling tests.
+
+| Gate | Required result |
+|---|---|
+| Build provenance | Clean, reproducible, signed digest; manifest + build logs |
+| Native/JNI | Release/ASan/UBSan green; CTest XML + sanitizer logs |
+| Java/E2E | 0 failed/error/skipped; suite counts match |
+| TPC-H | SF100/SF1000 22/22 correct; raw samples + digest |
+| TPC-DS | SF100/SF1000 99/99 correct; raw samples + digest |
+| Comparator | Four engines, three rounds, fairness review |
+| Scale | 32 Workers >= 70% scale efficiency, or an approved saturation boundary |
+| Split | 100k/1m splits correct with bounded memory |
+| Skew/backpressure | Bounded queues, no head-of-line deadlock |
+| Failover | No silent partial result, no duplicate commit |
+| Soak | 72h without leak/deadlock/OOM |
+| Production | 7d shadow + canary SLO |
+| Upgrade/rollback | N-1 -> N -> N-1 drill |
+| Security/compliance | No secrets/PII; TPC claims compliant |
+
+Correctness uses TPC-H 22/22 and TPC-DS 99/99 with 0 missing/skip; unordered results
+compare as a multiset digest and ordered results by sequence digest. Performance
+regression fails when P50 increases >10% or P99 >15% with non-overlapping confidence
+intervals, or throughput drops >10%. Failure recovery: a single Worker SIGKILL either
+retries within the configured deadline or returns an explicit failure; a Coordinator
+active SIGKILL lets a new leader accept queries within 30 seconds; late attempts
+cannot overwrite a winner; cancellation reclaims tasks, buffers, spill, temporary
+files, and handles within 30 seconds.
 
 ---
 

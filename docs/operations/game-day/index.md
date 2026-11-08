@@ -94,19 +94,22 @@ Each scenario has a corresponding runbook for live incident response. Runbooks a
 ```bash
 # Record steady-state baseline before injecting fault
 ./tools/measure-recovery-time.sh baseline \
-  --endpoint https://coordinator-1:8080 --token "${PANGROVA_TOKEN}"
+  --endpoint https://coordinator-1:8080 --token "${PANGROVA_TOKEN}" \
+  --query "SELECT count(*) FROM benchmark.lineitem" --duration 60s \
+  --output baseline.json
 
 # Measure recovery time after fault injection
 ./tools/measure-recovery-time.sh measure \
   --endpoint https://coordinator-1:8080 --token "${PANGROVA_TOKEN}" \
-  --rto-coordinator 30 --query "SELECT 1"
+  --probe-query "SELECT 1" --timeout 120s --output recovery.json
 
 # Live health tail (detects down/up transitions automatically)
 ./tools/measure-recovery-time.sh watch \
   --endpoint https://coordinator-1:8080 --interval 2
 
 # Generate final report from saved measurements
-./tools/measure-recovery-time.sh report --scenario coordinator
+./tools/measure-recovery-time.sh report \
+  --baseline baseline.json --recovery recovery.json --rto-coordinator 30
 ```
 
 ## Reports

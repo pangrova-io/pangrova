@@ -1,5 +1,0 @@
-class	name	status	report
-org.pangrova.query.api.QueryApiClasspathTest	contractsLinkWithoutRuntimeOrCentralSpi	passed	pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.QueryApiClasspathTest.xml
-org.pangrova.query.api.submission.QuerySubmissionResultTest	supportsWriteDispatchWithoutAResultEndpointAndRejectsMissingIdentityOrState	passed	pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.submission.QuerySubmissionResultTest.xml
-org.pangrova.query.api.submission.QuerySubmissionResultTest	freezesColumnsWithoutTakingOwnershipOfTheResultEndpoint	passed	pangrova-query/pangrova-query-api/target/surefire-reports/TEST-org.pangrova.query.api.submission.QuerySubmissionResultTest.xml
-org.pangrova.persistence.query.api.QueryApiClasspathTest	everyExportedTypeLinksAndAnAnchorConstructsOnTheContractClasspath	passed	pangrova-persistence/pangrova-persistence-query-api/target/surefire-reports/TEST-org.pangrova.persistence.query.api.QueryApiClasspathTest.xml

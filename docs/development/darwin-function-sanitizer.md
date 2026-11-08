@@ -1,3 +1,8 @@
+---
+title: "Darwin Function Sanitizer"
+description: "Darwin LLVM function sanitizer qualification"
+---
+
 # Darwin LLVM function sanitizer qualification
 
 LLVM 17's function sanitizer emits a signature and type hash before each
@@ -62,7 +67,7 @@ memory errors. The ASan dylib's 23 exported symbols exactly match Release.
 The expanded run additionally reports the unsigned timestamp truncation in
 `DistributedMutex-inl.h`: `strip` retains 56 timestamp bits and reserves the
 bottom eight bits; its caller deliberately applies it to the maximum unsigned
-timestamp sentinel. `test-tools/toolchain/FollyIntegerIntentControls.cpp`
+timestamp sentinel. `pangrova-worker-native/test-tools/toolchain/FollyIntegerIntentControls.cpp`
 checks the real Folly functions against independent 128-bit arithmetic,
 hash inversion, timestamp recovery and all-bits masks. It passes 100,962
 boundary/deterministic inputs, including all upper-byte values and the actual

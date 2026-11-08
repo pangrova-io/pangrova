@@ -1,3 +1,8 @@
+---
+title: "Speculative Execution E2E"
+description: "Independent-process validation of speculative execution"
+---
+
 # Independent speculative execution validation
 
 `IndependentSpeculativeExecutionE2ETest` runs the ten speculative execution cases

@@ -12,8 +12,8 @@ normalized. Every query still requires full reference validation.
 
 Use `scripts/run-tpc-suite.sh` for persistent-client full-suite measurements,
 shared snapshot verification, agreed Spark/Trino reference results and three
-independent windows. See [the runbook](../../../../docs/testing/tpc-benchmark-methodology.md)
-and [the audit](../../../../docs/internal/tpc-benchmark-audit.md).
+independent windows. See [the runbook](../../../../docs/testing/tpc-benchmark-methodology.md) for the
+acceptance matrix and current evidence limits.
 
 The older `scripts/run-tpc-benchmark.sh` remains a separate serial CLI-process
 end-to-end experiment. It requires FINISHED, completely consumed results, a unique

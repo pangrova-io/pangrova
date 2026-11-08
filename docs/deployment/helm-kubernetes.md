@@ -33,9 +33,10 @@ The chart references the Secret through `internalAuth.existingSecret` and never
 stores its value in chart values. The release namespace must exist before the
 Secrets are created; the chart leaves it under the operator's ownership by
 default (`manageNamespace: false`).
-The image runs as uid/gid 999; the chart sets pod `fsGroup: 999` so its
-mounted log and Worker spill volumes are writable. A storage driver that does
-not honor `fsGroup` needs equivalent ownership set by the operator.
+The image runs as a dynamically allocated non-root `pangrova` user (no fixed
+uid/gid); the chart sets pod `fsGroup: 999` so mounted log and Worker spill
+volumes are writable. A storage driver that does not honor `fsGroup` needs
+equivalent ownership set by the operator.
 Coordinator and Worker liveness probes call `/v1/health/live`; readiness probes
 call `/v1/health`. Coordinator readiness requires a Worker and catalog, so the
 chart also publishes `pangrova-coordinator-bootstrap` for Worker registration
@@ -227,7 +228,7 @@ kubectl describe hpa pangrova-worker -n pangrova
 | `coordinator.replicas` | int | `1` | Number of Coordinator pods; multiple replicas require shared JDBC state and HA configuration |
 | `internalAuth.existingSecret` | string | `pangrova-internal-auth` | Existing Secret with `internal-auth-secret` key in each deployment namespace |
 | `coordinator.resources` | object | 2 CPU / 4Gi | Coordinator resource requests/limits |
-| `coordinator.javaOpts` | string | `-Xms2g -Xmx8g` | Coordinator JVM options |
+| `coordinator.javaOpts` | string | `-Xms1g -Xmx4g` | Coordinator JVM options |
 | `coordinator.nodeSelector` | object | `{}` | Coordinator node selector |
 | `coordinator.tolerations` | list | `[]` | Coordinator tolerations |
 | `coordinator.affinity` | object | `{}` | Coordinator affinity rules |
@@ -253,7 +254,7 @@ kubectl describe hpa pangrova-worker -n pangrova
 |---------|-----------|-----|
 | Pods stuck in `Pending` | `kubectl describe pod` — check events | Insufficient resources → scale node pool or reduce requests |
 | Pods in `CrashLoopBackOff` | `kubectl logs <pod>` — check Java errors | Wrong JVM opts, missing config, or port conflict |
-| Workers not registering | Check Worker logs for registration errors | Verify `WORKER_COORDINATOR_URL` env var points to Coordinator Service |
+| Workers not registering | Check Worker logs for registration errors | Verify `PANGROVA_COORDINATOR_URL` env var points to Coordinator Service |
 | HPA not scaling | `kubectl describe hpa` — check metrics | Ensure metrics-server is installed: `kubectl top pods -n pangrova` |
 | ConfigMap not updating | Pods use old config after `helm upgrade` | Restart pods: `kubectl rollout restart statefulset/pangrova-worker -n pangrova` |
 | Ingress not routing | `kubectl describe ingress -n pangrova` | Check ingress controller logs, verify TLS secret exists |

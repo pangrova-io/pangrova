@@ -78,7 +78,7 @@ ssh "${TARGET_WORKER}" "which fallocate && fallocate --version | head -1"
 ENDPOINT="https://coordinator:8080"
 TOKEN="${PANGROVA_TOKEN}"
 
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint "${ENDPOINT}" \
   --token    "${TOKEN}" \
   --query    "SELECT count(*) FROM benchmark.lineitem" \

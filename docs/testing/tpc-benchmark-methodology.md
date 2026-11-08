@@ -1,9 +1,19 @@
+---
+title: "TPC Benchmark Methodology"
+description: "TPC-derived workload generation, execution, and acceptance evidence"
+---
+
 # TPC-derived benchmark methodology and runbook
 
 This harness measures engineering workloads. All executable templates and SQL
 adaptations are explicit; current official TPC certification is a separate goal.
-For verified findings and outstanding evidence, see
-[the audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/tpc-benchmark-audit.md).
+The workload directory contains 22 TPC-H templates and 99 TPC-DS templates
+(103 executable steps) with source and SQL hashes. Unordered results compare as a
+multiset digest and ordered results by sequence digest; environment, data files,
+snapshots, harness, client runtime, resources, cache, and configuration are compared
+before evidence is accepted. Historical zero-valued baselines are preserved but do
+not qualify. Live deployment, SF100, SF1000/comparisons, and certification evidence
+remain outstanding; see the acceptance matrix in this document.
 
 ## Prerequisites and controlled inputs
 

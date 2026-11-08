@@ -58,13 +58,17 @@ SELECT SUBSTRING(event_type FROM 1 FOR 5) AS prefix FROM events;
 ## TRIM / LTRIM / RTRIM
 
 ```sql
-TRIM([LEADING|TRAILING|BOTH] [chars] FROM str) → VARCHAR
+TRIM(str) → VARCHAR
+LTRIM(str) → VARCHAR
+RTRIM(str) → VARCHAR
 ```
 
 ```sql
 SELECT TRIM('  hello  ') AS trimmed;
-SELECT TRIM(LEADING '0' FROM '000123') AS no_leading_zeros;
+SELECT LTRIM('000123') AS no_leading_zeros;
 ```
+
+Standard `TRIM(LEADING ... FROM ...)` syntax is not parsed by the current grammar.
 
 ---
 

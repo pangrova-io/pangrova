@@ -81,6 +81,8 @@ is_excluded() {
             return 0 ;;
         IllegalStateException|UnsupportedOperationException)
             return 0 ;;
+        IllegalArgumentException|WebApplicationException|ForbiddenException|FlightRuntimeException)
+            return 0 ;;
         # Third-party observability API types, not Pangrova implementations
         Meter|Tracer)
             return 0 ;;

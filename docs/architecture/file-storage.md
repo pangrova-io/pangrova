@@ -1,3 +1,8 @@
+---
+title: "File and Blob Storage"
+description: "Filesystem artifact ownership, blob transfer, and file-plane status"
+---
+
 # File metadata and filesystem ownership
 
 Physical I/O belongs to `pangrova-filesystem`; domain control belongs to its caller.
@@ -106,6 +111,35 @@ that supplies the other provider, while Coordinator and integration tests retain
 the production assembly and HTTP/SQL paths. Filesystem API tests load every API class using only its own output and Common.
 SPI and Persistence API have separate exhaustive contract-classpath tests; no provider
 URLs are filtered out of a larger runtime classpath.
+
+## Current status and gaps
+
+The durable design keeps five layers separate: Volume/Stage naming and governance,
+FILE references, directory projection, storage version, and table snapshot. Before
+Native DIRECTORY is connected, the following constraints must hold:
+
+1. Directory queries pin an immutable generation/manifest; they do not bind a Worker
+   or control-database long transaction to each query.
+2. Short-lived authorization, long-running task ownership, and storage version remain
+   separate; authorization renewal cannot silently resolve another path or object
+   generation.
+3. Upload recovery depends on durable sessions, idempotent results, and UNKNOWN
+   reconciliation; a client-held signed token does not give the server a recovery log.
+4. Governance, retention, and GC use stable identity; directory completeness, table
+   commit success, and byte retention are proven separately.
+
+Metadata ownership is modeled as three independent dimensions: storage ownership
+(`MANAGED`/`EXTERNAL`/`FORMAT_OWNED`), retention root
+(`VOLUME_ENTRY`/`TABLE_SNAPSHOT`/`COLLECTION`/`TEMP_RESULT`/`BACKUP`/`HOLD`/`IN_FLIGHT`),
+and version assurance (`RETAINED`/`PINNED`/`OBSERVED`). Reproducible collection and
+backup tasks accept only `RETAINED`; `PINNED` can be used when source loss is
+acceptable; `OBSERVED` cannot claim strong time travel. A path is a name, never
+identity, authorization, or version.
+
+Production qualification remains incomplete: Native DIRECTORY execution,
+billion-entry directory publication, 100 GiB transfer, PB-scale data, and Linux
+production qualification have not been accepted. Component tests and results from
+different source snapshots must not be combined into a final passing gate.
 
 See [Volume and Stage file access](../getting-started/catalogs/volumes-stages-files.md)
 for operations and current qualification limits, and

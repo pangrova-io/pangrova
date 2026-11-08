@@ -34,7 +34,7 @@ The JDBC lease mechanism must guarantee:
 | Resource | Impact |
 |----------|--------|
 | Queries on majority side | Retried automatically — minimal disruption (< 10s re-routing) |
-| Queries on minority side | Fail with retryable `COORDINATOR_UNAVAILABLE` error codes |
+| Queries on minority side | Fail with retryable `TRANSPORT-0001` (`TRANSPORT_CONNECTION_FAILED`) error codes |
 | Metadata writes (DDL) | Rejected on minority side for the partition duration |
 | Workers | Workers contact multiple coordinators; re-register with the majority LEADER |
 | Data integrity | **Must not be compromised** — no dual-write, no split commit |
@@ -53,7 +53,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
 done
 
 # Verify initial leader from the HA lease table
-LEADER_ID=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADER_ID=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP LIMIT 1;")
 echo "Current leader (lease holder): ${LEADER_ID}"
 
@@ -80,7 +80,7 @@ Record 60 seconds of healthy-state metrics before injecting the fault:
 ENDPOINT="https://coordinator-1:8080"
 TOKEN="${PANGROVA_TOKEN}"
 
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint "${ENDPOINT}" \
   --token    "${TOKEN}" \
   --query    "SHOW CATALOGS" \
@@ -111,7 +111,7 @@ echo "Coordinator IPs: ${COORD1_IP}, ${COORD2_IP}, ${COORD3_IP}"
 Open a second terminal and start measuring immediately before partition:
 
 ```bash
-./tools/measure-recovery-time.sh measure \
+../tools/measure-recovery-time.sh measure \
   --endpoint "https://coordinator-1:8080" \
   --token    "${PANGROVA_TOKEN}" \
   --timeout  120s \
@@ -209,7 +209,7 @@ echo "Partition healed at: ${HEAL_TIME}"
 
 ```bash
 # 1. Verify exactly one LEADER in the cluster (authoritative: JDBC lease table)
-LEADER_COUNT=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+LEADER_COUNT=$(psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT COUNT(*) FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;")
 echo "Active lease holders: ${LEADER_COUNT}"
 [[ "${LEADER_COUNT}" -eq 1 ]] && echo "PASS: exactly 1 leader" || echo "CRITICAL: not exactly 1 leader!"
@@ -241,7 +241,7 @@ for coord in coordinator-1 coordinator-2 coordinator-3; do
 done
 
 # 5. Generate recovery report
-./tools/measure-recovery-time.sh report \
+../tools/measure-recovery-time.sh report \
   --baseline        /tmp/gd-004-baseline.json \
   --recovery        /tmp/gd-004-recovery.json \
   --rto-coordinator 30

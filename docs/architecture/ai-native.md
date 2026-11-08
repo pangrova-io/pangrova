@@ -11,8 +11,8 @@ for Pangrova AI SQL, model invocation, generated values, retrieval, and multimod
 A contract or operator does not prove that every SQL shape or lifecycle is wired and
 qualified. Read [Current Capability Status](../getting-started/capability-status.md)
 for default wiring gaps, supported boundaries, and evidence limits.
-Current implementation evidence and open admission gates are tracked
-in [AI Native roadmap](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+Current implementation evidence and open admission gates are tracked in the
+[Roadmap](../getting-started/roadmap.md).
 
 ## Architectural Boundary
 
@@ -40,6 +40,16 @@ Row-dependent relational computation belongs in the Native plan. Governed provid
 callbacks run in the Worker JVM; known migration gaps do not expand this boundary.
 A Java implementation
 must not intercept a task and return feature-specific results.
+
+The boundary is absolute: the Coordinator never transports, deserializes, scores,
+fuses, reranks, or materializes query candidates. The Worker JVM never bypasses Native
+execution with a Java retrieval path or exposes a feature-specific candidate endpoint.
+The Native engine owns scans, local and hierarchical global reduction, bounded model
+batches, candidate fill, spill, and result streaming. Index and background-job state
+is durable Java-owned metadata, while data-dependent build, refresh, compaction,
+backfill, and export run as Native tasks. Model and Search Service objects have
+independently governable lifecycle, capacity, freshness, usage, and audit state;
+provider endpoints are never inferred from arbitrary strings.
 
 ## One canonical protocol
 
@@ -135,6 +145,24 @@ Generated embedding columns use a durable artifact workflow. `ASYNC` is the only
 accepted mode until Native can compute a generated value inside the same atomic
 table-write transaction; unsupported `SYNC` DDL is rejected instead of creating
 an unwritable table.
+
+**`DROP EMBEDDING MODEL` currently fails closed with `AI-0007` for both RESTRICT and
+CASCADE.** A model row and generated-column definitions live in different transaction
+authorities, and `has_dependents` is an advisory legacy bit that `CREATE TABLE` does
+not update, so absence of dependents cannot be proven from it. Before DROP is enabled,
+the metadata PostgreSQL authority needs a `model_dependency` reservation keyed by
+model incarnation plus table/target-column identity, with an immutable DDL operation
+ID, expected table metadata revision, definition checksum, state, fencing token,
+lease, and timestamps. `CREATE TABLE` with generated columns must lock the exact model
+rows, check versions and `ACTIVE` state, and insert reservations in one transaction
+before the connector table commit; ambiguous connector outcomes stay `RESERVED` and
+block DROP until a fenced reconciler verifies the table. CASCADE cannot be advertised
+as one atomic cross-connector transaction with the current SPI: a safe implementation
+is a durable resumable DDL job that marks the model `DROPPING`, fences new
+reservations and inference, applies idempotent per-table compare-and-set updates,
+persists each verified outcome, and completes only after all dependencies and
+ambiguous operations reconcile. A crash leaves `DROPPING`, retains the model record,
+blocks new use, and resumes from durable progress; it never publishes a false success.
 
 ```text
 DDL metadata
@@ -320,6 +348,19 @@ typed operators. Score direction is never inferred from a field called
 Reducer fan-in, candidate rows/bytes, oversampling, rescore window, provider
 tokens, memory, and spill are granted limits. Large fan-in uses a reduction tree;
 each node retains bounded state and spills sorted runs under pressure.
+
+Retrieval follows the same boundary. SQL semantics live in the Substrait physical
+plan; task protobuf carries control-plane bindings only and does not duplicate the
+query vector, full-text query, ranking expression, or merge semantics. The
+Coordinator resolves capabilities, snapshots, index manifests and placement, then
+schedules the DAG, but never fetches candidate buffers, builds a JVM Top-K, infers
+physical index paths from names, or converts a missing shard, timeout, or parse
+failure into an empty candidate list. Vector and BM25 are implementations of a
+generic retrieval-source capability; RRF, linear fusion, cross-encoder and cascade
+are merge capabilities. Index generations publish through an atomic manifest whose
+BM25 corpus statistics are global for the pinned source snapshot. Coverage
+completeness, retrieval quality, and exact-fallback status are separate states and
+must not be collapsed into one `COMPLETE` flag.
 
 ## Completeness, fallback, and freshness
 

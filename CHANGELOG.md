@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated-value sidecars now use one nullable segment-v2 contract and matching
   Java/Native build/overlay capability version 2.0.0. Readers reject old formats;
   sidecars must be rebuilt, not silently reinterpreted. Final SQL/distributed
-  acceptance is tracked in `docs/internal/ai-native-roadmap.md`.
+  acceptance is tracked in [`docs/getting-started/roadmap.md`](docs/getting-started/roadmap.md).
 - **BREAKING** `SecurityStatementHandler.executeGrant` / `executeRevoke` now take a
   `SecurityStatementHandler.GrantTarget` record instead of four positional
   `objectType/catalog/schema/table` strings. The four values always travel together and are

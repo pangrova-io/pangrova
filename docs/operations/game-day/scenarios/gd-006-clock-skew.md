@@ -66,7 +66,7 @@ ssh "${TARGET_NODE}" "timedatectl status"
 for coord in coordinator-1 coordinator-2 coordinator-3; do
   curl -s -o /dev/null -w "${coord}: HTTP %{http_code}\n" "https://${coord}:8080/v1/health"
 done
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id, expires_at FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;"
 
 # Get the current token and its expiry for reference
@@ -81,7 +81,7 @@ echo "${PANGROVA_TOKEN}" | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json
 ENDPOINT="https://coordinator-1:8080"
 TOKEN="${PANGROVA_TOKEN}"
 
-./tools/measure-recovery-time.sh baseline \
+../tools/measure-recovery-time.sh baseline \
   --endpoint "${ENDPOINT}" \
   --token    "${TOKEN}" \
   --query    "SELECT current_timestamp" \
@@ -145,7 +145,7 @@ ssh "${TARGET_NODE}" "
 "
 
 # Check the leader still holds the lease (authoritative source: database clock)
-psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;"
 ```
 
@@ -211,7 +211,7 @@ echo "Query on normal coordinator-1: HTTP ${NORMAL_STATUS}"
 # Monitor the JDBC lease during skew. Lease timing is anchored on the database
 # server clock (single authoritative clock), so a skewed coordinator cannot
 # silently extend an expired lease — at worst it fails to renew and steps down.
-watch -n 3 'psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_ha -At \
+watch -n 3 'psql -h "${PANGROVA_DB_HOST}" -p 5432 -U pangrova -d pangrova_meta -At \
   -c "SELECT holder_id, expires_at FROM distributed_lease WHERE expires_at >= CURRENT_TIMESTAMP;"'
 ```
 
@@ -263,7 +263,7 @@ echo "Query after NTP restore: HTTP ${STATUS}"
 # Expected: 200
 
 # Generate report
-./tools/measure-recovery-time.sh report \
+../tools/measure-recovery-time.sh report \
   --baseline /tmp/gd-006-baseline.json \
   --recovery /tmp/gd-006-recovery.json \
   --rto-coordinator 120

@@ -72,8 +72,9 @@ SHOW INDEXES ON prod.analytics.events;
 
 - The index type name after `USING` is an identifier; options in `WITH (...)` are
   type-specific — see each index type's page.
-- Indexes are maintained as data files are written and can be rebuilt online with
-  `ALTER INDEX ... REBUILD`.
+- Indexes are not maintained incrementally on write. Rebuild explicitly with
+  `ALTER INDEX ... REBUILD`; `IndexStrategyProvider.supportsIncrementalBuild()`
+  defaults to false and no provider overrides it.
 - Scalar index rebuilds write each generation under a distinct `v2/.../gN/`
   storage prefix. Publication selects the new generation only after its files
   are complete; retained older mappings continue to refer to their original

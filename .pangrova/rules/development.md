@@ -151,6 +151,10 @@ passed.
 8. A passing full-regression reactor includes its E2E and activation smoke tests.
    Do not rerun those suites separately unless their inputs changed, they did not
    execute, or a failure needs diagnosis. Report concise results and link long logs.
+9. Before ending a development session, run
+   `.pangrova/scripts/clean-dev-artifacts.sh` and confirm
+   `.pangrova/scripts/check-dev-artifacts.sh` passes. Do not recreate the retired
+   non-published documentation directory.
 
 ## Connectivity
 

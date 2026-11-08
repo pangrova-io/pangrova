@@ -618,8 +618,8 @@ policy reader uses the same guard. Stable principal expressions such as
 The immutable deferred permission, connector-definition and model observations
 are owned by `org.pangrova.security.api.authorization.DeferredAuthorizationScope`.
 They describe previously admitted work and do not confer current authority.
-The canonical metadata encoding owned by Persistence JDBC,
-`org.pangrova.persistence.security.postgresql.codec.DeferredAuthorizationScopeCodec`, handles
+The canonical metadata encoding owned by `pangrova-security-codec`,
+`org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec`, handles
 encoding, decoding, write receipts and canonical SHA-256 digests. API values do
 not depend on the codec or Jackson; callers that need a persisted identity use
 `DeferredAuthorizationScopeCodec.sha256(scope)`.
@@ -1441,7 +1441,7 @@ The query result cache includes security dimensions in its fingerprint to preven
   - RLS policy change → invalidates all cache entries for the affected table
   - Column mask change → invalidates all cache entries for the affected table
   - Role assignment change → invalidates all cache entries for the affected user
-- The `SecurityPolicyChangeListener` (defined in this module) publishes policy change events that the cache layer subscribes to for proactive invalidation.
+- `SecurityPolicyChangeEvent` and `SecurityPolicyEventPublisher` define the event contract. A production cache-invalidation subscriber is target design; the current test-kit implementation is `LocalSecurityPolicyEventBus`.
 
 This design ensures that the result cache respects all security boundaries defined in this document (authentication, RBAC, RLS, column masking) without requiring callers to manually manage cache coherence.
 

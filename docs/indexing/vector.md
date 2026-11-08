@@ -8,8 +8,8 @@ description: "Native durable VECTOR indexes: HNSW, IVF-PQ, and DiskANN"
 A vector index enables approximate nearest neighbor (ANN) search over
 [VECTOR](../data-types/ai-native/vector.md) columns. Pangrova implements three
 algorithms — **HNSW** (graph-based, high recall, default), **IVFPQ** (quantized,
-memory-efficient), and **DISK_ANN** (Vamana graph, SSD-resident) — selected at
-index creation time.
+memory-efficient), and **DISK_ANN** (Vamana graph with the full-precision vectors
+kept on disk) — selected at index creation time.
 
 Build and retrieval execute exclusively in Native workers. The Coordinator
 only resolves canonical capabilities, creates durable build jobs, binds an
@@ -100,7 +100,10 @@ recall, slower search.
 | Best for | High recall, < 10M vectors | Memory-constrained, > 10M vectors |
 
 **Recommendation:** default to HNSW. Use IVF-PQ when memory is constrained.
-DiskANN targets SSD-resident large-scale retrieval. All three publish immutable,
+DiskANN keeps the full-precision vectors in a companion on-disk file and rereads
+them for exact rescoring, while the adjacency lists and PQ codes are loaded into
+process memory when the artifact opens; a fully disk-resident layout is a planned
+artifact-format change, not current behaviour. All three publish immutable,
 snapshot-pinned generations; refreshes never mutate a serving artifact in place.
 
 ## ANN Query Pattern

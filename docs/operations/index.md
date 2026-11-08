@@ -45,7 +45,7 @@ mvn clean package -DskipTests
 find . -path '*/target/*.jar' -exec unzip -l {} \; | grep -E 'org/pangrova/metadata/(store|checkpoint|generation)/' && exit 1
 
 # Full unit regression (E2E requires a prepared AI image fixture)
-mvn -T 1C test -pl '!pangrova/testing/pangrova-testing-integration-tests'
+mvn -T 1C test -pl '!pangrova-testing/pangrova-testing-integration-tests'
 
 # SBOM
 mvn -P sbom -DskipTests verify

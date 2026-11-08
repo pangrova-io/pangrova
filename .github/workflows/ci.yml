@@ -604,6 +604,9 @@ jobs:
             exit 1
           fi
 
+      - name: Dev artifact hygiene
+        run: bash .pangrova/scripts/check-dev-artifacts.sh
+
       - name: Reject contributor-machine paths
         run: ./.pangrova/scripts/check-environment-specific-info.sh
 

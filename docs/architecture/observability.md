@@ -954,32 +954,18 @@ observability:
 
 ## 6. Module Structure
 
-```
-pangrova-observability/pangrova-observability-core/
-├── src/main/java/org/pangrova/observability/
-│   ├── ObservabilityModule.java         # Module entry point
-│   ├── config/                          # Configuration
-│   │   ├── ObservabilityConfig.java
-│   │   └── OpenTelemetryConfig.java
-│   ├── tracing/                         # Tracing
-│   │   ├── TracingProvider.java
-│   │   ├── OtelTracingProvider.java
-│   │   ├── QueryTracer.java
-│   │   └── interceptor/
-│   ├── metrics/                         # Metrics
-│   │   ├── MetricsProvider.java
-│   │   ├── OtelMetricsProvider.java
-│   │   ├── CoordinatorMetrics.java
-│   │   └── WorkerMetrics.java
-│   ├── logging/                         # Logging
-│   │   ├── LoggingProvider.java
-│   │   └── StructuredLogger.java
-│   └── annotation/                      # Annotations
-│       ├── Traced.java
-│       ├── Metered.java
-│       └── aspect/
+```text
+pangrova-observability/
+├── pangrova-observability-api/    # org.pangrova.observability.api.* and spi.* contracts
+├── pangrova-observability-core/   # MDC logging/profiling runtime under org.pangrova.observability.core.*
+├── pangrova-observability-noop/   # Explicit disabled telemetry implementations
+└── pangrova-observability-sdk/    # OpenTelemetry providers, SDK config, transport adapters
 ```
 
+Provider implementations live in `pangrova-observability-sdk` (for example
+`org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider` and
+`...sdk.tracing.otel.OtelTracingProvider`), not in Core. Query audit/event
+persistence belongs to Query and Persistence, not Observability.
 
 ---
 
@@ -993,7 +979,7 @@ All logs use a JSON structured format, making them easy to collect and query wit
 {
   "timestamp": "2025-01-15T10:30:00.123Z",
   "level": "INFO",
-  "logger": "org.pangrova.worker.TaskExecutor",
+  "logger": "org.pangrova.worker.execution.TaskExecutor",
   "message": "Task completed",
   "trace_id": "abc123def456",
   "span_id": "789ghi",

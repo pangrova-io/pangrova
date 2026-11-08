@@ -15,8 +15,9 @@ All worker-side configuration keys, as defined by `WorkerOptions` in the
 > mapping, see [System Overview §4.6](../architecture/overview.md#46-canonical-protocol-mapping).
 
 
-The internal Java `WorkerHttpConfig` distinguishes `bindHost` (listening interface)
-from `workerHost` (advertised identity). Existing process assembly retains the
+The internal worker HTTP bootstrap (`WorkerHttpBootstrap` / `WorkerHttpServer`)
+distinguishes the bind address (listening interface) from the advertised Worker
+identity. Existing process assembly retains the
 wildcard bind default; native loopback fixtures explicitly bind `127.0.0.1` and
 advertise the actual assigned port. This is not a new YAML configuration key.
 A failed HTTP startup releases acquired endpoint resources and preserves the
@@ -114,7 +115,8 @@ server's advertised bound port at this hostname.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `worker.spill.directory` | string | — | Directory for spilling intermediate data to disk. Leaving it unset disables spill |
+| `worker.spill.directory` | string | `data/worker-spill` | Directory for spilling intermediate data to disk. Leaving it empty disables spill, which forces memory-denied joins and aggregations to fail instead of spilling |
+| `worker.shuffle.mode` | enum | `NATIVE` | Must match `coordinator.shuffle.mode`. `REMOTE` writes shuffle output to the external service so a dead Worker's output can be re-read; requires `worker.transport.tls.*` |
 
 Native Flight shuffle has a separate, process-wide service reservation. The Worker refuses to start without an existing, writable, absolute `worker.shuffle.service.spill-directory`; it never uses the system temporary directory implicitly. Ensure the volume has at least the configured service spill quota plus 10% or 64 MiB free headroom, whichever is larger. The service memory quotas are reserved in both the NodePool and shared MemoryArbitrator before task admission.
 

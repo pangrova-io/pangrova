@@ -7,7 +7,7 @@ sidebar_label: "Caching (Target)"
 
 > **Status:** Target architecture. The implemented cache surface currently consists
 > of Velox native caching, native cache options, the Java L2 query-result cache
-> (`planner.cache.L2CacheStore`), and worker cache-eviction/locality wiring. The
+> (`org.pangrova.cache.api.L2CacheStore`), and worker cache-eviction/locality wiring. The
 > RAM/SSD manager and prefetch controller described below are design intent, not
 > current class names; there is no Java cache SPI.
 
@@ -245,9 +245,9 @@ cache-store contracts had no implementation and no consumer and were removed
 during the module restructuring; the native cache is reached through the engine
 layer, not through a Java ServiceLoader.
 
-Java owns only its L2 query-result cache: `planner.cache.L2CacheStore` with the
-`planner.cache.InMemoryL2CacheStore`, `metadata.core.cache.*` and
-`coordinator.query.cache.RedisL2CacheStore` implementations. The C++ `Cache`
+Java owns only its L2 query-result cache: `org.pangrova.cache.api.L2CacheStore` with the
+`org.pangrova.cache.memory.InMemoryL2CacheStore`, `metadata.core.cache.*` and
+`org.pangrova.cache.redis.RedisL2CacheStore` implementations. The C++ `Cache`
 contract below is the cross-language data-plane design and is not exposed to
 Java callers.
 

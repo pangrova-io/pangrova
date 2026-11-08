@@ -1,9 +1,0 @@
-{
-  "classes": [
-    "org/pangrova/coordinator/testinfra/QueryManagerTestContexts.class"
-  ],
-  "module_name": "org.pangrova.testing.queryfixture",
-  "no_native_tls_service_resources": true,
-  "integration_uses_only_narrow_fixture": true,
-  "core_repack_class_hashes_unchanged": 785
-}

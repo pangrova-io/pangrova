@@ -65,8 +65,8 @@ WITH (
 | Time travel | Supported | FOR SYSTEM_TIME AS OF / FOR SYSTEM_VERSION AS OF |
 | MERGE INTO | Supported | Row-level deletes via position delete files |
 | INSERT OVERWRITE | Supported | Dynamic and static overwrite |
-| COMPACT / OPTIMIZE | Connector procedures only by default | `CALL catalog.compact(...)` performs compaction; the standalone SQL statement selects a no-op provider in the default bootstrap |
-| VACUUM | Connector procedures only by default | Standalone `VACUUM` invokes orphan cleanup with a 24-hour cutoff, not snapshot expiration, and is a no-op by default; use `CALL ...remove_orphan_files` / `expire_snapshots` |
+| COMPACT / OPTIMIZE | Connector procedures and standalone statement | `CALL catalog.compact(...)` performs compaction; the standalone SQL statement uses the controlled maintenance backend |
+| VACUUM | Connector procedures only by default | Standalone `VACUUM` invokes orphan cleanup with a 24-hour cutoff, not snapshot expiration; use `CALL ...remove_orphan_files` / `expire_snapshots` |
 | Hidden partitioning | Supported | year/month/day/hour/bucket/truncate transforms |
 | Metadata tables | Partially supported | `$snapshots`, `$history`, `$refs`, `$manifests`, `$partitions`, and supported projections of `$files`/`$entries`. |
 

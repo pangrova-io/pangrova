@@ -1,9 +1,0 @@
-selection	cases	failures	errors	skips	result	log
-java-contracts	48	0	0	0	PASS	/tmp/pangrova-native-version-java-contracts.log
-native-focused-before-fixture-fix	87	8	0	0	FAIL	/tmp/pangrova-native-version-ctest-focused-r2.log
-native-full-before-namespace-fixture-fix	4340	1	0	0	FAIL	/tmp/pangrova-native-version-ctest-full.log
-native-final-affected-selection	109	0	0	0	PASS	/tmp/pangrova-native-version-ctest-final.log
-java-clean-before-classifier-refresh	82	0	23	0	FAIL	/tmp/pangrova-native-version-clean-install.log
-java-clean-reactor-final	95	0	0	0	PASS	/tmp/pangrova-native-version-clean-install-r2.log
-external-shuffle-isolated-jvm	3	0	0	0	PASS	/tmp/pangrova-native-version-external-shuffle.log
-full-regression-testing-kit	120	1	0	0	FAIL-existing-18-package-SCC	/tmp/pangrova-native-version-full-regression.log

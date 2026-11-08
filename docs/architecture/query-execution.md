@@ -564,7 +564,7 @@ caller-owned transactions. Domain record construction alone is not persistence
 admission. Stored graph format 2, immutable bindings, owner/fence validation
 and canonical replay comparison remain unchanged.
 
-Generation values currently live in central SPI; they do not own serialization. Canonical graph,
+Generation values live in `pangrova-generation-api`; they do not own serialization. Canonical graph,
 exchange and source-split codecs live in `pangrova-generation-codec`. Submission construction,
 publication routing and generic immutable read binding live in `pangrova-generation-core` under
 `org.pangrova.generation.core`. The generic reader has no Query retrieval intent or ANN eligibility
@@ -2381,7 +2381,7 @@ As of 2026-09-27, real Iceberg E2E covers basic DML, static-partition
 and catalog commit. A `MERGE` combining `DELETE` with another action is rejected
 rather than decomposed into non-atomic commits. Arbitrary distributed DML shapes,
 multiple matching source rows, and cross-worker failure recovery are not yet
-certified; see the [internal AI Native audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+certified; see the [Roadmap](../getting-started/roadmap.md).
 
 
 ### 12.2 DDL Syntax

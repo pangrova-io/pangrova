@@ -26,31 +26,36 @@ The root README is an introduction; development inventories belong here.
 | `docs/` | User, developer, design and operational documentation |
 | `website/` | Docusaurus rendering, navigation, blog and shared static images |
 | `pangrova-common` / `pangrova-config` | Shared primitives and typed configuration |
+| `pangrova-types` | Connector-independent logical types, signatures, declarations and scalar/row values |
+| `pangrova-batch` | Block/page values and Arrow decode/projection; readers borrow allocator-owned memory |
+| `pangrova-function` | Function metadata and scalar/aggregate/table extension contracts |
+| `pangrova-execution` | Task stage/purpose/deadline values and canonical execution binding |
 | `pangrova-parser` / `pangrova-planner` | Parser API/Core and Planner API/Core; SDK-free contracts with implementation-owned ANTLR/Calcite |
 | `pangrova-protocol` | Canonical wire contracts and build-time function-contract generators |
-| `pangrova-query-api` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
-| `pangrova-generation` | Durable generation jobs: core contracts/codecs/routing, independent transaction SPI and PostgreSQL job/stage/exchange implementation |
+| `pangrova-query/pangrova-query-api` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
+| `pangrova-generation` | Durable generation jobs: core contracts/codecs/routing; PostgreSQL job/stage/exchange storage lives in `pangrova-persistence/pangrova-persistence-generation-postgresql` |
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migrations; runtime bootstrap and owner test fixtures consume the same version sequence |
-| `pangrova-query` | Query runtime services, profiling/audit orchestration and JDBC/in-memory durable state implementations |
-| `pangrova-coordination` | Independent coordination API, Coordinator service, JDBC, InMemory and optional ZooKeeper providers; providers depend on the API, not the process implementation |
+| `pangrova-query` | Query runtime services and profiling/audit orchestration; JDBC/in-memory durable state lives in `pangrova-persistence/pangrova-persistence-query-*` |
+| `pangrova-coordination` | Coordination API/Core plus the optional ZooKeeper provider; PostgreSQL and Memory persistence providers live under `pangrova-persistence/pangrova-persistence-coordination-*` |
+| `pangrova-server` | Coordinator and standalone process assembly, bootstrap and HTTP entry points |
 | `pangrova-worker` | Worker process, task lifecycle, transport and JNI native bridge |
 | `pangrova-worker-native` | C++20 execution, JNI, Velox adapters and Lance FFI |
 | `pangrova-native-bundle` | Platform-specific JNI library packaging |
 | `pangrova-connector` | Iceberg, Paimon and Lance connector modules |
-| `pangrova-metadata-core` | Durable metadata, catalog and coordination persistence |
+| `pangrova-metadata` | Metadata API/Core, catalog resolution, projection and synchronization |
 | `pangrova-table` | Table API/Core family: ownership, observation, maintenance, statistics and governance binding |
 | `pangrova-file` | File API/Core/Worker Adapter family: Volume/Stage contracts, authorization, URL issuance, directory refresh and delegated Worker HTTP operations |
 | `pangrova-semantic` | Semantic View identity, immutable versions, definition validation, publication fencing and JDBC storage |
 | `pangrova-ai` | Shared AI descriptors, governed control plane, and optional Worker-side AI runtime |
 | `pangrova-filesystem` | SDK-free Filesystem API and independent LOCAL/S3/OSS providers; backend capability limits are documented in the File architecture |
-| `pangrova-materialization` | Dynamic-table/materialized-view domain kernel and JDBC state store |
+| `pangrova-materialization` | Dynamic-table/materialized-view domain kernel; relational state stores live in `pangrova-persistence/pangrova-persistence-materialization-postgresql` |
 | `pangrova-streaming` | CDC and streaming infrastructure: API, Core, format/writer providers and PostgreSQL persistence |
 | `pangrova-shuffle` | Exchange contracts and deployable shuffle service |
 | `pangrova-operations` | DDL/DML operation infrastructure |
 | `pangrova-scheduler` | Cluster admission, quota/resource placement, scheduling strategies and fair/load-balanced execution order |
 | `pangrova-security` / `pangrova-governance` | Authentication, authorization, classification, lineage and quality governance |
 | `pangrova-indexing` | API/Codec/Core family; unified Indexing API and SPI replace the retired central SPI; strategy, JDBC and planner implementation separation remains in progress |
-| `pangrova-observability` | Observability contracts/no-op implementations, OpenTelemetry providers and adapters; Query audit persistence belongs to `pangrova-query` |
+| `pangrova-observability` | Observability contracts/no-op implementations, OpenTelemetry providers and adapters; Query audit ports live in `pangrova-persistence/pangrova-persistence-query-api` and stores in `pangrova-persistence/pangrova-persistence-query-*` |
 | `pangrova-transport` / `pangrova-client` | Client result transport, REST, JDBC and CLI |
 | `pangrova-standalone` | Single-JVM Coordinator/Worker assembly |
 | `pangrova-testing` | Shared test infrastructure, E2E, benchmark, chaos and reference generator |
@@ -67,11 +72,9 @@ The [documentation guide](documentation.md) owns the directory conventions.
 `deployment` serve users. `architecture`, `development`, `testing`, `contributing`
 and `operations` serve contributors and operators.
 
-`docs/internal/` retains design decisions, audits and historical evidence excluded
-from the website. It remains public in a public repository. Do not delete it merely
-because its documents are absent from the sidebar: production comments, tests and
-public documents reference some of that evidence. Review confidential content and
-stale claims separately from deleting unused assets.
+`docs/` contains only published material. Historical audits, execution ledgers, and
+review evidence are not retained as repository documents; use git history and CI
+records when tracing a past change. Do not recreate the retired non-published documentation directory.
 
 Keep lockfiles, patches, protocol descriptors, golden results and test certificates:
 they are reproducibility inputs or test fixtures. A generated-looking file can be

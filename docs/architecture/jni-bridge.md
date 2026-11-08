@@ -21,8 +21,9 @@ CMake invoke their own generators, but both generators consume the same files.
 Build-system differences do not justify mirrored schemas.
 
 The only supported execution protocol is `pangrova.protocol.v2`. Its descriptor
-is rooted at `pangrova/protocol/v2/protocol_manifest.proto` and
-`pangrova/protocol/v2/runtime.proto`. Startup compares a deterministic,
+is rooted at
+`pangrova-protocol/src/main/proto/pangrova/protocol/v2/protocol_manifest.proto` and
+`.../protocol/v2/runtime.proto`. Startup compares a deterministic,
 dependency-complete `google.protobuf.FileDescriptorSet` and its SHA-256. The Worker fails closed
 before accepting tasks when the Java and Native descriptor sets differ.
 
@@ -180,7 +181,8 @@ columnar data and has serialization, framing and transport costs; TLS and networ
 transmission are not physically zero-copy. The architecture target is one typed
 Arrow data-plane contract, with necessary conversions measured rather than
 claimed absent. Existing private shuffle page payloads and row-shaped JVM AI/write
-upcalls remain tracked migration gaps in the [root-cause ledger](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-single-path-root-cause-design.md).
+upcalls remain tracked migration gaps; the four-layer execution boundary is defined
+in §3.8.
 
 ---
 
@@ -235,6 +237,23 @@ task members so reverse member destruction releases the plan before its pools.
   bytes. Conflicting bundles fail regardless of classpath order; identical
   duplicates are accepted. Availability and successful library loading do not
   prove every JNI declaration or execution path is compatible.
+
+### 3.8 Canonical four-layer execution boundary
+
+The single-path kernel decision assigns one responsibility to each layer:
+
+| Layer | Owns | Prohibited |
+|---|---|---|
+| Calcite | Dialect parser, validation, type inference, relational optimization; internal SqlNode/RexNode/RelNode | A second SQL parser or a coordinator-side relational interpreter |
+| Substrait | The only optimizer-to-Native IR; type/function semantics, extension relations, split boundaries | JSON/session-private plans, feature-specific protobuf, switching IR after failure |
+| Velox | Task-local operators, expressions, vector encoding, memory pools, spill, async I/O, cancellation | A second execution engine, pre-execution retrieval materialization, rebuilding a plan because an encoding is unsupported |
+| Arrow | The only data interoperability/network contract; in-process C Data, cross-process typed IPC/Flight | Hiding another business page encoding inside Flight binary columns, or a scalar/batch fallback for the same function |
+
+Each layer keeps its native internal layout; the goal is to eliminate redundant
+copies and record required copies per boundary, not to force identical internal
+structures. Calcite RelNode and Velox PlanNode are framework trees, not a second
+wire IR. Unsupported encodings fail during recursive planning/admission rather than
+re-executing the task.
 
 ---
 

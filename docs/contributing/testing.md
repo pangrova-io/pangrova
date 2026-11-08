@@ -899,108 +899,20 @@ public class ChaosTestFramework {
 
 ## 8. Test Data Generator
 
-```java
-// TestDataGenerator.java - test data generator
-package org.pangrova.testing.data;
+`org.pangrova.testing.testkit.TestDataGenerator` generates deterministic TPC-H
+rows for integration and validation tests. It covers the eight TPC-H tables and
+supports typed column values; the same seed produces the same rows.
 
-/**
- * Test data generator
- * Generates test data covering various boundary conditions
- */
-public class TestDataGenerator {
-    
-    /**
-     * Generate TPC-H data
-     */
-    public void generateTpchData(String path, double scaleFactor) {
-        // Use TPC-H dbgen to generate data
-        TpchDataGenerator generator = new TpchDataGenerator(scaleFactor);
-        generator.generate(path);
-    }
-    
-    /**
-     * Generate boundary-condition data
-     */
-    public Table generateEdgeCaseData(Schema schema, EdgeCaseConfig config) {
-        List<Row> rows = new ArrayList<>();
-        
-        // 1. Empty table
-        if (config.includeEmptyTable()) {
-            // Return an empty table
-        }
-        
-        // 2. Single row
-        if (config.includeSingleRow()) {
-            rows.add(generateRandomRow(schema));
-        }
-        
-        // 3. All NULL
-        if (config.includeAllNulls()) {
-            rows.add(generateNullRow(schema));
-        }
-        
-        // 4. Boundary values
-        if (config.includeBoundaryValues()) {
-            rows.addAll(generateBoundaryRows(schema));
-        }
-        
-        // 5. Many duplicates
-        if (config.includeDuplicates()) {
-            Row duplicateRow = generateRandomRow(schema);
-            for (int i = 0; i < config.getDuplicateCount(); i++) {
-                rows.add(duplicateRow);
-            }
-        }
-        
-        // 6. Special characters
-        if (config.includeSpecialChars()) {
-            rows.addAll(generateSpecialCharRows(schema));
-        }
-        
-        return Table.of(schema, rows);
-    }
-    
-    /**
-     * Generate boundary-value rows
-     */
-    private List<Row> generateBoundaryRows(Schema schema) {
-        List<Row> rows = new ArrayList<>();
-        
-        for (Column column : schema.getColumns()) {
-            switch (column.getType()) {
-                case INTEGER:
-                    rows.add(rowWithValue(column, Integer.MIN_VALUE));
-                    rows.add(rowWithValue(column, Integer.MAX_VALUE));
-                    rows.add(rowWithValue(column, 0));
-                    rows.add(rowWithValue(column, -1));
-                    break;
-                case BIGINT:
-                    rows.add(rowWithValue(column, Long.MIN_VALUE));
-                    rows.add(rowWithValue(column, Long.MAX_VALUE));
-                    break;
-                case DOUBLE:
-                    rows.add(rowWithValue(column, Double.MIN_VALUE));
-                    rows.add(rowWithValue(column, Double.MAX_VALUE));
-                    rows.add(rowWithValue(column, Double.NaN));
-                    rows.add(rowWithValue(column, Double.POSITIVE_INFINITY));
-                    rows.add(rowWithValue(column, Double.NEGATIVE_INFINITY));
-                    break;
-                case VARCHAR:
-                    rows.add(rowWithValue(column, ""));  // Empty string
-                    rows.add(rowWithValue(column, generateLongString(10000)));  // Long string
-                    break;
-                case DATE:
-                    rows.add(rowWithValue(column, LocalDate.MIN));
-                    rows.add(rowWithValue(column, LocalDate.MAX));
-                    break;
-            }
-        }
-        
-        return rows;
-    }
-}
+```java
+TestDataGenerator generator = new TestDataGenerator(seed);
+List<TypedRow> lineitems = generator.generateTable("lineitem", 1_000);
+
+Map<String, TestDataGenerator.TableSchema> schemas = TestDataGenerator.getSchemas();
 ```
 
+The generator does not invoke external `dbgen`. For scale-factor dataset
+generation, use
+`pangrova-testing/pangrova-testing-benchmark/scripts/generate_tpc_data.py`.
 
 ## 9. CI/CD Integration
 
@@ -1522,7 +1434,7 @@ Verification points:
   - [01 §3.5] Deletion of the ZK ephemeral node triggers a CHILD_REMOVED event
   - [01 §3.5] acquireOwnership() wins the contention
   - [01 §4.4] QueryCheckpoint is restored correctly from PostgreSQL
-  - [08] Error code COORDINATOR_UNAVAILABLE (4203) is reported correctly
+  - [08] Error code TRANSPORT-0001 (TRANSPORT_CONNECTION_FAILED) is reported correctly
 
 Pass criteria:
   - The query ultimately succeeds (latency may increase, but results are correct)
@@ -1548,7 +1460,7 @@ Test steps:
 Verification points:
   - [01 §4.2] Split-level retry (not Task-level)
   - [01 §4.1] Results of completed Splits are reused, not recomputed
-  - [08] Error code WORKER_UNAVAILABLE (4204) is reported correctly
+  - [08] Error code WORKER-0002 (WORKER_LOST) is reported correctly
 
 Pass criteria:
   - The query ultimately succeeds
