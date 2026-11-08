@@ -354,7 +354,7 @@ coordinator:
   port: 8080
 
   ha:
-    enabled: true
+    enabled: true   # declared in options; the current bootstrap always uses the metadata JDBC lease
 
   query:
     timeout: "10m"
