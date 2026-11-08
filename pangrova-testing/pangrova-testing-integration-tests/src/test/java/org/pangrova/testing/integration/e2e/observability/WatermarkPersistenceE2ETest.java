@@ -21,11 +21,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * E2E test for watermark persistence across coordinator restarts.
  *
- * <p>Validates that watermark positions stored via JdbcWatermarkStore
+ * <p>Validates that watermark positions stored via JdbcWatermarkPositionStore
  * survive coordinator restart. After restart, the watermark should be
  * at the last persisted position, not reset to zero.
  *
- * <p>Covers: T-0.6.1 JdbcWatermarkStore, T-0.6.2 wire in bootstrap.
+ * <p>Covers: T-0.6.1 JdbcWatermarkPositionStore, T-0.6.2 wire in bootstrap.
  */
 @DisplayName("Watermark Persistence E2E")
 class WatermarkPersistenceE2ETest extends SqlE2ETestBase {

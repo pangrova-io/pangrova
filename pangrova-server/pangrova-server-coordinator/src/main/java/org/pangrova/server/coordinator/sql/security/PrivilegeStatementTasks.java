@@ -2,8 +2,8 @@ package org.pangrova.server.coordinator.sql.security;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.query.core.session.SessionTableNames;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.statement.GrantPrivilegeStatement;
@@ -40,6 +40,7 @@ public final class PrivilegeStatementTasks {
         factory.registerTask(RevokePrivilegeStatement.class, this::revoke);
     }
 
+    /** Returns the current privilege mutation receipt to its authenticated owner. */
     public StatementResult showReceipt(ShowPrivilegeMutationStatement statement, StatementExecutionContext context) {
         var session = context.session();
         if (session == null || session.userIdentity() == null || repository.isEmpty()) {

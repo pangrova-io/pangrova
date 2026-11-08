@@ -170,7 +170,8 @@ public final class WorkerHeartbeatBootstrap {
         }
         return new HeartbeatPayload(config.workerId(), pressure, 0.0,
                 runningTasks, availableMemory, nativeSnapshot.usedBytes, nativeSnapshot.capacityBytes,
-                cachedFilePaths, 0L, 0L, 0L, 0L, tenantMemoryBytes, tenantActiveQueries, refs.taskManager().workerExecutionIdentity());
+                cachedFilePaths, 0L, 0L, 0L, 0L, tenantMemoryBytes, tenantActiveQueries,
+                        refs.taskManager().workerExecutionIdentity());
     }
 
     private static NativeMemorySnapshot collectNativeMemorySnapshot() {

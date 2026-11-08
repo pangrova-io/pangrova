@@ -7,8 +7,8 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.file.api.error.FileStorageException;
@@ -211,7 +211,7 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
         QuerySession session = new QuerySession("file-space-query",
                 Map.of("catalog", "media", "schema", "raw",
                         "credential", "credential-that-must-not-be-audited"), ALICE, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
-        return new StatementExecutionContext(null, session.queryId(), session, null, null);
+        return new StatementExecutionContext(null, session.queryId(), session);
     }
 
     private static PrivilegeGrant grant(Privilege privilege, FileSpaceType type,

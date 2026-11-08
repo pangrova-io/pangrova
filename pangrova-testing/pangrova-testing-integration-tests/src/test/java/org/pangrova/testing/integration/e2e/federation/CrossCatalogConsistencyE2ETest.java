@@ -5,7 +5,7 @@ import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.adapter.FederatedCatalog;
+import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
@@ -34,9 +34,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /**

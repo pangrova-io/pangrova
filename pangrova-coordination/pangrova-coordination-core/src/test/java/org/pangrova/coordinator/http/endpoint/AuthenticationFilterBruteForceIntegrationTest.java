@@ -16,7 +16,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.security.core.authentication.AuthenticationManager;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;

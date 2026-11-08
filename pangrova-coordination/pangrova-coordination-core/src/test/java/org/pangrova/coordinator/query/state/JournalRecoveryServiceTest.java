@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.state;
 
+import org.pangrova.query.core.recovery.JournalRecoveryService;
+
 import org.pangrova.query.api.lifecycle.QueryState;
 
 import java.sql.SQLException;
@@ -93,6 +95,16 @@ class JournalRecoveryServiceTest {
             assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);
             assertThat(fixture.queryRows("q-unknown")).isGreaterThanOrEqualTo(2);
             assertThat(fixture.taskRows("q-unknown")).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void terminalQueryTasksDoNotReduceRecoveredCountBelowZero() throws Exception {
+        try (var fixture = new RecoveryFixture(true)) {
+            fixture.query("q-terminal", "FAILED");
+            fixture.task("q-terminal", "t-orphan", "missing-worker", "RUNNING", 1L);
+            assertThat(fixture.recovery.recover()).isZero();
+            assertThat(fixture.manager.getStateMachine("q-terminal")).isNull();
         }
     }
 

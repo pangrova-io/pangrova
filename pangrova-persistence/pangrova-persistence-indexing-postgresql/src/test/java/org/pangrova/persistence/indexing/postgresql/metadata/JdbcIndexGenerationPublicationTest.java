@@ -14,7 +14,7 @@ import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.core.descriptor.IndexDescriptorTransitions;
 import org.pangrova.indexing.api.lifecycle.IndexState;
@@ -31,7 +31,7 @@ class JdbcIndexGenerationPublicationTest {
     @BeforeEach
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("index_publication");
-        store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
     }
 
     @Test
@@ -115,6 +115,18 @@ class JdbcIndexGenerationPublicationTest {
                 10, 256, "b".repeat(64), 2,
                 "current", 0, Instant.EPOCH, 0);
         store.registerIndexFile(oldFile);
+        store.publishIndexGeneration(request(descriptor, 1));
+        var ready = store.findIndex(descriptor.indexId()).orElseThrow();
+        var buildVersion = ready.updatedAt().plusMillis(1);
+        assertThat(store.beginIndexGeneration(ready.indexId(), 1, "snapshot-2", buildVersion,
+                ready.updatedAt(), ready.state(), ready.generation())).isTrue();
+        var building = IndexDescriptorTransitions.transition(ready.withGeneration(1, buildVersion)
+                .withBuildSnapshotId("snapshot-2", buildVersion), IndexState.BUILDING, buildVersion);
+        store.publishIndexGeneration(request(building, 0));
+        var readyGen1 = store.findIndex(descriptor.indexId()).orElseThrow();
+        var gen2Version = readyGen1.updatedAt().plusMillis(1);
+        assertThat(store.beginIndexGeneration(readyGen1.indexId(), 2, "snapshot-3", gen2Version,
+                readyGen1.updatedAt(), readyGen1.state(), readyGen1.generation())).isTrue();
         store.registerIndexFile(currentFile);
 
         assertThat(store.removeIndexFileMappingIfState(
@@ -123,7 +135,7 @@ class JdbcIndexGenerationPublicationTest {
 
         store.updateIndexState(descriptor.indexId(), IndexState.READY.name(), Instant.EPOCH.plusSeconds(1));
         assertThat(store.removeIndexFileMappingIfState(
-                oldFile, IndexState.READY, 0)).isTrue();
+                oldFile, IndexState.READY, readyGen1.generation())).isTrue();
         assertThat(store.getIndexFileMappings(descriptor.indexId()))
                 .extracting(IndexFileMapping::indexFilePath)
                 .containsExactly("v2/g2.idx");
@@ -151,7 +163,7 @@ class JdbcIndexGenerationPublicationTest {
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             var second = workers.submit(() -> {
                 competing.countDown();
-                new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent)
+                new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)
                         .withIndexLifecycleLock("same-index", acquired::countDown);
             });
             assertThat(competing.await(5, TimeUnit.SECONDS)).isTrue();

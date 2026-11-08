@@ -1,6 +1,6 @@
 package org.pangrova.metadata.outbox;
 
-import org.pangrova.metadata.adapter.FederatedCatalog;
+import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.metadata.api.cache.CacheStats;
 import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;

@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution;
+import org.pangrova.planner.core.analysis.DmlWriteTarget;
 
 import org.pangrova.planner.core.substrait.CompiledScanSchemas;
 
@@ -70,7 +71,7 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
                 throw new IllegalArgumentException("Compiled write schema is malformed", exception);
             }
         });
-        var declaration = observed.plan().dmlWriteTarget().flatMap(org.pangrova.planner.core.analysis.DmlWriteTarget::declaration)
+        var declaration = observed.plan().dmlWriteTarget().flatMap(DmlWriteTarget::declaration)
                 .orElseThrow(() -> new org.pangrova.security.api.error.AccessDeniedException(
                         "Write target lacks its compiled connector declaration"));
         return new WritePolicyObservation(reads, actions(statement), declaration);

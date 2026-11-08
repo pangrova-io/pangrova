@@ -9,7 +9,7 @@
     </parent>
     <artifactId>pangrova-persistence-jdbc-support</artifactId>
     <name>Pangrova JDBC Support</name>
-    <description>JDBC binding helpers and non-pooling DriverManager DataSource</description>
+    <description>JDBC binding helpers, pooling DataSource factory, and schema migration runner</description>
     <properties>
         <module.name>org.pangrova.persistence.jdbc.support</module.name>
     </properties>
@@ -17,6 +17,14 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

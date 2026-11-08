@@ -13,18 +13,18 @@ import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.generation.api.job.GenerationJobState;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.output.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.planner.core.generation.GeneratedValueGenerationPlanBuilder;
 import org.pangrova.parser.api.ast.Identifier;
@@ -195,7 +195,9 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 "s3://warehouse/system", new FixedCatalogRegistry(catalogHandle), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         var coordinator = new GeneratedValueMaterializationCoordinator(
                 new FixedCatalogRegistry(catalogHandle), service, dataSource, writeJournal,
-                        ModelAuthorityFixtures.models());
+                        ModelAuthorityFixtures.models(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
         coordinator.activateCatalogs(Set.of("lake"));
         bindCompiler(service);
 
@@ -248,7 +250,9 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 new FixedCatalogRegistry(catalogHandle), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         var coordinator = new GeneratedValueMaterializationCoordinator(
                 new FixedCatalogRegistry(catalogHandle), service, dataSource, writeJournal,
-                        ModelAuthorityFixtures.models());
+                        ModelAuthorityFixtures.models(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
         coordinator.activateCatalogs(Set.of("lake"));
         var compilations = new AtomicInteger();
         service.bindSourceCompiler((sql, actor) -> {
@@ -281,7 +285,9 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 "s3://warehouse/system", new FixedCatalogRegistry(catalogHandle), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         var registry = new FixedCatalogRegistry(catalogHandle);
         var coordinator = new GeneratedValueMaterializationCoordinator(registry, service, dataSource, writeJournal,
-                ModelAuthorityFixtures.models());
+                ModelAuthorityFixtures.models(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
         coordinator.activateCatalogs(Set.of("lake"));
         AtomicInteger dispatches = new AtomicInteger();
         var factory = new PlanExecutionFactory(new PlanExecutionFactoryContext(
@@ -305,7 +311,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 "generated-insert", Map.of(), user, TENANT, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
         factory.execute(statement, new StatementExecutionContext(
-                new QueryStateMachine(), session.queryId(), session, null, null));
+                new QueryStateMachine(), session.queryId(), session));
 
         assertThat(dispatches).hasValue(1);
         assertThat(selector.resolvedUser).isNotNull();
@@ -320,7 +326,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 "generated-denied", Map.of(), null, TENANT, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         assertThatThrownBy(() -> factory.execute(statement, new StatementExecutionContext(
                 new QueryStateMachine(), unauthenticated.queryId(),
-                unauthenticated, null, null)))
+                unauthenticated)))
                 .hasMessageContaining("authenticated user and resolved tenant");
         assertThat(dispatches).hasValue(1);
     }
@@ -333,7 +339,9 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 "s3://warehouse/system", new FixedCatalogRegistry(catalogHandle), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         var coordinator = new GeneratedValueMaterializationCoordinator(
                 new FixedCatalogRegistry(catalogHandle), service, dataSource, writeJournal,
-                        ModelAuthorityFixtures.models());
+                        ModelAuthorityFixtures.models(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
         coordinator.activateCatalogs(Set.of("lake"));
         GeneratedColumnSet sync = definitions().toBuilder()
                 .setDefinitions(0, definitions().getDefinitions(0).toBuilder()
@@ -353,7 +361,9 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 "s3://warehouse/system", new FixedCatalogRegistry(catalogHandle), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         var coordinator = new GeneratedValueMaterializationCoordinator(
                 new FixedCatalogRegistry(catalogHandle), service, dataSource, writeJournal,
-                        ModelAuthorityFixtures.models());
+                        ModelAuthorityFixtures.models(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
 
         assertThatThrownBy(() -> coordinator.requireWriteAdmission(
                 TABLE, definitions(), null, "MERGE"))

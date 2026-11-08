@@ -24,8 +24,8 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.split.SplitDrainer;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
@@ -70,7 +70,8 @@ public final class IncrementalReadTask implements MetadataTask<IncrementalReadSt
         long fromSnapshot = extractSnapshotId(statement.fromSnapshot(), "fromSnapshot");
         long toSnapshot = extractSnapshotId(statement.toSnapshot(), "toSnapshot");
 
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context.session(), ref.catalog(), ref.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context.session(), ref.catalog(),
+                ref.schema());
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(ref.catalog());
         ConnectorMetadata metadata = session.getQueryAuthority()
                 .map(org.pangrova.connector.spi.metadata.ConnectorMetadataScope::require)

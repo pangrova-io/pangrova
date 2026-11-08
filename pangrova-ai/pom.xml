@@ -17,6 +17,7 @@
 
     <modules>
         <module>pangrova-ai-api</module>
+        <module>pangrova-ai-provider-openai</module>
 
         <module>pangrova-ai-worker</module>
         <module>pangrova-ai-control</module>

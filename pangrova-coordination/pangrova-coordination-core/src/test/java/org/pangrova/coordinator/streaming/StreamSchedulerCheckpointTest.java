@@ -14,8 +14,8 @@ import org.pangrova.streaming.api.cdc.CdcRecordConverter;
 import org.pangrova.streaming.api.source.SourceRecord;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
-import org.pangrova.streaming.commit.JdbcCdcCommitStateStore;
-import org.pangrova.streaming.commit.SourceId;
+import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
+import org.pangrova.streaming.api.commit.SourceId;
 import org.pangrova.streaming.commit.TwoPhaseCommitCoordinator;
 import org.pangrova.streaming.maintenance.MaintenanceConfig;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
@@ -32,6 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pangrova.streaming.api.commit.CdcCommitState;
+import org.pangrova.streaming.api.commit.CdcBatchCheckpoint;
+import org.pangrova.streaming.api.commit.OffsetRange;
 
 class StreamSchedulerCheckpointTest extends ContainerTestBase {
     @Test
@@ -39,10 +42,10 @@ class StreamSchedulerCheckpointTest extends ContainerTestBase {
         var store = new JdbcCdcCommitStateStore(SharedPostgresContainer.migratedDataSource("scheduler_checkpoint"));
         var coordinator = new TwoPhaseCommitCoordinator(store);
         var old = coordinator.prepare(new SourceId("ingestion"),
-                new org.pangrova.streaming.commit.CdcBatchCheckpoint(List.of(
-                        new org.pangrova.streaming.commit.OffsetRange("orders", 0, 0, 100))));
-        store.compareAndSetState(old.id(), org.pangrova.streaming.commit.CdcCommitState.PREPARED,
-                org.pangrova.streaming.commit.CdcCommitState.COMMITTING);
+                new org.pangrova.streaming.api.commit.CdcBatchCheckpoint(List.of(
+                        new org.pangrova.streaming.api.commit.OffsetRange("orders", 0, 0, 100))));
+        store.compareAndSetState(old.id(), org.pangrova.streaming.api.commit.CdcCommitState.PREPARED,
+                org.pangrova.streaming.api.commit.CdcCommitState.COMMITTING);
         coordinator.commit(old);
         var expected = Map.of(new TopicPartitionOffset("orders", 0), 11L,
                 new TopicPartitionOffset("payments", 2), 21L);

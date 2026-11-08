@@ -14,9 +14,9 @@ import net.jqwik.api.Arbitraries;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.core.lifecycle.QueryStateMachine;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.query.core.statement.StatementTableTargets;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.InsertStatement;
@@ -102,7 +102,7 @@ class ExecutionFactoryPropertyTest {
         QueryStateMachine sm = new QueryStateMachine();
         QuerySession session = new QuerySession(
                 "q-test", Map.of(), null, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
-        return new StatementExecutionContext(sm, "q-test", session, null, null);
+        return new StatementExecutionContext(sm, "q-test", session);
     }
 
     /** Inline executor that returns a fixed row for any statement. */

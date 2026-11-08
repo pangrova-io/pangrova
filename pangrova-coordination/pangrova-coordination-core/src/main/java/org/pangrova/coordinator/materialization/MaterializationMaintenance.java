@@ -21,9 +21,8 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.query.core.lifecycle.QueryStateMachine;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.materialization.domain.CommandId;
 import org.pangrova.materialization.domain.DefinitionRevision;
 import org.pangrova.materialization.domain.MaterializationException;
@@ -41,7 +40,6 @@ import org.pangrova.materialization.usecase.MaterializationReconciler;
 import org.pangrova.materialization.usecase.MaterializationScheduler;
 import org.pangrova.materialization.usecase.RefreshMaterialization;
 import org.pangrova.materialization.usecase.SourcePinSweeper;
-import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.slf4j.Logger;
@@ -68,8 +66,6 @@ public final class MaterializationMaintenance implements AutoCloseable {
     private final HighAvailabilityCoordinationService coordination;
     private final String coordinatorId;
     private final QueryManager queryManager;
-    private final SqlCompiler compiler;
-    private final CoordinatorResultService results;
     private final MaterializationRepository repository;
     private final CommitRecovery recovery;
     private final GenerationGarbageCollector collector;
@@ -92,21 +88,17 @@ public final class MaterializationMaintenance implements AutoCloseable {
      * @param coordination leader election
      * @param coordinatorId identity of this coordinator
      * @param queryManager query state machine registry
-     * @param compiler definition compiler
-     * @param results result service used by synthetic refresh queries
      * @param recovery commit recovery port
      */
     public MaterializationMaintenance(MaterializationKernelFactory kernels,
             HighAvailabilityCoordinationService coordination, String coordinatorId,
-            QueryManager queryManager, SqlCompiler compiler, CoordinatorResultService results,
+            QueryManager queryManager,
             CommitRecovery recovery, Dependencies dependencies, ExecutionTraceContextFactory traceContexts) {
         this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.kernels = java.util.Objects.requireNonNull(kernels, "kernels");
         this.coordination = java.util.Objects.requireNonNull(coordination, "coordination");
         this.coordinatorId = java.util.Objects.requireNonNull(coordinatorId, "coordinatorId");
         this.queryManager = java.util.Objects.requireNonNull(queryManager, "queryManager");
-        this.compiler = java.util.Objects.requireNonNull(compiler, "compiler");
-        this.results = java.util.Objects.requireNonNull(results, "results");
         this.repository = kernels.repository();
         this.recovery = java.util.Objects.requireNonNull(recovery, "recovery");
         this.collector = new GenerationGarbageCollector(repository, dependencies.store(),
@@ -309,7 +301,7 @@ public final class MaterializationMaintenance implements AutoCloseable {
                             Map.of(), Instant.now()),
                     object.tenant().value(), java.util.Optional.empty(), traceContexts.capture());
             StatementExecutionContext context = new StatementExecutionContext(
-                    state, queryId, session, compiler, results);
+                    state, queryId, session);
             kernels.service(context).refresh(new RefreshMaterialization(
                     object, header.definer(), trigger, commandId));
             // Nothing else owns this query: no StatementDispatcher will publish an

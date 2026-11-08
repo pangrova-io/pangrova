@@ -4,7 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
 import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
-import org.pangrova.ai.control.store.jdbc.embedding.JdbcEmbeddingModelRegistry;
+import org.pangrova.persistence.ai.postgresql.embedding.JdbcEmbeddingModelRegistry;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 import org.pangrova.security.api.policy.Role;

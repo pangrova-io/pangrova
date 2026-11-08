@@ -4,7 +4,7 @@ import org.pangrova.query.api.lifecycle.QueryState;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.state.JournalRecoveryService;
+import org.pangrova.query.core.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;

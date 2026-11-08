@@ -24,6 +24,7 @@ public class FairScheduler {
         this(DEFAULT_CAPACITIES);
     }
 
+    /** Creates a scheduler with explicit per-queue capacities. */
     public FairScheduler(Map<QueueType, Integer> capacities) {
         this.queueCapacities = Map.copyOf(capacities);
         for (QueueType type : QueueType.values()) {
@@ -41,6 +42,7 @@ public class FairScheduler {
         return usage != null && usage.getAndUpdate(v -> v < capacity ? v + 1 : v) < capacity;
     }
 
+    /** Releases one admitted slot for the query's queue. */
     public void completeQuery(String queryId, QueueType queueType) {
         AtomicInteger usage = queueUsage.get(queueType);
         if (usage != null) {

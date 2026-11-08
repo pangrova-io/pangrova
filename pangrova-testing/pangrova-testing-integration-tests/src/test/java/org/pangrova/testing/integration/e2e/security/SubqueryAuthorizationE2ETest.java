@@ -26,7 +26,7 @@ import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
 import org.pangrova.table.core.ownership.TableControlService;
 import org.pangrova.table.core.config.TableControlSettings;
 import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
-import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
+import org.pangrova.metadata.security.TableControlColumnMaskStore;
 import org.pangrova.metadata.service.TableControlRowPolicyStore;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

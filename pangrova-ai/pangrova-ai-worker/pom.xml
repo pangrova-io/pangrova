@@ -29,6 +29,7 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-ai-api</artifactId>
         </dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-provider-openai</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-function-api</artifactId>

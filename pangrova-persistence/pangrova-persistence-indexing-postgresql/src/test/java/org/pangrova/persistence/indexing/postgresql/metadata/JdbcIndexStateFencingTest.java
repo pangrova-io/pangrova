@@ -14,7 +14,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.descriptor.IndexType;
 import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -26,7 +26,7 @@ class JdbcIndexStateFencingTest {
     @BeforeAll
     void initializeEmptySchema() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("index_state_fence");
-        store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
     }
 
     @Test
@@ -93,7 +93,7 @@ class JdbcIndexStateFencingTest {
 
     private boolean attempt(IndexDescriptor original, String state, String reason, int seconds,
                             boolean fullFence, CountDownLatch ready, CountDownLatch start) throws Exception {
-        var competitor = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        var competitor = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         ready.countDown();
         if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Race did not start");
         return fullFence

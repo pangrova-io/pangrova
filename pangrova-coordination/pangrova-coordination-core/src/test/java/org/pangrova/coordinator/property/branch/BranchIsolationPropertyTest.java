@@ -11,7 +11,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.coordinator.query.session.BranchRoutingContext;
+import org.pangrova.query.core.session.BranchRoutingContext;
 
 /**
  * Property-based tests for branch isolation (P3).

@@ -4,7 +4,7 @@ import org.pangrova.query.core.lifecycle.QueryStateMachine;
 
 import org.pangrova.query.api.lifecycle.QueryState;
 
-import org.pangrova.coordinator.query.admission.QueryRejectedException;
+import org.pangrova.query.api.error.QueryRejectedException;
 import org.pangrova.query.api.session.QuerySession;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,10 +28,10 @@ final class QueryAdmission {
         this.throttle = throttle;
     }
 
-    static org.pangrova.coordinator.query.tenant.TenantQueryGuard tenantGuard(
+    static org.pangrova.security.core.tenant.TenantQueryGuard tenantGuard(
             QueryManagerContext context, java.util.Collection<QueryStateMachine> queries) {
         if (context.tenantResolver() == null || context.quotaChecker() == null) return null;
-        return new org.pangrova.coordinator.query.tenant.TenantQueryGuard(
+        return new org.pangrova.security.core.tenant.TenantQueryGuard(
                 context.tenantResolver(), context.quotaChecker(),
                 tenantId -> {
                     int concurrent = 0;

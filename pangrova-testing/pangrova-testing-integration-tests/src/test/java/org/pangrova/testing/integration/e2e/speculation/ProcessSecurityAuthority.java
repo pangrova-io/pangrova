@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
-import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.auth.ldap.LdapAuthenticator;

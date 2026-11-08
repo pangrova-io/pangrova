@@ -154,12 +154,13 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
 
     private static org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot(LanceTableHandle table) {
         var descriptor = metadataBootstrap.catalogRegistry().getCatalog(CATALOG).getDescriptor();
-        var authority = new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(stateStoreDataSource(),
+        var authority = new org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog(stateStoreDataSource(),
                 new org.pangrova.connector.api.metadata.SourceCatalogDeployment(
                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                 execution -> e2eCoordinationForTest().requireExecutionAnchor(execution),
                 new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
-                ModelAuthorityFixtures.models());
+                ModelAuthorityFixtures.models(),
+                                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         var key = new org.pangrova.connector.api.metadata.SourceTableKey(table.tenantId(), table.table());
         var actual = authority.load(key).orElseThrow();
         assertThat(actual.tableId()).isEqualTo(table.tableId());

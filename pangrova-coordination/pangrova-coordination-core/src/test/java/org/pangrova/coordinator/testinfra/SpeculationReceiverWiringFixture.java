@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptDispatcher;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;

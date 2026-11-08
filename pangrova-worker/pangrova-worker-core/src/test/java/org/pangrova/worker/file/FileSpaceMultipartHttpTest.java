@@ -21,7 +21,7 @@ import org.glassfish.jersey.servlet.ServletContainer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.file.FileAccessSignature;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.filesystem.api.object.UploadedPart;

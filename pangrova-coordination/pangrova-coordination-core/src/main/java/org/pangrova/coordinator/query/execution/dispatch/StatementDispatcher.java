@@ -1,4 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementCompletionEvent;
+import org.pangrova.query.core.dispatch.StatementCompletionListener;
 
 import org.pangrova.query.core.task.DispatchResult;
 
@@ -21,6 +24,8 @@ import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.security.spi.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
 
 /**
  * Pure dispatcher for DDL/DML/utility statements.
@@ -80,7 +85,7 @@ public final class StatementDispatcher {
                     "No factory registered for: " + ast.getClass().getSimpleName());
         }
         checkPermission(ast, session);
-        var context = new StatementExecutionContext(sm, queryId, session, currentCompiler, resultService);
+        var context = new StatementExecutionContext(sm, queryId, session);
         StatementResult result = executeUnchecked(factory, ast, context);
         fireCompletionEvent(queryId, ast, result, session);
         return toDispatchResult(result, queryId, sm);
@@ -105,8 +110,7 @@ public final class StatementDispatcher {
                     "No factory registered for: " + ast.getClass().getSimpleName());
         }
         PermissionChecker.check(ast, session, accessControl);
-        var context = new StatementExecutionContext(
-                sm, queryId, session, compiler, resultService);
+        var context = new StatementExecutionContext(sm, queryId, session);
         StatementResult result = executeUnchecked(factory, ast, context);
         fireCompletionEvent(queryId, ast, result, session);
         return toDispatchResult(result, queryId, sm);

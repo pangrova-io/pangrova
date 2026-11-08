@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.http.endpoint;
 
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.security.core.authentication.AuthenticationManager;

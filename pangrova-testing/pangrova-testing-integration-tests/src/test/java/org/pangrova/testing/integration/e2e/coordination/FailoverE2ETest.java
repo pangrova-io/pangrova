@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.state.JournalRecoveryService;
+import org.pangrova.query.core.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.types.value.TypedRow;
@@ -148,7 +148,7 @@ class FailoverE2ETest extends SqlE2ETestBase {
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
             QueryManager recoveredManager = org.pangrova.testing.integration.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
             JournalRecoveryService recovery = new JournalRecoveryService(
-                    journal, recoveredManager, recoveredTracker);
+                    journal, recoveredManager, recoveredTracker, null);
             int recovered = recovery.recover();
 
             assertThat(recovered).isEqualTo(2);
@@ -175,7 +175,7 @@ class FailoverE2ETest extends SqlE2ETestBase {
 
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
             QueryManager recoveredManager = org.pangrova.testing.integration.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
-            new JournalRecoveryService(journal, recoveredManager, recoveredTracker)
+            new JournalRecoveryService(journal, recoveredManager, recoveredTracker, null)
                     .recover();
 
             assertThat(recoveredTracker.getTaskIds(queryId)).contains(taskId);
@@ -204,7 +204,7 @@ class FailoverE2ETest extends SqlE2ETestBase {
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
             QueryManager recoveredManager = org.pangrova.testing.integration.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
             int recovered = new JournalRecoveryService(
-                    journal, recoveredManager, recoveredTracker).recover();
+                    journal, recoveredManager, recoveredTracker, null).recover();
 
             assertThat(recovered).isEqualTo(1);
             assertThat(recoveredManager.getActiveQueryIds()).contains(active);

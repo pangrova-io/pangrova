@@ -17,6 +17,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
+import org.pangrova.persistence.query.postgresql.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.shuffle.api.ShuffleCommitResult;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.shuffle.api.ShuffleHandle;

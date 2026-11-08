@@ -12,7 +12,7 @@ import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 

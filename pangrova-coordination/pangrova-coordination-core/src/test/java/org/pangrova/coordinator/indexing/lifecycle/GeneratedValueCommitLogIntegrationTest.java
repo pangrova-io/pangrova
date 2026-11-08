@@ -35,7 +35,7 @@ class GeneratedValueCommitLogIntegrationTest {
             throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource(
                 "generated_value_commit_log");
-        JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         IndexBuildCoordinator buildCoordinator = buildCoordinator(temporaryDirectory);
         MaintenanceLeaderElection leaderElection = new MaintenanceLeaderElection(
                 new JdbcDistributedLease(dataSource), "generated-value-test-coordinator");

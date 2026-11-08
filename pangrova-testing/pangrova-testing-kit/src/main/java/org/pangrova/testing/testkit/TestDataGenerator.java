@@ -35,12 +35,6 @@ public final class TestDataGenerator {
     }
 
     /**
-     * Column-specific upper bounds (exclusive) for LONG type generation.
-     * Matches TPC-H cardinality semantics so that test queries using
-     * small-range filters (e.g. {@code n_regionkey <= 2}) produce
-     * meaningful results.
-     */
-    /**
      * Column-specific value pools for STRING type generation.
      * Matches TPC-H domain semantics so that test queries using
      * literal filters (e.g. {@code o_orderstatus = 'F'}) produce

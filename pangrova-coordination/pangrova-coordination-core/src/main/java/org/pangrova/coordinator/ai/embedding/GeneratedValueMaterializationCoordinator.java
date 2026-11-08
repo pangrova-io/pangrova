@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.ai.embedding;
 
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
+import org.pangrova.persistence.jdbc.api.security.policy.AuthorizationPublicationLock;
+import org.pangrova.persistence.security.api.tenant.DeferredTenantAuthority;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -49,14 +51,15 @@ public final class GeneratedValueMaterializationCoordinator implements CommitLis
     public GeneratedValueMaterializationCoordinator(
             CatalogRegistry catalogRegistry,
             DurableGeneratedValueBuildService buildService,
-            DataSource dataSource, WriteCommitJournal writeJournal, CurrentModelAuthority modelAuthority) {
+            DataSource dataSource, WriteCommitJournal writeJournal, CurrentModelAuthority modelAuthority,
+            DeferredTenantAuthority tenantAuthority, AuthorizationPublicationLock publicationLock) {
         this.catalogRegistry = Objects.requireNonNull(
                 catalogRegistry, "catalogRegistry must not be null");
         this.buildService = Objects.requireNonNull(
                 buildService, "buildService must not be null");
         this.writeJournal = Objects.requireNonNull(writeJournal, "writeJournal");
         this.writeAuthorityResolver = new GeneratedWriteAuthorityResolver(
-                catalogRegistry, dataSource, this, modelAuthority);
+                catalogRegistry, dataSource, this, modelAuthority, tenantAuthority, publicationLock);
     }
 
     /** Captures current INVOKER permissions and the exact connector declaration before allocation. */
@@ -68,8 +71,10 @@ public final class GeneratedValueMaterializationCoordinator implements CommitLis
     /** Keeps plain-table write authority active on query-only coordinators. */
     public static org.pangrova.query.spi.write.WriteAuthorityResolver writeAuthoritySupplier(
             CatalogRegistry catalogs, DataSource dataSource, GeneratedValueMaterializationCoordinator owner,
-            CurrentModelAuthority modelAuthority) {
-        return new GeneratedWriteAuthorityResolver(catalogs, dataSource, owner, modelAuthority)::resolve;
+            CurrentModelAuthority modelAuthority, DeferredTenantAuthority tenantAuthority,
+            AuthorizationPublicationLock publicationLock) {
+        return new GeneratedWriteAuthorityResolver(catalogs, dataSource, owner, modelAuthority,
+                tenantAuthority, publicationLock)::resolve;
     }
 
     public void bindSourceCompiler(GeneratedSourceCompiler compiler) {

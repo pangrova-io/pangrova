@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.core.Response;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.security.core.authentication.AuthenticationManager;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;

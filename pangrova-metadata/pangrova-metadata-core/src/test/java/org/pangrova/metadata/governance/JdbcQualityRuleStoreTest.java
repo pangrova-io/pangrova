@@ -1,6 +1,6 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore;
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import java.time.Instant;
 import java.util.List;
@@ -9,7 +9,7 @@ import java.util.Optional;
 import org.pangrova.governance.api.quality.QualityCheckResult;
 import org.pangrova.governance.api.quality.Severity;
 import org.pangrova.governance.api.quality.DataQualityRule;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -23,8 +23,8 @@ class JdbcQualityRuleStoreTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        store = new JdbcQualityRuleStore(SharedPostgresContainer.isolatedDataSource("quality_rules"));
-        store.initSchema();
+        store = new JdbcQualityRuleStore(
+                SharedPostgresContainer.migratedDataSource("quality_rules"));
     }
 
     @Test

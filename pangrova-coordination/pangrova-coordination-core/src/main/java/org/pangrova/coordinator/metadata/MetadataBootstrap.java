@@ -17,7 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.sql.DataSource;
 import org.pangrova.persistence.catalog.api.projection.TableProjectionRepository;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository;
 
 /**
@@ -164,18 +164,18 @@ public final class MetadataBootstrap {
     }
 
     /** Returns the durable unified materialization authority when JDBC metadata is available. */
-    public org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository
+    public org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository
             materializationRepository() {
         return dynamicTablePublicationDataSource == null ? null
-                : new org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository(
+                : new org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository(
                         dynamicTablePublicationDataSource);
     }
 
     /** Returns the published materialization read model when JDBC metadata is available. */
-    public org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog
+    public org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog
             materializationCatalog() {
         return dynamicTablePublicationDataSource == null ? null
-                : new org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog(
+                : new org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog(
                         dynamicTablePublicationDataSource);
     }
 

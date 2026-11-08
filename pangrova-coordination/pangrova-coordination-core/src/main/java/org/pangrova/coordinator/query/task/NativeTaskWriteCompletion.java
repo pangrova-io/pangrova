@@ -12,7 +12,7 @@ import org.pangrova.governance.api.quality.WriteQualityGate;
 import org.pangrova.governance.api.quality.WriteValidationResult;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.connector.spi.metadata.ConnectorMetadata;

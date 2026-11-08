@@ -19,8 +19,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.descriptor.IndexType;
 import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.metadata.service.TableControlDeferredPolicy;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.metadata.service.TableControlWriteAuthorities;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.catalog.api.error.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
@@ -38,7 +38,7 @@ class JdbcIndexSelectionsTest {
     @BeforeEach
     void setUp() throws SQLException {
         dataSource = SharedPostgresContainer.migratedDataSource("index_selections");
-        store = new JdbcIndexMetadataStore(dataSource, TableControlDeferredPolicy::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, TableControlWriteAuthorities.postgres()::requireCurrent);
     }
 
     @Test
@@ -61,15 +61,22 @@ class JdbcIndexSelectionsTest {
 
     @Test
     void mappingsKeepSnapshotAndExactGenerationSelectionWithLiteralPaths() {
-        store.registerIndex(descriptor("first", "tenant", IndexState.BUILDING).withGeneration(1, Instant.EPOCH));
+        store.registerIndex(descriptor("first", "tenant", IndexState.BUILDING));
         store.registerIndex(descriptor("second", "tenant", IndexState.BUILDING));
         store.registerIndexFile(mapping("first", SPECIAL, 0, "snap'0"));
-        store.registerIndexFile(mapping("first", SPECIAL, 1, "snap'1"));
         store.registerIndexFile(mapping("second", SPECIAL, 0, "snap'0"));
+        publish("first", 0);
+        publish("second", 0);
+        var ready = store.findIndex("first").orElseThrow();
+        var stagingAt = ready.updatedAt().plusSeconds(1);
+        assertThat(store.beginIndexGeneration(ready.indexId(), 1, "snapshot",
+                stagingAt, ready.updatedAt(), ready.state(), ready.generation())).isTrue();
+        store.registerIndexFile(mapping("first", SPECIAL, 1, "snap'1"));
         assertThat(store.batchGetIndexArtifacts(
                 Map.of("first", new IndexFileSelection(1, "")), List.of(SPECIAL))).isEmpty();
-        publish("first", 1);
-        publish("second", 0);
+        store.publishIndexGeneration(new IndexPublicationRequest("first", "first", 1, "snapshot",
+                "VECTOR", new IndexGenerationFormat("pangrova.index-file", 1, 0, "b".repeat(64),
+                "test-writer"), 1, stagingAt, stagingAt.plusSeconds(1)));
         var artifacts = store.batchGetIndexArtifacts(
                 Map.of("first", new IndexFileSelection(1, ""),
                         "second", new IndexFileSelection(0, "")), List.of(SPECIAL, SPECIAL));
@@ -103,6 +110,15 @@ class JdbcIndexSelectionsTest {
         store.markOrphanedByDataFiles("first", paths.subList(0, 1001));
         assertThat(store.getIndexFileMappings("first").stream().filter(m -> m.lastVerifiedAt() == 0)).hasSize(1001);
         assertThat(store.getIndexFileMappings("second")).allMatch(m -> m.lastVerifiedAt() == 10000);
+        var seeded = store.findIndex("first").orElseThrow();
+        store.publishIndexGeneration(new IndexPublicationRequest("first", "first", 0,
+                seeded.buildSnapshotId(), seeded.indexType().name(),
+                new IndexGenerationFormat("pangrova.index-file", 1, 0, "b".repeat(64), "test-writer"),
+                1005, seeded.updatedAt(), seeded.updatedAt().plusSeconds(1)));
+        var ready = store.findIndex("first").orElseThrow();
+        assertThat(store.beginIndexGeneration(ready.indexId(), 1, "snapshot",
+                ready.updatedAt().plusSeconds(1), ready.updatedAt(), ready.state(), ready.generation()))
+                .isTrue();
         assertThat(store.copyIndexGenerationMappings("first", 0, 1, paths.subList(0, 1001))).isEqualTo(4);
         assertThat(store.getIndexFileMappings("first").stream().filter(m -> m.generation() == 0)).hasSize(1005);
         assertThat(store.getIndexFileMappings("first").stream().filter(m -> m.generation() == 1))

@@ -3,7 +3,7 @@ package org.pangrova.persistence.indexing.postgresql.metadata;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.indexing.api.metadata.CommitLogEntry;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -31,7 +31,7 @@ class JdbcIndexCommitQueueMigrationTest {
         }
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
                 .load().migrate();
-        JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
 
         assertThat(store.pollUnprocessedCommitEvents(3, 1L))
                 .extracting(CommitLogEntry::snapshotId)

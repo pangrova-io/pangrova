@@ -18,7 +18,6 @@
     <modules>
         <module>pangrova-shuffle-api</module>
         <module>pangrova-shuffle-core</module>
-        <module>pangrova-shuffle-native-adapter</module>
         <module>pangrova-shuffle-pangrova</module>
         <module>pangrova-shuffle-local</module>
         <module>pangrova-shuffle-service</module>

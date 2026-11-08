@@ -25,9 +25,11 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.lifecycle.IndexState;
@@ -50,7 +52,10 @@ class IndexGcIcebergPinIntegrationTest {
     @Test
     void droppedIndexReleasesAllGenerationTagsAndFilesBeforePurgingPostgresIdentity() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_pin");
-        var indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        var indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        var source = new QualifiedTableName("cat", "db", "items");
+        CoordinatorGenerationAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
+                DeferredAuthorizationScope.raw(source, Set.of("id"), source));
         var registry = new CatalogRegistry(new PostgresCatalogDeploymentRepository(dataSource));
         registry.initialize();
         var resolver = new ConnectorAccessorResolver(registry);
@@ -75,10 +80,12 @@ class IndexGcIcebergPinIntegrationTest {
             var pin = new IcebergMetadata(catalog, "cat").getIndexSupport().orElseThrow()
                     .getSnapshotPinProvider().orElseThrow();
             var old = Instant.now().minusSeconds(3600);
+            var buildTime = Instant.now();
             var descriptor = new IndexDescriptor("index-gc", "idx", "cat", "db", "items",
-                    List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.DROPPED,
-                    null, 1, Long.toString(rebuiltSnapshot), Long.toString(rebuiltSnapshot), old, old, "tenant-a");
-            indexes.registerIndex(descriptor);
+                    List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING,
+                    null, 0, Long.toString(firstSnapshot), Long.toString(firstSnapshot),
+                    buildTime, buildTime, "tenant-a");
+            indexes.registerIndexWithBuildAuthority(descriptor, "alice");
             pin.pinSnapshot("cat", "db", "items", firstSnapshot, descriptor.indexId());
             pin.pinSnapshot("cat", "db", "items", rebuiltSnapshot, descriptor.indexId());
             assertThat(pin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
@@ -95,10 +102,17 @@ class IndexGcIcebergPinIntegrationTest {
                     file.path().toString(), firstIndexFile.toString(), 1, firstBytes.length,
                     org.pangrova.common.util.DigestUtils.sha256Hex(firstBytes),
                     0, Long.toString(firstSnapshot), 0, old, 0));
+            publishGeneration(indexes, descriptor.indexId(), 0, firstSnapshot, buildTime);
+            var ready = indexes.findIndex(descriptor.indexId()).orElseThrow();
+            var nextBuildTime = ready.updatedAt().plusMillis(1);
+            assertThat(indexes.beginIndexGeneration(ready.indexId(), 1, Long.toString(rebuiltSnapshot),
+                    nextBuildTime, ready.updatedAt(), ready.state(), ready.generation())).isTrue();
             indexes.registerIndexFile(new IndexFileMapping(descriptor.indexId(),
                     nextFile.path().toString(), rebuiltIndexFile.toString(), 1, rebuiltBytes.length,
                     org.pangrova.common.util.DigestUtils.sha256Hex(rebuiltBytes),
                     1, Long.toString(rebuiltSnapshot), 0, old, 0));
+            publishGeneration(indexes, descriptor.indexId(), 1, rebuiltSnapshot, nextBuildTime);
+            indexes.updateIndexState(descriptor.indexId(), "DROPPED", nextBuildTime.plusMillis(2));
             assertThat(indexes.getIndexFileMappings(descriptor.indexId()))
                     .extracting(IndexFileMapping::generation).containsExactlyInAnyOrder(0, 1);
 
@@ -120,7 +134,7 @@ class IndexGcIcebergPinIntegrationTest {
     @Test
     void revokedSourceReadGrantDoesNotBlockDroppedIndexPinCleanup() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_revoked_cleanup");
-        var indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        var indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         var source = new QualifiedTableName("cat", "db", "items");
         CoordinatorGenerationAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
                 DeferredAuthorizationScope.raw(source, Set.of("id"), source));
@@ -178,5 +192,13 @@ class IndexGcIcebergPinIntegrationTest {
                 connector.shutdown();
             }
         }
+    }
+
+    private static void publishGeneration(JdbcIndexMetadataStore indexes, String indexId,
+            int generation, long snapshotId, Instant updatedAt) {
+        indexes.publishIndexGeneration(new IndexPublicationRequest(indexId, indexId, generation,
+                Long.toString(snapshotId), IndexType.BLOOM_FILTER.name(),
+                new IndexGenerationFormat("pangrova.index-file", 1, 0, "b".repeat(64), "test-writer"),
+                1, updatedAt, updatedAt.plusMillis(1)));
     }
 }

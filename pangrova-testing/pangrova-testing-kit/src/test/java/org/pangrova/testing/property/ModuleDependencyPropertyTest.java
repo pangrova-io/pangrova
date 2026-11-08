@@ -78,7 +78,7 @@ class ModuleDependencyPropertyTest {
     @Test
     void shuffleProvidersAndServiceProductionClosuresExcludeEngineCoreAndProcessAssembly() {
         Set<String> forbidden = Set.of("pangrova-shuffle-core", "pangrova-worker-core",
-                "pangrova-worker-native-bridge", "pangrova-shuffle-native-adapter",
+                "pangrova-worker-native-bridge",
                 "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-testing-kit",
                 "pangrova-planner-core");
         for (String root : List.of("pangrova-shuffle-api", "pangrova-shuffle-local",
@@ -172,7 +172,7 @@ class ModuleDependencyPropertyTest {
                 "pangrova-persistence-file-postgresql",
                 "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-worker-core",
                 "pangrova-worker-native-bridge", "pangrova-planner-core", "pangrova-indexing-core", "pangrova-indexing-codec",
-                "pangrova-metadata-core", "pangrova-protocol", "pangrova-persistence-generation-api", "pangrova-indexing-planner-adapter");
+                "pangrova-metadata-core", "pangrova-protocol", "pangrova-persistence-generation-api");
         for (String root : List.of("pangrova-indexing-api")) {
             var pending = new ArrayDeque<List<String>>();
             var visited = new HashSet<String>();
@@ -198,11 +198,7 @@ class ModuleDependencyPropertyTest {
     @Test
     void indexingImplementationBoundariesExcludeReverseDependencies() {
         Map<String, Set<String>> boundaries = Map.of(
-                "pangrova-indexing-core", Set.of("pangrova-indexing-strategies-builtin",
-                        "pangrova-planner-core", "pangrova-indexing-planner-adapter"),
-                "pangrova-indexing-planner-adapter", Set.of("pangrova-indexing-core",
-                        "pangrova-coordination-core", "pangrova-worker-core", "pangrova-persistence-generation-postgresql",
-                        "pangrova-persistence-security-postgresql"),
+                "pangrova-indexing-core", Set.of("pangrova-indexing-strategies-builtin"),
                 "pangrova-indexing-codec", Set.of("pangrova-indexing-core", "pangrova-indexing-strategies-builtin"),
                 "pangrova-indexing-strategies-builtin", Set.of("pangrova-indexing-core",
                         "pangrova-planner-core", "pangrova-coordination-core", "pangrova-worker-core"));
@@ -279,7 +275,7 @@ class ModuleDependencyPropertyTest {
                 "pangrova-testing-kit", "pangrova-coordination-core", "pangrova-server-coordinator",
                 "pangrova-worker-core", "pangrova-worker-native-bridge", "pangrova-metadata-core",
                 "pangrova-planner-core");
-        for (String root : List.of("pangrova-file-api", "pangrova-file-core", "pangrova-file-worker-adapter")) {
+        for (String root : List.of("pangrova-file-api", "pangrova-file-core")) {
             var pending = new ArrayDeque<List<String>>();
             var visited = new HashSet<String>();
             pending.add(List.of(root));
@@ -288,13 +284,6 @@ class ModuleDependencyPropertyTest {
                 String artifact = path.get(path.size() - 1);
                 if (!visited.add(artifact)) continue;
                 assertThat(forbidden).as("File production dependency path: %s", path).doesNotContain(artifact);
-                if (root.equals("pangrova-file-worker-adapter")) {
-                    assertThat(artifact).as("Worker file adapter dependency path: %s", path)
-                            .isNotIn("pangrova-file-core", "pangrova-persistence-generation-api");
-                } else {
-                    assertThat(artifact).as("File domain dependency path: %s", path)
-                            .isNotEqualTo("pangrova-file-worker-adapter");
-                }
                 Policy policy = MODEL.policies().get(artifact);
                 assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
                 scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))

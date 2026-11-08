@@ -7,7 +7,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 import org.eclipse.jetty.server.Server;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import jakarta.servlet.http.HttpServlet;

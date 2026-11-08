@@ -76,7 +76,7 @@ class FileSpaceControlPlaneContractE2ETest {
             statement.execute("CREATE SCHEMA " + schema);
         }
         source.setCurrentSchema(schema);
-        org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner.migrate(source);
+        org.pangrova.persistence.jdbc.support.SchemaMigrationRunner.migrate(source);
         var tenants = new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source);
 
         tenants.createTenant(new org.pangrova.security.api.tenant.Tenant("tenant-a", "File contract tests",

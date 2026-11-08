@@ -21,7 +21,7 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.planner.core.analysis.PangrovaPlanner;
 import org.pangrova.planner.core.analysis.SqlCompiler;
@@ -70,7 +70,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Real SDK allocation and serialization; the leaf catalog router is not an HTTP or Native fixture. */

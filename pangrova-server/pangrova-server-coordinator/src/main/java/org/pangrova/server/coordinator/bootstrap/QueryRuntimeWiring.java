@@ -61,7 +61,7 @@ final class QueryRuntimeWiring {
         if (dependencies.metadataDataSource() == null) {
             throw new IllegalStateException("embedding model catalog requires the durable metadata DataSource");
         }
-        var registry = new org.pangrova.ai.control.store.jdbc.embedding.JdbcEmbeddingModelRegistry(
+        var registry = new org.pangrova.persistence.ai.postgresql.embedding.JdbcEmbeddingModelRegistry(
                 dependencies.metadataDataSource(), "admin", "users");
         registry.initSchema();
         return registry;

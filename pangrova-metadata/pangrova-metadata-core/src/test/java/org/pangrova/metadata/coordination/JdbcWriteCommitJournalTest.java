@@ -5,7 +5,7 @@ import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;

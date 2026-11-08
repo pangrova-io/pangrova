@@ -47,6 +47,7 @@ import org.pangrova.metadata.api.cache.MetadataCache;
  */
 @ThreadSafe
 public final class PostgresInvalidationPoller implements AutoCloseable,
+        org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller,
         org.pangrova.persistence.catalog.api.invalidation.InvalidationLogMaintenance {
 
     private static final Logger LOG = LoggerFactory.getLogger(PostgresInvalidationPoller.class);

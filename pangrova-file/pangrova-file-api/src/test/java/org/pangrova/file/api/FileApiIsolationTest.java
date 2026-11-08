@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class FileApiIsolationTest {
     @Test
     void actualClasspathAndAllApiTypesLoadWithoutSecurityRuntimeJdbcOrCloudProviders() throws Exception {
-        var forbidden = List.of("org.pangrova.file.adapter.worker.WorkerFileClient", "org.pangrova.observability.noop.NoOpMetricsProvider",
+        var forbidden = List.of("org.pangrova.file.worker.WorkerFileClient", "org.pangrova.observability.noop.NoOpMetricsProvider",
                 "com.fasterxml.jackson.databind.ObjectMapper", "org.postgresql.Driver",
                 "com.zaxxer.hikari.HikariDataSource", "org.pangrova.persistence.security.api.policy.RoleStore",
                 "org.pangrova.file.core.access.FileSpaceAccessService",

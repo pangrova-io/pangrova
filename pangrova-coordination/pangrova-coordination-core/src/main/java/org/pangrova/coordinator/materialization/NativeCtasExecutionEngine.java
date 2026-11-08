@@ -15,7 +15,7 @@ import java.util.Map;
 import javax.sql.DataSource;
 import org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors;
 import org.pangrova.query.core.lifecycle.QueryStateMachine;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
 import org.pangrova.materialization.domain.InternalNamespace;
 import org.pangrova.materialization.domain.MaterializationException;
@@ -51,6 +51,7 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
     private final CatalogRegistry catalogs;
     private final CtasTask ctas;
     private final DataSource metadataDataSource;
+    private final java.util.function.Supplier<org.pangrova.planner.core.analysis.SqlCompiler> compiler;
 
     /**
      * Creates a native CTAS execution engine for one statement.
@@ -61,11 +62,13 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
      * @param metadataDataSource metadata data source
      */
     public NativeCtasExecutionEngine(StatementExecutionContext context, CatalogRegistry catalogs,
-            CtasTask ctas, DataSource metadataDataSource) {
+            CtasTask ctas, DataSource metadataDataSource,
+            java.util.function.Supplier<org.pangrova.planner.core.analysis.SqlCompiler> compiler) {
         this.context = context;
         this.catalogs = catalogs;
         this.ctas = ctas;
         this.metadataDataSource = metadataDataSource;
+        this.compiler = compiler;
     }
 
     @Override
@@ -78,7 +81,7 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
         ensureInternalSchema(catalog);
         RefreshPlan plan = request.plan().orElseThrow(() -> MaterializationException.requestRejected(
                 "materialization execution requires a resolved refresh plan"));
-        Statement parsed = scoped.compiler().parseToAst(plan.canonicalSql());
+        Statement parsed = compiler.get().parseToAst(plan.canonicalSql());
         if (!(parsed instanceof Query) && !(parsed instanceof org.pangrova.parser.api.ast.SetQuery)) {
             throw MaterializationException.invalidDefinition(
                     "materialization definition must be a query: " + request.attempt().object().canonicalName());
@@ -127,8 +130,7 @@ public final class NativeCtasExecutionEngine implements ExecutionEngine {
         if (!ranges.isEmpty()) {
             session = session.withSourceIncrementalRanges(ranges);
         }
-        return new StatementExecutionContext(context.stateMachine(), context.queryId(),
-                session, context.compiler(), context.resultService());
+        return new StatementExecutionContext(context.stateMachine(), context.queryId(), session);
     }
 
     private static java.util.Set<SourceRef> rangedSources(

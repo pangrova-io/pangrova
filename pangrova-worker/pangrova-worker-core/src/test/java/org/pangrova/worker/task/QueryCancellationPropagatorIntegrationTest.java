@@ -154,7 +154,7 @@ class QueryCancellationPropagatorIntegrationTest {
                 new QueryId(queryId),
                 new TestPlanFragment(),
                 List.of(),
-                Map.of());
+                Map.of(), 0, 0, "COMPUTE", org.pangrova.protocol.execution.TaskResourceLimit.NONE);
     }
 
     private static final class TestPlanFragment implements PlanFragment {

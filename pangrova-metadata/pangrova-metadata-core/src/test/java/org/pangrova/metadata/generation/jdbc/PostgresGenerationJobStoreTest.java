@@ -38,7 +38,7 @@ import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.output.GenerationOutputTypeIds;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

@@ -21,24 +21,12 @@
     <dependencies>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId></dependency>
-  <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-api</artifactId></dependency>
 
   <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-ai-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-persistence-jdbc-support</artifactId>
-        </dependency>
-
-
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-generation-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -67,11 +55,6 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

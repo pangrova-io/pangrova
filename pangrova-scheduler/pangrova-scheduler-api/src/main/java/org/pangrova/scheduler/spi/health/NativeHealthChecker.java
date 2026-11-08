@@ -1,6 +1,5 @@
 package org.pangrova.scheduler.spi.health;
 
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

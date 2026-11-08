@@ -45,7 +45,8 @@ public final class BranchDdlExecutor {
         QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(),
+                tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -79,7 +80,8 @@ public final class BranchDdlExecutor {
         QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(),
+                tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -111,7 +113,8 @@ public final class BranchDdlExecutor {
         QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(),
+                tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -143,7 +146,8 @@ public final class BranchDdlExecutor {
         QualifiedTableName tableRef = SessionTableNames.resolveTableRef(stmt.tableName().parts(), context);
         checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(),
+                tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 

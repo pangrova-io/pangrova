@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.resilience;
 
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.state.JournalRecoveryService;
+import org.pangrova.query.core.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.types.value.TypedRow;
@@ -196,7 +196,7 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             QueryManager recoveredManager = org.pangrova.testing.integration.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recoveryService = new JournalRecoveryService(
-                    journal, recoveredManager, recoveredTracker);
+                    journal, recoveredManager, recoveredTracker, null);
             int recovered = recoveryService.recover();
 
             assertThat(recovered).isEqualTo(2);
@@ -219,7 +219,7 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             QueryManager recoveredManager = org.pangrova.testing.integration.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recoveryService = new JournalRecoveryService(
-                    journal, recoveredManager, recoveredTracker);
+                    journal, recoveredManager, recoveredTracker, null);
             recoveryService.recover();
 
             Set<String> taskIds = recoveredTracker.getTaskIds(queryId);
@@ -245,7 +245,7 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             QueryManager recoveredManager = org.pangrova.testing.integration.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recoveryService = new JournalRecoveryService(
-                    journal, recoveredManager, recoveredTracker);
+                    journal, recoveredManager, recoveredTracker, null);
             int recovered = recoveryService.recover();
 
             assertThat(recovered).isEqualTo(1);
@@ -319,7 +319,7 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
 
     private static void createJournalTables(DataSource ds) {
-        org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner.migrate(ds);
+        org.pangrova.persistence.jdbc.support.SchemaMigrationRunner.migrate(ds);
     }
 
     private static void truncateJournalTables(DataSource ds) throws Exception {

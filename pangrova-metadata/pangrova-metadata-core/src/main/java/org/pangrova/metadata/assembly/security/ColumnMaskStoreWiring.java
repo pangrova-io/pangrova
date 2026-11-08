@@ -1,6 +1,6 @@
 package org.pangrova.metadata.assembly.security;
 
-import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
+import org.pangrova.metadata.security.TableControlColumnMaskStore;
 
 import java.util.Objects;
 

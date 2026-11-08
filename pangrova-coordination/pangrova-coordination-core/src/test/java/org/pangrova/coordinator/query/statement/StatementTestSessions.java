@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.security.api.identity.UserIdentity;
 
@@ -25,6 +25,6 @@ public final class StatementTestSessions {
 
     public static StatementExecutionContext executionContext() {
         var session = context();
-        return new StatementExecutionContext(null, session.queryId(), session, null, null);
+        return new StatementExecutionContext(null, session.queryId(), session);
     }
 }

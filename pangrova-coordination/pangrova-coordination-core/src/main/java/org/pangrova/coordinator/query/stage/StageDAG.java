@@ -1,21 +1,17 @@
 package org.pangrova.coordinator.query.stage;
 
 import org.pangrova.query.api.stage.StageState;
-
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.pangrova.planner.core.analysis.FragmentedPlan;
 import org.pangrova.planner.core.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.core.analysis.PlanStage;
 import org.pangrova.planner.core.analysis.StageTransfer;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
-
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 /**

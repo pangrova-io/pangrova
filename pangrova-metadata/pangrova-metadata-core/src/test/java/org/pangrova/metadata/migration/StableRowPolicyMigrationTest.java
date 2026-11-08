@@ -2,7 +2,7 @@ package org.pangrova.metadata.migration;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 

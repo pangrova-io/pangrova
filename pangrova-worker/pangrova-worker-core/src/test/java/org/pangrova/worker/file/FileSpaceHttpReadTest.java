@@ -24,7 +24,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.file.FileAccessSignature;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.worker.http.endpoint.InternalAuthFilter;
@@ -59,7 +59,7 @@ class FileSpaceHttpReadTest {
         handler.addServlet(new ServletHolder(new ServletContainer(resources)), "/*");
         server = EmbeddedHttpServerFactory.create(0, handler);
         server.start();
-        base = "http://localhost:" + EmbeddedHttpServerFactory.getPort(server)
+        base = "http://127.0.0.1:" + EmbeddedHttpServerFactory.getPort(server)
                 + "/v1/file-space/object";
         put("0123456789");
     }

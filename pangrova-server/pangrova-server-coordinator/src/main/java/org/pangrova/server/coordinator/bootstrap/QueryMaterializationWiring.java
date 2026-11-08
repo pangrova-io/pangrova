@@ -19,7 +19,7 @@ import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.ai.control.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.security.spi.authorization.AccessControl;
@@ -57,7 +57,9 @@ final class QueryMaterializationWiring {
                 dependencies.config().baseIndexPath(), catalog, new OtelExecutionTraceContextFactory());
         var coordinator = new GeneratedValueMaterializationCoordinator(catalog, service,
                 dependencies.metadataDataSource(), new JdbcWriteCommitJournal(
-                        dependencies.metadataDataSource()), dependencies.modelAuthority());
+                        dependencies.metadataDataSource()), dependencies.modelAuthority(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
         var registeredCatalogs = indexing.registerDurableCommitProcessor(coordinator);
         coordinator.activateCatalogs(registeredCatalogs);
         LOG.info("event=generated_value_materialization_wired catalogs={}", registeredCatalogs);

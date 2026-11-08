@@ -6,7 +6,7 @@ import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
 import org.pangrova.query.api.lifecycle.QueryState;
 
-import org.pangrova.coordinator.query.admission.QueryRejectedException;
+import org.pangrova.query.api.error.QueryRejectedException;
 import org.pangrova.query.api.session.QuerySession;
 
 import static org.assertj.core.api.Assertions.assertThat;

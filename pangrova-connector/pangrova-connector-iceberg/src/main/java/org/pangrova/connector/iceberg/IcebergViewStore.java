@@ -43,6 +43,7 @@ final class IcebergViewStore {
             }
             case IF_NOT_EXISTS -> viewDefinitions.putIfAbsent(viewName, sql);
             case CREATE_OR_REPLACE -> viewDefinitions.put(viewName, sql);
+            default -> throw new IllegalStateException("Unsupported view create mode: " + mode);
         }
         LOG.info("event=view_create_completed catalog={} view={} mode={}", catalogName, viewName, mode);
     }

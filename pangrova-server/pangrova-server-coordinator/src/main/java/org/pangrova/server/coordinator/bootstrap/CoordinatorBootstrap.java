@@ -1,10 +1,11 @@
 package org.pangrova.server.coordinator.bootstrap;
+import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
 
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
 import org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore;
 import org.pangrova.persistence.table.postgresql.statistics.JdbcTableControlStatisticsStore;
 import org.pangrova.metadata.assembly.generation.GenerationStores;
-import org.pangrova.ai.control.store.jdbc.embedding.JdbcCurrentModelAuthority;
+import org.pangrova.persistence.ai.postgresql.embedding.JdbcCurrentModelAuthority;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 import org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask;
@@ -14,11 +15,11 @@ import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.coordinator.metadata.PluginFederationHandleFactory;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.ai.control.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
-import org.pangrova.metadata.store.jdbc.catalog.PooledDataSourceFactory;
-import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.security.api.secret.SecretResolver;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
 import org.pangrova.security.secret.env.EnvSecretProvider;
@@ -32,7 +33,7 @@ import javax.sql.DataSource;
 import java.util.concurrent.CountDownLatch;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /**
@@ -136,6 +137,10 @@ public final class CoordinatorBootstrap {
     private void startQueryAndHttp() {
         query = buildQueryBootstrap();
         query.start();
+        var invalidationPoller = moduleWiring == null ? null : moduleWiring.getInvalidationPoller();
+        if (invalidationPoller != null) {
+            query.executionWiring().wireResultCacheInvalidation(invalidationPoller);
+        }
         ha = buildHighAvailabilityBootstrap();
         ha.setClaimedExecutionRecovery(claimed ->
                 query.recoverWriteCommitIntents(claimed, ha.haService()));
@@ -203,7 +208,7 @@ public final class CoordinatorBootstrap {
         return new org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource(
                 access,
                 new org.pangrova.file.core.access.FileUrlService(access,
-                        org.pangrova.file.adapter.worker.WorkerFileClient.create(
+                        org.pangrova.file.worker.WorkerFileClient.create(
                                 config.internalAuthSecret())),
                 new org.pangrova.coordinator.file.StageFileUrlService(access));
     }
@@ -437,7 +442,7 @@ public final class CoordinatorBootstrap {
         try {
             org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore indexMetadataStore =
                     new org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore(metadataDataSource,
-                            org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+                            org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
             org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry =
                     metadataBootstrap.catalogRegistry();
             org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider =
@@ -446,7 +451,7 @@ public final class CoordinatorBootstrap {
                     security != null ? security.accessControl() : null;
             moduleWiring.startIndexing(
                     indexMetadataStore,
-                    new org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository(metadataDataSource),
+                    new JdbcIndexBuildClaimRepository(metadataDataSource),
                     catalogRegistry, metricsProvider, accessControl,
                     config.baseIndexPath(), distributedLease,
                     artifactStores.builds(
@@ -475,7 +480,7 @@ public final class CoordinatorBootstrap {
         try {
             org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore indexMetadataStore =
                     new org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore(metadataDataSource,
-                            org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+                            org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
             org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
             moduleWiring.startIndexQuery(indexMetadataStore, metricsProvider);

@@ -1,4 +1,5 @@
 package org.pangrova.planner.core.analysis;
+import org.pangrova.planner.api.fragment.StageCoordinates;
 
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
@@ -81,7 +82,7 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
 
         @Override
         public java.util.Optional<org.pangrova.planner.api.fragment.StageCoordinates> frozenCoordinates() {
-            return java.util.Optional.of(new org.pangrova.planner.api.fragment.StageCoordinates(stageId, parallelism, taskType));
+            return java.util.Optional.of(new StageCoordinates(stageId, parallelism, taskType));
         }
 
         @Override

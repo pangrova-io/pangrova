@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.generation.template;
+import org.pangrova.planner.api.fragment.StageCoordinates;
 
 import org.pangrova.generation.core.execution.template.FrozenStageBindings;
 
@@ -27,7 +28,7 @@ public final class PersistedStagePlan implements StagePlanAccess {
 
     @Override
     public java.util.Optional<org.pangrova.planner.api.fragment.StageCoordinates> frozenCoordinates() {
-        return java.util.Optional.of(new org.pangrova.planner.api.fragment.StageCoordinates(stage.stageId(), stage.parallelism(), taskType()));
+        return java.util.Optional.of(new StageCoordinates(stage.stageId(), stage.parallelism(), taskType()));
     }
 
     @Override

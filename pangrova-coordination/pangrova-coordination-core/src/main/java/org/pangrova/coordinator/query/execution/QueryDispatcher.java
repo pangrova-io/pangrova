@@ -20,7 +20,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.scheduler.api.resource.SpillBudget;
-import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
+import org.pangrova.persistence.query.api.lifecycle.ShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -274,7 +274,7 @@ public class QueryDispatcher implements org.pangrova.query.spi.lifecycle.QueryEx
     }
 
     /** Wires the one durable remote Shuffle cleanup path. */
-    public void setShuffleCleanupIntents(JdbcShuffleCleanupIntentStore intents) {
+    public void setShuffleCleanupIntents(ShuffleCleanupIntentStore intents) {
         if (shuffleLifecycleManager == null) {
             throw new IllegalStateException("remote Shuffle lifecycle is not configured");
         }

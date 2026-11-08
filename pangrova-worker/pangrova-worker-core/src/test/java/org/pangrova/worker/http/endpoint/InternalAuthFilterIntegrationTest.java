@@ -18,7 +18,7 @@ import org.glassfish.jersey.servlet.ServletContainer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 
 /** Exercises the Worker's actual Jersey authentication filter with HTTP requests. */
 class InternalAuthFilterIntegrationTest {

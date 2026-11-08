@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.metadata.read;
+import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 
 import org.pangrova.connector.api.session.ConnectorSession;
 
@@ -59,7 +60,7 @@ public final class PlanningSnapshotSelectors {
 
     private record SelectedSession(String user, Optional<String> catalog, Optional<String> schema,
             Map<String, String> properties,
-            Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
+            Optional<ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
         @Override public String getUser() { return user; }
         @Override public Optional<String> getCatalog() { return catalog; }
         @Override public Optional<String> getSchema() { return schema; }

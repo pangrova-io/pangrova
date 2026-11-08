@@ -44,7 +44,7 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-ai` | Shared AI descriptors, governed control plane, and optional Worker-side AI runtime |
 | `pangrova-filesystem` | SDK-free Filesystem API and independent LOCAL/S3/OSS providers; backend capability limits are documented in the File architecture |
 | `pangrova-materialization` | Dynamic-table/materialized-view domain kernel and JDBC state store |
-| `pangrova-streaming` | CDC and streaming infrastructure |
+| `pangrova-streaming` | CDC and streaming infrastructure: API, Core, format/writer providers and PostgreSQL persistence |
 | `pangrova-shuffle` | Exchange contracts and deployable shuffle service |
 | `pangrova-operations` | DDL/DML operation infrastructure |
 | `pangrova-scheduler` | Cluster admission, quota/resource placement, scheduling strategies and fair/load-balanced execution order |

@@ -10,7 +10,7 @@ import org.pangrova.observability.spi.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.query.api.lifecycle.QueryState;
 
-import org.pangrova.coordinator.query.admission.QueryRejectedException;
+import org.pangrova.query.api.error.QueryRejectedException;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.api.session.QuerySession;
 
@@ -51,10 +51,11 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.observability.core.logging.LogContext;
-import org.pangrova.coordinator.query.tenant.TenantQueryGuard;
+import org.pangrova.security.core.tenant.TenantQueryGuard;
 
 @ThreadSafe
-public class QueryManager implements org.pangrova.query.spi.lifecycle.QueryTimeoutHandler {
+public class QueryManager implements org.pangrova.query.spi.lifecycle.QueryTimeoutHandler,
+        org.pangrova.query.core.recovery.QueryRecoveryTarget {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryManager.class);
     private static final String DRAIN_REJECTION_MESSAGE =

@@ -35,14 +35,4 @@ public record IndexGcContext(
         if (config == null) throw new IllegalArgumentException("config must not be null");
     }
 
-    /**
-     * Backward-compatible constructor without snapshot pin provider.
-     */
-    public IndexGcContext(
-            IndexMetadataStore metadataStore,
-            IndexStorageManager storageManager,
-            Function<IndexDescriptor, FileSystemAccessor> fileAccessor,
-            IndexingConfig config) {
-        this(metadataStore, storageManager, fileAccessor, config, null);
-    }
 }

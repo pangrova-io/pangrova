@@ -58,7 +58,8 @@ public final class PermissionChecker {
                 || stmt instanceof org.pangrova.parser.api.ast.statement.ShowPrivilegeMutationStatement) {
             if (accessControl == null || user == null) {
                 throw new AccessDeniedException(StatementClassifier.isTenant(stmt)
-                        ? "Authenticated tenant administrator is required" : "Authenticated privilege administrator is required");
+                        ? "Authenticated tenant administrator is required"
+                        : "Authenticated privilege administrator is required");
             }
             // The task's atomic persistence operation rechecks current grant-option authority under the mutation gate.
             return;

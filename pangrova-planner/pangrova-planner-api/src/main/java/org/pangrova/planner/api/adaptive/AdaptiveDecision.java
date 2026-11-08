@@ -4,9 +4,6 @@ import org.pangrova.common.api.annotation.Internal;
 
 import java.util.Optional;
 
-import org.pangrova.planner.api.adaptive.CoalesceResult;
-import org.pangrova.planner.api.adaptive.JoinStrategy;
-import org.pangrova.planner.api.adaptive.SkewResult;
 
 /**
  * Aggregated AQE decision produced after a stage completes.

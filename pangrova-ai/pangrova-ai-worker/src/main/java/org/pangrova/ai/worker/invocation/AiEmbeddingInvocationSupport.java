@@ -24,7 +24,7 @@ import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
 import org.pangrova.ai.spi.embedding.EmbeddingProvider;
-import org.pangrova.ai.worker.context.AiProviderCallContext;
+import org.pangrova.ai.spi.invocation.AiProviderCallContext;
 import org.pangrova.ai.worker.embedding.EmbeddingResultValidator;
 
 /** Embedding-specific input, provider and vector validation for an invocation. */

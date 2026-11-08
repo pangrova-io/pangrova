@@ -2,11 +2,11 @@ package org.pangrova.persistence.indexing.postgresql.metadata;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.indexing.api.error.IndexAlreadyExistsException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
 import org.pangrova.security.api.error.AuthorizationDeniedException;
@@ -41,7 +41,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
         SchemaMigrationRunner.migrate(dataSource);
         GenerationAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL,
                 DeferredAuthorizationScope.raw(TABLE, Set.of("value"), TABLE));
-        indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
     }
 
     @Test
@@ -49,7 +49,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
         var descriptor = descriptor("index-1");
         indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
 
-        assertThat(new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent).loadAuthorizedBuildPrincipal(descriptor))
+        assertThat(new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent).loadAuthorizedBuildPrincipal(descriptor))
                 .isEqualTo(PRINCIPAL);
         assertThatThrownBy(() -> indexes.loadAuthorizedBuildPrincipal(
                 new IndexDescriptor(descriptor.indexId(), descriptor.indexName(), "other", "raw", "events",
@@ -90,7 +90,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
 
         assertThatThrownBy(() -> indexes.loadAuthorizedBuildPrincipal(dropped))
                 .isInstanceOf(AuthorizationDeniedException.class);
-        assertThat(new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent)
+        assertThat(new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)
                 .loadDroppedIndexCleanupPrincipal(dropped)).isEqualTo(PRINCIPAL);
         assertThatThrownBy(() -> indexes.loadDroppedIndexCleanupPrincipal(
                 new IndexDescriptor(dropped.indexId(), dropped.indexName(), "other", "raw", "events",
@@ -136,7 +136,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
             assertThat(principal).isEqualTo(PRINCIPAL);
             observed.set(connection);
             calls.incrementAndGet();
-            org.pangrova.metadata.service.TableControlDeferredPolicy.requireCurrent(connection, principal, scope);
+            org.pangrova.metadata.service.TableControlWriteAuthorities.postgres().requireCurrent(connection, principal, scope);
             try (var statement = connection.prepareStatement(
                     "UPDATE index_descriptors SET stale_reason='authority-probe' WHERE index_id=?")) {
                 statement.setString(1, descriptor.indexId());

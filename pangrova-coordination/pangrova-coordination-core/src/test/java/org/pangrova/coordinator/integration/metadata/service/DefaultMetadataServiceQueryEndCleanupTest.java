@@ -6,7 +6,7 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;

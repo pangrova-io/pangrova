@@ -22,7 +22,8 @@ public enum FaultTolerancePolicy {
     /**
      * Retry the failed task up to the configured {@link RetryBudget} limit.
      * Requires that the shuffle provider supports task retry
-     * ({@link org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor#supports(org.pangrova.shuffle.api.capability.ShuffleCapability)}).
+     * ({@link org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor
+ * #supports(org.pangrova.shuffle.api.capability.ShuffleCapability)}).
      * The scheduler re-reads committed partitions from a surviving shuffle store
      * rather than re-running upstream stages.
      *

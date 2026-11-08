@@ -5,6 +5,7 @@ import org.pangrova.connector.api.plugin.ConnectorContext;
 import org.pangrova.common.api.annotation.Stable;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Factory for creating {@link Connector} instances.
@@ -25,6 +26,20 @@ public interface ConnectorFactory {
      * @return the connector name, never null
      */
     String getName();
+
+    /** Contract version implemented by this factory; the runtime rejects unknown versions. */
+    default int apiVersion() {
+        return ConnectorFactoryContract.CURRENT_API_VERSION;
+    }
+
+    /** Process roles in which this connector may be loaded. */
+    default Set<ConnectorRole> roles() {
+        return Set.of(ConnectorRole.COORDINATOR, ConnectorRole.WORKER);
+    }
+
+    /** Validates catalog configuration before any connector resource is created. */
+    default void validateConfiguration(Map<String, String> config) {
+    }
 
     /**
      * Creates a new connector instance for the given catalog.

@@ -2,8 +2,10 @@
 
 状态：已接受，实施中。决定日期：2026-11-01。
 
-本 ADR 落实本轮用户批准的《Pangrova 全仓模块化重构完整设计与实施计划》，
+本 ADR 落实本轮用户批准的《Pangrova 全仓模块、API/SPI、存储与运行时重构实施计划》
+（[计划全文](../internal/project-structure-refactoring/full-repo-modularization-plan.md)），
 替代此前中央 SPI、合并领域 owner 和独立 SPI 制品的目标决策。
+阶段编号与批次目标以该计划 P0–P12 为准；本 ADR 只记录不可轻易变更的架构决策。
 历史执行记录仍是对应批次的证据，不是本轮完成证明。
 实际生效的模块边界以 `.pangrova/modules.yaml` 为准；未实施的目标不得写成现状。
 
@@ -85,17 +87,19 @@
 
 | 阶段 | 范围 | 退出条件 |
 | --- | --- | --- |
-| P0 | 工作区基线、模块/FQN/能力/事务/资源台账、规则 | 当前模块有归属，例外有依据 |
-| P1 | Types、Batch、Execution、Common 清理 | 基础契约最小 classpath；通用数据无 Connector 依赖 |
-| P2 | Server、Transport、Plugin | 角色隔离；启动失败清理、关闭、Standalone 验证 |
-| P3 | 各领域 API/SPI 同制品 | 中央 SPI、旧 FQN、重复服务描述符删除 |
-| P4 | 分域 Persistence、JDBC support、统一初始化 | Core 不创建后端；空库和已有后端测试通过 |
-| P5 | Metadata/Table/Generation/Materialization、workflow | 权限、CAS、fencing、outbox、恢复原子性不退化 |
-| P6 | Parser、Planner、Protocol、Query、Scheduler | 规划离开 Protocol；Coordinator 不拥有业务实现 |
-| P7 | 通用 Shuffle 及现有三种实现 | 共享契约测试与真实 Java/Native 执行链通过 |
-| P8 | 其余领域、Provider、策略、codec | 实现、工厂、装配、调用、生命周期闭环 |
-| P9 | Worker/Native、客户端、测试设施 | 跨语言资源、取消、多 Worker 和客户端验证 |
-| P10 | 发行、旧类清理、最终审查 | clean 制品检查、完整回归、性能和逐文件证据 |
+| P0 | 工作区基线、契约/实现/调用/装配/测试台账、统一 ADR | 当前模块有归属，例外有依据；计划与 ADR 无冲突 |
+| P1 | 装配分离：Server 模块、bootstrap/HTTP 入口、共享 Transport | Coordinator 无 Worker Core 依赖；三种启动模式可用 |
+| P2 | 契约分域：拆 SPI/API、最小 Common API、全部消费者与类加载策略 | API 最小 classpath 通过；无旧类和 split package |
+| P3 | Persistence 基础：领域端口、JDBC 协作、support、contract-tests | 通用端口不暴露 JDBC；现有事务调用链保持 |
+| P4 | 基础后端迁移：File、Query、Coordination、Generation 与 codec | 原有后端测试通过；Core 无后端依赖 |
+| P5 | Metadata/Table/Tenant：投影与 Catalog 端口、表控制存储、Tenant 收敛 | 权威来源唯一；旧数据升级、冲突拒绝、outbox 原子性通过 |
+| P6 | 跨领域事务：workflow API/PostgreSQL，迁 AI/Metadata/Query 同连接调用 | Core 不再接收 Connection；fence、权限与原子性不退化 |
+| P7 | Query/Scheduler：从 Coordinator 提取查询生命周期、dispatch、恢复与调度策略 | Coordinator 只保留入口、角色适配与装配；执行路径一致 |
+| P8 | 领域存储收尾：Materialization、Indexing、AI、Governance、Streaming、Semantic | 所有领域 Store 有明确 owner；Core 无持久化实现 |
+| P9 | 多实现能力：安全、AI、缓存、观测、索引、刷新、Streaming Provider | 工厂注册、能力校验、装饰器组合与资源关闭通过 |
+| P10 | Worker/Shuffle：执行契约、Shuffle local/remote、执行侧 Provider 装配 | Worker 无控制面实现依赖；JNI、Shuffle、取消与恢复通过 |
+| P11 | 清理与发行：删除旧制品/空目录/描述符，更新发行、SBOM、运维文档 | 干净构建无旧 class/JAR；生产发行可启动 |
+| P12 | 升级与最终验收：停机升级、全量回归、发布回退演练 | 全部完成标准满足，形成可复核证据包 |
 
 每批迁移完整能力闭包：生产源码、测试、POM、服务注册、反射类名、配置、
 类加载策略、manifest 与文档一起更新。纯结构移动与行为改变分别验证。
@@ -130,10 +134,9 @@ JNI/协议/Native 行为改变按 build-pipeline 执行完整链路，涉及内�
 该边界不接管调度、权限事务、lease 续租或 Native 资源。
 
 `pangrova-shuffle-api` 拥有 Common/JDK-only 的领域契约；Planner 和 Operations 只依赖该
-契约制品。原 ShuffleTransport 只实现 Native 服务绑定，现已从通用 API 删除。实际
-NativeShuffleTransport 进入 `pangrova-shuffle-native-adapter`，通过任务所有者的受保护
-命令通道操作借用的 executor handle；适配器不创建、关闭或替换 executor，不声明全局
-close 能释放逐任务服务。Worker 任务所有者停止服务后释放 executor。Direct 字节仍在 C++。
+契约制品。原 ShuffleTransport 只实现 Native 服务绑定，现已从通用 API 删除。NativeShuffleTransport 现位于 `pangrova-worker-native-bridge` 的
+`org.pangrova.worker.nativebridge.shuffle` 包，通过任务所有者的受保护命令通道操作借用
+的 executor handle；该绑定不创建、关闭或替换 executor，不声明全局 close 能释放逐任务服务。Worker 任务所有者停止服务后释放 executor。Direct 字节仍在 C++。
 统一制品内的 `org.pangrova.shuffle.spi.worker.ShuffleByteEgress` 定义真实的批数据交付、
 生产者完成与中止回调，由已装配的远端实现使用。批数据完成不等于 producer commit，
 producer commit 不等于 exchange 发布。调用方 buffer 仅在同步回调期间借用；rowCount

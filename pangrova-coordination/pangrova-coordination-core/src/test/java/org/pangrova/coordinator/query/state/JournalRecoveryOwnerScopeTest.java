@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.state;
 
+import org.pangrova.query.core.recovery.JournalRecoveryService;
+
 import org.pangrova.query.api.lifecycle.QueryState;
 
 import org.pangrova.scheduler.api.placement.HealthState;

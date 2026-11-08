@@ -3,7 +3,7 @@ import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJour
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.persistence.query.api.commit.JournalWriteException;

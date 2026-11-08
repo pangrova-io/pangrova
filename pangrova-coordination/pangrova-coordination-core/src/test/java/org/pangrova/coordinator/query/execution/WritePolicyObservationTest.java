@@ -44,7 +44,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Actual SQL compilation and PostgreSQL policies, not Native execution or a synthetic observed plan. */

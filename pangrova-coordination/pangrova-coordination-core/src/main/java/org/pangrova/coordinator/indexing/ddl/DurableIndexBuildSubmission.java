@@ -45,7 +45,8 @@ record DurableIndexBuildSubmission(
         GenerationJob job = buildJob(
                 definition, sourceId, dependencies, output);
         GenerationDispatchSpec dispatch = GenerationDispatchSpecFactory.create(
-                definition.jobId(), org.pangrova.generation.core.submission.GenerationStageGraphFactory.forArtifactPages(
+                definition.jobId(),
+                        org.pangrova.generation.core.submission.GenerationStageGraphFactory.forArtifactPages(
                         definition.plan().planBytes(),
                         OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(),
                         definition.pages(), java.util.List.of()),

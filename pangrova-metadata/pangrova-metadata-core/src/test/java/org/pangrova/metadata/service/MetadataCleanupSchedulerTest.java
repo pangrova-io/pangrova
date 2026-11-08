@@ -2,7 +2,7 @@ package org.pangrova.metadata.service;
 
 import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller;
 import org.pangrova.metadata.cache.TieredMetadataCache;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

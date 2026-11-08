@@ -1,5 +1,9 @@
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider;
+import org.pangrova.ai.provider.openai.inference.OpenAiInferenceConfig;
+import org.pangrova.ai.provider.openai.inference.OpenAiResponsesInferenceProvider;
+
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;

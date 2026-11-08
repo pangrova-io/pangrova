@@ -153,8 +153,11 @@ final class MaintenanceLeadershipBootstrap implements AutoCloseable {
             try {
                 election.release();
             } catch (RuntimeException releaseFailure) {
-                if (callbackFailure == null) callbackFailure = releaseFailure;
-                else if (callbackFailure != releaseFailure) callbackFailure.addSuppressed(releaseFailure);
+                if (callbackFailure == null) {
+                    callbackFailure = releaseFailure;
+                } else if (callbackFailure != releaseFailure) {
+                    callbackFailure.addSuppressed(releaseFailure);
+                }
             }
             LOG.info("event=maintenance_leadership_stopped");
         }

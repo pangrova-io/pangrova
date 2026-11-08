@@ -1,6 +1,5 @@
 package org.pangrova.scheduler.api.placement;
 
-
 import java.util.Objects;
 
 import java.time.Instant;

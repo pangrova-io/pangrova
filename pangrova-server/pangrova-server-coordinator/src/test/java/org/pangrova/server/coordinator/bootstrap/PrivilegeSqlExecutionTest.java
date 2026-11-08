@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 import org.pangrova.parser.core.parse.AntlrSqlParser;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
@@ -79,7 +79,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
     @Test
     void sqlReturnContainsDurableReceiptAndReplayUsesSameQueryIdentity() {
         var session = session("admin");
-        var context = new StatementExecutionContext(null, session.queryId(), session, null, null);
+        var context = new StatementExecutionContext(null, session.queryId(), session);
         var statement = new AntlrSqlParser().parse("GRANT SELECT, INSERT ON TABLE sales.orders TO reader");
         var result = factory.execute(statement, context);
         assertThat(result.rows()).singleElement().satisfies(row -> {
@@ -94,14 +94,14 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
     @Test
     void sqlReceiptLookupConfirmsOnlyOwnOutcomeEvenAfterAuthorityRevocation() {
         var session = session("admin");
-        var context = new StatementExecutionContext(null, session.queryId(), session, null, null);
+        var context = new StatementExecutionContext(null, session.queryId(), session);
         var parser = new AntlrSqlParser();
         factory.execute(parser.parse("GRANT SELECT ON TABLE orders TO reader"), context);
         new JdbcRoleStore(source).revokeRoleFromUser("admin", "owners");
         var lookup = parser.parse("SHOW PRIVILEGE MUTATION '" + session.queryId() + "'");
         assertThat(factory.execute(lookup, context).rows().get(0).getString("status")).isEqualTo("CONFIRMED");
         var bob = session("bob");
-        var other = new StatementExecutionContext(null, bob.queryId(), bob, null, null);
+        var other = new StatementExecutionContext(null, bob.queryId(), bob);
         assertThat(factory.execute(lookup, other).rows().get(0).getString("status")).isEqualTo("UNCONFIRMED");
         var unknown = parser.parse("SHOW PRIVILEGE MUTATION '" + UUID.randomUUID() + "'");
         assertThat(factory.execute(unknown, context).rows().get(0).getString("status")).isEqualTo("UNCONFIRMED");

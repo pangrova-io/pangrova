@@ -5,14 +5,14 @@ import org.pangrova.connector.spi.plugin.ConnectorFactory;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
-import org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog;
+import org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
 import javax.sql.DataSource;
 import java.util.Optional;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Real catalog runtime required by durable query bootstrap, including published-generation reads. */
@@ -26,7 +26,8 @@ final class QueryBootstrapMetadataFixture implements AutoCloseable {
                 descriptor -> Optional.of(new JdbcManagedSourceCatalog(dataSource,
                         new SourceCatalogDeployment(descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                         ignored -> { throw new IllegalStateException("Native writes use the test's separate control plane"); },
-                        new JdbcExecutionTransactionFence(), ModelAuthorityFixtures.models())));
+                        new JdbcExecutionTransactionFence(), ModelAuthorityFixtures.models(),
+                                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)));
         try {
             bootstrap = MetadataBootstrap.initialize(new PostgresCatalogDeploymentRepository(dataSource), new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), connectors);
         } catch (RuntimeException failure) {

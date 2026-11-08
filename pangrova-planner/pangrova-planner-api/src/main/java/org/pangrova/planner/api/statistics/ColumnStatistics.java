@@ -28,9 +28,12 @@ public record ColumnStatistics(
         Optional<Histogram> histogram,
         double confidenceScore) {
 
+    private static final double MIN_CONFIDENCE = 0.1;
+    private static final double MAX_CONFIDENCE = 1.0;
+
     public ColumnStatistics {
         Objects.requireNonNull(histogram, "histogram must not be null (use Optional.empty())");
-        if (confidenceScore < 0.1 || confidenceScore > 1.0) {
+        if (confidenceScore < MIN_CONFIDENCE || confidenceScore > MAX_CONFIDENCE) {
             throw new IllegalArgumentException(
                     "confidenceScore must be in [0.1, 1.0], got " + confidenceScore);
         }

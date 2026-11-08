@@ -3,7 +3,7 @@ package org.pangrova.coordinator.materialization;
 import java.util.Objects;
 import javax.sql.DataSource;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
@@ -14,8 +14,9 @@ import org.pangrova.materialization.port.PublicationVerifier;
 import org.pangrova.materialization.usecase.KernelPorts;
 import org.pangrova.materialization.usecase.MaterializationService;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog;
-import org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository;
+import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog;
+import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository;
+import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.security.spi.authorization.AccessControl;
 import org.pangrova.security.api.error.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -36,6 +37,7 @@ public final class MaterializationKernelFactory {
     private final CtasTask ctas;
     private final DataSource metadataDataSource;
     private final AccessControl accessControl;
+    private final java.util.function.Supplier<SqlCompiler> compiler;
 
     /**
      * Creates the kernel factory.
@@ -51,7 +53,8 @@ public final class MaterializationKernelFactory {
     public MaterializationKernelFactory(JdbcMaterializationRepository repository,
             JdbcMaterializationCatalog catalog, CatalogRegistry catalogs,
             HighAvailabilityCoordinationService coordination, CtasTask ctas,
-            DataSource metadataDataSource, AccessControl accessControl) {
+            DataSource metadataDataSource, AccessControl accessControl,
+            java.util.function.Supplier<SqlCompiler> compiler) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.catalog = Objects.requireNonNull(catalog, "catalog");
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
@@ -59,6 +62,7 @@ public final class MaterializationKernelFactory {
         this.ctas = Objects.requireNonNull(ctas, "ctas");
         this.metadataDataSource = Objects.requireNonNull(metadataDataSource, "metadataDataSource");
         this.accessControl = accessControl;
+        this.compiler = Objects.requireNonNull(compiler, "compiler");
     }
 
     /**
@@ -72,12 +76,12 @@ public final class MaterializationKernelFactory {
         CoordinatorExecutionFence fence = new CoordinatorExecutionFence(
                 coordination, context.queryId(), coordination::getActiveLeaderEpoch);
         CoordinatorMaterializationPlanner planner = new CoordinatorMaterializationPlanner(
-                context.compiler(), context.session(), catalogs, catalog, tenant, accessControl);
+                compiler.get(), context.session(), catalogs, catalog, tenant, accessControl);
         return new MaterializationService(new KernelPorts(
                 repository,
                 catalog,
                 planner,
-                new NativeCtasExecutionEngine(context, catalogs, ctas, metadataDataSource),
+                new NativeCtasExecutionEngine(context, catalogs, ctas, metadataDataSource, compiler),
                 new CoordinatorSourcePinning(catalogs),
                 new CoordinatorMaterializationAuthorizer(context.session(), accessControl),
                 fence,

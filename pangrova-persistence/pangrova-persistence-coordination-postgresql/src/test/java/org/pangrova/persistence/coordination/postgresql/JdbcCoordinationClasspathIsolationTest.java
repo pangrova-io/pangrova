@@ -22,8 +22,8 @@ class JdbcCoordinationClasspathIsolationTest {
                 "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
                 "org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService",
                 "org.pangrova.coordinator.testinfra.SharedPostgresContainer",
-                "org.pangrova.persistence.catalog.api.error.MetastoreException",
-                "org.pangrova.metadata.testinfra.SharedPostgresContainer"}) {
+                "org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository",
+                "org.pangrova.metadata.relation.ObjectDependencyService"}) {
             assertThatThrownBy(() -> loader.loadClass(unavailable))
                     .as(unavailable).isInstanceOf(ClassNotFoundException.class);
         }

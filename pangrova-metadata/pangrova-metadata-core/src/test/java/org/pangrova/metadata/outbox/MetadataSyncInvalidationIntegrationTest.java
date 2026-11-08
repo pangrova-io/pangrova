@@ -13,7 +13,7 @@ import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -23,7 +23,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Real source/sink PostgreSQL component integration; not a federation-provider or Native E2E test. */
@@ -128,10 +128,10 @@ class MetadataSyncInvalidationIntegrationTest {
 
         Throwable rejected = org.assertj.core.api.Assertions.catchThrowable(
                 () -> service.fullSync(sinkDeployments.getCatalogDescriptor("cat").orElseThrow(), source));
-        assertThat(rejected).isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionPendingException.class);
+        assertThat(rejected).isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException.class);
         assertThat(rejected.getCause()).isInstanceOf(SQLException.class);
         assertThat(((SQLException) rejected.getCause()).getSQLState()).isEqualTo("42501");
-        var originalId = ((org.pangrova.persistence.catalog.api.projection.MetadataProjectionPendingException) rejected).operationId();
+        var originalId = ((org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException) rejected).operationId();
         assertThat(sinkTables.loadTable("cat", "sch", "t1")).contains(original);
         assertThat(cache.getTable("cat", "sch", "t1")).contains(original);
         assertThat(tableEvents()).isEqualTo(previousEvents);

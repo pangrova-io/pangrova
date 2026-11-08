@@ -19,9 +19,9 @@ import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.execution.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
-import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
-import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
-import org.pangrova.metadata.generation.GeneratedValueBuildSubmission;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmissionStore;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmission;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.planner.core.generation.GenerationPlan;
@@ -99,7 +99,8 @@ public final class DurableGeneratedValueBuildService {
             SnapshotGenerationSplitPlanner splitPlanner,
             WorkerSelector workerSelector,
             String baseArtifactUri,
-            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs, ExecutionTraceContextFactory traceContexts) {
+            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs,
+                    ExecutionTraceContextFactory traceContexts) {
         this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.submissions = Objects.requireNonNull(

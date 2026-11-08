@@ -16,7 +16,7 @@ class GenerationCoreDependencyIsolationTest {
         assertThat(Class.forName(GenerationJobStore.class.getName(), false, loader)).isSameAs(GenerationJobStore.class);
         for (String name : List.of("org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore",
                 "org.pangrova.security.core.authorization.deferred.DeferredAuthorization",
-                "org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority",
+                "org.pangrova.metadata.generation.MetadataGenerationTransactionAuthority",
                 "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap", "org.postgresql.Driver",
                 "org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine",
                 "org.pangrova.query.core.stage.binding.RetrievalGenerationIntent",

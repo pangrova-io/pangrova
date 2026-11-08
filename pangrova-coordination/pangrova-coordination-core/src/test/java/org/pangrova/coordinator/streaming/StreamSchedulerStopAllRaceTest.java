@@ -197,7 +197,7 @@ class StreamSchedulerStopAllRaceTest extends org.pangrova.testing.testkit.Contai
         var dataSource = org.pangrova.coordinator.testinfra.SharedPostgresContainer
                 .migratedDataSource("stream_scheduler");
         return new org.pangrova.streaming.commit.TwoPhaseCommitCoordinator(
-                new org.pangrova.streaming.commit.JdbcCdcCommitStateStore(dataSource));
+                new org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore(dataSource));
     }
 
 }

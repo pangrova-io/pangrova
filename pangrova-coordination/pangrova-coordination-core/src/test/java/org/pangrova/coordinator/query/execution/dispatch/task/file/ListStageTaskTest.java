@@ -17,8 +17,8 @@ import org.pangrova.file.spi.access.FileListingClient;
 import org.pangrova.file.core.access.FileSpaceAccessService;
 import org.pangrova.file.api.access.FileAccessGrant;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.parser.core.parse.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.ListStageStatement;
@@ -124,7 +124,7 @@ class ListStageTaskTest {
     private static StatementExecutionContext context() {
         QuerySession session = new QuerySession("list-stage",
                 Map.of("catalog", "media", "schema", "raw"), USER, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
-        return new StatementExecutionContext(null, session.queryId(), session, null, null);
+        return new StatementExecutionContext(null, session.queryId(), session);
     }
 
     private static FileStat stat(String path, long size, String md5) {

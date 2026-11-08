@@ -16,7 +16,8 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.persistence.catalog.api.error.MetastoreException;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.persistence.catalog.postgresql.dependency.JdbcObjectDependencyStore;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import static org.assertj.core.api.Assertions.assertThat;

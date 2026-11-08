@@ -74,7 +74,7 @@ class InMemoryWorkerRegistryPropertyTest {
                 Arbitraries.doubles().between(0.0, 1.0),
                 Arbitraries.integers().between(0, 100),
                 Arbitraries.longs().between(0L, 16_000_000_000L)
-        ).as(HeartbeatSnapshot::new);
+        ).as((pressure, cpu, tasks, memory) -> new HeartbeatSnapshot(pressure, cpu, tasks, memory, null));
     }
 
     /**

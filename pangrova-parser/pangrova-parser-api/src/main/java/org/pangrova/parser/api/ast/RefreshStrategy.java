@@ -1,9 +1,6 @@
 package org.pangrova.parser.api.ast;
 
 /**
- * Refresh strategy for materialized views.
- */
-/**
  * Refresh strategy for materialized views and dynamic tables.
  */
 public enum RefreshStrategy {

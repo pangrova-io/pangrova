@@ -169,7 +169,7 @@ class NativeOperatorStatsCollectorTest {
         assertThat(result).hasSize(1);
         // List.copyOf returns an unmodifiable list
         org.assertj.core.api.Assertions.assertThatThrownBy(
-                () -> result.add(new OperatorStats("x", 0, 0, 0, 0, 0, 0)))
+                () -> result.add(new OperatorStats("x", 0, 0, 0, 0, 0, 0, "", 0, 0, 0)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

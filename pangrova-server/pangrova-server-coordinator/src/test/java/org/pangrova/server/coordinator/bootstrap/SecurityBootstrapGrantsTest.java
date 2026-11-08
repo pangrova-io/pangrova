@@ -2,7 +2,7 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
@@ -80,12 +80,12 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
         try {
             bootstrap.start();
             var session = new QuerySession("profile-show", Map.of(), user("alice", Set.of()), "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
-            var execution = new StatementExecutionContext(null, session.queryId(), session, null, null);
+            var execution = new StatementExecutionContext(null, session.queryId(), session);
             var task = new ShowStorageProfilesTask(registry, bootstrap.accessControl());
             var show = new ShowStorageProfilesStatement();
             assertThatThrownBy(() -> new ShowStorageProfilesTask(registry, null).execute(show, execution))
                     .isInstanceOf(AccessDeniedException.class);
-            var anonymous = new StatementExecutionContext(null, "anonymous", null, null, null);
+            var anonymous = new StatementExecutionContext(null, "anonymous", null);
             assertThatThrownBy(() -> task.execute(show, anonymous))
                     .isInstanceOf(AccessDeniedException.class);
             assertThat(task.execute(show, execution).rows())

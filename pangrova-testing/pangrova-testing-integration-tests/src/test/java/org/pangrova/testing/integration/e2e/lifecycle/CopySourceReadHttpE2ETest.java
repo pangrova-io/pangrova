@@ -31,7 +31,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.http.PemMutualTls;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority;
@@ -44,7 +44,7 @@ import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAncho
 import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
 import org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
-import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;

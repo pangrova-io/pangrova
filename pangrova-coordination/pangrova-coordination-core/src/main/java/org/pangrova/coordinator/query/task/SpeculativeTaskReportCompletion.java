@@ -50,7 +50,8 @@ final class SpeculativeTaskReportCompletion {
 
     private void notifyStageTerminal(String queryId, String logicalTaskId, TaskStatusReport report) {
         if (stageCompletionCallback != null) {
-            stageCompletionCallback.onTaskTerminal(queryId, logicalTaskId, report.state(), TaskReportQueryAdapter.failure(report));
+            stageCompletionCallback.onTaskTerminal(queryId, logicalTaskId, report.state(),
+                    TaskReportQueryAdapter.failure(report));
         }
     }
 

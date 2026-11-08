@@ -1,4 +1,6 @@
 package org.pangrova.planner.core.retrieval;
+import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,10 +51,12 @@ public final class PhysicalRetrievalIdentityRewriter {
         if (table == null) {
             return false;
         }
-        var binding = table.unwrap(
-                org.pangrova.connector.api.metadata.table.ConnectorReadBinding.class);
-        if (binding == null || binding.state() != org.pangrova.connector.api.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT || binding.sourceIdentity().isBlank()
-                || binding.declaration().declarationEvidence() != org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata.DeclarationEvidence.EXACT) {
+        var binding = table.unwrap(ConnectorReadBinding.class);
+        if (binding == null
+                || binding.state() != ConnectorReadBinding.SnapshotState.SNAPSHOT
+                || binding.sourceIdentity().isBlank()
+                || binding.declaration().declarationEvidence()
+                        != ConnectorTableReadMetadata.DeclarationEvidence.EXACT) {
             return false;
         }
         // Paimon publishes this real table option from selected schema.options().

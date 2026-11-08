@@ -18,9 +18,9 @@ import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.descriptor.IndexType;
 import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.metadata.service.TableControlDeferredPolicy;
+import org.pangrova.metadata.service.TableControlWriteAuthorities;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
@@ -42,7 +42,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
         var table = new QualifiedTableName("lake", "raw", "events");
         GenerationAuthorityFixtures.provision(dataSource, "tenant", "builder",
                 DeferredAuthorizationScope.raw(table, Set.of("value"), table));
-        store = new JdbcIndexMetadataStore(dataSource, TableControlDeferredPolicy::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, TableControlWriteAuthorities.postgres()::requireCurrent);
         initial = new IndexDescriptor("index", "idx", "lake", "raw", "events", List.of("value"),
                 IndexType.HASH, Map.of(), IndexState.BUILDING, null, 0, "snapshot-0", null,
                 START, START, "tenant");
@@ -156,7 +156,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
         var release = new CountDownLatch(1);
         var publisherPid = new AtomicInteger();
         var publisher = new JdbcIndexMetadataStore(dataSource, (connection, principal, scope) -> {
-            TableControlDeferredPolicy.requireCurrent(connection, principal, scope);
+            TableControlWriteAuthorities.postgres().requireCurrent(connection, principal, scope);
             publisherPid.set(backendPid(connection));
             entered.countDown();
             try {

@@ -92,7 +92,21 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-governance</artifactId>
+            <artifactId>pangrova-governance-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-governance-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-governance-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-governance-providers</artifactId>
+            <scope>test</scope>
         </dependency>
         <!-- Query-owned journal/anchor SQL helpers used by managed-source publication. -->
         <dependency>
@@ -100,7 +114,7 @@
             <artifactId>pangrova-query-core</artifactId>
         </dependency>
 
-        <!-- Iceberg catalog adapters -->
+        <!-- Iceberg catalog integrations -->
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-api</artifactId>
@@ -208,7 +222,17 @@
         <!-- Streaming-owned stores are exercised against the metadata migration chain. -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming</artifactId>
+            <artifactId>pangrova-streaming-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-streaming-postgresql</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -216,7 +240,15 @@
             <artifactId>awaitility</artifactId>
             <scope>test</scope>
         </dependency>
-    </dependencies>
+            <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-workflow-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-workflow-postgresql</artifactId>
+        </dependency>
+</dependencies>
 
     <build>
         <plugins>

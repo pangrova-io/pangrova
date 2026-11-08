@@ -44,16 +44,6 @@ public final class StuckBuildRecovery {
     }
 
     /**
-     * Backward-compatible constructor without leader election.
-     */
-    public StuckBuildRecovery(
-            IndexMetadataStore metadataStore,
-            Duration buildTimeout,
-            int stuckDetectionMultiplier) {
-        this(metadataStore, buildTimeout, stuckDetectionMultiplier, null);
-    }
-
-    /**
      * Finds BUILDING indexes exceeding the stuck threshold and transitions
      * them to STALE with a warning log. Acquires leader lease first in
      * multi-coordinator deployments; skips if another coordinator is leader.

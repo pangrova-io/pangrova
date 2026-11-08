@@ -12,8 +12,8 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementCompletionEvent;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.dispatch.listener.SchemaRefreshListener;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Statement;

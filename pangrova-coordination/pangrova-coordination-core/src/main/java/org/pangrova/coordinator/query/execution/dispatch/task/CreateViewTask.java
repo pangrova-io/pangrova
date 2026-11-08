@@ -6,8 +6,8 @@ import java.util.List;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.parser.api.ast.statement.CreateViewStatement;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -34,7 +34,8 @@ public final class CreateViewTask implements MetadataTask<CreateViewStatement> {
     @Override
     public StatementResult execute(CreateViewStatement statement, StatementExecutionContext context) {
         QualifiedTableName ref = SessionTableNames.resolveTableRef(statement.viewName().parts(), context.session());
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context.session(), ref.catalog(), ref.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context.session(), ref.catalog(),
+                ref.schema());
         ConnectorMetadata metadata = catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
         SchemaTableName viewName = new SchemaTableName(ref.schema(), ref.table());
 

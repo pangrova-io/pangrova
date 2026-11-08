@@ -32,7 +32,9 @@ class GenerationStorageContractIsolationTest {
                 org.pangrova.connector.api.metadata.table.QualifiedTableName.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.types.Type.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.batch.api.page.Page.class.getProtectionDomain().getCodeSource().getLocation(),
-                org.pangrova.security.api.identity.UserIdentity.class.getProtectionDomain().getCodeSource().getLocation()
+                org.pangrova.security.api.identity.UserIdentity.class.getProtectionDomain().getCodeSource().getLocation(),
+                org.pangrova.persistence.query.api.commit.WriteCommitEntry.class
+                        .getProtectionDomain().getCodeSource().getLocation()
         };
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {
             for (String missing : List.of("com.fasterxml.jackson.databind.ObjectMapper",

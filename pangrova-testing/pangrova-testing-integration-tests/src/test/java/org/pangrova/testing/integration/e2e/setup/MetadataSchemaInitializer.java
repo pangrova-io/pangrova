@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.setup;
 
-import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 
 import javax.sql.DataSource;
 import java.io.PrintWriter;

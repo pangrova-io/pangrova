@@ -1,11 +1,11 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.api.quality.QualityCheckResult;
 import org.pangrova.governance.api.quality.Severity;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
@@ -77,7 +77,7 @@ class JdbcQualityResultIdentityIntegrationTest extends ContainerTestBase {
                 "catalog", "schema", "orders", "", Severity.ERROR, "invalid", true, null, time, time,
                 new org.pangrova.governance.api.quality.QualityExecutionIdentity("quality-owner", "quality-tenant"), null));
         var gate = new org.pangrova.governance.core.quality.RuleBasedWriteQualityGate(store,
-                new org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor());
+                new org.pangrova.metadata.governance.TestQualityRuleExecutor());
         assertThat(gate.validate("catalog", "schema", "orders").allowed()).isFalse();
         assertThat(gate.validate("catalog", "schema", "orders").allowed()).isFalse();
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();

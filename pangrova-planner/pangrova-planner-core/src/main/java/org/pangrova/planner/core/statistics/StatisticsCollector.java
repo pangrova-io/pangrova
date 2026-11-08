@@ -29,7 +29,7 @@ public class StatisticsCollector {
     static final int HISTOGRAM_BUCKET_COUNT = 256;
     static final double LOW_CARDINALITY_RATIO = 0.01;
 
-    private final Map<QualifiedTableName, org.pangrova.planner.core.statistics.PlannerTableStatistics> store =
+    private final Map<QualifiedTableName, PlannerTableStatistics> store =
             new ConcurrentHashMap<>();
     private final ConnectorStatisticsProvider connectorProvider;
 
@@ -44,7 +44,7 @@ public class StatisticsCollector {
     }
 
     /** Req 7.1 — Full ANALYZE TABLE collection. */
-    public org.pangrova.planner.core.statistics.PlannerTableStatistics analyzeTable(
+    public PlannerTableStatistics analyzeTable(
             QualifiedTableName tableName, List<String> columns) {
         Map<String, org.pangrova.planner.api.statistics.ColumnStatistics> colStats = new HashMap<>();
         // Try real connector statistics first
@@ -56,8 +56,9 @@ public class StatisticsCollector {
                     ColumnStatistics spiCol = spiStats.columnStats().get(col);
                     colStats.put(col, convertFromSpi(spiCol, spiStats.rowCount()));
                 }
-                org.pangrova.planner.core.statistics.PlannerTableStatistics stats =
-                        new org.pangrova.planner.core.statistics.PlannerTableStatistics(tableName, colStats, Instant.now());
+                PlannerTableStatistics stats =
+                        new PlannerTableStatistics(tableName, colStats,
+                                Instant.now());
                 store.put(tableName, stats);
                 return stats;
             }
@@ -66,31 +67,31 @@ public class StatisticsCollector {
         for (String col : columns) {
             colStats.put(col, collectFullColumn(col));
         }
-        org.pangrova.planner.core.statistics.PlannerTableStatistics stats =
-                new org.pangrova.planner.core.statistics.PlannerTableStatistics(tableName, colStats, Instant.now());
+        PlannerTableStatistics stats =
+                new PlannerTableStatistics(tableName, colStats, Instant.now());
         store.put(tableName, stats);
         return stats;
     }
 
     /** Req 7.2 — Lightweight incremental collection after write commit. */
-    public org.pangrova.planner.core.statistics.PlannerTableStatistics collectIncremental(
+    public PlannerTableStatistics collectIncremental(
             QualifiedTableName tableName, long affectedRows) {
-        org.pangrova.planner.core.statistics.PlannerTableStatistics existing = store.get(tableName);
+        PlannerTableStatistics existing = store.get(tableName);
         if (existing == null) {
             return analyzeTable(tableName, List.of());
         }
         double sampleRate = adaptiveSampleRate(affectedRows);
         Map<String, org.pangrova.planner.api.statistics.ColumnStatistics> merged =
                 mergeIncremental(existing.columns(), sampleRate);
-        org.pangrova.planner.core.statistics.PlannerTableStatistics updated =
-                new org.pangrova.planner.core.statistics.PlannerTableStatistics(tableName, merged, Instant.now());
+        PlannerTableStatistics updated =
+                new PlannerTableStatistics(tableName, merged, Instant.now());
         store.put(tableName, updated);
         return updated;
     }
 
     /** Req 7.3 — Staleness detection for periodic scheduler. */
     public boolean checkStaleness(QualifiedTableName tableName, Instant currentSnapshot, Duration staleThreshold) {
-        org.pangrova.planner.core.statistics.PlannerTableStatistics existing = store.get(tableName);
+        PlannerTableStatistics existing = store.get(tableName);
         if (existing == null) {
             return true;
         }
@@ -122,8 +123,8 @@ public class StatisticsCollector {
     }
 
     /** Retrieve stored statistics for a table, lazily loading from connector if available. */
-    public Optional<org.pangrova.planner.core.statistics.PlannerTableStatistics> getStatistics(QualifiedTableName tableName) {
-        org.pangrova.planner.core.statistics.PlannerTableStatistics cached = store.get(tableName);
+    public Optional<PlannerTableStatistics> getStatistics(QualifiedTableName tableName) {
+        PlannerTableStatistics cached = store.get(tableName);
         if (cached != null) {
             return Optional.of(cached);
         }
@@ -137,8 +138,9 @@ public class StatisticsCollector {
                     for (var entry : spiStats.columnStats().entrySet()) {
                         colStats.put(entry.getKey(), convertFromSpi(entry.getValue(), spiStats.rowCount()));
                     }
-                    org.pangrova.planner.core.statistics.PlannerTableStatistics stats =
-                            new org.pangrova.planner.core.statistics.PlannerTableStatistics(tableName, colStats, Instant.now());
+                    PlannerTableStatistics stats =
+                            new PlannerTableStatistics(tableName,
+                                    colStats, Instant.now());
                     store.put(tableName, stats);
                     return Optional.of(stats);
                 }
@@ -152,7 +154,8 @@ public class StatisticsCollector {
     }
 
     /** Store pre-built statistics for a table. */
-    public void putStatistics(QualifiedTableName tableName, org.pangrova.planner.core.statistics.PlannerTableStatistics stats) {
+    public void putStatistics(QualifiedTableName tableName,
+            PlannerTableStatistics stats) {
         java.util.Objects.requireNonNull(tableName, "tableName");
         java.util.Objects.requireNonNull(stats, "stats");
         if (!tableName.equals(stats.tableName())) {
@@ -209,7 +212,7 @@ public class StatisticsCollector {
             LOG.info("event=runtime_feedback_applied table={} estimated={} actual={} adjusted={} alpha={}",
                     tableName, estimatedRows, actualRows, adjustedRows,
                     String.format("%.2f", alpha));
-            return new org.pangrova.planner.core.statistics.PlannerTableStatistics(
+            return new PlannerTableStatistics(
                     tableName, adjusted, Instant.now());
         });
     }

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.cache;
 
+import org.pangrova.cache.api.CachePinPolicy;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;

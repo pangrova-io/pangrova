@@ -22,13 +22,14 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-memory</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-core</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-codec</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-types</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-types</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-parser-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-parser-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
         <dependency><groupId>net.jqwik</groupId><artifactId>jqwik</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-scheduler-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>

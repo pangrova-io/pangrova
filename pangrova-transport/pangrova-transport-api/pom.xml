@@ -9,7 +9,7 @@
     </parent>
     <artifactId>pangrova-transport-api</artifactId>
     <name>Pangrova Transport API</name>
-    <description>Transport result addressing contracts shared by clients and serving adapters</description>
+    <description>Transport result addressing contracts shared by clients and serving transports</description>
     <properties>
         <module.name>org.pangrova.transport.api</module.name>
     </properties>

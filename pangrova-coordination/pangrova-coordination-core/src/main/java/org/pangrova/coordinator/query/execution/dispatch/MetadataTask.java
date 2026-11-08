@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
 
 import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 
 /**
  * Executes a single metadata operation (CREATE TABLE, DROP TABLE, SHOW TABLES, etc.).

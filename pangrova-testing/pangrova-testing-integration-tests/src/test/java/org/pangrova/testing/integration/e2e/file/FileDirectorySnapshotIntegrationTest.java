@@ -16,7 +16,7 @@ import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.persistence.file.postgresql.directory.JdbcFileDirectoryIndex;
 import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
-import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.file.api.directory.FileDirectoryReference;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.file.api.space.FileSpace;

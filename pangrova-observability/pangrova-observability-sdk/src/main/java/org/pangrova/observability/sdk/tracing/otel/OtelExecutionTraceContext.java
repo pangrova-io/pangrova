@@ -43,7 +43,6 @@ final class OtelExecutionTraceContext implements ExecutionTraceContext {
     /** Returns the captured W3C trace flags as an unsigned byte value. */
     public int traceFlags() { return Byte.toUnsignedInt(context.getTraceFlags().asByte()); }
 
-    /** Serializes the captured vendor trace state with the W3C propagator. */
     /** Encodes the captured vendor state using the standard W3C propagation contract. */
     public String traceState() {
         var carrier = new HashMap<String, String>();

@@ -6,7 +6,7 @@ import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.connector.spi.plugin.Connector;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.spi.metadata.ConnectorMetadata;

@@ -7,6 +7,7 @@ import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.generation.postgresql.publication.JdbcTabularExportPublicationStore;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,7 +21,7 @@ import org.pangrova.generation.api.dependency.GenerationDependencySet;
 import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
 import org.pangrova.generation.api.execution.GenerationExecutionKind;
 import org.pangrova.generation.api.output.GenerationOutputTypeIds;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;

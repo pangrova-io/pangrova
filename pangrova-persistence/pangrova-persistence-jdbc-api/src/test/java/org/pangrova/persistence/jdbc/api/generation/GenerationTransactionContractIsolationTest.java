@@ -35,7 +35,7 @@ class GenerationTransactionContractIsolationTest {
                     "org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore",
                     "org.pangrova.generation.codec.execution.GenerationStageGraphCodec",
                     "org.pangrova.security.core.authorization.deferred.DeferredAuthorization",
-                    "org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority")) {
+                    "org.pangrova.metadata.generation.MetadataGenerationTransactionAuthority")) {
                 assertThatThrownBy(() -> loader.loadClass(missing)).isInstanceOf(ClassNotFoundException.class);
             }
         }

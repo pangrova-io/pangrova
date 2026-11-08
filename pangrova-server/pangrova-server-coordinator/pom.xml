@@ -23,6 +23,7 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-postgresql</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-support</artifactId></dependency>
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-api</artifactId></dependency>
 
@@ -45,7 +46,6 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-strategies-builtin</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-worker-adapter</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId></dependency>
@@ -135,6 +135,18 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-cache-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-cache-memory</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-cache-redis</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -194,11 +206,23 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-semantic</artifactId>
+            <artifactId>pangrova-semantic-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-semantic-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-semantic-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-ai-control</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-ai-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -212,11 +236,23 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-materialization-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-materialization-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-materialization-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-materialization-store-jdbc</artifactId>
+            <artifactId>pangrova-materialization-strategies-builtin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-materialization-postgresql</artifactId>
         </dependency>
         <!-- Optional quorum coordination (pangrova-coordination-zookeeper) is loaded reflectively
              by CoordinatorLeaseBootstrap so the default relational backend carries no ZooKeeper SDK. -->
@@ -243,7 +279,19 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-governance</artifactId>
+            <artifactId>pangrova-governance-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-governance-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-governance-providers</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-governance-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -259,7 +307,19 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming</artifactId>
+            <artifactId>pangrova-streaming-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-providers</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-streaming-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -464,7 +524,19 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
         </dependency>
-    </dependencies>
+            <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-transport-http</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-workflow-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-workflow-postgresql</artifactId>
+        </dependency>
+</dependencies>
 
     <build>
         <testResources><testResource><directory>${maven.multiModuleProjectDirectory}/pangrova-coordination/pangrova-coordination-core/src/test/resources</directory></testResource></testResources>

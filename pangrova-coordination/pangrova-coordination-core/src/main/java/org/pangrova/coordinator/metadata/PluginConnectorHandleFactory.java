@@ -6,7 +6,7 @@ import org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFac
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
 import org.pangrova.metadata.api.error.catalog.CatalogProviderNotFoundException;
 import org.pangrova.security.api.secret.SecretResolver;
@@ -14,6 +14,7 @@ import org.pangrova.security.core.secret.SecretTemplates;
 import org.pangrova.connector.spi.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
 import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.spi.plugin.ConnectorRole;
 import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,7 +70,7 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
         this.secretResolver = secretResolver;
         this.nativeControl = java.util.Objects.requireNonNull(nativeControl, "nativeControl");
         this.sourceCatalog = java.util.Objects.requireNonNull(sourceCatalog);
-        this.factories = ConnectorFactoryRegistry.discover(spiClassLoader);
+        this.factories = ConnectorFactoryRegistry.discover(spiClassLoader, ConnectorRole.COORDINATOR);
     }
 
     @Override
@@ -107,6 +108,7 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
             @Override public Optional<NativeDatasetControlPlane> nativeDatasetControlPlane() { return port; }
             @Override public Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog> managedSourceCatalog() { return source; }
         };
+        factory.validateConfiguration(resolvedProps);
         return factory.create(descriptor.name(), resolvedProps, context);
     }
 

@@ -13,7 +13,7 @@ class IndexPersistenceApiIsolationTest {
     void everyContractLoadsWithoutCoreProvidersJdbcDriversOrCodecs() throws Exception {
         for (String type : List.of("org.pangrova.indexing.build.IndexBuildCoordinator",
                 "org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore",
-                "org.pangrova.metadata.service.TableControlDeferredPolicy",
+                "org.pangrova.metadata.service.TableControlWriteAuthorities",
                 "org.pangrova.indexing.codec.data.IndexSerializer",
                 "com.fasterxml.jackson.databind.ObjectMapper", "org.postgresql.Driver",
                 "com.zaxxer.hikari.HikariDataSource")) {

@@ -1,7 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
-import org.pangrova.planner.api.fragment.SerializedPlanFragment;
-
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.query.core.task.StageDispatchRecord;

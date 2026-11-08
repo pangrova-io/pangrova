@@ -42,11 +42,9 @@
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-codec</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-native-adapter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-pangrova</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-codec</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-worker-adapter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId><scope>test</scope></dependency>
@@ -158,11 +156,23 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-materialization-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-materialization-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-materialization-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-materialization-store-jdbc</artifactId>
+            <artifactId>pangrova-materialization-strategies-builtin</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-materialization-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -273,6 +283,11 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-ai-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-table-core</artifactId>
         </dependency>
 
@@ -334,12 +349,42 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-governance</artifactId>
+            <artifactId>pangrova-governance-api</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming</artifactId>
+            <artifactId>pangrova-governance-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-governance-providers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-governance-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-streaming-providers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-streaming-postgresql</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -428,7 +473,22 @@
             <artifactId>pangrova-client-jdbc</artifactId>
             <scope>test</scope>
         </dependency>
-    </dependencies>
+            <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-transport-http</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-workflow-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-workflow-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+</dependencies>
 
     <profiles>
         <profile>

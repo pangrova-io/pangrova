@@ -34,5 +34,12 @@
         <module>pangrova-persistence-jdbc-support</module>
         <module>pangrova-persistence-generation-api</module>
         <module>pangrova-persistence-generation-postgresql</module>
+        <module>pangrova-persistence-governance-postgresql</module>
+        <module>pangrova-persistence-semantic-postgresql</module>
+        <module>pangrova-persistence-streaming-postgresql</module>
+        <module>pangrova-persistence-materialization-postgresql</module>
+        <module>pangrova-persistence-ai-postgresql</module>
+        <module>pangrova-persistence-workflow-api</module>
+        <module>pangrova-persistence-workflow-postgresql</module>
     </modules>
 </project>

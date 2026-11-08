@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.governance;
+import org.pangrova.parser.core.parse.AntlrSqlParser;
 
 import java.util.List;
 import java.util.Objects;
@@ -33,7 +34,7 @@ public final class QualityReadSql {
     };
     private static final SqlParser.Config PARSER = SqlParser.config()
             .withUnquotedCasing(Casing.UNCHANGED).withQuotedCasing(Casing.UNCHANGED);
-    private static final org.pangrova.parser.api.parse.SqlParser EXPRESSION_PARSER = new org.pangrova.parser.core.parse.AntlrSqlParser();
+    private static final org.pangrova.parser.api.parse.SqlParser EXPRESSION_PARSER = new AntlrSqlParser();
 
     private QualityReadSql() { }
 

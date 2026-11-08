@@ -2,10 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.retrieval;
 
 import org.pangrova.query.core.stage.binding.RetrievalGenerationIntent;
 import org.pangrova.query.core.stage.binding.RetrievalMergeIntent;
-
-
 import org.pangrova.query.api.task.QuerySplit;
-
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,7 +10,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver;

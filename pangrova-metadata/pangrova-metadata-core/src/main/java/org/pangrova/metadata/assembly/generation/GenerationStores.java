@@ -6,22 +6,25 @@ import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQu
 import org.pangrova.persistence.generation.postgresql.execution.PostgresGenerationExecutionFence;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence;
-import org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority;
-import org.pangrova.metadata.adapter.generation.MetadataGenerationPublicationCandidates;
+import org.pangrova.metadata.generation.MetadataGenerationTransactionAuthority;
+import org.pangrova.metadata.generation.MetadataGenerationPublicationCandidates;
 import org.pangrova.persistence.jdbc.api.generation.GenerationPublicationCandidates;
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
+import org.pangrova.persistence.security.api.tenant.DeferredTenantAuthority;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
+import org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority;
+import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationStageExecutionStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
 import org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore;
-import org.pangrova.metadata.generation.jdbc.JdbcIndexGenerationPublicationStore;
-import org.pangrova.metadata.generation.jdbc.JdbcGeneratedValuePublicationStore;
-import org.pangrova.metadata.generation.jdbc.JdbcTabularExportPublicationStore;
-import org.pangrova.metadata.generation.jdbc.submission.JdbcGeneratedValueBuildSubmissionStore;
+import org.pangrova.persistence.generation.postgresql.publication.JdbcIndexGenerationPublicationStore;
+import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedValuePublicationStore;
+import org.pangrova.persistence.generation.postgresql.publication.JdbcTabularExportPublicationStore;
+import org.pangrova.persistence.generation.postgresql.publication.submission.JdbcGeneratedValueBuildSubmissionStore;
 
 import javax.sql.DataSource;
 
@@ -34,13 +37,15 @@ public final class GenerationStores {
             new PostgresGenerationExecutionFence(new JdbcExecutionTransactionFence());
 
     private static final CurrentDirectRoleReader CURRENT_ROLES = new JdbcCurrentDirectRoleReader();
+    private static final DeferredTenantAuthority TENANT_AUTHORITY = new PostgresDeferredTenantAuthority();
     private static final GenerationPublicationCandidates PUBLICATION_CANDIDATES =
             new MetadataGenerationPublicationCandidates();
 
     /** Composes Metadata tenant/table checks with the supplied live model authority. */
     public GenerationStores(CurrentModelAuthority modelAuthority) {
         inputs = new PostgresGenerationQueries();
-        authority = new MetadataGenerationTransactionAuthority(inputs, modelAuthority);
+        authority = new MetadataGenerationTransactionAuthority(inputs, modelAuthority,
+                TENANT_AUTHORITY, AuthorizationTransactionGate::lockPublication);
     }
 
     /** Current Security-owned direct roles on the caller connection. */

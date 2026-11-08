@@ -3,7 +3,7 @@ import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJour
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
 import org.pangrova.persistence.file.api.claim.CopyFileClaimStore;
 import org.pangrova.persistence.file.postgresql.claim.JdbcCopyFileClaimStore;

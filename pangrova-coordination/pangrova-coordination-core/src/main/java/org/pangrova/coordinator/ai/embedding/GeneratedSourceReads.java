@@ -22,7 +22,8 @@ final class GeneratedSourceReads {
     private GeneratedSourceReads() {}
 
     static ObservedRead compile(GeneratedSourceCompiler compiler, QualifiedTableName table,
-                               List<String> columns, ConnectorSession session, ExecutionTraceContextFactory traceContexts) {
+                               List<String> columns, ConnectorSession session,
+                                       ExecutionTraceContextFactory traceContexts) {
         if (compiler == null || columns.isEmpty()) {
             throw new AuthorizationDeniedException("Generated input requires the trusted protected relation compiler");
         }
@@ -33,7 +34,8 @@ final class GeneratedSourceReads {
                 + quote(table.catalog()) + "." + quote(table.schema()) + "." + quote(table.table());
         var actor = new QuerySession("generated-input-" + UUID.randomUUID(),
                 Map.of("catalog", table.catalog(), "schema", table.schema()),
-                new UserIdentity(session.getUser(), Set.of(), Map.of("tenant_id", tenant), Instant.EPOCH), tenant, java.util.Optional.empty(), traceContexts.capture());
+                new UserIdentity(session.getUser(), Set.of(), Map.of("tenant_id", tenant), Instant.EPOCH),
+                        tenant, java.util.Optional.empty(), traceContexts.capture());
         AuthorizedRelation compiled = compiler.compile(sql, actor);
         return observe(compiled, table, columns);
     }

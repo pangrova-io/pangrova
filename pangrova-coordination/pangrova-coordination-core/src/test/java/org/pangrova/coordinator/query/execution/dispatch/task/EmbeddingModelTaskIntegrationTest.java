@@ -22,7 +22,7 @@ import org.pangrova.ai.control.model.EmbeddingModelExecutionAdmission;
 import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.ai.control.embedding.ModelDropUnavailableException;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.parser.core.parse.AntlrSqlParser;
 import org.pangrova.parser.api.ast.statement.CreateEmbeddingModelStatement;
 import org.pangrova.parser.api.ast.statement.AlterEmbeddingModelStatement;
@@ -328,9 +328,7 @@ class EmbeddingModelTaskIntegrationTest {
         return new StatementExecutionContext(
                 null,
                 "query-1",
-                new QuerySession("query-1", Map.of(), identity, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()),
-                null,
-                null);
+                new QuerySession("query-1", Map.of(), identity, "tenant-1", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture()));
     }
 
     private static ModelAvailability availability() {

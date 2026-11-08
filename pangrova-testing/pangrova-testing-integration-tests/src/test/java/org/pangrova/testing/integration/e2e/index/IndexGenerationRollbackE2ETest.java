@@ -215,7 +215,7 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_drop2 ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
             IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_drop2");
-            JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+            JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
             IndexDescriptor initial = requireIndex(store, "idx_drop2");
             long initialSnapshot = Long.parseLong(initial.buildSnapshotId());
             SnapshotPinProvider pins = snapshotPins();

@@ -22,7 +22,7 @@ import org.pangrova.config.ShuffleMode;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
+import org.pangrova.persistence.query.postgresql.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.query.api.ownership.ExecutionAnchor;

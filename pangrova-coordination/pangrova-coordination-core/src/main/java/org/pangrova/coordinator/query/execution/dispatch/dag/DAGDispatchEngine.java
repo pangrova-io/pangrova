@@ -3,19 +3,14 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.query.core.stage.QueryExecutionScope;
-
-
 import org.pangrova.query.api.task.QuerySplit;
-
 import org.pangrova.query.api.stage.StageState;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.query.api.session.QuerySession;

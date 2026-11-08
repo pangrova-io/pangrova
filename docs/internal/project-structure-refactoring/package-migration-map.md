@@ -43,9 +43,9 @@
 | [org.pangrova.ai.control.embedding](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding) | 11 | 按类拆分 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.model / core.model / store.memory.model` | registry 契约/值与 concurrent-map 实现分开 |
 | [org.pangrova.ai.control.evaluation](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/evaluation) | 12 | 按类拆分 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.evaluation / core.evaluation` | 值和 store port 不依赖决策/校验实现 |
 | [org.pangrova.ai.control.feature](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/feature) | 3 | 迁移 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.feature` | Feature/export 契约，与 JDBC 关联 adapter 分离 |
-| [org.pangrova.ai.control.store.jdbc.embedding](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/embedding) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence |
-| [org.pangrova.ai.control.store.jdbc.evaluation](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/evaluation) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence |
-| [org.pangrova.ai.control.store.jdbc.feature](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/feature) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.persistence.ai.postgresql.embedding](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/embedding) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.persistence.ai.postgresql.evaluation](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/evaluation) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.persistence.ai.postgresql.feature](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/feature) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-ai-worker
 
@@ -370,7 +370,7 @@
 | [org.pangrova.governance.lineage.openlineage](../../../pangrova-governance/src/main/java/org/pangrova/governance/lineage/openlineage) | 1 | 迁移 / P7 | `pangrova-governance`：`org.pangrova.governance.adapter.lineage.provider.openlineage` | provider/executor adapter 消费 API；不暗中补缺省执行能力 |
 | [org.pangrova.governance.quality.executor.sql](../../../pangrova-governance/src/main/java/org/pangrova/governance/quality/executor/sql) | 1 | 迁移 / P7 | `pangrova-governance`：`org.pangrova.governance.adapter.quality.executor.sql` | provider/executor adapter 消费 API；不暗中补缺省执行能力 |
 | [org.pangrova.governance.quality.executor.unconfigured](../../../pangrova-governance/src/main/java/org/pangrova/governance/quality/executor/unconfigured) | 1 | 迁移 / P7 | `pangrova-governance`：`org.pangrova.governance.adapter.quality.executor.unconfigured` | provider/executor adapter 消费 API；不暗中补缺省执行能力 |
-| [org.pangrova.governance.store.jdbc](../../../pangrova-governance/src/main/java/org/pangrova/governance/store/jdbc) | 4 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | store 与 factory 分开，各能力唯一 writer；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.persistence.governance.postgresql](../../../pangrova-persistence/pangrova-persistence-governance-postgresql/src/main/java/org/pangrova/persistence/governance/postgresql) | 3 | 已迁移 / P8 | `pangrova-persistence-governance-postgresql` | store 与 factory 分开，各能力唯一 writer；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-indexing-core
 
@@ -407,7 +407,7 @@
 | [org.pangrova.indexing.metrics](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/metrics) | 2 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.metrics` | generation/publication/GC、唯一注册与关闭索引的行为 |
 | [org.pangrova.indexing.normalize](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/normalize) | 1 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.normalize` | generation/publication/GC、唯一注册与关闭索引的行为 |
 | `org.pangrova.indexing.planner`（旧包已删除） | 3 | 已处置 | `IndexHint` → Indexing API pruning；`IndexPredicateAnalyzer` → Core pruning；无调用 `QueryPlan` 删除 | 2026-11-02 详见 indexing-planner-adapter-fqn-dispositions.tsv |
-| `org.pangrova.indexing.planner.vector`（旧包已删除） | 7 | 已处置 | 实际 Rewriter/Node/RecallEstimator → indexing-planner-adapter；四个无生产调用类删除 | 保留实际 SQL/Native 路由；未接通的 NO_VECTOR_INDEX 提示不宣称支持 |
+| `org.pangrova.indexing.planner.vector`（旧包已删除） | 7 | 已处置 | 实际 Rewriter/Node/RecallEstimator → indexing-core（`org.pangrova.indexing.planner.vector`）；四个无生产调用类删除 | 保留实际 SQL/Native 路由；未接通的 NO_VECTOR_INDEX 提示不宣称支持 |
 | [org.pangrova.indexing.registry](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/registry) | 1 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.registry` | generation/publication/GC、唯一注册与关闭索引的行为 |
 | [org.pangrova.indexing.serde](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/serde) | 4 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.serde` | generation/publication/GC、唯一注册与关闭索引的行为 |
 | [org.pangrova.indexing.storage](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/storage) | 5 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.storage` | generation/publication/GC、唯一注册与关闭索引的行为 |
@@ -426,13 +426,13 @@
 | [org.pangrova.materialization.strategy](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/strategy) | 4 | 迁移 / P7 | `pangrova-materialization-core`：`org.pangrova.materialization.core.refresh.strategy` | 刷新策略内核，不拥有执行 adapter |
 | [org.pangrova.materialization.usecase](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/usecase) | 25 | 按类拆分 / P7 | `pangrova-materialization-core`：`org.pangrova.materialization.core.{definition,generation,attempt,publication,schedule,pin,gc}` | 按定义/执行/发布/调度/回收能力分组；避免 value 类型反向引用 service |
 
-## pangrova-materialization-store-jdbc
+## pangrova-persistence-materialization-postgresql
 
-路径：`pangrova-materialization/pangrova-materialization-store-jdbc`。主源文件 9，主源包 1，本叶子测试源文件 1（不是测试用例数）。
+路径：`pangrova-persistence/pangrova-persistence-materialization-postgresql`。主源文件 9，主源包 1，本叶子测试源文件 1（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.materialization.store.jdbc](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc) | 9 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 仓储对应能力；迁移 owner 测试，资源制品 P2 先行；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.persistence.materialization.postgresql](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql) | 9 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | 仓储对应能力；迁移 owner 测试，资源制品 P2 先行；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-metadata
 
@@ -758,8 +758,8 @@
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.semantic.api.view](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/api/view) | 8 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | View 定义权威、编译和授权；不扩展新 ontology 功能 |
-| [org.pangrova.semantic.store.jdbc](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/store/jdbc) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence`，按领域/能力与实际后端拆分 | View 定义权威、编译和授权；不扩展新 ontology 功能；领域判断留调用方，SQL与存储编解码归Persistence |
-| [org.pangrova.semantic.view](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/view) | 1 | 保留 / P7 | `pangrova-semantic`：`org.pangrova.semantic.view` | View 定义权威、编译和授权；不扩展新 ontology 功能 |
+| [org.pangrova.persistence.semantic.postgresql](../../../pangrova-persistence/pangrova-persistence-semantic-postgresql/src/main/java/org/pangrova/persistence/semantic/postgresql) | 1 | 已迁移 / P8 | `pangrova-persistence-semantic-postgresql` | View 定义权威、编译和授权；不扩展新 ontology 功能；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.semantic.core.view](../../../pangrova-semantic/pangrova-semantic-core/src/main/java/org/pangrova/semantic/core/view) | 1 | 保留 / P8 | `pangrova-semantic-core`：`org.pangrova.semantic.core.view` | View 定义权威、编译和授权；不扩展新 ontology 功能 |
 
 ## pangrova-shuffle-core
 

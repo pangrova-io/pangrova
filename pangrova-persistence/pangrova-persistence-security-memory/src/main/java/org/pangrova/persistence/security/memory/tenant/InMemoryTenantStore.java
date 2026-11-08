@@ -1,4 +1,5 @@
 package org.pangrova.persistence.security.memory.tenant;
+import org.pangrova.security.api.error.AuthorizationDeniedException;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.security.api.tenant.Tenant;
@@ -77,18 +78,18 @@ public class InMemoryTenantStore implements TenantStore {
             org.pangrova.security.api.tenant.TenantMembershipMutation mutation) {
         Objects.requireNonNull(mutation, "mutation");
         if (actor == null || actor.principal() == null || actor.principal().isBlank()) {
-            throw new org.pangrova.security.api.error.AuthorizationDeniedException("Authenticated tenant administrator is required");
+            throw new AuthorizationDeniedException("Authenticated tenant administrator is required");
         }
         var current = getTenantForUser(actor.principal());
         if (current.isEmpty() || !current.orElseThrow().isActive()
                 || !current.orElseThrow().tenantId().equals(mutation.tenantId())
                 || current.orElseThrow().role() == TenantRole.MEMBER) {
-            throw new org.pangrova.security.api.error.AuthorizationDeniedException(
+            throw new AuthorizationDeniedException(
                     "Current OWNER or ADMIN membership in the exact active tenant is required");
         }
         var target = userMemberships.get(mutation.principal());
         if (target != null && !target.tenantId().equals(mutation.tenantId())) {
-            throw new org.pangrova.security.api.error.AuthorizationDeniedException("Cross-tenant membership transfer is not allowed");
+            throw new AuthorizationDeniedException("Cross-tenant membership transfer is not allowed");
         }
         if (mutation.operation() == org.pangrova.security.api.tenant.TenantMembershipMutation.Operation.GRANT) {
             if (target != null) return false;
@@ -97,7 +98,7 @@ public class InMemoryTenantStore implements TenantStore {
         }
         if (target == null) return false;
         if (target.role() != TenantRole.MEMBER) {
-            throw new org.pangrova.security.api.error.AuthorizationDeniedException("Cannot revoke privileged tenant membership");
+            throw new AuthorizationDeniedException("Cannot revoke privileged tenant membership");
         }
         userMemberships.remove(mutation.principal());
         return true;

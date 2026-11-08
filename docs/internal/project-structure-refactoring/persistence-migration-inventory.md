@@ -27,22 +27,22 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [AiInfrastructureStores.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/assembly/AiInfrastructureStores.java) | `org.pangrova.ai.control.assembly` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ConcurrentMapEmbeddingModelRegistry.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding/ConcurrentMapEmbeddingModelRegistry.java) | `org.pangrova.ai.control.embedding` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmbeddingModelRegistry.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding/EmbeddingModelRegistry.java) | `org.pangrova.ai.control.embedding` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmbeddingRegistryAccessDeniedException.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding/EmbeddingRegistryAccessDeniedException.java) | `org.pangrova.ai.control.embedding` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EvaluationStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/evaluation/EvaluationStore.java) | `org.pangrova.ai.control.evaluation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CatalogExportBuildStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/feature/CatalogExportBuildStore.java) | `org.pangrova.ai.control.feature` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [FeatureCatalogStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/feature/FeatureCatalogStore.java) | `org.pangrova.ai.control.feature` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmbeddingModelRoleAuthority.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/embedding/EmbeddingModelRoleAuthority.java) | `org.pangrova.ai.control.store.jdbc.embedding` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcCurrentModelAuthority.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/embedding/JdbcCurrentModelAuthority.java) | `org.pangrova.ai.control.store.jdbc.embedding` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcEmbeddingModelRegistry.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/embedding/JdbcEmbeddingModelRegistry.java) | `org.pangrova.ai.control.store.jdbc.embedding` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcEvaluationReleaseGate.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/evaluation/JdbcEvaluationReleaseGate.java) | `org.pangrova.ai.control.store.jdbc.evaluation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcEvaluationStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/evaluation/JdbcEvaluationStore.java) | `org.pangrova.ai.control.store.jdbc.evaluation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcFeatureViewEvaluationEvidence.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/evaluation/JdbcFeatureViewEvaluationEvidence.java) | `org.pangrova.ai.control.store.jdbc.evaluation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcCatalogExportBuildStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/feature/JdbcCatalogExportBuildStore.java) | `org.pangrova.ai.control.store.jdbc.feature` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcCatalogExportJobInsertion.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/feature/JdbcCatalogExportJobInsertion.java) | `org.pangrova.ai.control.store.jdbc.feature` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcFeatureCatalogStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/feature/JdbcFeatureCatalogStore.java) | `org.pangrova.ai.control.store.jdbc.feature` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [AiInfrastructureStores.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/assembly/AiInfrastructureStores.java) | `org.pangrova.persistence.ai.postgresql.assembly` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ConcurrentMapEmbeddingModelRegistry.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding/ConcurrentMapEmbeddingModelRegistry.java) | `org.pangrova.ai.control.embedding` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [EmbeddingModelRegistry.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding/EmbeddingModelRegistry.java) | `org.pangrova.ai.control.embedding` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [EmbeddingRegistryAccessDeniedException.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding/EmbeddingRegistryAccessDeniedException.java) | `org.pangrova.ai.control.embedding` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [EvaluationStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/evaluation/EvaluationStore.java) | `org.pangrova.ai.control.evaluation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CatalogExportBuildStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/feature/CatalogExportBuildStore.java) | `org.pangrova.ai.control.feature` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [FeatureCatalogStore.java](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/feature/FeatureCatalogStore.java) | `org.pangrova.ai.control.feature` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [EmbeddingModelRoleAuthority.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/embedding/EmbeddingModelRoleAuthority.java) | `org.pangrova.persistence.ai.postgresql.embedding` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcCurrentModelAuthority.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/embedding/JdbcCurrentModelAuthority.java) | `org.pangrova.persistence.ai.postgresql.embedding` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcEmbeddingModelRegistry.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/embedding/JdbcEmbeddingModelRegistry.java) | `org.pangrova.persistence.ai.postgresql.embedding` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcEvaluationReleaseGate.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/evaluation/JdbcEvaluationReleaseGate.java) | `org.pangrova.persistence.ai.postgresql.evaluation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcEvaluationStore.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/evaluation/JdbcEvaluationStore.java) | `org.pangrova.persistence.ai.postgresql.evaluation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcFeatureViewEvaluationEvidence.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/evaluation/JdbcFeatureViewEvaluationEvidence.java) | `org.pangrova.persistence.ai.postgresql.evaluation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcCatalogExportBuildStore.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/feature/JdbcCatalogExportBuildStore.java) | `org.pangrova.persistence.ai.postgresql.feature` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcCatalogExportJobInsertion.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/feature/JdbcCatalogExportJobInsertion.java) | `org.pangrova.persistence.ai.postgresql.feature` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcFeatureCatalogStore.java](../../../pangrova-persistence/pangrova-persistence-ai-postgresql/src/main/java/org/pangrova/persistence/ai/postgresql/feature/JdbcFeatureCatalogStore.java) | `org.pangrova.persistence.ai.postgresql.feature` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-ai-worker
 
@@ -50,9 +50,9 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [GovernedBlobStore.java](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/blob/GovernedBlobStore.java) | `org.pangrova.ai.worker.blob` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [AiModelBudgetRegistry.java](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/invocation/AiModelBudgetRegistry.java) | `org.pangrova.ai.worker.invocation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ConfiguredAiProviderRegistry.java](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/provider/ConfiguredAiProviderRegistry.java) | `org.pangrova.ai.worker.provider` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [GovernedBlobStore.java](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/blob/GovernedBlobStore.java) | `org.pangrova.ai.worker.blob` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [AiModelBudgetRegistry.java](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/invocation/AiModelBudgetRegistry.java) | `org.pangrova.ai.worker.invocation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ConfiguredAiProviderRegistry.java](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/provider/ConfiguredAiProviderRegistry.java) | `org.pangrova.ai.worker.provider` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-client-jdbc
 
@@ -84,8 +84,8 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
 | [JdbcSupport.java](../../../pangrova-persistence/pangrova-persistence-jdbc-support/src/main/java/org/pangrova/persistence/jdbc/support/JdbcSupport.java) | `org.pangrova.persistence.jdbc.support` | 已迁入 JDBC support；保留现有 SQL/连接语义 |
-| [ProcessIncarnationStore.java](../../../pangrova-common/src/main/java/org/pangrova/common/lifecycle/ProcessIncarnationStore.java) | `org.pangrova.common.lifecycle` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CheckpointStore.java](../../../pangrova-common/src/main/java/org/pangrova/common/resilience/api/CheckpointStore.java) | `org.pangrova.common.resilience.api` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [ProcessIncarnationStore.java](../../../pangrova-common/src/main/java/org/pangrova/common/lifecycle/ProcessIncarnationStore.java) | `org.pangrova.common.lifecycle` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CheckpointStore.java](../../../pangrova-common/src/main/java/org/pangrova/common/resilience/api/CheckpointStore.java) | `org.pangrova.common.resilience.api` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-config
 
@@ -93,8 +93,8 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [StateStoreFactory.java](../../../pangrova-config/src/main/java/org/pangrova/config/StateStoreFactory.java) | `org.pangrova.config` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StateStoreType.java](../../../pangrova-config/src/main/java/org/pangrova/config/StateStoreType.java) | `org.pangrova.config` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [StateStoreFactory.java](../../../pangrova-config/src/main/java/org/pangrova/config/StateStoreFactory.java) | `org.pangrova.config` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [StateStoreType.java](../../../pangrova-config/src/main/java/org/pangrova/config/StateStoreType.java) | `org.pangrova.config` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-connector-iceberg
 
@@ -102,9 +102,9 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [IcebergResidualRegistry.java](../../../pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergResidualRegistry.java) | `org.pangrova.connector.iceberg` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IcebergViewStore.java](../../../pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergViewStore.java) | `org.pangrova.connector.iceberg` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [QuerySnapshotRegistry.java](../../../pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/QuerySnapshotRegistry.java) | `org.pangrova.connector.iceberg` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [IcebergResidualRegistry.java](../../../pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergResidualRegistry.java) | `org.pangrova.connector.iceberg` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IcebergViewStore.java](../../../pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/IcebergViewStore.java) | `org.pangrova.connector.iceberg` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [QuerySnapshotRegistry.java](../../../pangrova-connector/pangrova-connector-iceberg/src/main/java/org/pangrova/connector/iceberg/QuerySnapshotRegistry.java) | `org.pangrova.connector.iceberg` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-connector-lance
 
@@ -112,7 +112,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [LanceCatalogStore.java](../../../pangrova-connector/pangrova-connector-lance/src/main/java/org/pangrova/connector/lance/LanceCatalogStore.java) | `org.pangrova.connector.lance` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [LanceCatalogStore.java](../../../pangrova-connector/pangrova-connector-lance/src/main/java/org/pangrova/connector/lance/LanceCatalogStore.java) | `org.pangrova.connector.lance` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-connector-paimon
 
@@ -120,7 +120,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [PaimonSplitRegistry.java](../../../pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/PaimonSplitRegistry.java) | `org.pangrova.connector.paimon` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [PaimonSplitRegistry.java](../../../pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/PaimonSplitRegistry.java) | `org.pangrova.connector.paimon` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-connector-runtime
 
@@ -128,7 +128,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [ConnectorFactoryRegistry.java](../../../pangrova-connector/pangrova-connector-runtime/src/main/java/org/pangrova/connector/runtime/discovery/ConnectorFactoryRegistry.java) | `org.pangrova.connector.runtime.discovery` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [ConnectorFactoryRegistry.java](../../../pangrova-connector/pangrova-connector-runtime/src/main/java/org/pangrova/connector/runtime/discovery/ConnectorFactoryRegistry.java) | `org.pangrova.connector.runtime.discovery` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-coordination-core
 
@@ -136,29 +136,29 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [ClusteringMetadataStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/clustering/ClusteringMetadataStore.java) | `org.pangrova.coordinator.clustering` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CoordinatorRegistryClient.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/CoordinatorRegistryClient.java) | `org.pangrova.coordinator.coordination` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InvalidationProgressRegistryAdapter.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/InvalidationProgressRegistryAdapter.java) | `org.pangrova.coordinator.coordination` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [QueryOwnershipRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/QueryOwnershipRegistry.java) | `org.pangrova.coordinator.coordination` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IdempotencyKeyRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/IdempotencyKeyRegistry.java) | `org.pangrova.coordinator.http` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CatalogJdbcMetadataProvider.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/CatalogJdbcMetadataProvider.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcExecutionException.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcExecutionException.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMetadataProvider.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcMetadataProvider.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcQueryExecutor.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcQueryExecutor.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcQueryResult.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcQueryResult.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcWireProtocolServlet.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcWireProtocolServlet.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PangrovaJdbcMeta.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/PangrovaJdbcMeta.java) | `org.pangrova.coordinator.http.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [MetadataBreakerStateStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/MetadataBreakerStateStore.java) | `org.pangrova.coordinator.indexing` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CoordinatorPhysicalGenerationStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/CoordinatorPhysicalGenerationStore.java) | `org.pangrova.coordinator.materialization` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [RedisL2CacheStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/cache/RedisL2CacheStore.java) | `org.pangrova.coordinator.query.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TaskTerminalRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/TaskTerminalRegistry.java) | `org.pangrova.coordinator.query.execution.dispatch.dag.handler` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcShuffleCleanupIntentStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStore.java) | `org.pangrova.coordinator.query.execution.dispatch.shuffle` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CoordinatorShuffleEvidenceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/CoordinatorShuffleEvidenceRegistry.java) | `org.pangrova.coordinator.query.execution.dispatch.shuffle.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryCheckpointStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/checkpoint/InMemoryCheckpointStore.java) | `org.pangrova.coordinator.resilience.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ResilienceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/resilience4j/ResilienceRegistry.java) | `org.pangrova.coordinator.resilience.resilience4j` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CoordinatorSpeculativeTaskRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/CoordinatorSpeculativeTaskRegistry.java) | `org.pangrova.coordinator.scheduler` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryStorageProfileRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/storage/InMemoryStorageProfileRegistry.java) | `org.pangrova.coordinator.storage` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TaskIdentityRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/task/TaskIdentityRegistry.java) | `org.pangrova.coordinator.task` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [ClusteringMetadataStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/clustering/ClusteringMetadataStore.java) | `org.pangrova.coordinator.clustering` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CoordinatorRegistryClient.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/CoordinatorRegistryClient.java) | `org.pangrova.coordinator.coordination` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InvalidationProgressRegistryAdapter.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/InvalidationProgressRegistryAdapter.java) | `org.pangrova.coordinator.coordination` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [QueryOwnershipRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/coordination/QueryOwnershipRegistry.java) | `org.pangrova.coordinator.coordination` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IdempotencyKeyRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/IdempotencyKeyRegistry.java) | `org.pangrova.coordinator.http` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CatalogJdbcMetadataProvider.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/CatalogJdbcMetadataProvider.java) | `org.pangrova.coordinator.http.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcExecutionException.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcExecutionException.java) | `org.pangrova.coordinator.http.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcMetadataProvider.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcMetadataProvider.java) | `org.pangrova.coordinator.http.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcQueryExecutor.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcQueryExecutor.java) | `org.pangrova.coordinator.http.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcQueryResult.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcQueryResult.java) | `org.pangrova.coordinator.http.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcWireProtocolServlet.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/JdbcWireProtocolServlet.java) | `org.pangrova.coordinator.http.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PangrovaJdbcMeta.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc/PangrovaJdbcMeta.java) | `org.pangrova.coordinator.http.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [MetadataBreakerStateStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/indexing/MetadataBreakerStateStore.java) | `org.pangrova.coordinator.indexing` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CoordinatorPhysicalGenerationStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization/CoordinatorPhysicalGenerationStore.java) | `org.pangrova.coordinator.materialization` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [RedisL2CacheStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/cache/RedisL2CacheStore.java) | `org.pangrova.coordinator.query.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [TaskTerminalRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/handler/TaskTerminalRegistry.java) | `org.pangrova.coordinator.query.execution.dispatch.dag.handler` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcShuffleCleanupIntentStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/JdbcShuffleCleanupIntentStore.java) | `org.pangrova.coordinator.query.execution.dispatch.shuffle` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CoordinatorShuffleEvidenceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/shuffle/generation/CoordinatorShuffleEvidenceRegistry.java) | `org.pangrova.coordinator.query.execution.dispatch.shuffle.generation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryCheckpointStore.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/checkpoint/InMemoryCheckpointStore.java) | `org.pangrova.coordinator.resilience.checkpoint` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ResilienceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/resilience4j/ResilienceRegistry.java) | `org.pangrova.coordinator.resilience.resilience4j` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CoordinatorSpeculativeTaskRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/CoordinatorSpeculativeTaskRegistry.java) | `org.pangrova.coordinator.scheduler` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryStorageProfileRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/storage/InMemoryStorageProfileRegistry.java) | `org.pangrova.coordinator.storage` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [TaskIdentityRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/task/TaskIdentityRegistry.java) | `org.pangrova.coordinator.task` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-coordination-zookeeper
 
@@ -166,7 +166,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [ZooKeeperCoordinatorRegistry.java](../../../pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperCoordinatorRegistry.java) | `org.pangrova.coordination.zookeeper` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [ZooKeeperCoordinatorRegistry.java](../../../pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper/ZooKeeperCoordinatorRegistry.java) | `org.pangrova.coordination.zookeeper` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-filesystem-api
 
@@ -201,21 +201,21 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [CatalogTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/catalog/CatalogTagStore.java) | `org.pangrova.governance.api.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [AuditConfigStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/classification/AuditConfigStore.java) | `org.pangrova.governance.api.classification` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ColumnTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/classification/ColumnTagStore.java) | `org.pangrova.governance.api.classification` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [QualityRuleStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/quality/QualityRuleStore.java) | `org.pangrova.governance.api.quality` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [QualityRuleStoreException.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/quality/QualityRuleStoreException.java) | `org.pangrova.governance.api.quality` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryAuditConfigStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/classification/InMemoryAuditConfigStore.java) | `org.pangrova.governance.core.classification` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryCatalogTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/classification/InMemoryCatalogTagStore.java) | `org.pangrova.governance.core.classification` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryColumnTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/classification/InMemoryColumnTagStore.java) | `org.pangrova.governance.core.classification` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [AlertChannelRegistry.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/quality/AlertChannelRegistry.java) | `org.pangrova.governance.core.quality` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IdentityQualityRuleStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/quality/IdentityQualityRuleStore.java) | `org.pangrova.governance.core.quality` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryQualityRuleStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/quality/InMemoryQualityRuleStore.java) | `org.pangrova.governance.core.quality` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcColumnTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/store/jdbc/JdbcColumnTagStore.java) | `org.pangrova.governance.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcGovernanceAuditTrail.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/store/jdbc/JdbcGovernanceAuditTrail.java) | `org.pangrova.governance.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcQualityRuleStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/store/jdbc/JdbcQualityRuleStore.java) | `org.pangrova.governance.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [QualityRuleStores.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/store/jdbc/QualityRuleStores.java) | `org.pangrova.governance.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [CatalogTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/catalog/CatalogTagStore.java) | `org.pangrova.governance.api.catalog` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [AuditConfigStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/classification/AuditConfigStore.java) | `org.pangrova.governance.api.classification` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ColumnTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/classification/ColumnTagStore.java) | `org.pangrova.governance.api.classification` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [QualityRuleStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/quality/QualityRuleStore.java) | `org.pangrova.governance.api.quality` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [QualityRuleStoreException.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/quality/QualityRuleStoreException.java) | `org.pangrova.governance.api.quality` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryAuditConfigStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/classification/InMemoryAuditConfigStore.java) | `org.pangrova.governance.core.classification` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryCatalogTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/classification/InMemoryCatalogTagStore.java) | `org.pangrova.governance.core.classification` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryColumnTagStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/classification/InMemoryColumnTagStore.java) | `org.pangrova.governance.core.classification` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [AlertChannelRegistry.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/quality/AlertChannelRegistry.java) | `org.pangrova.governance.core.quality` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IdentityQualityRuleStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/quality/IdentityQualityRuleStore.java) | `org.pangrova.governance.core.quality` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryQualityRuleStore.java](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/quality/InMemoryQualityRuleStore.java) | `org.pangrova.governance.core.quality` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| ~~JdbcColumnTagStore.java~~ | `org.pangrova.governance.store.jdbc` | 已删除（2026-11-06）：无生产调用方，且使用非 canonical 的 `column_tag` 表；持久化 tag 归 Table Control governance binding |
+| [JdbcGovernanceAuditTrail.java](../../../pangrova-persistence/pangrova-persistence-governance-postgresql/src/main/java/org/pangrova/persistence/governance/postgresql/JdbcGovernanceAuditTrail.java) | `org.pangrova.persistence.governance.postgresql` | 已迁移（2026-11-06）至 Persistence Governance PostgreSQL |
+| [JdbcQualityRuleStore.java](../../../pangrova-persistence/pangrova-persistence-governance-postgresql/src/main/java/org/pangrova/persistence/governance/postgresql/JdbcQualityRuleStore.java) | `org.pangrova.persistence.governance.postgresql` | 已迁移（2026-11-06）至 Persistence Governance PostgreSQL |
+| [QualityRuleStores.java](../../../pangrova-persistence/pangrova-persistence-governance-postgresql/src/main/java/org/pangrova/persistence/governance/postgresql/QualityRuleStores.java) | `org.pangrova.persistence.governance.postgresql` | 已迁移（2026-11-06）至 Persistence Governance PostgreSQL |
 
 ## pangrova-indexing-core
 
@@ -223,36 +223,36 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [BreakerStateStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/eval/BreakerStateStore.java) | `org.pangrova.indexing.eval` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexEngineRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/registry/IndexEngineRegistry.java) | `org.pangrova.indexing.registry` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TypeSerializerRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/serde/TypeSerializerRegistry.java) | `org.pangrova.indexing.serde` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [BreakerState.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/BreakerState.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CacheEvent.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CacheEvent.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CommitEventRequest.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CommitEventRequest.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CommitLogEntry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CommitLogEntry.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexFileMapping.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexFileMapping.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexFileSelection.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexFileSelection.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexGenerationFormat.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexGenerationFormat.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexGenerationManifest.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexGenerationManifest.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexGenerationSelectionSupport.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexGenerationSelectionSupport.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexMetadataStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexMetadataStore.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexPublicationRequest.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexPublicationRequest.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexSchemaEvolutionHandler.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexSchemaEvolutionHandler.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SchemaChangeEvent.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/SchemaChangeEvent.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SchemaChangeType.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/SchemaChangeType.java) | `org.pangrova.indexing.store` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationReservation.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/GenerationReservation.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [IndexMetadataMapper.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/IndexMetadataMapper.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexCommitQueue.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexCommitQueue.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexDescriptorReadStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorReadStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexDescriptorStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexFileMappingStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexFileMappingStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexGcStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexGcStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexMetadataStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexMetadataStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexPublicationStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexPublicationStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexSql.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexSql.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexStateStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexStateStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexStatisticsStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexStatisticsStore.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcStoreSupport.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcStoreSupport.java) | `org.pangrova.indexing.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [BreakerStateStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/eval/BreakerStateStore.java) | `org.pangrova.indexing.eval` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexEngineRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/registry/IndexEngineRegistry.java) | `org.pangrova.indexing.registry` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [TypeSerializerRegistry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/serde/TypeSerializerRegistry.java) | `org.pangrova.indexing.serde` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [BreakerState.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/BreakerState.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CacheEvent.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CacheEvent.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CommitEventRequest.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CommitEventRequest.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CommitLogEntry.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/CommitLogEntry.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexFileMapping.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexFileMapping.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexFileSelection.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexFileSelection.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexGenerationFormat.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexGenerationFormat.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexGenerationManifest.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexGenerationManifest.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexGenerationSelectionSupport.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexGenerationSelectionSupport.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexMetadataStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexMetadataStore.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexPublicationRequest.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexPublicationRequest.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexSchemaEvolutionHandler.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/IndexSchemaEvolutionHandler.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SchemaChangeEvent.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/SchemaChangeEvent.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SchemaChangeType.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/SchemaChangeType.java) | `org.pangrova.indexing.store` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [GenerationReservation.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/GenerationReservation.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [IndexMetadataMapper.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/IndexMetadataMapper.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexCommitQueue.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexCommitQueue.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexDescriptorReadStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorReadStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexDescriptorStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexDescriptorStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexFileMappingStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexFileMappingStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexGcStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexGcStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexMetadataStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexMetadataStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexPublicationStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexPublicationStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexSql.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexSql.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexStateStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexStateStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexStatisticsStore.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcIndexStatisticsStore.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcStoreSupport.java](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc/JdbcStoreSupport.java) | `org.pangrova.indexing.store.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-materialization-core
 
@@ -260,25 +260,25 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [MaterializationExtensionRegistry.java](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/extension/MaterializationExtensionRegistry.java) | `org.pangrova.materialization.extension` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [MaterializationRepository.java](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/port/MaterializationRepository.java) | `org.pangrova.materialization.port` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PhysicalGenerationStore.java](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/port/PhysicalGenerationStore.java) | `org.pangrova.materialization.port` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [MaterializationExtensionRegistry.java](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/extension/MaterializationExtensionRegistry.java) | `org.pangrova.materialization.extension` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [MaterializationRepository.java](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/port/MaterializationRepository.java) | `org.pangrova.materialization.port` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PhysicalGenerationStore.java](../../../pangrova-materialization/pangrova-materialization-core/src/main/java/org/pangrova/materialization/port/PhysicalGenerationStore.java) | `org.pangrova.materialization.port` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
-## pangrova-materialization-store-jdbc
+## pangrova-persistence-materialization-postgresql
 
 9 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [JdbcMaterializationCatalog.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationCatalog.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMaterializationPublications.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationPublications.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMaterializationQueries.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationQueries.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMaterializationReaderPins.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationReaderPins.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMaterializationRepository.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationRepository.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMaterializationRows.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationRows.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMaterializationSql.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationSql.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMaterializationWrites.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/JdbcMaterializationWrites.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [MaterializationJson.java](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc/MaterializationJson.java) | `org.pangrova.materialization.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [JdbcMaterializationCatalog.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationCatalog.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [JdbcMaterializationPublications.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationPublications.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [JdbcMaterializationQueries.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationQueries.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [JdbcMaterializationReaderPins.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationReaderPins.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [JdbcMaterializationRepository.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationRepository.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [JdbcMaterializationRows.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationRows.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [JdbcMaterializationSql.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationSql.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [JdbcMaterializationWrites.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/JdbcMaterializationWrites.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
+| [MaterializationJson.java](../../../pangrova-persistence/pangrova-persistence-materialization-postgresql/src/main/java/org/pangrova/persistence/materialization/postgresql/MaterializationJson.java) | `org.pangrova.persistence.materialization.postgresql` | 已迁移（2026-11-07）至 Persistence Materialization PostgreSQL |
 
 ## pangrova-metadata
 
@@ -286,45 +286,45 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [QualityRuleStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/governance/QualityRuleStoreWiring.java) | `org.pangrova.metadata.adapter.governance` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TableControlQualityRuleStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/governance/TableControlQualityRuleStore.java) | `org.pangrova.metadata.adapter.governance` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TableControlColumnMaskStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/security/TableControlColumnMaskStore.java) | `org.pangrova.metadata.adapter.security` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InvalidationProgressRegistry.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/cache/InvalidationProgressRegistry.java) | `org.pangrova.metadata.api.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [L2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/cache/L2CacheStore.java) | `org.pangrova.metadata.api.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [MetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/catalog/MetadataStore.java) | `org.pangrova.metadata.api.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectDependencyStore.java) | `org.pangrova.metadata.api.relation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationStores.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/generation/GenerationStores.java) | `org.pangrova.metadata.assembly.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ColumnMaskStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security/ColumnMaskStoreWiring.java) | `org.pangrova.metadata.assembly.security` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [DisabledL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/cache/DisabledL2CacheStore.java) | `org.pangrova.metadata.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/cache/InMemoryL2CacheStore.java) | `org.pangrova.metadata.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CatalogRegistry.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/catalog/registry/CatalogRegistry.java) | `org.pangrova.metadata.catalog.registry` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcCheckpointStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/checkpoint/JdbcCheckpointStore.java) | `org.pangrova.metadata.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GeneratedValueBuildMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildMetadataStore.java) | `org.pangrova.metadata.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildSubmissionStore.java) | `org.pangrova.metadata.generation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationPublicationJob.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationJob.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationPublicationManifestDigest.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationManifestDigest.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationPublicationOutputValidator.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationOutputValidator.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcGeneratedValueDescriptorStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcGeneratedValueDescriptorStore.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcGeneratedValuePublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcGeneratedValuePublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcIndexGenerationPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcTabularExportPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcTabularExportPublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcGeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java) | `org.pangrova.metadata.generation.jdbc.submission` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/memory/relation/InMemoryObjectDependencyStore.java) | `org.pangrova.metadata.memory.relation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [RegistryTablePolicyAuthority.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/service/RegistryTablePolicyAuthority.java) | `org.pangrova.metadata.service` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TableControlRowPolicyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/service/TableControlRowPolicyStore.java) | `org.pangrova.metadata.service` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcManagedSourceCatalog.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcSourceNamespace.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceNamespace.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcSourceObjectCleanup.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceObjectCleanup.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcSourceObjectRegistration.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceObjectRegistration.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcSourcePreparationInvocations.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourcePreparationInvocations.java) | `org.pangrova.metadata.source.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcInvalidationPoller.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/cache/JdbcInvalidationPoller.java) | `org.pangrova.metadata.store.jdbc.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [QualityRuleStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/governance/QualityRuleStoreWiring.java) | `org.pangrova.metadata.adapter.governance` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [TableControlQualityRuleStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/governance/TableControlQualityRuleStore.java) | `org.pangrova.metadata.adapter.governance` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [TableControlColumnMaskStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/security/TableControlColumnMaskStore.java) | `org.pangrova.metadata.adapter.security` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InvalidationProgressRegistry.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/cache/InvalidationProgressRegistry.java) | `org.pangrova.metadata.api.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [L2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/cache/L2CacheStore.java) | `org.pangrova.metadata.api.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [MetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/catalog/MetadataStore.java) | `org.pangrova.metadata.api.catalog` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectDependencyStore.java) | `org.pangrova.metadata.api.relation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [GenerationStores.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/generation/GenerationStores.java) | `org.pangrova.metadata.assembly.generation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ColumnMaskStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security/ColumnMaskStoreWiring.java) | `org.pangrova.metadata.assembly.security` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [DisabledL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/cache/DisabledL2CacheStore.java) | `org.pangrova.metadata.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/cache/InMemoryL2CacheStore.java) | `org.pangrova.metadata.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CatalogRegistry.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/catalog/registry/CatalogRegistry.java) | `org.pangrova.metadata.catalog.registry` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| ~~JdbcCheckpointStore~~ | `org.pangrova.metadata.checkpoint` | 已删除（2026-11-07）：无生产构造点，`checkpoints` 表保留 |
+| [GeneratedValueBuildMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildMetadataStore.java) | `org.pangrova.metadata.generation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [GeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildSubmissionStore.java) | `org.pangrova.metadata.generation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [GenerationPublicationJob.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationJob.java) | `org.pangrova.metadata.generation.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [GenerationPublicationManifestDigest.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationManifestDigest.java) | `org.pangrova.metadata.generation.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [GenerationPublicationOutputValidator.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationOutputValidator.java) | `org.pangrova.metadata.generation.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcGeneratedValueDescriptorStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcGeneratedValueDescriptorStore.java) | `org.pangrova.metadata.generation.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcGeneratedValuePublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcGeneratedValuePublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcIndexGenerationPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcTabularExportPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcTabularExportPublicationStore.java) | `org.pangrova.metadata.generation.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcGeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java) | `org.pangrova.metadata.generation.jdbc.submission` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/memory/relation/InMemoryObjectDependencyStore.java) | `org.pangrova.metadata.memory.relation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [RegistryTablePolicyAuthority.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/service/RegistryTablePolicyAuthority.java) | `org.pangrova.metadata.service` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [TableControlRowPolicyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/service/TableControlRowPolicyStore.java) | `org.pangrova.metadata.service` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcManagedSourceCatalog.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcManagedSourceCatalog.java) | `org.pangrova.metadata.source.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcSourceNamespace.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceNamespace.java) | `org.pangrova.metadata.source.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcSourceObjectCleanup.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceObjectCleanup.java) | `org.pangrova.metadata.source.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcSourceObjectRegistration.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourceObjectRegistration.java) | `org.pangrova.metadata.source.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcSourcePreparationInvocations.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc/JdbcSourcePreparationInvocations.java) | `org.pangrova.metadata.source.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcInvalidationPoller.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/cache/JdbcInvalidationPoller.java) | `org.pangrova.metadata.store.jdbc.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 | [DriverManagerDataSource.java](../../../pangrova-persistence/pangrova-persistence-jdbc-support/src/main/java/org/pangrova/persistence/jdbc/support/DriverManagerDataSource.java) | `org.pangrova.persistence.jdbc.support` | 已迁入 JDBC support；保留现有 SQL/连接语义 |
-| [JdbcMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/JdbcMetadataStore.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [MetadataJsonMapper.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/MetadataJsonMapper.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PooledDataSourceFactory.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/PooledDataSourceFactory.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SchemaMigrationRunner.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/SchemaMigrationRunner.java) | `org.pangrova.metadata.store.jdbc.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/object/JdbcObjectDependencyStore.java) | `org.pangrova.metadata.store.jdbc.object` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcTenantStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/tenant/JdbcTenantStore.java) | `org.pangrova.metadata.tenant` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [JdbcMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/JdbcMetadataStore.java) | `org.pangrova.metadata.store.jdbc.catalog` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [MetadataJsonMapper.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/MetadataJsonMapper.java) | `org.pangrova.metadata.store.jdbc.catalog` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PooledDataSourceFactory.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/PooledDataSourceFactory.java) | `org.pangrova.metadata.store.jdbc.catalog` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SchemaMigrationRunner.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/SchemaMigrationRunner.java) | `org.pangrova.metadata.store.jdbc.catalog` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcObjectDependencyStore.java](../../../pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/dependency/JdbcObjectDependencyStore.java) | `org.pangrova.persistence.catalog.postgresql.dependency` | 已迁移（2026-11-07）至 Persistence Catalog PostgreSQL |
+| [JdbcTenantStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/tenant/JdbcTenantStore.java) | `org.pangrova.metadata.tenant` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-operations
 
@@ -332,7 +332,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [DdlJobStore.java](../../../pangrova-operations/src/main/java/org/pangrova/operations/ddl/DdlJobStore.java) | `org.pangrova.operations.ddl` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [DdlJobStore.java](../../../pangrova-operations/src/main/java/org/pangrova/operations/ddl/DdlJobStore.java) | `org.pangrova.operations.ddl` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-parser
 
@@ -340,8 +340,8 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [StatementParserRegistry.java](../../../pangrova-parser/src/main/java/org/pangrova/parser/StatementParserRegistry.java) | `org.pangrova.parser` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SourceLocationRegistry.java](../../../pangrova-parser/src/main/java/org/pangrova/parser/ast/SourceLocationRegistry.java) | `org.pangrova.parser.ast` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [StatementParserRegistry.java](../../../pangrova-parser/src/main/java/org/pangrova/parser/StatementParserRegistry.java) | `org.pangrova.parser` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SourceLocationRegistry.java](../../../pangrova-parser/src/main/java/org/pangrova/parser/ast/SourceLocationRegistry.java) | `org.pangrova.parser.ast` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-persistence-api
 
@@ -464,16 +464,16 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [InMemoryL2CacheStore.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/cache/InMemoryL2CacheStore.java) | `org.pangrova.planner.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [L2CacheStore.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/cache/L2CacheStore.java) | `org.pangrova.planner.cache` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [HepRuleRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/optimization/HepRuleRegistry.java) | `org.pangrova.planner.optimization` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [RuntimeFilterRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/runtimefilter/RuntimeFilterRegistry.java) | `org.pangrova.planner.runtimefilter` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PlanBaselineRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/stability/PlanBaselineRegistry.java) | `org.pangrova.planner.stability` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PlanCaptureRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/stability/PlanCaptureRegistry.java) | `org.pangrova.planner.stability` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CardinalityFeedbackStore.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/stats/CardinalityFeedbackStore.java) | `org.pangrova.planner.stats` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [FunctionNullabilityRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/substrait/FunctionNullabilityRegistry.java) | `org.pangrova.planner.substrait` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StandardTypeRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/type/StandardTypeRegistry.java) | `org.pangrova.planner.type` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [NativeCapabilityRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/validation/NativeCapabilityRegistry.java) | `org.pangrova.planner.validation` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [InMemoryL2CacheStore.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/cache/InMemoryL2CacheStore.java) | `org.pangrova.planner.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [L2CacheStore.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/cache/L2CacheStore.java) | `org.pangrova.planner.cache` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [HepRuleRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/optimization/HepRuleRegistry.java) | `org.pangrova.planner.optimization` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [RuntimeFilterRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/runtimefilter/RuntimeFilterRegistry.java) | `org.pangrova.planner.runtimefilter` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PlanBaselineRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/stability/PlanBaselineRegistry.java) | `org.pangrova.planner.stability` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PlanCaptureRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/stability/PlanCaptureRegistry.java) | `org.pangrova.planner.stability` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CardinalityFeedbackStore.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/stats/CardinalityFeedbackStore.java) | `org.pangrova.planner.stats` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [FunctionNullabilityRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/substrait/FunctionNullabilityRegistry.java) | `org.pangrova.planner.substrait` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [StandardTypeRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/type/StandardTypeRegistry.java) | `org.pangrova.planner.type` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [NativeCapabilityRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/validation/NativeCapabilityRegistry.java) | `org.pangrova.planner.validation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-scheduler
 
@@ -481,8 +481,8 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [SpeculativeTaskRegistry.java](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/speculation/SpeculativeTaskRegistry.java) | `org.pangrova.scheduler.speculation` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcClusterConcurrencySlots.java](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/store/jdbc/admission/JdbcClusterConcurrencySlots.java) | `org.pangrova.scheduler.store.jdbc.admission` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [SpeculativeTaskRegistry.java](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/speculation/SpeculativeTaskRegistry.java) | `org.pangrova.scheduler.speculation` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcClusterConcurrencySlots.java](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/store/jdbc/admission/JdbcClusterConcurrencySlots.java) | `org.pangrova.scheduler.store.jdbc.admission` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-security
 
@@ -490,14 +490,14 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [InMemoryRoleStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/authz/InMemoryRoleStore.java) | `org.pangrova.security.authz` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StaticGrantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/authz/StaticGrantStore.java) | `org.pangrova.security.authz` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmptyColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/mask/empty/EmptyColumnMaskStore.java) | `org.pangrova.security.mask.empty` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryEnrichedColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/mask/memory/InMemoryEnrichedColumnMaskStore.java) | `org.pangrova.security.mask.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [EmptyRowPolicyStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/rowfilter/EmptyRowPolicyStore.java) | `org.pangrova.security.rowfilter` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SecretResolverRegistry.java](../../../pangrova-security/src/main/java/org/pangrova/security/secret/SecretResolverRegistry.java) | `org.pangrova.security.secret` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CurrentModelAuthority.java](../../../pangrova-security/src/main/java/org/pangrova/security/spi/jdbc/CurrentModelAuthority.java) | `org.pangrova.security.spi.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryTenantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/tenant/InMemoryTenantStore.java) | `org.pangrova.security.tenant` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [InMemoryRoleStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/authz/InMemoryRoleStore.java) | `org.pangrova.security.authz` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [StaticGrantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/authz/StaticGrantStore.java) | `org.pangrova.security.authz` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [EmptyColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/mask/empty/EmptyColumnMaskStore.java) | `org.pangrova.security.mask.empty` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryEnrichedColumnMaskStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/mask/memory/InMemoryEnrichedColumnMaskStore.java) | `org.pangrova.security.mask.memory` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [EmptyRowPolicyStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/rowfilter/EmptyRowPolicyStore.java) | `org.pangrova.security.rowfilter` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SecretResolverRegistry.java](../../../pangrova-security/src/main/java/org/pangrova/security/secret/SecretResolverRegistry.java) | `org.pangrova.security.secret` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CurrentModelAuthority.java](../../../pangrova-security/src/main/java/org/pangrova/security/spi/jdbc/CurrentModelAuthority.java) | `org.pangrova.security.spi.jdbc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [InMemoryTenantStore.java](../../../pangrova-security/src/main/java/org/pangrova/security/tenant/InMemoryTenantStore.java) | `org.pangrova.security.tenant` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-semantic
 
@@ -505,9 +505,9 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [SemanticStoreException.java](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/api/view/SemanticStoreException.java) | `org.pangrova.semantic.api.view` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SemanticViewStore.java](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/api/view/SemanticViewStore.java) | `org.pangrova.semantic.api.view` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcSemanticViewStore.java](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/store/jdbc/JdbcSemanticViewStore.java) | `org.pangrova.semantic.store.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [SemanticStoreException.java](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/api/view/SemanticStoreException.java) | `org.pangrova.semantic.api.view` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SemanticViewStore.java](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/api/view/SemanticViewStore.java) | `org.pangrova.semantic.api.view` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcSemanticViewStore.java](../../../pangrova-persistence/pangrova-persistence-semantic-postgresql/src/main/java/org/pangrova/persistence/semantic/postgresql/JdbcSemanticViewStore.java) | `org.pangrova.persistence.semantic.postgresql` | 已迁移（2026-11-06）至 Persistence Semantic PostgreSQL |
 
 ## pangrova-shuffle-core
 
@@ -515,11 +515,11 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [SpoolStore.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStore.java) | `org.pangrova.shuffle.spool` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SpoolStoreContext.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStoreContext.java) | `org.pangrova.shuffle.spool` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SpoolStoreFactory.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStoreFactory.java) | `org.pangrova.shuffle.spool` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [LocalFsSpoolStore.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/localfs/LocalFsSpoolStore.java) | `org.pangrova.shuffle.spool.localfs` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [LocalFsSpoolStoreFactory.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/localfs/LocalFsSpoolStoreFactory.java) | `org.pangrova.shuffle.spool.localfs` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [SpoolStore.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStore.java) | `org.pangrova.shuffle.spool` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SpoolStoreContext.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStoreContext.java) | `org.pangrova.shuffle.spool` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SpoolStoreFactory.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/SpoolStoreFactory.java) | `org.pangrova.shuffle.spool` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [LocalFsSpoolStore.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/localfs/LocalFsSpoolStore.java) | `org.pangrova.shuffle.spool.localfs` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [LocalFsSpoolStoreFactory.java](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/spool/localfs/LocalFsSpoolStoreFactory.java) | `org.pangrova.shuffle.spool.localfs` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-shuffle-service
 
@@ -527,14 +527,14 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [PostgresCommitVerifier.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresCommitVerifier.java) | `org.pangrova.shuffle.server` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresShuffleBatchStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleBatchStore.java) | `org.pangrova.shuffle.server` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresShuffleLifecycleTransitions.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleLifecycleTransitions.java) | `org.pangrova.shuffle.server` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresShuffleRecords.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleRecords.java) | `org.pangrova.shuffle.server` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresShuffleStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleStore.java) | `org.pangrova.shuffle.server` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ShuffleBatchStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/ShuffleBatchStore.java) | `org.pangrova.shuffle.server` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ShuffleLifecycleStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/ShuffleLifecycleStore.java) | `org.pangrova.shuffle.server` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcTransactions.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/persistence/JdbcTransactions.java) | `org.pangrova.shuffle.server.persistence` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [PostgresCommitVerifier.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresCommitVerifier.java) | `org.pangrova.shuffle.server` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PostgresShuffleBatchStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleBatchStore.java) | `org.pangrova.shuffle.server` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PostgresShuffleLifecycleTransitions.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleLifecycleTransitions.java) | `org.pangrova.shuffle.server` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PostgresShuffleRecords.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleRecords.java) | `org.pangrova.shuffle.server` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [PostgresShuffleStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/PostgresShuffleStore.java) | `org.pangrova.shuffle.server` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ShuffleBatchStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/ShuffleBatchStore.java) | `org.pangrova.shuffle.server` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ShuffleLifecycleStore.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/ShuffleLifecycleStore.java) | `org.pangrova.shuffle.server` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcTransactions.java](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/persistence/JdbcTransactions.java) | `org.pangrova.shuffle.server.persistence` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-streaming
 
@@ -542,20 +542,20 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [CdcRegistrationStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/cdc/CdcRegistrationStore.java) | `org.pangrova.streaming.api.cdc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StreamOffsetStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamOffsetStore.java) | `org.pangrova.streaming.api.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StreamStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamStateStore.java) | `org.pangrova.streaming.api.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [StreamingStoreException.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamingStoreException.java) | `org.pangrova.streaming.api.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [WatermarkStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/watermark/WatermarkStore.java) | `org.pangrova.streaming.api.watermark` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [CdcRecordConverterRegistry.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/cdc/CdcRecordConverterRegistry.java) | `org.pangrova.streaming.cdc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcCdcCommitStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/commit/JdbcCdcCommitStateStore.java) | `org.pangrova.streaming.commit` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcCdcRegistrationStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/cdc/JdbcCdcRegistrationStore.java) | `org.pangrova.streaming.store.jdbc.cdc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcStreamStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/checkpoint/JdbcStreamStateStore.java) | `org.pangrova.streaming.store.jdbc.checkpoint` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcStreamOffsetStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/offset/JdbcStreamOffsetStore.java) | `org.pangrova.streaming.store.jdbc.offset` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcWatermarkPositionStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/watermark/JdbcWatermarkPositionStore.java) | `org.pangrova.streaming.store.jdbc.watermark` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcWatermarkStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/watermark/JdbcWatermarkStore.java) | `org.pangrova.streaming.store.jdbc.watermark` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryCdcRegistrationStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/memory/InMemoryCdcRegistrationStore.java) | `org.pangrova.streaming.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryWatermarkStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/memory/InMemoryWatermarkStore.java) | `org.pangrova.streaming.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [CdcRegistrationStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/cdc/CdcRegistrationStore.java) | `org.pangrova.streaming.api.cdc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [StreamOffsetStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamOffsetStore.java) | `org.pangrova.streaming.api.checkpoint` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [StreamStateStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamStateStore.java) | `org.pangrova.streaming.api.checkpoint` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [StreamingStoreException.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint/StreamingStoreException.java) | `org.pangrova.streaming.api.checkpoint` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [WatermarkStore.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/watermark/WatermarkStore.java) | `org.pangrova.streaming.api.watermark` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [CdcRecordConverterRegistry.java](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/cdc/CdcRecordConverterRegistry.java) | `org.pangrova.streaming.cdc` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcCdcCommitStateStore.java](../../../pangrova-persistence/pangrova-persistence-streaming-postgresql/src/main/java/org/pangrova/persistence/streaming/postgresql/JdbcCdcCommitStateStore.java) | `org.pangrova.persistence.streaming.postgresql` | 已迁移（2026-11-07）至 Persistence Streaming PostgreSQL |
+| [JdbcCdcRegistrationStore.java](../../../pangrova-persistence/pangrova-persistence-streaming-postgresql/src/main/java/org/pangrova/persistence/streaming/postgresql/JdbcCdcRegistrationStore.java) | `org.pangrova.persistence.streaming.postgresql` | 已迁移（2026-11-07）至 Persistence Streaming PostgreSQL |
+| [JdbcStreamStateStore.java](../../../pangrova-persistence/pangrova-persistence-streaming-postgresql/src/main/java/org/pangrova/persistence/streaming/postgresql/JdbcStreamStateStore.java) | `org.pangrova.persistence.streaming.postgresql` | 已迁移（2026-11-07）至 Persistence Streaming PostgreSQL |
+| [JdbcStreamOffsetStore.java](../../../pangrova-persistence/pangrova-persistence-streaming-postgresql/src/main/java/org/pangrova/persistence/streaming/postgresql/JdbcStreamOffsetStore.java) | `org.pangrova.persistence.streaming.postgresql` | 已迁移（2026-11-07）至 Persistence Streaming PostgreSQL |
+| [JdbcWatermarkPositionStore.java](../../../pangrova-persistence/pangrova-persistence-streaming-postgresql/src/main/java/org/pangrova/persistence/streaming/postgresql/JdbcWatermarkPositionStore.java) | `org.pangrova.persistence.streaming.postgresql` | 已迁移（2026-11-07）至 Persistence Streaming PostgreSQL |
+| ~~JdbcWatermarkStore.java~~ | `org.pangrova.streaming.store.jdbc.watermark` | 已删除（2026-11-06）：无生产调用方的 H2 专用重复实现；canonical owner 为 `JdbcWatermarkPositionStore` / `watermark_positions` |
+| [InMemoryCdcRegistrationStore.java](../../../pangrova-streaming/pangrova-streaming-core/src/main/java/org/pangrova/streaming/store/memory/InMemoryCdcRegistrationStore.java) | `org.pangrova.streaming.store.memory` | 保留在 Streaming Core 的显式 in-process 实现 |
+| [InMemoryWatermarkStore.java](../../../pangrova-streaming/pangrova-streaming-core/src/main/java/org/pangrova/streaming/store/memory/InMemoryWatermarkStore.java) | `org.pangrova.streaming.store.memory` | 保留在 Streaming Core 的显式 in-process 实现 |
 
 ## pangrova-testing-kit
 
@@ -563,10 +563,10 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [PostgresCommitWireFault.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/PostgresCommitWireFault.java) | `org.pangrova.testing.testkit` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcMutationFault.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres/JdbcMutationFault.java) | `org.pangrova.testing.testkit.postgres` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [MigratedPostgres.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres/MigratedPostgres.java) | `org.pangrova.testing.testkit.postgres` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [SharedPostgres.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres/SharedPostgres.java) | `org.pangrova.testing.testkit.postgres` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [PostgresCommitWireFault.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/PostgresCommitWireFault.java) | `org.pangrova.testing.testkit` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcMutationFault.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres/JdbcMutationFault.java) | `org.pangrova.testing.testkit.postgres` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [MigratedPostgres.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres/MigratedPostgres.java) | `org.pangrova.testing.testkit.postgres` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [SharedPostgres.java](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres/SharedPostgres.java) | `org.pangrova.testing.testkit.postgres` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-worker-core
 
@@ -574,13 +574,13 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [QueryOutputBufferRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/buffer/QueryOutputBufferRegistry.java) | `org.pangrova.worker.buffer` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ExchangeSourceRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceRegistry.java) | `org.pangrova.worker.exchange.source` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [AiTaskLifecycleRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution/AiTaskLifecycleRegistry.java) | `org.pangrova.worker.execution` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [FileSpaceObjectStore.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/FileSpaceObjectStore.java) | `org.pangrova.worker.file` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcFileDirectoryPageSource.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/JdbcFileDirectoryPageSource.java) | `org.pangrova.worker.file` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [ObjectStoreAccessorFactory.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/ObjectStoreAccessorFactory.java) | `org.pangrova.worker.file` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [TaskAdmissionRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskAdmissionRegistry.java) | `org.pangrova.worker.task` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [QueryOutputBufferRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/buffer/QueryOutputBufferRegistry.java) | `org.pangrova.worker.buffer` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ExchangeSourceRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/source/ExchangeSourceRegistry.java) | `org.pangrova.worker.exchange.source` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [AiTaskLifecycleRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution/AiTaskLifecycleRegistry.java) | `org.pangrova.worker.execution` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [FileSpaceObjectStore.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/FileSpaceObjectStore.java) | `org.pangrova.worker.file` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [JdbcFileDirectoryPageSource.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/JdbcFileDirectoryPageSource.java) | `org.pangrova.worker.file` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [ObjectStoreAccessorFactory.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/ObjectStoreAccessorFactory.java) | `org.pangrova.worker.file` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
+| [TaskAdmissionRegistry.java](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskAdmissionRegistry.java) | `org.pangrova.worker.task` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |
 
 ## pangrova-worker-native-bridge
 
@@ -588,4 +588,4 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
-| [NativeObjectStoreBindings.java](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write/catalog/NativeObjectStoreBindings.java) | `org.pangrova.worker.nativebridge.jni.write.catalog` | 候选；待逐文件确认职责并迁移/留调用方 |
+| [NativeObjectStoreBindings.java](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write/catalog/NativeObjectStoreBindings.java) | `org.pangrova.worker.nativebridge.jni.write.catalog` | 已迁移（2026-11-07）至 Persistence AI PostgreSQL |

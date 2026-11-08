@@ -95,8 +95,6 @@ public final class DdlExecutor {
         tableControlOperations.setAudit(audit);
     }
 
-    /** Purges table_id-scoped governance bindings when the control record retires. */
-
     /** Owns durable column-tag persistence and governance notification. */
     public void setMetadataService(MetadataService metadataService) {
         tableControlOperations.setMetadataService(metadataService);

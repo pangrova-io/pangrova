@@ -5,8 +5,8 @@ import java.util.List;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.TableWarmupExecutor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.parser.api.ast.statement.maintenance.CallStatement;

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt;
 import java.util.Optional;
 import java.util.UUID;
 

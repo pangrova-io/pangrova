@@ -30,14 +30,17 @@ class GovernanceStoreInitializationIntegrationTest extends ContainerTestBase {
                 defaults.query(), defaults.transport(), defaults.workerHealth(), null, null, null);
 
         try (var modules = new ModuleIntegrationBootstrap()) {
+            modules.setCatalogRegistry(new org.pangrova.metadata.catalog.registry.CatalogRegistry(
+                    new org.pangrova.persistence.catalog.postgresql.catalog
+                            .PostgresCatalogDeploymentRepository(source)));
             assertThatThrownBy(() -> modules.startGovernance(config, source))
                     .isInstanceOf(QualityRuleStoreException.class)
-                    .hasMessageContaining("Failed to initialize quality rule schema")
+                    .hasMessageContaining("Failed to list enabled quality rules")
                     .satisfies(failure -> {
                         assertThat(((PangrovaException) failure).getErrorCode())
                                 .isEqualTo(PangrovaErrorCode.METADATA_METASTORE_ERROR);
                         assertThat(failure.getCause()).isInstanceOf(SQLException.class);
-                        assertThat(((SQLException) failure.getCause()).getSQLState()).isEqualTo("3F000");
+                        assertThat(((SQLException) failure.getCause()).getSQLState()).isEqualTo("42P01");
                     });
             assertThat(modules.getLineageEmitter()).isNull();
         }

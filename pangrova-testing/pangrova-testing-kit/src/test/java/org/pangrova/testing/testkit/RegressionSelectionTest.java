@@ -92,7 +92,7 @@ class RegressionSelectionTest {
             var ownerPath = switch (module) {
                 case "worker" -> "pangrova-worker/pangrova-worker-core";
                 case "coordinator" -> "pangrova-coordination/pangrova-coordination-core";
-                default -> "pangrova-metadata-core";
+                default -> "pangrova-metadata/pangrova-metadata-core";
             };
             var owner = read(ROOT.resolve(ownerPath).resolve("pom.xml"));
             assertThat(value(owner, "/project/properties/" + property)).isEmpty();

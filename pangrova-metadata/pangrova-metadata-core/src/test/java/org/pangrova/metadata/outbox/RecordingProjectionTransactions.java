@@ -3,10 +3,10 @@ package org.pangrova.metadata.outbox;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionConflictException;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.api.projection.TableProjectionRepository;
 import java.util.*;
 

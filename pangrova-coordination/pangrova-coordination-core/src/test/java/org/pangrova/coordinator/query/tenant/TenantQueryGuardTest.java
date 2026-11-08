@@ -10,6 +10,7 @@ import org.pangrova.security.core.tenant.QuotaChecker;
 import org.pangrova.security.core.tenant.TenantQuotaExceededException;
 import org.pangrova.security.core.tenant.TenantUsage;
 import org.pangrova.security.core.tenant.TenantResolver;
+import org.pangrova.security.core.tenant.TenantQueryGuard;
 import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.BeforeEach;

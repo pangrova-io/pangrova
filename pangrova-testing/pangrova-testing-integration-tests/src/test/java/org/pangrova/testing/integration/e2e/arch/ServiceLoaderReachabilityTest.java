@@ -4,7 +4,7 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
 import org.pangrova.connector.spi.secret.ConnectorSecretResolver;
-import org.pangrova.metadata.adapter.FederatedCatalogFactory;
+import org.pangrova.metadata.federation.FederatedCatalogFactory;
 import org.pangrova.function.spi.registry.FunctionFactory;
 import org.pangrova.function.spi.runtime.FunctionCallbackScope;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;

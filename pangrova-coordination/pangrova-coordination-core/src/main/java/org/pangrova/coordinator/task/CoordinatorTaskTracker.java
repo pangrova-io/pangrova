@@ -21,7 +21,7 @@ import org.pangrova.scheduler.api.placement.TaskDuration;
  * Local publication is serialized with issuance sealing; transport operations run outside that gate.
  */
 @ThreadSafe
-public class CoordinatorTaskTracker {
+public class CoordinatorTaskTracker implements org.pangrova.query.core.recovery.RecoveredTaskRegistry {
 
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, TaskStateMachine>> queryTasks =
             new ConcurrentHashMap<>();

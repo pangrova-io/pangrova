@@ -134,6 +134,6 @@ class TaskSubmitDedupTest {
         return new TaskDescriptor(
                 new QueryId(request.taskRequest().getAttempt().getQueryOrJobId()),
                 fragment, List.of(),
-                request.taskRequest().getExecutionOptions().getSessionPropertiesMap());
+                request.taskRequest().getExecutionOptions().getSessionPropertiesMap(), 0, 0, "COMPUTE", org.pangrova.protocol.execution.TaskResourceLimit.NONE);
     }
 }

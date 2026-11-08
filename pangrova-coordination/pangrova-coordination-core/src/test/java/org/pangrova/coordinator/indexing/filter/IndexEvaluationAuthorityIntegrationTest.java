@@ -67,7 +67,7 @@ class IndexEvaluationAuthorityIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_eval_authority");
-        metadata = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        metadata = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         var roles = new JdbcRoleStore(dataSource);
         grants = new JdbcGrantStore(dataSource);
         assertThat(roles.createRole(Role.of("reader"))).isTrue();

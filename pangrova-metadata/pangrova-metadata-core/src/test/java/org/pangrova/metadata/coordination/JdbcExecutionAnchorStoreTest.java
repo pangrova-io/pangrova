@@ -3,7 +3,7 @@ import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAncho
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.query.api.ownership.ExecutionAnchor;
 
 import javax.sql.DataSource;

@@ -23,7 +23,7 @@ import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
@@ -31,7 +31,7 @@ import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.ai.control.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
@@ -76,7 +76,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Actual PostgreSQL governance and real connector/planner/policy chain; no client execution plans. */
@@ -118,7 +118,7 @@ class FeatureViewSqlIntegrationTest {
                         metadata.catalogRegistry()),
                 new JdbcRowPolicyStore(dataSource));
         var persistedMasks = new JdbcColumnMaskStore(dataSource);
-        masks = new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
+        masks = new org.pangrova.metadata.security.TableControlColumnMaskStore(
                 new org.pangrova.metadata.service.RegistryTablePolicyAuthority(
                         metadata.catalogRegistry()),
                 persistedMasks);

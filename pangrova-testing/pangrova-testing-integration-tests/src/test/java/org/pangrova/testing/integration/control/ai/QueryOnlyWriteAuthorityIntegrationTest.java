@@ -24,7 +24,7 @@ import org.pangrova.query.api.write.WriteAuthorityRequest;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
@@ -112,7 +112,9 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
                 CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "", Set.of(TENANT)));
         metadata = catalogs.getCatalog(TABLE.catalog()).getMetadata(SESSION);
         authority = GeneratedValueMaterializationCoordinator.writeAuthoritySupplier(
-                catalogs, dataSource, null, ModelAuthorityFixtures.models());
+                catalogs, dataSource, null, ModelAuthorityFixtures.models(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
     }
 
     @AfterEach

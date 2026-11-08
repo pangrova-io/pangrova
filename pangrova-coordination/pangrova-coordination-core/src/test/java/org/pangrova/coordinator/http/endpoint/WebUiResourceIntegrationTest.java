@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.query.core.lifecycle.QueryStateMachine;
@@ -25,7 +25,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.net.ProxySelector;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Instant;
@@ -41,7 +43,9 @@ class WebUiResourceIntegrationTest {
 
     private static Server server;
     private static int port;
-    private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .proxy(ProxySelector.of(null))
+            .connectTimeout(Duration.ofSeconds(10)).build();
     private static final ObjectMapper MAPPER = JsonMapperFactory.create();
     private static QueryManager queryManager;
     private static WorkerManager workerManager;
@@ -204,7 +208,7 @@ class WebUiResourceIntegrationTest {
 
     private static HttpResponse<String> sendGet(String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + path))
+                .uri(URI.create("http://127.0.0.1:" + port + path))
                 .GET()
                 .build();
         return HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());

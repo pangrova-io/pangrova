@@ -1,7 +1,7 @@
 package org.pangrova.metadata.coordination;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.persistence.query.postgresql.lineage.JdbcQueryLineageOutbox;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.persistence.query.api.commit.JournalWriteException;
 import org.pangrova.query.api.lineage.QueryLineageFact;

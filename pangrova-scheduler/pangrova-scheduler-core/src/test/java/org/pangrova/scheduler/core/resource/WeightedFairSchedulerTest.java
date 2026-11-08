@@ -188,6 +188,9 @@ class WeightedFairSchedulerTest {
             release.countDown();
             scheduler.close();
         }
+        // close() joins executor termination; the worker thread's visible exit can lag the
+        // join slightly under load, so wait for the observable state before asserting.
+        dispatcher.get().join(5_000);
         assertThat(dispatcher.get().isAlive()).isFalse();
     }
 

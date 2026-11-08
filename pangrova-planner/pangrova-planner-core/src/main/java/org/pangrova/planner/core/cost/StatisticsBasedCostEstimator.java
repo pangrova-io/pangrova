@@ -180,7 +180,8 @@ public class StatisticsBasedCostEstimator {
         return Math.min(1.0, total);
     }
 
-    private Optional<org.pangrova.planner.api.statistics.Histogram> getHistogram(QualifiedTableName tableName, String column) {
+    private Optional<org.pangrova.planner.api.statistics.Histogram> getHistogram(QualifiedTableName tableName,
+            String column) {
         return columnStats(tableName, column)
                 .filter(cs -> cs.confidenceScore() >= MIN_CONFIDENCE_THRESHOLD)
                 .flatMap(ColumnStatistics::histogram);

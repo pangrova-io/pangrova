@@ -91,7 +91,6 @@ public final class TaskResource implements Closeable {
                 ResultProtocol.GRPC.value());
     }
 
-    /** Creates the resource with all collaborator dependencies. */
     /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
@@ -112,7 +111,6 @@ public final class TaskResource implements Closeable {
     }
 
     /** Creates the result-producing resource with explicit process-local signing authority. */
-    /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
             ExchangeTransport exchangeTransport,

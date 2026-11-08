@@ -1,6 +1,6 @@
 package org.pangrova.metadata.outbox;
 
-import org.pangrova.metadata.adapter.FederatedCatalog;
+import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.persistence.catalog.api.error.MetastoreException;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;

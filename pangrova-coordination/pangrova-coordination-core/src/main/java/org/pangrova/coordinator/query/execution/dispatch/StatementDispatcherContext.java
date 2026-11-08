@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementCompletionListener;
 
 import java.util.List;
 
@@ -7,6 +8,7 @@ import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.security.spi.authorization.AccessControl;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
 
 /**
  * Immutable dependency bundle for StatementDispatcher construction.
@@ -29,7 +31,7 @@ public record StatementDispatcherContext(
         // ddlGuard is nullable — when null, DDL executes on any coordinator
     }
 
-    /** Backward-compatible constructor without DDL guard (guard disabled). */
+    /** Creates a context without a DDL leadership guard. */
     public StatementDispatcherContext(
             SqlCompiler compiler,
             CoordinatorResultService resultService,

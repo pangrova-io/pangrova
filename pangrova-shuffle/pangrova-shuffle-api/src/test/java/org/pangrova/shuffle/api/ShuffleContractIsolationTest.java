@@ -31,7 +31,7 @@ class ShuffleContractIsolationTest {
                     "org.pangrova.shuffle.spool.SpoolStore",
                     "org.pangrova.shuffle.local.spool.LocalFsSpoolStore",
                     "org.pangrova.shuffle.api.ShuffleByteEgress",
-                    "org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport",
+                    "org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport",
                     "org.pangrova.protocol.v2.TaskRequest", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.arrow.vector.VectorSchemaRoot")) {
                 assertThatThrownBy(() -> loader.loadClass(unavailable)).isInstanceOf(ClassNotFoundException.class);

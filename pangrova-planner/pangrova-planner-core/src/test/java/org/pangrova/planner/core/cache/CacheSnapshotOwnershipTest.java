@@ -7,6 +7,7 @@ import java.util.HashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.pangrova.cache.api.CachedResult;
 
 class CacheSnapshotOwnershipTest {
     @Test

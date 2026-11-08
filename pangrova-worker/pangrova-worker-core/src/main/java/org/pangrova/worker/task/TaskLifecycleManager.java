@@ -10,7 +10,7 @@ import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
-import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+import org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

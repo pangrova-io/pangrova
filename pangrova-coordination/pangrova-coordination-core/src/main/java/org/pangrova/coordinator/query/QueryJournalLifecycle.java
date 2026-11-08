@@ -37,7 +37,7 @@ final class QueryJournalLifecycle {
         QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), queryId, sql,
-                        org.pangrova.coordinator.query.session.JournalSessionPayload.encode(session),
+                        org.pangrova.query.core.session.JournalSessionPayload.encode(session),
                         QueryState.QUEUED.name(), state.lineageStart()));
         record(state, () -> journal.appendQueryEventSync(fact));
     }

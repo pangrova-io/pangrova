@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
 
 import org.pangrova.query.api.statement.StatementCategory;
 
@@ -22,7 +23,7 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Literal;
@@ -48,6 +49,7 @@ import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.security.api.identity.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 
 /** Hand-written connector guards and real query/write state for DELETE routing tests. */
 final class PlanExecutionFactoryDeleteTestSupport {
@@ -92,7 +94,7 @@ final class PlanExecutionFactoryDeleteTestSupport {
                 QUERY_ID, Map.of(), new UserIdentity("delete-user", Set.of(), Map.of(),
                         Instant.EPOCH), "delete-tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         final StatementExecutionContext context = new StatementExecutionContext(
-                stateMachine, QUERY_ID, session, null, null);
+                stateMachine, QUERY_ID, session);
         final List<String> events = new ArrayList<>();
         final List<Statement> dispatched = new ArrayList<>();
         final DeleteMetadata metadata;

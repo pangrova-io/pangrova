@@ -1,8 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.retrieval;
 
 import org.pangrova.query.core.stage.binding.RetrievalGenerationIntent;
-
-
 import java.util.Objects;
 import org.pangrova.protocol.v2.ArtifactBinding;
 

@@ -1,6 +1,5 @@
 package org.pangrova.scheduler.api.placement;
 
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

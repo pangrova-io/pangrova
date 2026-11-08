@@ -1,51 +1,35 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore;
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.governance.api.quality.QualityRuleStoreException;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.api.quality.QualityCheckResult;
 import org.pangrova.governance.api.quality.Severity;
 import org.postgresql.ds.PGSimpleDataSource;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 
+import javax.sql.DataSource;
 import java.time.Instant;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Exercises actual PostgreSQL persistence, failure visibility and deployment pool ownership. */
 class JdbcQualityRuleStoreRecoveryIntegrationTest {
-    private static final GenericContainer<?> DATABASE = new GenericContainer<>("postgres:16-alpine")
-            .withExposedPorts(5432).withEnv("POSTGRES_DB", "quality")
-            .withEnv("POSTGRES_USER", "quality").withEnv("POSTGRES_PASSWORD", "quality")
-            .waitingFor(Wait.forLogMessage(".*database system is ready to accept connections.*\\n", 2));
-    private static PGSimpleDataSource dataSource;
+    private static DataSource dataSource;
 
     @BeforeAll
-    static void startDatabase() {
-        DATABASE.start();
-        dataSource = new PGSimpleDataSource();
-        dataSource.setURL("jdbc:postgresql://" + DATABASE.getHost() + ":"
-                + DATABASE.getMappedPort(5432) + "/quality");
-        dataSource.setUser("quality");
-        dataSource.setPassword("quality");
-    }
-
-    @AfterAll
-    static void closeDatabase() {
-        DATABASE.close();
+    static void startDatabase() throws Exception {
+        dataSource = SharedPostgresContainer.migratedDataSource("quality_recovery");
     }
 
     private static JdbcQualityRuleStore initializedStore(javax.sql.DataSource database) {
-        var store = new JdbcQualityRuleStore(database);
-        store.initSchema();
-        return store;
+        return new JdbcQualityRuleStore(database);
     }
 
     @Test
@@ -77,43 +61,45 @@ class JdbcQualityRuleStoreRecoveryIntegrationTest {
 
     @Test
     void databaseReadAndWriteFailuresCannotBecomeEmptyRulesOrLostResults() throws Exception {
-        var store = initializedStore(dataSource);
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+        DataSource failing = SharedPostgresContainer.migratedDataSource("quality_failure");
+        var store = initializedStore(failing);
+        try (var connection = failing.getConnection(); var statement = connection.createStatement()) {
             statement.execute("DROP TABLE quality_rules");
             statement.execute("DROP TABLE quality_check_results");
         }
-        try {
-            assertThatThrownBy(() -> store.getRule(1)).isInstanceOf(QualityRuleStoreException.class);
-            assertThatThrownBy(() -> store.getRulesForTable("c", "s", "t"))
-                    .isInstanceOf(QualityRuleStoreException.class);
-            assertThatThrownBy(store::getAllEnabledRules).isInstanceOf(QualityRuleStoreException.class);
-            assertThatThrownBy(() -> store.saveResult(new QualityCheckResult(2, 1, "r", "t",
-                    Severity.ERROR, Instant.now(), false, 1, 1, 1, "failure", null)))
-                    .isInstanceOf(QualityRuleStoreException.class);
-        } finally {
-            initializedStore(dataSource);
-        }
+        assertThatThrownBy(() -> store.getRule(1)).isInstanceOf(QualityRuleStoreException.class);
+        assertThatThrownBy(() -> store.getRulesForTable("c", "s", "t"))
+                .isInstanceOf(QualityRuleStoreException.class);
+        assertThatThrownBy(store::getAllEnabledRules).isInstanceOf(QualityRuleStoreException.class);
+        assertThatThrownBy(() -> store.saveResult(new QualityCheckResult(2, 1, "r", "t",
+                Severity.ERROR, Instant.now(), false, 1, 1, 1, "failure", null)))
+                .isInstanceOf(QualityRuleStoreException.class);
     }
 
     @Test
-    void deniedSchemaInitializationFailsBeforePublishingStore() throws Exception {
+    void missingCanonicalSchemaFailsClosedWithoutPublishingStore() throws Exception {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String role = "quality_readonly_" + suffix;
+        String schema = "denied_quality_" + suffix;
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("CREATE ROLE quality_readonly LOGIN PASSWORD 'quality_readonly'");
-            statement.execute("CREATE SCHEMA denied_quality");
-            statement.execute("GRANT USAGE ON SCHEMA denied_quality TO quality_readonly");
+            statement.execute("CREATE ROLE " + role + " LOGIN PASSWORD 'quality_readonly'");
+            statement.execute("CREATE SCHEMA " + schema);
+            statement.execute("GRANT USAGE ON SCHEMA " + schema + " TO " + role);
         }
         var restricted = new PGSimpleDataSource();
-        restricted.setURL(dataSource.getURL());
-        restricted.setUser("quality_readonly");
+        try (var connection = dataSource.getConnection()) {
+            restricted.setURL(connection.getMetaData().getURL());
+        }
+        restricted.setUser(role);
         restricted.setPassword("quality_readonly");
-        restricted.setCurrentSchema("denied_quality");
-        assertThatThrownBy(() -> initializedStore(restricted))
+        restricted.setCurrentSchema(schema);
+        var store = initializedStore(restricted);
+        assertThatThrownBy(store::getAllEnabledRules)
                 .isInstanceOf(QualityRuleStoreException.class)
-                .hasMessageContaining("initialize quality rule schema")
                 .hasRootCauseInstanceOf(java.sql.SQLException.class);
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
-             var rows = statement.executeQuery("SELECT 1")) {
-            assertThat(rows.next()).isTrue();
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("DROP SCHEMA " + schema + " CASCADE");
+            statement.execute("DROP ROLE " + role);
         }
     }
 }

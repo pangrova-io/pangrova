@@ -125,7 +125,8 @@ public final class ClusteringDdlExecutor {
 
     private ClusteringCapability resolveCapability(QualifiedTableName tableRef, QuerySession context) {
         CatalogHandle handle = deps.catalogRegistry().getCatalog(tableRef.catalog());
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(),
+                tableRef.schema());
         ConnectorMetadata metadata = handle.getMetadata(session);
         return metadata.getClusteringCapability()
                 .orElseThrow(() -> new PangrovaException(

@@ -8,7 +8,7 @@ import java.util.Map;
 import com.google.protobuf.ByteString;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.indexing.adapter.planner.vector.VectorSearchNode;
+import org.pangrova.indexing.planner.vector.VectorSearchNode;
 import java.util.Optional;
 import org.pangrova.query.core.stage.binding.RerankIntent;
 import org.pangrova.query.core.stage.binding.RetrievalGenerationIntent;
@@ -89,7 +89,8 @@ public final class RetrievalIntentCollector {
 
     /** Builds the global Native merge contract for a hybrid retrieval plan. */
     public java.util.Optional<RetrievalMergeIntent>
-            collectRetrievalMergeIntent(Optional<VectorSearchNode> vectorSearch, Optional<RerankerPlanNode> rerankerPlan) {
+            collectRetrievalMergeIntent(Optional<VectorSearchNode> vectorSearch,
+                    Optional<RerankerPlanNode> rerankerPlan) {
         if (rerankerPlan.isEmpty()
                 || !rerankerPlan.orElseThrow().isHybrid()) {
             return java.util.Optional.empty();
@@ -297,7 +298,7 @@ public final class RetrievalIntentCollector {
 
     private static int vectorCandidateLimit(
             Optional<VectorSearchNode> vectorSearch, Optional<RerankerPlanNode> rerankerPlan,
-            org.pangrova.indexing.adapter.planner.vector.VectorSearchNode node) {
+            org.pangrova.indexing.planner.vector.VectorSearchNode node) {
         if (rerankerPlan.isEmpty()
                 || !rerankerPlan.orElseThrow().isHybrid()) {
             return node.hybridStrategy().effectiveK();

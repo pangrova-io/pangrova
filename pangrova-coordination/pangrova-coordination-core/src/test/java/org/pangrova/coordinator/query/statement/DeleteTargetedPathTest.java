@@ -1,4 +1,7 @@
 package org.pangrova.coordinator.query.statement;
+import org.pangrova.query.core.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementCompletionEvent;
+import org.pangrova.query.core.dispatch.StatementCompletionListener;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.*;

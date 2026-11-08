@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.ai.control.store.jdbc.embedding.JdbcCurrentModelAuthority;
+import org.pangrova.persistence.ai.postgresql.embedding.JdbcCurrentModelAuthority;
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;

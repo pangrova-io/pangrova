@@ -8,8 +8,8 @@ import org.pangrova.query.core.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.query.core.statement.StatementTableTargets;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
 import org.pangrova.parser.core.format.AstPrinter;
@@ -19,7 +19,6 @@ import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement;
 import org.pangrova.parser.api.ast.statement.CreateTableStatement;
 import org.pangrova.parser.api.ast.statement.dml.InsertSelectStatement;
-import org.pangrova.parser.api.ast.type.DataTypeSpec;
 import org.pangrova.planner.core.analysis.PlannedQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,17 +40,20 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
 
     private final DdlExecutor ddlExecutor;
     private final NativeDmlCompileFunction dmlDispatch;
+    private final java.util.function.Supplier<org.pangrova.planner.core.analysis.SqlCompiler> compiler;
 
-    public CtasTask(DdlExecutor ddlExecutor, NativeDmlCompileFunction dmlDispatch) {
+    public CtasTask(DdlExecutor ddlExecutor, NativeDmlCompileFunction dmlDispatch,
+            java.util.function.Supplier<org.pangrova.planner.core.analysis.SqlCompiler> compiler) {
         this.ddlExecutor = ddlExecutor;
         this.dmlDispatch = dmlDispatch;
+        this.compiler = compiler;
     }
 
     @Override
     public StatementResult execute(CreateTableAsSelectStatement statement, StatementExecutionContext context) {
         // 1. Compile the inner SELECT to derive output schema
         String innerSql = new AstPrinter().print(statement.query());
-        PlannedQuery plannedQuery = context.compiler().forSession(
+        PlannedQuery plannedQuery = compiler.get().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(context.session()))
                 .compileToPlannedQuery(innerSql);
 

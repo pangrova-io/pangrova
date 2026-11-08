@@ -83,7 +83,7 @@ class IndexGarbageCollectorLeaderGateTest {
         var config = new IndexingConfig("/tmp/test-idx", false, null, null);
         var resolver = buildResolver();
         var deps = new IndexGcContext(store, new IndexStorageManager(),
-                descriptor -> new org.pangrova.indexing.fs.LocalFileSystemAccessor(), config);
+                descriptor -> new org.pangrova.indexing.fs.LocalFileSystemAccessor(), config, null);
         gc = new IndexGarbageCollector(deps, null, null);
 
         gc.runGc();
@@ -102,7 +102,7 @@ class IndexGarbageCollectorLeaderGateTest {
         var config = new IndexingConfig("/tmp/test-idx", false, null, null);
         var resolver = buildResolver();
         var deps = new IndexGcContext(store, new IndexStorageManager(),
-                descriptor -> new org.pangrova.indexing.fs.LocalFileSystemAccessor(), config);
+                descriptor -> new org.pangrova.indexing.fs.LocalFileSystemAccessor(), config, null);
         var gc = new IndexGarbageCollector(deps, null, leaderElection);
         return new TestEnv(gc, store);
     }

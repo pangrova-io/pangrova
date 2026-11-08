@@ -5,7 +5,7 @@
 > **Status: Target architecture.** 模块名、ports、events 和迁移批次是长期目标，
 > 不是当前仓库已经实现的类型或兼容承诺。
 
-> 当前执行状态、实际模块/包盘点和剩余迁移请参见[项目目录与内部包重构执行计划](../internal/project-restructure-execution-plan.md)。本文中的起点数量和迁移批次属于历史蓝图，不构成当前完成证明。
+> 当前执行计划、目标模块表与阶段验收以[全仓模块化实施计划](../internal/project-structure-refactoring/full-repo-modularization-plan.md)（P0–P12）为准，实际执行状态见[领域模块化实施记录](../internal/project-structure-refactoring/domain-modularization-progress.md)。本文中的起点数量和迁移批次属于历史蓝图，不构成当前完成证明。
 
 > **2026-11-01 Generation 归并修订：** 共享值契约归 `pangrova-spi` 的 `generation` 能力包，job/execution/exchange/publication 存储端口与显式 `transaction.jdbc` 协作端口归 Persistence API，实际 PostgreSQL 后端归 Persistence JDBC。旧 transaction-spi/store-postgresql 制品删除。Generation core 保留规范编码、纯图构造与发布路由，不依赖 Security 或 Persistence 实现；JDBC 后端单向使用这些共用编码。Catalog export 和当前 tenant/table authority 的领域判断仍由调用方负责；相关领域 SQL 后端继续迁移。迁移与测试不代表全项目完成。
 
@@ -1034,9 +1034,9 @@ LLM 输出不是执行授权。只读问题必须先转换为 typed `SemanticQue
 | `pangrova-security` | security-api、security-core、security-store | `.api → .core → .store.jdbc`；quota 归 Scheduler Resource |
 | `pangrova-worker/pangrova-worker-core` | worker-runtime、worker-resource、worker-assembly、worker-server | `.runtime/.resource/.assembly/.embedding/.server`；Native Bridge 与 Bundle 仍为真实边界 |
 | `pangrova-indexing/pangrova-indexing-core` | index-api、index-control、index-runtime/store | `.api/.control/.runtime/.store.jdbc`；关闭能力不影响基础 SQL |
-| `pangrova-streaming` | streaming-api、streaming-control、streaming-store | `.api/.control/.store.jdbc`；CDC/checkpoint migration 独占 |
-| `pangrova-materialization` / `pangrova-materialization-store-jdbc` | materialization-api、control、store | kernel `.api/.domain/.usecase/.port/.extension`；JDBC repository 独立 artifact 的 `.store.jdbc`；不接管基础 Metadata authority |
-| `pangrova-governance` | governance-api、catalog、lineage projection、data quality | `.api/.catalog/.lineage/.quality/.audit`；各自 migration owner，不同步阻塞查询主链 |
+| `pangrova-streaming-api/core/providers` + `pangrova-persistence-streaming-postgresql` | streaming-api、control/core、CDC format/writer providers、store | `.api/.core`；Provider 与 `.store.postgresql` 独立；CDC/checkpoint migration 独占 |
+| `pangrova-materialization-api/spi/core/strategies-builtin` + `pangrova-persistence-materialization-postgresql` | materialization-api、SPI、control、strategies、store | `.domain/.port`、`.extension`、`.usecase`、`.strategy` 分属独立 artifact；JDBC repository 归 Persistence 且依赖 API；不接管基础 Metadata authority |
+| `pangrova-governance-api/core/providers` + `pangrova-persistence-governance-postgresql` | governance-api、core、lineage/quality providers、store | `.api/.core`；Provider 与 `.store.postgresql` 独立；各自 migration owner，不同步阻塞查询主链 |
 | `pangrova-operations` | operations-core、diagnostics | `.core/.diagnostics`；以授权和资源预算隔离副作用 |
 | `pangrova-coordination/pangrova-coordination-core` | coordination-core、ZooKeeper adapter、assembly、server | `.coordination/.assembly/.embedding/.server`；领域实现迁出，app 内单向依赖 |
 | `pangrova-client-core` | public protocol、REST/Flight client | `.protocol/.transport`；JDBC 与 CLI 仍是独立发布/分发物 |

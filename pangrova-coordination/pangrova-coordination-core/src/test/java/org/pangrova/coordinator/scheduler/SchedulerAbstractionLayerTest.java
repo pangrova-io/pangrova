@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.scheduler;
 
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeQueryInventory;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeQueryInventory;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInventory;
 import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.scheduler.api.error.CircuitBreakerOpenException;
 import org.pangrova.scheduler.api.error.ErrorCategory;
@@ -70,7 +70,7 @@ class SchedulerAbstractionLayerTest {
                 CoordinatorSpeculativeAttemptDispatcher.class, CoordinatorSpeculativeQueryInventory.class,
                 CoordinatorSpeculativeTaskRegistry.class, CoordinatorSpeculativeWorkerInventory.class)) {
             assertThat(adapter.getPackageName())
-                    .isEqualTo("org.pangrova.coordinator.query.adapter.scheduler");
+                    .isEqualTo("org.pangrova.coordinator.query.scheduling");
         }
         assertThat(scanForImports(SCHEDULER_PKG,
                 "import org.pangrova.coordinator.query.",

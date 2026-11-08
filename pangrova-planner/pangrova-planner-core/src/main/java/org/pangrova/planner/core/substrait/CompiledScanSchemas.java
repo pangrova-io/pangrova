@@ -17,6 +17,7 @@ public final class CompiledScanSchemas {
 
     private CompiledScanSchemas() {}
 
+    /** Extracts canonical scan schemas from a serialized Substrait plan. */
     public static Map<String, byte[]> extract(byte[] bytes) {
         try {
             Map<String, byte[]> result = new HashMap<>();

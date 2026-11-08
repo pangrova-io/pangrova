@@ -11,10 +11,9 @@
     <artifactId>pangrova-file</artifactId>
     <packaging>pom</packaging>
     <name>Pangrova File</name>
-    <description>File contracts, domain orchestration and Worker HTTP adapter</description>
+    <description>File contracts, domain orchestration and Worker HTTP client</description>
     <modules>
         <module>pangrova-file-api</module>
         <module>pangrova-file-core</module>
-        <module>pangrova-file-worker-adapter</module>
     </modules>
 </project>

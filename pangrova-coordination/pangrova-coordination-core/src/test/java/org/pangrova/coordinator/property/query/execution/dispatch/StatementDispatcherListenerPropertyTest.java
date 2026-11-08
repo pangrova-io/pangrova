@@ -12,9 +12,9 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionListener;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementCompletionEvent;
+import org.pangrova.query.core.dispatch.StatementCompletionListener;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.CreateTableStatement;

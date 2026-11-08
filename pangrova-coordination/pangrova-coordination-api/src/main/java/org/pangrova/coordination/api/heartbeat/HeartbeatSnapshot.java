@@ -35,9 +35,4 @@ public record HeartbeatSnapshot(
         Objects.requireNonNull(memoryPressure, "memoryPressure must not be null");
     }
 
-    /** Backward-compatible constructor without cache summary. */
-    public HeartbeatSnapshot(String memoryPressure, double cpuUtilization,
-                             int runningTaskCount, long availableMemoryBytes) {
-        this(memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, null);
-    }
 }

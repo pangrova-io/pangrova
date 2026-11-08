@@ -1,7 +1,7 @@
 package org.pangrova.metadata.service;
 
 import org.pangrova.table.api.ownership.TableControlRecord;
-import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
+import org.pangrova.metadata.security.TableControlColumnMaskStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
@@ -12,7 +12,7 @@ import org.pangrova.table.core.ownership.TableControlService;
 import org.pangrova.table.core.config.TableControlSettings;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 
 import java.util.Map;
@@ -213,14 +213,14 @@ class MetadataTagOperationsTest {
         var scope = org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(table, Set.of("email"), table);
         try (var transaction = source.getConnection()) {
             transaction.setAutoCommit(false);
-            TableControlDeferredPolicy.requireCurrent(transaction, "alice", scope);
+            TableControlWriteAuthorities.postgres().requireCurrent(transaction, "alice", scope);
             transaction.rollback();
             tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
-            assertThatThrownBy(() -> TableControlDeferredPolicy.requireCurrent(transaction, "alice", scope))
+            assertThatThrownBy(() -> TableControlWriteAuthorities.postgres().requireCurrent(transaction, "alice", scope))
                     .hasMessageContaining("Raw artifact reads cannot bypass");
             transaction.rollback();
             tags.unsetTag(current(orders), "email", "pii_type");
-            TableControlDeferredPolicy.requireCurrent(transaction, "alice", scope);
+            TableControlWriteAuthorities.postgres().requireCurrent(transaction, "alice", scope);
             transaction.rollback();
         }
     }

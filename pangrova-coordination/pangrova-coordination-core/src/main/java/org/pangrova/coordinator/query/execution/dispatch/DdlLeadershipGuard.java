@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.DdlNotOnLeaderException;
 
 import java.util.Objects;
 import java.util.Optional;

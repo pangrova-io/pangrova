@@ -464,7 +464,6 @@ public interface IndexMetadataStore {
 
     // --- File column statistics (L0 pruning) ---
 
-    /** Batch-inserts file column statistics for L0 partition pruning. */
     /**
      * Returns the number of indexed data files for each given index.
      * Used by the planner to compute coverage ratios for cost-based hint filtering.

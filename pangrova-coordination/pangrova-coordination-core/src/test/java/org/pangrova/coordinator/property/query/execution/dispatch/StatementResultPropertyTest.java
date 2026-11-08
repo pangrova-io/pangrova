@@ -10,7 +10,7 @@ import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Combinators;
 
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.types.value.TypedRow;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

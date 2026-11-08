@@ -60,7 +60,7 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
             throw new IllegalArgumentException("A three-part table name is required");
         }
         String tenant = authenticatedCatalogSession(parts[0]).getProperties().get("tenant_id");
-        var matches = new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent)
+        var matches = new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)
                 .findIndexesByTable(tenant, parts[0], parts[1], parts[2]).stream()
                 .filter(index -> index.indexName().equals(indexName)).toList();
         assertThat(matches).as("exact tenant/table/index metadata identity").hasSize(1);
@@ -79,7 +79,7 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
                     return index.state() == IndexState.READY;
                 });
         var descriptor = findIndex(indexName, fqn);
-        var active = new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent)
+        var active = new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)
                 .findActiveIndexGeneration(descriptor.indexId()).orElseThrow(() ->
                         new IllegalStateException("READY index has no active immutable generation"));
         assertThat(active.indexId()).isEqualTo(descriptor.indexId());
@@ -285,7 +285,7 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
                 .isGreaterThan(0);
         assertThat(findIndex(index.descriptor().indexName(), manifest.sourceId()).state())
                 .isEqualTo(IndexState.READY);
-        assertThat(new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent)
+        assertThat(new JdbcIndexMetadataStore(stateStoreDataSource(), org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)
                 .findActiveIndexGeneration(index.descriptor().indexId()).orElseThrow().generation())
                 .isEqualTo(index.descriptor().generation());
         return requiredRecall;

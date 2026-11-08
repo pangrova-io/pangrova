@@ -9,6 +9,9 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pangrova.cache.api.CachedResult;
+import org.pangrova.cache.api.L2CacheStore;
+import org.pangrova.cache.memory.InMemoryL2CacheStore;
 
 class QueryResultCacheTest {
 

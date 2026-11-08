@@ -85,8 +85,13 @@
 
         <!-- PERF-T7: Caffeine cache for lock-free PlanCache (version managed by parent BOM) -->
         <dependency>
-            <groupId>com.github.ben-manes.caffeine</groupId>
-            <artifactId>caffeine</artifactId>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-cache-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-cache-memory</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>

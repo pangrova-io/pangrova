@@ -323,8 +323,8 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + source + " VALUES (1)");
         var owner = store.find(PAIMON, SCHEMA, table).orElseThrow();
-        var persisted = new org.pangrova.governance.store.jdbc.JdbcQualityRuleStore(stateStoreDataSource());
-        var rules = new org.pangrova.metadata.adapter.governance.TableControlQualityRuleStore(
+        var persisted = new org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore(stateStoreDataSource());
+        var rules = new org.pangrova.metadata.governance.TableControlQualityRuleStore(
                 new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()), persisted);
         long ruleId = java.util.UUID.randomUUID().getLeastSignificantBits() & Long.MAX_VALUE;
         var now = java.time.Instant.now();

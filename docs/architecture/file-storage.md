@@ -10,13 +10,12 @@ The parent contains api/local/s3/oss artifacts and supplies no runtime JAR.
 | `pangrova-filesystem-s3` | S3 transfer, publication, cancellation, owned clients and presigners | Filesystem API/Common plus S3 SDK |
 | `pangrova-filesystem-oss` | OSS governed FILE publication | Filesystem API/Common plus OSS SDK; object transfer/COPY remains pending |
 | `pangrova-file-api` | FileSpace definitions, access grants, shared validation and typed authority/access/audit ports | Common, Filesystem API and Security API; no Protocol, HTTP/Jackson or implementation dependency |
-| `pangrova-file-core` | Authorization, URL issuance and directory refresh | Injected File ports and persistence contracts; no Worker adapter or JDBC implementation dependency |
-| `pangrova-file-worker-adapter` | Worker HTTP listing, conditional deletion and signed-URL exchange | File API, Filesystem API, Common and Jackson; no File Core or Worker Core dependency |
+| `pangrova-file-core` | Authorization, URL issuance, directory refresh, and the Worker HTTP client (`org.pangrova.file.worker`) | Injected File ports and persistence contracts; no JDBC implementation or Worker Core dependency |
 | `pangrova-persistence-file-api` | File space/profile revision, directory attempts and COPY claim/admission ports | Control-plane contracts; no JDBC, backend SDK or Worker dependency |
 | `pangrova-persistence-file-postgresql` | File PostgreSQL implementations | Implements File persistence contracts; Security authority gates are supplied by `pangrova-persistence-security-postgresql`; initialization remains in `pangrova-schema-migrations` |
 
-`pangrova-file` is an aggregator with API, Core and Worker Adapter child artifacts.
-Server composition selects the adapter, and Core consumes its typed ports. The access and
+`pangrova-file` is an aggregator with API and Core child artifacts; the former Worker Adapter was merged into Core on 2026-11-07.
+Server composition selects the Worker HTTP client in File Core, and Core consumes its typed ports. The access and
 URL services share `core.access` to keep their private authorization receipt together;
 directory orchestration lives in `core.directory`. Existing service behavior is preserved.
 
@@ -37,7 +36,7 @@ The PostgreSQL implementation owns scan attempts, page checkpoints, captured
 Stage-definition checks and terminal publication. Core authorizes the scan and requests
 Worker listing pages without opening file bytes. A different metadata provider
 must preserve the same attempt fencing and publication semantics. Relational
-directory scans still use their separate execution adapter.
+directory scans still use their separate execution component.
 
 Worker file endpoints consume Filesystem API and signed File access descriptors, not
 File Persistence API or PostgreSQL. The control-plane service resolves the current profile
@@ -49,7 +48,7 @@ lets the host select and own independent backend providers without SDK types in
 the factory signature. The filesystem artifact owns confined LOCAL transfer and
 multipart staging; the S3 artifact owns S3 transfer, response cancellation, SDK
 clients and presigners. Providers have no Worker, File Core or Persistence JDBC dependency.
-Worker retains HTTP authorization/deadlines and its directory execution adapter.
+Worker retains HTTP authorization/deadlines and its directory execution component.
 
 Each provider caches by the complete immutable profile, including credentials and
 options. Delimiter-containing fields cannot collide, and a rotated secret or token

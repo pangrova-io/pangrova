@@ -3,8 +3,8 @@ package org.pangrova.metadata.memory.relation;
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyStore;
 import org.pangrova.metadata.api.relation.ObjectRef;
 
-import org.pangrova.metadata.relation.ObjectDependencyKey;
-import org.pangrova.metadata.relation.ObjectDependencyOrder;
+import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyKey;
+import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyOrder;
 
 import java.util.LinkedHashMap;
 import java.util.List;

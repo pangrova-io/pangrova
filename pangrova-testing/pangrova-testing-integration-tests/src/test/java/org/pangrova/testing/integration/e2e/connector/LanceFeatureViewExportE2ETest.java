@@ -124,7 +124,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
                 .contains("source_plan_base64");
         executeDdl("CREATE FEATURE VIEW " + view + "_limit VERSION 1 AS '"
                 + definition.replace("FROM " + source, "FROM " + source + " LIMIT 1") + "'");
-        var limited = org.pangrova.ai.control.assembly.AiInfrastructureStores.jdbc(
+        var limited = org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores.jdbc(
                 stateStoreDataSource(), ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource())).features()
                 .findFeatureView(new org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewId(
                         tenant, CATALOG, "default", view.substring(view.lastIndexOf('.') + 1) + "_limit"), 1)
@@ -155,7 +155,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
                 new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()),
                 new JdbcRowPolicyStore(stateStoreDataSource()));
-        masks = new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
+        masks = new org.pangrova.metadata.security.TableControlColumnMaskStore(
                 new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()),
                 new JdbcColumnMaskStore(stateStoreDataSource()));
         replacePolicies(minimum, mask);
@@ -217,7 +217,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         String policyVersion = "minimum-two-rows-" + suffix;
         String runId = "feature-export-" + suffix;
         Instant now = Instant.now();
-        var evaluations = org.pangrova.ai.control.assembly.AiInfrastructureStores
+        var evaluations = org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores
                 .jdbc(stateStoreDataSource(),
                         ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource())).evaluations();
         evaluations.createDatasetVersion(new EvaluationDatasetVersion(

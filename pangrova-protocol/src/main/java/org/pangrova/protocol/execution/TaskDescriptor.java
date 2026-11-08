@@ -86,18 +86,6 @@ public record TaskDescriptor(
                 stageId, partitionId, taskType, resourceLimit, Optional.empty(), 0);
     }
 
-    /**
-     * Backward-compatible constructor for callers that don't need full task identity.
-     * Defaults: stageId=0, partitionId=0, taskType="COMPUTE", resourceLimit=NONE, no output routing.
-     */
-    public TaskDescriptor(
-            QueryId queryId,
-            PlanFragment planFragment,
-            List<Split> splits,
-            Map<String, String> sessionProperties) {
-        this(queryId, planFragment, splits, sessionProperties,
-                0, 0, "COMPUTE", TaskResourceLimit.NONE, Optional.empty(), 0);
-    }
 
     /**
      * Returns true if this task has native output routing configured,

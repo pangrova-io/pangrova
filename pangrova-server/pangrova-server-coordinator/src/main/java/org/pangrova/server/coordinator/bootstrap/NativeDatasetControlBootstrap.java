@@ -46,11 +46,13 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
     }
 
     private org.pangrova.connector.spi.metadata.ManagedSourceCatalog sourceCatalog(CatalogDescriptor catalog) {
-        return new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(metadataDataSource,
+        return new org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog(metadataDataSource,
                 new org.pangrova.connector.api.metadata.SourceCatalogDeployment(
                         catalog.name(), catalog.incarnationId(), catalog.revision()),
                 executionId -> requireStarted(dependencies.fencer().get()).currentAnchor(executionId),
-                new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(), modelAuthority);
+                new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
+                        modelAuthority,
+                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
     }
 
     private static <T> T requireStarted(T service) {

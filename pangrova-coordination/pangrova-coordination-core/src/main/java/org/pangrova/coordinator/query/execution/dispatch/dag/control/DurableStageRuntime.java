@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
+import org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.DurableStageShuffleEvidence;
 
 import org.pangrova.execution.core.authority.StageExecutionContext;
 
@@ -86,7 +87,8 @@ public final class DurableStageRuntime {
         var epochs = new HashMap<Integer, Long>();
         execution.exchanges().forEach(value -> epochs.put(value.registration().producerStageId(),
                 value.registration().planEpoch()));
-        control = new StageExecutionContext.Durable(execution.authority(), epochs, dependencies.traceContexts().capture());
+        control = new StageExecutionContext.Durable(execution.authority(), epochs,
+                dependencies.traceContexts().capture());
     }
 
     /** Immutable authority and allocation epochs owning this exact replay, not a synthetic query session. */
@@ -95,8 +97,8 @@ public final class DurableStageRuntime {
     }
 
     /** Hooks real register/finalize RPCs into the existing current-authority metadata barrier. */
-    public org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.DurableStageShuffleEvidence shuffleEvidence() {
-        return new org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.DurableStageShuffleEvidence(dependencies.exchanges(),
+    public DurableStageShuffleEvidence shuffleEvidence() {
+        return new DurableStageShuffleEvidence(dependencies.exchanges(),
                 execution.authority().dispatchSpec(), execution.job().sourceSnapshot(),
                 () -> org.pangrova.generation.api.execution.GenerationExecutionOwner.from(
                         execution.authority().executionAnchor()));
@@ -173,7 +175,8 @@ public final class DurableStageRuntime {
             long memory = request.taskRequest().getResourceGrant().getNativeMemoryBytes();
             var eligible = dependencies.scheduler().eligibleWorkersForTenant(memory, snapshot, job.tenantId());
             var selected = bindings.isEmpty() ? dependencies.scheduler().selectWorker(memory, eligible)
-                    : dependencies.scheduler().selectWorkerWithBindings(memory, eligible, bindings, WorkerInfo::capabilityInventory);
+                    : dependencies.scheduler().selectWorkerWithBindings(memory, eligible, bindings,
+                            WorkerInfo::capabilityInventory);
             var worker = selected.orElseThrow(() -> new IllegalStateException(
                     "No actual Worker satisfies the frozen stage capabilities and admitted resource grant"));
             return new PreparedTask(evidence.lease(), worker, request);

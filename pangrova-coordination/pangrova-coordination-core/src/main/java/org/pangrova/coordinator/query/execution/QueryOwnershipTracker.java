@@ -5,7 +5,7 @@ import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
+import org.pangrova.persistence.query.api.lifecycle.ShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,7 +38,7 @@ public final class QueryOwnershipTracker {
     private final AtomicReference<OwnershipSnapshot> ownershipSnapshot = new AtomicReference<>();
     private final ConcurrentHashMap<String, ConnectorMetadataScope> queryAuthorities =
             new ConcurrentHashMap<>();
-    private volatile JdbcShuffleCleanupIntentStore shuffleCleanupIntents;
+    private volatile ShuffleCleanupIntentStore shuffleCleanupIntents;
     private volatile ShuffleLifecycleManager shuffleLifecycleManager;
 
     /** Immutable snapshot for atomic HA ownership reads. */
@@ -80,7 +80,7 @@ public final class QueryOwnershipTracker {
 
     /** Wires durable remote Shuffle cleanup before execution ownership release. */
     public void setShuffleCleanup(
-            JdbcShuffleCleanupIntentStore intents,
+            ShuffleCleanupIntentStore intents,
             ShuffleLifecycleManager lifecycleManager) {
         shuffleCleanupIntents = checkNotNull(intents, "intents must not be null");
         shuffleLifecycleManager = checkNotNull(
@@ -127,7 +127,7 @@ public final class QueryOwnershipTracker {
     }
 
     private void cleanupExecutionOwnership(String queryId) {
-        JdbcShuffleCleanupIntentStore intents = shuffleCleanupIntents;
+        ShuffleCleanupIntentStore intents = shuffleCleanupIntents;
         if (intents != null) {
             // QueryStateMachine writes the durable intent before its terminal
             // transition. A retry must only consume that intent: recreating it

@@ -8,8 +8,8 @@ import org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunctio
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog;
-import org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository;
+import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog;
+import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository;
 import org.pangrova.parser.api.ast.CreateContinuousQueryStatement;
 import org.pangrova.parser.api.ast.CreateDynamicTableStatement;
 import org.pangrova.parser.api.ast.CreateMaterializedViewStatement;
@@ -44,6 +44,7 @@ public final class MaterializationDdlRegistration {
      * @param coordination leader election
      * @param tableDdl shared table DDL executor
      * @param dmlDispatch native DML compile function
+     * @param compiler current coordinator SQL compiler
      * @param metadataDataSource metadata data source
      * @param accessControl authorization policy
      * @return the wired kernel factory
@@ -55,6 +56,7 @@ public final class MaterializationDdlRegistration {
             HighAvailabilityCoordinationService coordination,
             DdlExecutor tableDdl,
             NativeDmlCompileFunction dmlDispatch,
+            java.util.function.Supplier<org.pangrova.planner.core.analysis.SqlCompiler> compiler,
             DataSource metadataDataSource,
             AccessControl accessControl) {
         Objects.requireNonNull(factory, "factory");
@@ -63,9 +65,10 @@ public final class MaterializationDdlRegistration {
                 Objects.requireNonNull(catalog, "catalog"),
                 Objects.requireNonNull(catalogs, "catalogs"),
                 Objects.requireNonNull(coordination, "coordination"),
-                new CtasTask(tableDdl, dmlDispatch),
+                new CtasTask(tableDdl, dmlDispatch, compiler),
                 Objects.requireNonNull(metadataDataSource, "metadataDataSource"),
-                accessControl);
+                accessControl,
+                compiler);
         KernelDynamicTableService dynamicTables = new KernelDynamicTableService(kernels);
         factory.registerTask(CreateDynamicTableStatement.class, dynamicTables::create);
         factory.registerTask(AlterDynamicTableStatement.class, dynamicTables::alter);

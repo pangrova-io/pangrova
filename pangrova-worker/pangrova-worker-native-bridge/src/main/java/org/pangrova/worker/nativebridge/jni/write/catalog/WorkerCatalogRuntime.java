@@ -15,6 +15,7 @@ import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
 import org.pangrova.connector.spi.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
 import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.spi.plugin.ConnectorRole;
 import org.pangrova.connector.spi.secret.ConnectorSecretResolver;
 import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
@@ -81,7 +82,7 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
         CatalogDeploymentClient client =
                 new CatalogDeploymentClient(coordinatorUrl, internalAuthSecret);
         List<ConnectorFactory> factories =
-                List.copyOf(ConnectorFactoryRegistry.discover(classLoader).factories().values());
+                List.copyOf(ConnectorFactoryRegistry.discover(classLoader, ConnectorRole.WORKER).factories().values());
         List<ConnectorSecretResolver> discoveredSecrets =
                 ServiceLoader.load(ConnectorSecretResolver.class, classLoader).stream()
                         .map(ServiceLoader.Provider::get)
@@ -421,6 +422,7 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
                     "Connector plugin is not installed: " + deployment.connectorProvider());
         }
         Map<String, String> resolved = resolveSecrets(deployment.properties(), tenantId);
+        factory.validateConfiguration(resolved);
         Connector connector =
                 factory.create(deployment.catalogName(), resolved, new WorkerConnectorContext());
         entry.shutdown.attach(connector);

@@ -22,6 +22,7 @@ public class SecurityPolicyChangeListener {
         this.cache = cache;
     }
 
+    /** Invalidates cached entries affected by the current security policy change. */
     public void onSecurityPolicyChange(SecurityPolicyChangeEvent event) {
         if (event instanceof RlsPolicyChanged e) {
             cache.invalidateByTable(e.table());

@@ -4,7 +4,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.worker.result.ResultTransport;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+import org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.execution.TaskExecutor;

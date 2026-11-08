@@ -1,5 +1,7 @@
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.provider.openai.inference.InferenceBatch;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.error.AiInvocationException;
 

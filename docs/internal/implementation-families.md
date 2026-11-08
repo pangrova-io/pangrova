@@ -105,8 +105,8 @@ remaining boundary gaps and verified build results.
   `metadata.control.TablePolicyAuthority` is the table-owned port for stable
   identity, lifecycle state, catalog deployment currency, and governance bindings;
   `metadata.service.RegistryTablePolicyAuthority` adapts the live registry.
-  `metadata.adapter.governance.TableControlQualityRuleStore`,
-  `metadata.adapter.security.TableControlColumnMaskStore`, and
+  `metadata.governance.TableControlQualityRuleStore`,
+  `metadata.security.TableControlColumnMaskStore`, and
   `metadata.service.TableControlRowPolicyStore` consume the port, so the
   governance/security adapters stay free of `CatalogRegistry` or
   `TableControlService`; the row-policy adapter moves with the M8 Table slice.
@@ -139,10 +139,10 @@ contract and its loader. "Future extension" is not an acceptable resting state.
 |---|---|---|---|
 | Secret resolution | `org.pangrova.security.api.secret.SecretResolver` (single contract); consumer adapters `org.pangrova.connector.spi.ConnectorSecretResolver` and worker `EnvironmentSecretProvider` / `EnvironmentConnectorSecretResolver` | AI provider registry, worker catalog runtime, security wiring | M2 done |
 | Tenant registry | `security.core.tenant.InMemoryTenantStore`, `security.store.jdbc.PersistentTenantStore`, `metadata.tenant.JdbcTenantStore` | coordinator security/governance bootstrap | M6 split done; two-schema convergence deferred to a separate S |
-| Column masks | Contract `security.api.mask.ColumnMaskStore`; providers `security.core.mask.provider.empty`, `security.core.mask.provider.memory`, `security.store.jdbc.PersistentColumnMaskStore`; metadata projection `metadata.adapter.security.TableControlColumnMaskStore` | governance + security policy chains | M6 done |
-| Watermarks | `streaming.store.memory.InMemoryWatermarkStore`, `streaming.store.jdbc.watermark.JdbcWatermarkStore` (table watermark), `streaming.store.jdbc.watermark.JdbcWatermarkPositionStore` (source position) | streaming scheduler, CDC pipelines | M9 done: two facts retained because table-watermark and source-position keys differ |
+| Column masks | Contract `security.api.mask.ColumnMaskStore`; providers `security.core.mask.provider.empty`, `security.core.mask.provider.memory`, `security.store.jdbc.PersistentColumnMaskStore`; metadata projection `metadata.security.TableControlColumnMaskStore` | governance + security policy chains | M6 done |
+| Watermarks | `streaming.store.memory.InMemoryWatermarkStore`, `streaming.store.jdbc.watermark.JdbcWatermarkPositionStore` (canonical `watermark_positions`) | streaming scheduler, CDC pipelines | M9 consolidated: the unwired H2-specific `JdbcWatermarkStore` duplicate was deleted; source-position persistence remains the single JDBC owner |
 | Table control stores | `metadata.control.InMemory*` vs `metadata.control.Jdbc*` (four pairs) | coordinator DDL and maintenance | M1 packaging, M8 contract |
-| L2 cache | `metadata.core.cache.DisabledL2CacheStore`, `metadata.core.cache.InMemoryL2CacheStore`, `coordinator.query.cache.RedisL2CacheStore` | query cache | M6 packaging done; Redis stays coordinator-owned |
+| L2 cache | Query result cache: `cache.api.L2CacheStore`, `cache.memory.InMemoryL2CacheStore`, `cache.redis.RedisL2CacheStore`; Metadata's own L2 remains `metadata.core.cache.*` | query result cache / metadata cache | Query result cache family split 2026-11-07; Metadata L2 is a separate metadata-local tier |
 
 M1 only moves the in-memory and JDBC halves into matching provider subpackages.
 Contract unification happens in the owning milestone; until then both

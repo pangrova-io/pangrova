@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
 
 import java.util.List;
 

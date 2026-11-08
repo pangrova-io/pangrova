@@ -4,7 +4,7 @@ import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
 import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
-import org.pangrova.metadata.generation.jdbc.JdbcIndexGenerationPublicationStore;
+import org.pangrova.persistence.generation.postgresql.publication.JdbcIndexGenerationPublicationStore;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 
 import org.flywaydb.core.Flyway;
@@ -20,7 +20,7 @@ import org.pangrova.generation.api.execution.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.output.GenerationOutputTypeIds;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.lifecycle.IndexState;
 import org.pangrova.indexing.api.descriptor.IndexType;
@@ -60,7 +60,7 @@ class JdbcIndexGenerationPublicationStoreTest {
         buildStore = GenerationAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.metadata.testinfra.GenerationExecutionFixtures(dataSource);
         publicationStore = GenerationAuthorityFixtures.artifacts().indexPublications(dataSource);
-        indexStore = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        indexStore = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         indexStore.registerIndex(descriptor);
         GenerationAuthorityFixtures.provision(
                 dataSource, TENANT, "principal-1", dispatch().authorizationScope());

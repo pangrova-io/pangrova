@@ -12,7 +12,7 @@ import org.pangrova.metadata.catalog.registry.CatalogHealthMonitor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.federation.FederationCatalogHandle;
+import org.pangrova.metadata.federation.FederationCatalogHandle;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
@@ -20,8 +20,8 @@ import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.service.DefaultMetadataService;
 import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.metadata.store.jdbc.catalog.PooledDataSourceFactory;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.postgresql.ds.PGSimpleDataSource;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Live collaborator identity only. The real PG sourceDeployments is a component fixture, not a production provider. */

@@ -36,7 +36,7 @@ import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.pangrova.worker.memory.NativeMemoryCoordinator;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.result.ResultReadTickets;
-import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+import org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TaskManagerContext;
 import org.pangrova.worker.task.TransportRefs;

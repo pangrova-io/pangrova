@@ -25,12 +25,4 @@ public record OperatorStats(
     @JsonProperty("peak_memory_bytes") long peakMemoryBytes,
     @JsonProperty("spill_bytes") long spillBytes
 ) {
-    /**
-     * Backward-compatible constructor without memory/spill fields.
-     */
-    public OperatorStats(String operatorType, long inputRows, long outputRows,
-                         long inputBytes, long outputBytes, long cpuNanos, long wallNanos) {
-        this(operatorType, inputRows, outputRows, inputBytes, outputBytes,
-             cpuNanos, wallNanos, "", 0, 0, 0);
-    }
 }

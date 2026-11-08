@@ -1,9 +1,9 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore;
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import org.pangrova.governance.api.quality.DataQualityRule;
-import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor;
+import org.flywaydb.core.Flyway;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,9 +32,8 @@ class JdbcQualityRuleStoreIntegrationTest extends ContainerTestBase {
     private PGSimpleDataSource dataSource;
 
     private static JdbcQualityRuleStore initializedStore(PGSimpleDataSource source) {
-        var store = new JdbcQualityRuleStore(source);
-        store.initSchema();
-        return store;
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+        return new JdbcQualityRuleStore(source);
     }
 
     @BeforeEach
@@ -134,7 +133,7 @@ class JdbcQualityRuleStoreIntegrationTest extends ContainerTestBase {
     @Test
     void writeGateFailsClosedWhenRuleReadFails() throws SQLException {
         JdbcQualityRuleStore store = initializedStore(dataSource);
-        RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(store, new UnconfiguredQualityRuleExecutor());
+        RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(store, new TestQualityRuleExecutor());
 
         var noRules = gate.validate("catalog", "schema", "orders");
         assertThat(noRules.allowed()).isTrue();
@@ -178,7 +177,7 @@ class JdbcQualityRuleStoreIntegrationTest extends ContainerTestBase {
 
     private static PGSimpleDataSource dataSource(String currentSchema) {
         PGSimpleDataSource source = new PGSimpleDataSource();
-        source.setURL(org.pangrova.metadata.testinfra.SharedPostgresContainer.jdbcUrl());
+        source.setURL(org.pangrova.testing.testkit.postgres.SharedPostgresContainer.jdbcUrl());
         source.setUser("pangrova");
         source.setPassword("pangrova");
         if (currentSchema != null) {

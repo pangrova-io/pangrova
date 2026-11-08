@@ -2,11 +2,11 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeQueryInventory;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeQueryInventory;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptDispatcher;
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
@@ -70,7 +70,7 @@ final class QueryBootstrap {
     private final HighAvailabilityCoordinationService coordinationService;
     private final QueryDurableRecoveryWiring durableRecovery;
     private final org.pangrova.security.api.secret.SecretResolver secretResolver;
-    private final org.pangrova.ai.control.assembly.AiInfrastructureStores aiInfrastructureStores;
+    private final org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores aiInfrastructureStores;
     private final CurrentModelAuthority modelAuthority;
     private final GenerationStores artifactStores;
 
@@ -113,6 +113,10 @@ final class QueryBootstrap {
     private QueryDispatcher queryDispatcher;
     private org.pangrova.persistence.query.api.state.QueryStateJournal stateJournal;
     private QueryExecutionBootstrap executionWiring;
+
+    QueryExecutionBootstrap executionWiring() {
+        return executionWiring;
+    }
     private org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker;
     private org.pangrova.persistence.query.api.commit.WriteCommitJournal writeCommitJournal;
     private org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService
@@ -140,7 +144,7 @@ final class QueryBootstrap {
                    javax.sql.DataSource metadataDataSource, StreamingBootstrap streamingBootstrap,
                    HighAvailabilityCoordinationService coordinationService,
                    org.pangrova.security.api.secret.SecretResolver secretResolver,
-                   org.pangrova.ai.control.assembly.AiInfrastructureStores aiInfrastructureStores,
+                   org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores aiInfrastructureStores,
                    CurrentModelAuthority modelAuthority) {
         this.config = config;
         this.tracingProvider = tracingProvider;
@@ -264,7 +268,7 @@ final class QueryBootstrap {
                         artifactBuildStore);
         org.pangrova.semantic.api.view.SemanticViewStore semanticViewStore =
                 metadataDataSource == null ? null
-                        : new org.pangrova.semantic.store.jdbc.JdbcSemanticViewStore(
+                        : new org.pangrova.persistence.semantic.postgresql.JdbcSemanticViewStore(
                                 metadataDataSource);
         var featureViewService =
                 materializationWiring.createFeatureView(catalog);
@@ -274,7 +278,8 @@ final class QueryBootstrap {
                 featureViewService, embeddingModelRegistry,
                 durableRecovery::resolveShuffleOwner, metadataDataSource, auditEmitter, modelAuthority);
         queryDispatcher = executionWiring.buildQueryDispatcher(workerManager, taskTracker,
-                compiler, runtimeFilters, taskScheduler, indexedReads, resolveCircuitBreaker(), controlPlaneResultService,
+                compiler, runtimeFilters, taskScheduler, indexedReads, resolveCircuitBreaker(),
+                        controlPlaneResultService,
                 splitAssignmentManager, speculativeStageHandler, stateJournal, publishedReads, generatedValueReads);
         this.remoteTaskDispatcher = executionWiring.remoteTaskDispatcher();
         if (speculativeTaskLauncher != null) {
@@ -410,7 +415,8 @@ final class QueryBootstrap {
                         artifactStores.exchanges(metadataDataSource),
                         queryDispatcher.dagEngine()),
                 new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
-                        java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(5), 32), new OtelExecutionTraceContextFactory());
+                        java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(5), 32),
+                                new OtelExecutionTraceContextFactory());
         artifactPoll = schedulerExecutor().scheduleWithFixedDelay(() -> {
             try {
                 artifactBuildDispatcher.pollOnce();
@@ -439,7 +445,6 @@ final class QueryBootstrap {
         materializationMaintenance =
                 new org.pangrova.coordinator.materialization.MaterializationMaintenance(
                         kernels, service, config.coordinatorId(), queryManager,
-                        executionWiring.compiler(), executionWiring.resultService(),
                         recovery,
                         new org.pangrova.coordinator.materialization.MaterializationMaintenance
                                 .Dependencies(store, kernels.sourcePinning(), schedulerExecutor(),
@@ -449,7 +454,8 @@ final class QueryBootstrap {
                                                 .newSingleThreadExecutor("materialization-refresh"),
                                         org.pangrova.coordinator.materialization
                                                 .MaterializationMaintenance.Settings.defaults(
-                                                        config.coordinatorId())), new OtelExecutionTraceContextFactory());
+                                                        config.coordinatorId())),
+                                                                new OtelExecutionTraceContextFactory());
         materializationMaintenance.start();
     }
 

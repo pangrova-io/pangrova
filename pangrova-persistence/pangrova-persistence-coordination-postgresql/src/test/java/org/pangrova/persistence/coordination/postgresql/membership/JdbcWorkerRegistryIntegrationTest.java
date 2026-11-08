@@ -112,7 +112,7 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         WorkerSnapshot worker = newWorker("w-hb", "host-1", 8080, 9090);
         registry.register(worker);
 
-        HeartbeatSnapshot hb = new HeartbeatSnapshot("HIGH", 0.95, 10, 256L);
+        HeartbeatSnapshot hb = new HeartbeatSnapshot("HIGH", 0.95, 10, 256L, null);
         registry.heartbeat(registry.getWorker("w-hb").orElseThrow().registrationIdentity(), hb);
 
         WorkerSnapshot got = registry.getWorker("w-hb").orElseThrow();

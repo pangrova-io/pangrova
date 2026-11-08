@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
 
 import java.util.Map;
 import java.util.Set;
@@ -7,6 +8,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
 
 /**
  * Consolidated factory for direct metadata operations (DDL, SHOW, INSERT VALUES,

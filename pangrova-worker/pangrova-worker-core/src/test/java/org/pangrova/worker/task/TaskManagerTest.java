@@ -117,7 +117,7 @@ class TaskManagerTest {
                 new QueryId("test-query"),
                 new TestPlanFragment(),
                 List.of(),
-                Map.of());
+                Map.of(), 0, 0, "COMPUTE", org.pangrova.protocol.execution.TaskResourceLimit.NONE);
     }
 
     /**

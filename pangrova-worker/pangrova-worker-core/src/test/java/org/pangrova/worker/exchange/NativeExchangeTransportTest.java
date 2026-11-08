@@ -10,7 +10,7 @@ import org.pangrova.shuffle.exchange.ExchangeInput;
 import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+import org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport;
 
 import java.util.List;
 

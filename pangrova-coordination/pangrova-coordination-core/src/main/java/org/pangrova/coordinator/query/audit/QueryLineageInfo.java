@@ -20,10 +20,4 @@ public record QueryLineageInfo(
         columnDerivations = columnDerivations != null ? List.copyOf(columnDerivations) : List.of();
     }
 
-    /**
-     * Backward-compatible constructor without column derivations.
-     */
-    public QueryLineageInfo(String sql, List<String> sourceTables, List<String> targetTables) {
-        this(sql, sourceTables, targetTables, List.of());
-    }
 }

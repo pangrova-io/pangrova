@@ -184,6 +184,33 @@ class IndexGcGenerationFencingTest {
     }
 
     @Test
+    void stateFenceFailureKeepsMappingAndNeverDeletesTheFile() throws Exception {
+        var store = new GenerationTrackingStore();
+        store.addDescriptor(buildDescriptor("idx-1", 3, IndexState.READY));
+        Path file = Files.writeString(files.resolve("fenced.idx"), "keep");
+        store.addStaleMapping(buildMapping("idx-1", "/data/fenced.parquet", file.toString(), 1));
+        store.rejectMappingRemoval = true;
+        gc = buildGc(store);
+
+        assertThat(gc.runGc().orphanedCount()).isZero();
+        assertThat(Files.readString(file)).isEqualTo("keep");
+        assertThat(store.getIndexFileMappings("idx-1")).hasSize(1);
+    }
+
+    @Test
+    void failedFileDeletionStillFencesStaleMapping() {
+        var store = new GenerationTrackingStore();
+        store.addDescriptor(buildDescriptor("idx-1", 3, IndexState.READY));
+        store.addStaleMapping(buildMapping("idx-1", "/data/leaked.parquet", "/idx/leaked.idx", 1));
+        var config = new IndexingConfig("/tmp/test-gc-gen", false, null, null);
+        gc = new IndexGarbageCollector(new IndexGcContext(store, new IndexStorageManager(),
+                descriptor -> new FailingDeleteAccessor(), config, null), null);
+
+        assertThat(gc.runGc().orphanedCount()).isEqualTo(1);
+        assertThat(store.getIndexFileMappings("idx-1")).isEmpty();
+    }
+
+    @Test
     void failedSnapshotUnpinKeepsDroppedIndexForRetry() {
         var store = new GenerationTrackingStore();
         store.addDescriptor(new IndexDescriptor(
@@ -215,7 +242,7 @@ class IndexGcGenerationFencingTest {
         gc = new IndexGarbageCollector(new IndexGcContext(
                 store, new IndexStorageManager(), descriptor -> {
                     throw new IllegalStateException("storage unavailable");
-                }, new IndexingConfig("/tmp/test-gc-gen", false, null, null)), null);
+                }, new IndexingConfig("/tmp/test-gc-gen", false, null, null), null), null);
 
         assertThat(gc.runGc().purgedCount()).isZero();
         assertThat(store.purgedIndexes).isEmpty();
@@ -278,6 +305,22 @@ class IndexGcGenerationFencingTest {
                 Instant.now().minusSeconds(7200), 0L);
     }
 
+    private static final class FailingDeleteAccessor implements org.pangrova.connector.spi.index.FileSystemAccessor {
+        @Override public java.io.InputStream openInputStream(String path) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public java.io.OutputStream openOutputStream(String path) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public void deleteFile(String path) throws java.io.IOException {
+            throw new java.io.IOException("storage unavailable");
+        }
+        @Override public boolean exists(String path) { return true; }
+        @Override public long fileSize(String path) { throw new UnsupportedOperationException(); }
+        @Override public List<String> listFiles(String directoryPath) { return List.of(); }
+        @Override public void close() {}
+    }
+
     /**
      * In-memory IndexMetadataStore that tracks generation-based GC behavior.
      * Stale mappings are returned directly; removal is tracked for assertions.
@@ -286,6 +329,7 @@ class IndexGcGenerationFencingTest {
         private final Map<String, IndexDescriptor> descriptors = new HashMap<>();
         private final List<IndexFileMapping> staleMappings = new ArrayList<>();
         final CopyOnWriteArrayList<String> removedMappings = new CopyOnWriteArrayList<>();
+        boolean rejectMappingRemoval;
         final CopyOnWriteArrayList<String> purgedIndexes = new CopyOnWriteArrayList<>();
 
         void addDescriptor(IndexDescriptor d) { descriptors.put(d.indexId(), d); }
@@ -324,6 +368,9 @@ class IndexGcGenerationFencingTest {
         @Override public boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
                                                                 IndexState expectedState,
                                                                 int expectedGeneration) {
+            if (rejectMappingRemoval) {
+                return false;
+            }
             IndexDescriptor desc = descriptors.get(mapping.indexId());
             if (desc != null && desc.state() == expectedState
                     && desc.generation() == expectedGeneration

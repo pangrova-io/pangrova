@@ -83,7 +83,7 @@ final class E2eCurrentAuthority {
         return new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(new org.pangrova.metadata.service.TableControlRowPolicyStore(
                         new RegistryTablePolicyAuthority(catalogs), new JdbcRowPolicyStore(dataSource))),
-                new ColumnMaskingProcessor(new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
+                new ColumnMaskingProcessor(new org.pangrova.metadata.security.TableControlColumnMaskStore(
                         new RegistryTablePolicyAuthority(catalogs),
                         new JdbcColumnMaskStore(dataSource))));
     }
@@ -114,7 +114,9 @@ final class E2eCurrentAuthority {
         var builds = new DurableGeneratedValueBuildService(services.builds(), submissions,
                 new SnapshotGenerationSplitPlanner(services.catalogs()), selector, services.artifactUri(), services.catalogs(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
         return new GeneratedValueMaterializationCoordinator(services.catalogs(), builds,
-                services.dataSource(), services.journal(), ModelAuthorityFixtures.models());
+                services.dataSource(), services.journal(), ModelAuthorityFixtures.models(),
+                new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
     }
 
     private static JdbcRoleStore roles(DataSource dataSource) {

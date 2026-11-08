@@ -3,7 +3,7 @@ package org.pangrova.metadata.file;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;

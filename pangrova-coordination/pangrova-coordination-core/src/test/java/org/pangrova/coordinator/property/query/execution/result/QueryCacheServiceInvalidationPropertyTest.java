@@ -16,9 +16,15 @@ import org.pangrova.coordinator.query.execution.result.QueryCacheService;
 import org.pangrova.planner.core.cache.CacheEntryMetadata;
 import org.pangrova.planner.core.cache.CacheHint;
 import org.pangrova.planner.core.cache.CacheKey;
-import org.pangrova.planner.core.cache.CachedResult;
-import org.pangrova.planner.core.cache.InMemoryL2CacheStore;
+import org.pangrova.cache.api.CachedResult;
+import org.pangrova.cache.memory.InMemoryL2CacheStore;
 import org.pangrova.planner.core.cache.QueryResultCache;
+
+import org.junit.jupiter.api.Test;
+import org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller;
+
+import java.util.ArrayList;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,6 +41,33 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Validates: Requirements 8.2, 8.3</b></p>
  */
 class QueryCacheServiceInvalidationPropertyTest {
+
+    @Test
+    void lateAttachedPollerReceivesResultCacheInvalidations() {
+        var l1Cache = new QueryResultCache(new InMemoryL2CacheStore());
+        var poller = new RecordingInvalidationPoller();
+        var coordinator = new ResultCacheCoordinator(l1Cache, null, null);
+
+        coordinator.attachInvalidationPoller(poller);
+        assertThat(poller.invalidator).isNotNull();
+        coordinator.invalidateByTable("orders");
+
+        assertThat(poller.writes).containsExactly("orders");
+    }
+
+    private static final class RecordingInvalidationPoller implements InvalidationLogPoller {
+        private Consumer<String> invalidator;
+        private final List<String> writes = new ArrayList<>();
+
+        @Override public void setResultCacheInvalidator(Consumer<String> invalidator) {
+            this.invalidator = invalidator;
+        }
+
+        @Override public void writeInvalidation(String cacheKey,
+                org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType invalidationType) {
+            writes.add(cacheKey);
+        }
+    }
 
     /**
      * invalidateByTable clears matching entries from both L1 and L2.

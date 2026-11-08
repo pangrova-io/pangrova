@@ -5,8 +5,8 @@ import java.util.Optional;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.streaming.coordinator.StreamDdlExecutor;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.parser.api.ast.statement.stream.DescribeStreamStatement;

@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.admission.QueryRejectedException;
+import org.pangrova.query.api.error.QueryRejectedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

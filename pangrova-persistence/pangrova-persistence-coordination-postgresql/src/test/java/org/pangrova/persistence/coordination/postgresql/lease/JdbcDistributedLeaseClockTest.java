@@ -67,10 +67,12 @@ class JdbcDistributedLeaseClockTest extends ContainerTestBase {
 
     @Test
     void expiryIsJudgedByDatabaseClockAllowingTakeover() throws InterruptedException {
-        // Very short lease: expiry is evaluated against the DB's clock_timestamp(), not the caller.
+        // Short lease: expiry is evaluated against the DB's clock_timestamp(), not the caller.
+        // The grant must survive its own commit (the lease rejects deadlines that pass before
+        // commit), so keep it above scheduler/DB latency while still expiring before the check.
         LeaseEntry first = lease.tryAcquire(
-                "k", "A", Duration.ofMillis(50)).orElseThrow();
-        Thread.sleep(200);
+                "k", "A", Duration.ofSeconds(1)).orElseThrow();
+        Thread.sleep(1500);
 
         // Past expiry per the DB clock: no current holder, and a new node can take over.
         assertThat(lease.currentHolder("k")).isEmpty();
@@ -83,8 +85,8 @@ class JdbcDistributedLeaseClockTest extends ContainerTestBase {
     @Test
     void staleEpochCannotRenewOrReleaseReplacement() throws InterruptedException {
         LeaseEntry first = lease.tryAcquire(
-                "k", "A", Duration.ofMillis(50)).orElseThrow();
-        Thread.sleep(200);
+                "k", "A", Duration.ofSeconds(1)).orElseThrow();
+        Thread.sleep(1500);
         LeaseEntry second = lease.tryAcquire(
                 "k", "B", Duration.ofSeconds(30)).orElseThrow();
 

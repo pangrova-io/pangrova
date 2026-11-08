@@ -1,10 +1,7 @@
 package org.pangrova.coordinator.scheduler.placement;
 
 import org.pangrova.scheduler.api.resource.SpillBudget;
-
-
 import java.util.List;
-
 import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
 import org.pangrova.scheduler.core.placement.ExactModelResolver;
 import org.pangrova.ai.control.model.EmbeddingModelExecutionAdmission;
@@ -198,7 +195,8 @@ public final class DefaultWorkerSelector implements WorkerSelector {
         }
         org.pangrova.protocol.v2.ModelAvailability availability = ExactModelResolver.resolve(
                 workerManager.getActiveWorkers().stream()
-                        .map(org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList(), modelName, capability);
+                        .map(org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList(),
+                                modelName, capability);
         if (descriptor != null) {
             EmbeddingModelExecutionAdmission.requireCompatible(descriptor, availability);
         }

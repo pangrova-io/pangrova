@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.catalog.api.error.MetastoreException;
 import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 

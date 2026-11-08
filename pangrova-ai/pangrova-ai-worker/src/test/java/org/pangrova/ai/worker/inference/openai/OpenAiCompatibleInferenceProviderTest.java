@@ -13,6 +13,9 @@
  */
 package org.pangrova.ai.worker.inference.openai;
 
+import org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider;
+import org.pangrova.ai.provider.openai.inference.OpenAiInferenceConfig;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

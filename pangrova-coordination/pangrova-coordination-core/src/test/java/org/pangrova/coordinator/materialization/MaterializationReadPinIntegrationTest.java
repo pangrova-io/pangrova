@@ -18,7 +18,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository;
+import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository;
 import org.pangrova.materialization.usecase.ReaderPinLeases;
 import org.pangrova.query.api.lifecycle.QueryState;
 import org.pangrova.connector.api.session.ConnectorSession;

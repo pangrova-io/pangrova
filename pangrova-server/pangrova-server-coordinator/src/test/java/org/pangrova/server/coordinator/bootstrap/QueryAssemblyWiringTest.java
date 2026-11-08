@@ -2,8 +2,8 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementCompletionEvent;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
@@ -14,8 +14,8 @@ import org.pangrova.planner.core.analysis.SqlCompiler;
 import org.pangrova.planner.core.cache.CacheEntryMetadata;
 import org.pangrova.planner.core.cache.CacheHint;
 import org.pangrova.planner.core.cache.CacheKey;
-import org.pangrova.planner.core.cache.CachedResult;
-import org.pangrova.planner.core.cache.InMemoryL2CacheStore;
+import org.pangrova.cache.api.CachedResult;
+import org.pangrova.cache.memory.InMemoryL2CacheStore;
 import org.pangrova.planner.core.cache.QueryResultCache;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.descriptor.IndexType;
@@ -36,7 +36,9 @@ class QueryAssemblyWiringTest {
         try (var cache = new QueryResultCache(new InMemoryL2CacheStore())) {
             var compiler = new SqlCompiler().withQueryResultCache(cache);
             var schemaEvents = new AtomicInteger();
-            var listeners = QueryExecutionBootstrap.statementListeners(compiler, event -> schemaEvents.incrementAndGet());
+            var listeners = QueryExecutionBootstrap
+                    .statementListeners(compiler, event -> schemaEvents.incrementAndGet(), null)
+                    .listeners();
             var first = CacheKey.of("select * from c.s.first", "tenant", "reader", Map.of(), "policy");
             var second = CacheKey.of("select * from c.s.second", "tenant", "reader", Map.of(), "policy");
             cache.put(first, new CachedResult(new byte[]{1}, Instant.now()),
@@ -56,7 +58,7 @@ class QueryAssemblyWiringTest {
     @Test
     void queryOnlyRoleConnectsItsActualIndexStoreToQueryReads() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("query_index_wiring");
-        var store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        var store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         var now = Instant.parse("2026-01-01T00:00:00Z");
         store.registerIndex(new IndexDescriptor("query-index", "by_value", "c", "s", "t",
                 List.of("value"), IndexType.BITMAP, Map.of(), IndexState.READY,

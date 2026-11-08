@@ -6,7 +6,7 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.persistence.coordination.memory.membership.InMemoryCoordinatorRegistry;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.coordinator.query.execution.dispatch.DdlLeadershipGuard;
-import org.pangrova.coordinator.query.execution.dispatch.DdlNotOnLeaderException;
+import org.pangrova.query.core.dispatch.DdlNotOnLeaderException;
 import org.pangrova.parser.api.ast.CreateCatalogStatement;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.InsertStatement;

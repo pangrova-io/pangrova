@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.coordinator.query.session.BranchRoutingContext;
+import org.pangrova.query.core.session.BranchRoutingContext;
 import org.pangrova.query.api.session.QuerySession;
 
 import org.junit.jupiter.api.Test;

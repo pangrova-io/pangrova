@@ -2,10 +2,10 @@ package org.pangrova.coordinator.speculation;
 
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeWorkerInventory;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeTaskRegistry;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptCanceller;
-import org.pangrova.coordinator.query.adapter.scheduler.CoordinatorSpeculativeAttemptDispatcher;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInventory;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeTaskRegistry;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptCanceller;
+import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptDispatcher;
 import org.pangrova.scheduler.core.speculation.SpeculationConfig;
 import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
 import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;

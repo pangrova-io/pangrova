@@ -8,7 +8,7 @@ import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.state.JournalRecoveryService;
+import org.pangrova.query.core.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;

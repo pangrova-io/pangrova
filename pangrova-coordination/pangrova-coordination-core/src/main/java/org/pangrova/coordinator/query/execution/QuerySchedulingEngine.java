@@ -363,7 +363,8 @@ final class QuerySchedulingEngine {
             QuerySession session,
             PlannedQuery plannedQuery,
             DispatchQueryContext ctx) {
-        var artifactIntents = retrievalIntents.collectRetrievalArtifactIntents(ctx.vectorSearchNode(), ctx.rerankerPlan(), session.tenantId());
+        var artifactIntents = retrievalIntents.collectRetrievalArtifactIntents(ctx.vectorSearchNode(),
+                ctx.rerankerPlan(), session.tenantId());
         int workerCount = deps.workerSelector().activeWorkerCount();
         int tasksPerWorker = org.pangrova.coordinator.scheduler.placement.WorkerSelector
                 .MAX_TASKS_PER_WORKER;

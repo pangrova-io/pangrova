@@ -1,6 +1,6 @@
 package org.pangrova.worker.shuffle;
 
-import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+import org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

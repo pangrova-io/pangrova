@@ -114,5 +114,8 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-planner-core</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
+        <dependency><groupId>org.apache.calcite</groupId><artifactId>calcite-core</artifactId></dependency>
     </dependencies>
 </project>

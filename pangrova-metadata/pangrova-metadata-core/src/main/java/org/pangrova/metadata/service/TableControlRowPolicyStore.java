@@ -54,7 +54,7 @@ public final class TableControlRowPolicyStore implements RowPolicyStore {
     }
 
     /** Pure projection shared with transaction-bound background authorization. */
-    static List<RowPolicy> project(UUID tableId, String catalog, String schema, String table,
+    public static List<RowPolicy> project(UUID tableId, String catalog, String schema, String table,
             List<RowPolicy> named, List<RowPolicy> bound) {
         if (named.stream().anyMatch(policy -> policy.tableId() == null)) {
             throw new AccessDeniedException("Row policy has no proven stable table binding; explicitly rebind it");

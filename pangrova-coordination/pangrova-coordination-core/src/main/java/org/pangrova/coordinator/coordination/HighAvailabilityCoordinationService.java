@@ -94,7 +94,8 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     /** Creates coordination with explicit bounded query ownership and heartbeat configuration. */
-    public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config, ExecutionAnchorStore anchors) {
+    public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config,
+            ExecutionAnchorStore anchors) {
         Objects.requireNonNull(lease, "lease must not be null");
         this.leaseElection = new LeaseBackedLeaderElection(lease);
         this.config = Objects.requireNonNull(config, "config must not be null");
@@ -195,8 +196,11 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         try {
             released = leaseElection.release(coordinatorId, held.epoch());
         } catch (RuntimeException | Error releaseFailure) {
-            if (failure == null) failure = releaseFailure;
-            else if (failure != releaseFailure) failure.addSuppressed(releaseFailure);
+            if (failure == null) {
+                failure = releaseFailure;
+            } else if (failure != releaseFailure) {
+                failure.addSuppressed(releaseFailure);
+            }
         }
         failure = cleanup(failure, () -> updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY));
         if (failure instanceof RuntimeException runtime) throw runtime;

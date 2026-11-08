@@ -26,7 +26,7 @@ class IndexAwareFileStatisticsIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        store = new JdbcIndexMetadataStore(SharedPostgresContainer.migratedDataSource("query_file_statistics"), org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+        store = new JdbcIndexMetadataStore(SharedPostgresContainer.migratedDataSource("query_file_statistics"), org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         fetcher = new IndexAwareSplitFetcher(null, null, store, null);
         store.batchInsertFileStatistics("tenant-a", "lake", "sales", "events",
                 List.of(statistics("17", "alpha"), statistics("18", "new")));

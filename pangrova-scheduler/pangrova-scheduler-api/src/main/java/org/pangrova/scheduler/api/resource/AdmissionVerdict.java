@@ -1,6 +1,5 @@
 package org.pangrova.scheduler.api.resource;
 
-
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

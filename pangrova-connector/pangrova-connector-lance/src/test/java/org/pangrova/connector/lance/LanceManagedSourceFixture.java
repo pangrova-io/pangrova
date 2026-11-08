@@ -10,9 +10,9 @@ import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
-import org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog;
+import org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.catalog.CatalogDeploymentFingerprint;
@@ -132,7 +132,8 @@ public final class LanceManagedSourceFixture {
         authority = new JdbcManagedSourceCatalog(dataSource, new SourceCatalogDeployment(descriptor.name(),
                 descriptor.incarnationId(), descriptor.revision()), execution -> Optional.ofNullable(owned.get(execution))
                         .orElseThrow(() -> new IllegalStateException("Fixture does not own this real PG execution")),
-                executionFence, models);
+                executionFence, models,
+                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
         store = new LanceCatalogStore(authority);
         provisionSubject();
     }

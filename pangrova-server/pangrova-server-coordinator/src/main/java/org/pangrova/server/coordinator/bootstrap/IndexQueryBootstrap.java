@@ -1,7 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
-
 import org.pangrova.indexing.core.descriptor.IndexDescriptorCache;
 import org.pangrova.indexing.core.evaluation.IndexEvalMetrics;
 import org.pangrova.coordinator.indexing.filter.IndexEvalConfig;

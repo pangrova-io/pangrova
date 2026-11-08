@@ -1,4 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
+import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller;
 
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
@@ -11,10 +12,10 @@ import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 
 import org.pangrova.governance.core.GovernanceDeps;
 import org.pangrova.governance.core.GovernanceContext;
-import org.pangrova.governance.store.jdbc.JdbcGovernanceAuditTrail;
+import org.pangrova.persistence.governance.postgresql.JdbcGovernanceAuditTrail;
 import org.pangrova.governance.core.classification.ColumnTagService;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.governance.core.lineage.LineageBackendConfiguration;
+import org.pangrova.governance.lineage.LineageBackendConfiguration;
 import org.pangrova.governance.core.quality.CronScheduler;
 import org.pangrova.governance.core.quality.AlertChannelRegistry;
 import org.pangrova.governance.core.quality.DataQualityAlerter;
@@ -24,14 +25,14 @@ import org.pangrova.governance.core.quality.GovernanceStatementHandler;
 import org.pangrova.governance.api.quality.QualityRuleStore;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.streaming.store.jdbc.cdc.JdbcCdcRegistrationStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcCdcRegistrationStore;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 import org.pangrova.streaming.api.cdc.CdcRegistrationStore;
 import org.pangrova.streaming.pipeline.StreamingContext;
 import org.pangrova.streaming.cdc.CdcRegistrationHandler;
 import org.pangrova.streaming.store.memory.InMemoryCdcRegistrationStore;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
-import org.pangrova.streaming.store.jdbc.watermark.JdbcWatermarkPositionStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
 import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
 import org.pangrova.streaming.watermark.WatermarkTracker;
@@ -156,7 +157,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.versionObserver = observer;
     }
 
-    void setInvalidationPoller(org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller poller) {
+    void setInvalidationPoller(PostgresInvalidationPoller poller) {
         this.invalidationPoller = poller;
     }
 
@@ -204,11 +205,10 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                 try {
                     org.pangrova.metadata.api.catalog.CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
                     if (!(handle
-                            instanceof org.pangrova.metadata.catalog.handle.federation
-                                    .FederationCatalogHandle fedHandle)) {
+                            instanceof org.pangrova.metadata.federation.FederationCatalogHandle fedHandle)) {
                         continue;
                     }
-                    org.pangrova.metadata.adapter.FederatedCatalog adapter =
+                    org.pangrova.metadata.api.catalog.FederatedCatalog adapter =
                             fedHandle.getFederatedCatalog();
                     metadataSyncService.syncWithRetry(fedHandle.getDescriptor(), adapter);
                 } catch (Exception e) {
@@ -260,6 +260,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             invalidationCleanupTask.cancel(false);
             invalidationCleanupTask = null;
         }
+    }
+
+    /** Supplies the catalog authority required by governance assembly and streaming. */
+    void setCatalogRegistry(org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs) {
+        this.catalogRegistry = catalogs;
     }
 
     void setStreamingBootstrap(StreamingBootstrap streamingBootstrap) {
@@ -319,7 +324,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             return new InMemoryCdcRegistrationStore();
         }
         JdbcCdcRegistrationStore jdbcStore = new JdbcCdcRegistrationStore(dataSource);
-        jdbcStore.initSchema();
         return jdbcStore;
     }
 
@@ -331,9 +335,9 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         if (dataSource == null) {
             throw new IllegalStateException("Enabled governance requires the durable metadata datasource");
         }
-        QualityRuleStore ruleStore = org.pangrova.metadata.adapter.governance.QualityRuleStoreWiring
+        QualityRuleStore ruleStore = org.pangrova.metadata.governance.QualityRuleStoreWiring
                 .tableControl(
-                        org.pangrova.governance.store.jdbc.QualityRuleStores.jdbc(dataSource),
+                        org.pangrova.persistence.governance.postgresql.QualityRuleStores.jdbc(dataSource),
                         java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry"));
         lineageEmitter = LineageBackendConfiguration.createEmitter(
                 new org.pangrova.persistence.query.postgresql.lineage.JdbcQueryLineageOutbox(dataSource));
@@ -351,7 +355,21 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                         .requireBindable(table.catalog(), table.schema(), table.table()).tableId());
         governanceModule = new GovernanceContext(new GovernanceDeps(
                 lineageEmitter, handler, null, cronScheduler, ruleStore, columnTagService));
-        governanceModule.initialize();
+        try {
+            governanceModule.initialize();
+        } catch (RuntimeException failure) {
+            // A failed assembly must not leave the just-created lineage consumer unowned.
+            LineageEventEmitter emitter = lineageEmitter;
+            lineageEmitter = null;
+            if (emitter != null) {
+                try {
+                    emitter.close();
+                } catch (RuntimeException cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
+            }
+            throw failure;
+        }
         writeQualityGate = writeQualityGateEnabled()
                 ? new org.pangrova.governance.core.quality.RuleBasedWriteQualityGate(
                         ruleStore, qualityExecutor)

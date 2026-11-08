@@ -1,6 +1,5 @@
 package org.pangrova.planner.core.lineage;
 
-
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Calc;

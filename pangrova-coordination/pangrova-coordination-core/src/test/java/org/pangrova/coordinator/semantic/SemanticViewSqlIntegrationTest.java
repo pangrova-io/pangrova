@@ -26,7 +26,7 @@ import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactor
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.dispatch.task.semantic.CreateSemanticViewTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.semantic.PublishSemanticViewTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.semantic.ShowSemanticViewsTask;
@@ -34,7 +34,7 @@ import org.pangrova.query.core.statement.StatementClassifier;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.semantic.api.view.SemanticViewId;
 import org.pangrova.semantic.api.view.SemanticViewStore;
-import org.pangrova.semantic.store.jdbc.JdbcSemanticViewStore;
+import org.pangrova.persistence.semantic.postgresql.JdbcSemanticViewStore;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.CreateSemanticViewStatement;

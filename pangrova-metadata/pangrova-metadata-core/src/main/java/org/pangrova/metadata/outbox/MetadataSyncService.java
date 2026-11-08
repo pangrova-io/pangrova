@@ -1,7 +1,7 @@
 package org.pangrova.metadata.outbox;
 
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.metadata.adapter.FederatedCatalog;
+import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.event.MetadataEvent;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
@@ -31,13 +31,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.pangrova.metadata.api.catalog.MetadataChange;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.persistence.catalog.api.projection.TableProjectionRepository;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionConflictException;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionOutcomeUnknownException;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionScopeException;
-import org.pangrova.persistence.catalog.api.projection.MetadataProjectionPendingException;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionOutcomeUnknownException;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionScopeException;
+import org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException;
 
 /**
  * Orchestrates incremental and full metadata synchronization between external catalogs and the local store.

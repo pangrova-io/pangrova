@@ -13,9 +13,9 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.query.core.statement.StatementTableTargets;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.InsertStatement;

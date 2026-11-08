@@ -4,6 +4,7 @@ import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.generation.postgresql.publication.submission.JdbcGeneratedValueBuildSubmissionStore;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Proxy;

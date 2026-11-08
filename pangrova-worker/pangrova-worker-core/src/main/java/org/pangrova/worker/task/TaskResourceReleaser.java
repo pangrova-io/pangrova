@@ -1,6 +1,6 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+import org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -10,7 +10,7 @@ import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
 import org.pangrova.table.core.ownership.TableControlService;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
@@ -120,10 +120,10 @@ class TableControlRowPolicyStoreTest {
                         org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
         try (var transaction = source.getConnection()) {
             transaction.setAutoCommit(false);
-            assertThatThrownBy(() -> TableControlDeferredPolicy.requireCurrent(transaction, "alice", raw))
+            assertThatThrownBy(() -> TableControlWriteAuthorities.postgres().requireCurrent(transaction, "alice", raw))
                     .hasMessageContaining("Raw artifact reads");
             transaction.rollback();
-            TableControlDeferredPolicy.requireCurrent(transaction, "alice", transformed);
+            TableControlWriteAuthorities.postgres().requireCurrent(transaction, "alice", transformed);
             transaction.rollback();
         }
     }

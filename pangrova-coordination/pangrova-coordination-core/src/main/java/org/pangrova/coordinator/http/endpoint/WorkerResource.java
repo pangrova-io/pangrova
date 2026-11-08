@@ -87,7 +87,9 @@ public final class WorkerResource {
                     ? "fenced" : "re-register";
             return Response.status(HTTP_STATUS_CONFLICT)
                     .entity(new org.pangrova.protocol.rest.worker.WorkerControlResponse(
-                            "error", action, "Worker registration is not owned by this process: " + request.workerId(), null)).build();
+                            "error", action,
+                                    "Worker registration is not owned by this process: " + request.workerId(),
+                                            null)).build();
         }
         return Response.ok(controlResponse("ok")).build();
     }

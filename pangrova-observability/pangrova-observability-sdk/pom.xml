@@ -12,7 +12,7 @@
 
     <artifactId>pangrova-observability-sdk</artifactId>
     <name>Pangrova Observability SDK</name>
-    <description>OpenTelemetry provider, adapters, and SDK implementations for Pangrova observability</description>
+    <description>OpenTelemetry provider and SDK implementations for Pangrova observability</description>
 
     <properties>
         <module.name>org.pangrova.observability.sdk</module.name>

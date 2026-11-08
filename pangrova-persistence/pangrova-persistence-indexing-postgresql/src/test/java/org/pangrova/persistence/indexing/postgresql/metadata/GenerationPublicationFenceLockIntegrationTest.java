@@ -5,14 +5,14 @@ import org.pangrova.generation.core.submission.GenerationStageGraphFactory;
 import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
 
 import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
-import org.pangrova.metadata.generation.jdbc.JdbcGeneratedValuePublicationStore;
+import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedValuePublicationStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.publication.GenerationManifest;
-import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
@@ -33,7 +33,7 @@ import org.pangrova.generation.api.output.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.query.api.ownership.ExecutionAnchor;
@@ -213,7 +213,7 @@ class GenerationPublicationFenceLockIntegrationTest {
             JdbcIndexMetadataStore indexes = null;
             GenerationPublicationStore publisher;
             if (kind == Kind.INDEX) {
-                indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+                indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
                 indexes.registerIndex(new IndexDescriptor("artifact", "vector_index", "lake", "raw", "items",
                         List.of("embedding"), IndexType.VECTOR, Map.of("algorithm", "DISK_ANN"), IndexState.BUILDING,
                         null, 0, "snapshot", null, start, start, "tenant"));

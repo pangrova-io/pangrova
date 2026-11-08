@@ -214,7 +214,7 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
                 "00000000-0000-0000-0000-0000000000e1", System.currentTimeMillis());
         registry.register(original);
         registry.heartbeat(original.registrationIdentity(),
-                new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 3, 123L));
+                new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 3, 123L, null));
         assertThat(registry.getWorker(original.workerId()).orElseThrow().runningTaskCount()).isEqualTo(3);
         assertThat(registry.unregister(original.registrationIdentity())).isTrue();
     }
@@ -272,7 +272,7 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
         long now = System.currentTimeMillis();
         var old = removalWorker("00000000-0000-0000-0000-0000000000d1",
                 "00000000-0000-0000-0000-0000000000e1", now);
-        var metrics = new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 7, 99L);
+        var metrics = new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 7, 99L, null);
         assertThat(registry.heartbeat(old.registrationIdentity(), metrics)).isEmpty();
         assertThat(registry.refreshRegistration(old)).isTrue();
         assertThat(registry.refreshRegistration(old)).isTrue();
@@ -312,7 +312,7 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
             }
             var mutation = executor.submit(() -> repair ? registry.refreshRegistration(original)
                     : registry.heartbeat(original.registrationIdentity(),
-                            new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 99, 1L)).isPresent());
+                            new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 99, 1L, null)).isPresent());
             org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(10)).until(() -> {
                 try (var connection = dataSource.getConnection();
                      var query = connection.prepareStatement("SELECT EXISTS(SELECT 1 FROM pg_stat_activity "

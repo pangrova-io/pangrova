@@ -33,7 +33,8 @@ final class QuerySchedulingWiring implements AutoCloseable {
         }
         tenantScheduler = tenantStore != null ? new WeightedFairScheduler() : null;
         try {
-            scheduler = new TaskScheduler(Objects.requireNonNull(factory.create(), "strategy"), tenantPlacement(tenantStore));
+            scheduler = new TaskScheduler(Objects.requireNonNull(factory.create(), "strategy"),
+                    tenantPlacement(tenantStore));
         } catch (RuntimeException | Error failure) {
             CoordinatorResourceRelease.close(failure,
                     CoordinatorResourceRelease.present(tenantScheduler, WeightedFairScheduler::close));

@@ -4,7 +4,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.ext.ContextResolver;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.jackson.JsonMapperFactory;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.http.endpoint.InternalAuthFilter;
@@ -204,6 +204,7 @@ public final class WorkerHttpServer {
         }
     }
 
+    /** Starts the worker HTTP server and its connectors. */
     public void start() throws Exception {
         try {
             server.start();

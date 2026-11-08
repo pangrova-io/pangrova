@@ -4,7 +4,7 @@ import org.pangrova.query.core.lifecycle.QueryStateMachine;
 
 import org.pangrova.query.api.lifecycle.QueryState;
 
-import org.pangrova.coordinator.query.admission.QueryRejectedException;
+import org.pangrova.query.api.error.QueryRejectedException;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.api.session.QuerySession;
 

@@ -59,7 +59,7 @@ class InMemoryWorkerRegistryTest {
                 "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(w);
 
-        HeartbeatSnapshot hb = new HeartbeatSnapshot("HIGH", 0.95, 5, 512L);
+        HeartbeatSnapshot hb = new HeartbeatSnapshot("HIGH", 0.95, 5, 512L, null);
         registry.heartbeat(registry.getWorker("w1").orElseThrow().registrationIdentity(), hb);
 
         WorkerSnapshot updated = registry.getWorker("w1").orElseThrow();
@@ -83,7 +83,7 @@ class InMemoryWorkerRegistryTest {
 
     @Test
     void heartbeatForUnregisteredWorkerIsNoOp() {
-        HeartbeatSnapshot hb = new HeartbeatSnapshot("LOW", 0.5, 2, 1024L);
+        HeartbeatSnapshot hb = new HeartbeatSnapshot("LOW", 0.5, 2, 1024L, null);
         registry.heartbeat(worker("unknown", System.currentTimeMillis()).registrationIdentity(), hb);
 
         assertThat(registry.getWorker("unknown")).isEmpty();
@@ -182,7 +182,7 @@ class InMemoryWorkerRegistryTest {
                 "00000000-0000-0000-0000-0000000000e1", System.currentTimeMillis());
         registry.register(original);
         registry.heartbeat(original.registrationIdentity(),
-                new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 3, 123L));
+                new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 3, 123L, null));
         assertThat(registry.getWorker(original.workerId()).orElseThrow().runningTaskCount()).isEqualTo(3);
         assertThat(registry.unregister(original.registrationIdentity())).isTrue();
     }
@@ -198,7 +198,7 @@ class InMemoryWorkerRegistryTest {
         long now = System.currentTimeMillis();
         var old = removalWorker("00000000-0000-0000-0000-0000000000d1",
                 "00000000-0000-0000-0000-0000000000e1", now);
-        var metrics = new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 7, 99L);
+        var metrics = new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 7, 99L, null);
         assertThat(registry.heartbeat(old.registrationIdentity(), metrics)).isEmpty();
         assertThat(registry.refreshRegistration(old)).isTrue();
         assertThat(registry.refreshRegistration(old)).isTrue();

@@ -1,12 +1,11 @@
 # File
 
-`pangrova-file` aggregates three artifacts:
+`pangrova-file` aggregates two artifacts:
 
 | Artifact | Responsibility |
 | --- | --- |
 | `pangrova-file-api` | Namespace values, grants, directory references, errors, path/origin validation, and typed extension ports |
-| `pangrova-file-core` | Current-tenant authorization, signed descriptor issuance, URL receipts and directory refresh |
-| `pangrova-file-worker-adapter` | Worker HTTP listing, version-conditional deletion and signed-URL exchange |
+| `pangrova-file-core` | Current-tenant authorization, signed descriptor issuance, URL receipts, directory refresh, and the Worker HTTP client (`org.pangrova.file.worker`) |
 
 The API artifact owns both `org.pangrova.file.api` and `org.pangrova.file.spi`.
 Its SPI packages contain real access, audit and authority ports. The API depends on Common,
@@ -20,8 +19,8 @@ control and data planes must agree on confined roots and admitted COPY origins. 
 presence in API does not open a filesystem, instantiate a provider or select a backend.
 
 Core consumes FileListingClient, FileUrlClient and the current authority/audit ports through
-constructors. Server composition selects WorkerFileClient. Core cannot depend on the adapter;
-the adapter cannot depend on File Core, persistence or Worker Core. Its private wire records
+constructors. Server composition selects WorkerFileClient. The Worker HTTP client lives in Core and
+cannot depend on persistence or Worker Core. Its private wire records
 retain the existing Worker request fields, HTTP status handling, timeouts and interruption
 behavior. Explicit Jackson time-module dependencies belong to the implementations.
 
@@ -38,6 +37,6 @@ resource lifecycle review remain part of the approved plan. The Java 17 HTTP cli
 is unchanged; this batch does not claim a new cancellable asynchronous transport contract.
 
 Existing Core integration tests continue to live with their current Coordinator/SQL fixtures;
-the independent HTTP client tests move with the adapter. File API isolation scans all its
+the independent HTTP client tests live in Core. File API isolation scans all its
 compiled API/SPI types, while the remaining central Indexing contract retains a separate
 isolation test. No data migration, compatibility alias or new storage backend is introduced.

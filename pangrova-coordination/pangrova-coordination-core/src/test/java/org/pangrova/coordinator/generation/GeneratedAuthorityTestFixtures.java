@@ -2,7 +2,7 @@ package org.pangrova.coordinator.generation;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.ai.control.store.jdbc.embedding.JdbcEmbeddingModelRegistry;
+import org.pangrova.persistence.ai.postgresql.embedding.JdbcEmbeddingModelRegistry;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;

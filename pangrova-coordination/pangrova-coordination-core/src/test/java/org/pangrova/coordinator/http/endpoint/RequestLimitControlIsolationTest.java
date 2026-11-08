@@ -22,7 +22,7 @@ import org.glassfish.jersey.servlet.ServletContainer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.http.jetty.EmbeddedHttpServerFactory;
+import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.security.core.authentication.AuthenticationManager;

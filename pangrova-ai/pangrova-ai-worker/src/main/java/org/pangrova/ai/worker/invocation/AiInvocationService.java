@@ -42,7 +42,7 @@ import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.ai.api.invocation.RerankingBatchResult;
 import org.pangrova.ai.spi.reranking.RerankingProvider;
 import org.pangrova.ai.worker.context.AiExecutionContext;
-import org.pangrova.ai.worker.context.AiProviderCallContext;
+import org.pangrova.ai.spi.invocation.AiProviderCallContext;
 
 import java.security.MessageDigest;
 import java.time.Instant;

@@ -44,7 +44,7 @@ import org.pangrova.generation.api.execution.GenerationExecutionKind;
 import org.pangrova.generation.api.output.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.GenerationExecutionFixtures;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.query.api.ownership.ExecutionAnchor;
 
 import javax.sql.DataSource;

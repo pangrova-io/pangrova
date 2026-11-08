@@ -26,7 +26,9 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
                 }
             }
         } catch (SQLException failure) {
-            throw new IllegalStateException("cannot validate cluster admission authority; initialize the canonical schema first", failure);
+            throw new IllegalStateException(
+                "cannot validate cluster admission authority; initialize the canonical schema first",
+                failure);
         }
     }
 

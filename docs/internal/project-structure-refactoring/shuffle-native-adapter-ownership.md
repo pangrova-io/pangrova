@@ -1,12 +1,13 @@
 # Native Shuffle 服务绑定的模块边界（2026-11-03）
 
-本批完成既有 Native 服务命令的真实适配模块拆分，不代表通用 Shuffle Provider、P7 或全仓目标完成。
+本批完成既有 Native 服务命令的模块拆分。2026-11-07 起该模块已并入 `pangrova-worker-native-bridge`
+（包 `org.pangrova.worker.nativebridge.shuffle`），adapter 模块已删除；本文保留拆分时的边界依据。
 
 ## 所有权与调用
 
-`pangrova-shuffle-native-adapter` 拥有 `org.pangrova.shuffle.adapter.nativebridge`。
+`pangrova-worker-native-bridge` 拥有 `org.pangrova.worker.nativebridge.shuffle`（原 `pangrova-shuffle-native-adapter` / `org.pangrova.shuffle.adapter.nativebridge`，模块已删除）。
 迁入真实 `NativeShuffleTransport`，删除 Shuffle API 中只面向 Native executor handle 的
-`ShuffleTransport`，不保留旧 FQN 转发类。Worker Core 借用适配器；适配器不依赖 Worker Core。
+`ShuffleTransport`，不保留旧 FQN 转发类。Worker Core 直接依赖 native bridge；该包不依赖 Worker Core 的任务编排。
 
 适配器通过同步 `CommandChannel` 借用任务 executor 的 `executeCommand`。
 生产调用仍经过原有命令校验、handle admission 和 normal/cleanup lease，不直接调用 NativeRuntime。

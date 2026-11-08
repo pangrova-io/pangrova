@@ -6,7 +6,7 @@ import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.persistence.catalog.api.error.MetastoreException;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.testing.testkit.PostgresCommitWireFault;
 import org.postgresql.ds.PGSimpleDataSource;
 

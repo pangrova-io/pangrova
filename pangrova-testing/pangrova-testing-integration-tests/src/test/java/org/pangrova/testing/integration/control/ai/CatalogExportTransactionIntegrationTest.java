@@ -6,7 +6,7 @@ import org.pangrova.ai.control.feature.CatalogExportRequest;
 import org.pangrova.ai.control.api.CatalogExportStorageException;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
-import org.pangrova.ai.control.assembly.AiInfrastructureStores;
+import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.generation.api.execution.GenerationPageKind;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
 import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;

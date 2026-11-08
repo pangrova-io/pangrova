@@ -65,12 +65,12 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
                     .tableGovernance().requireBindable(name.catalog(), name.schema(), name.table()).tableId());
             metadataService.setColumnTagService(tagService);
             JdbcColumnMaskStore maskStore = new JdbcColumnMaskStore(maskAuthority);
-            var boundMasks = new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
+            var boundMasks = new org.pangrova.metadata.security.TableControlColumnMaskStore(
                     new org.pangrova.metadata.service.RegistryTablePolicyAuthority(
                             fixture.bootstrap.catalogRegistry()),
                     maskStore);
 
-            org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner.migrate(tagAuthority);
+            org.pangrova.persistence.jdbc.support.SchemaMigrationRunner.migrate(tagAuthority);
             var bindingStore = new org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore(tagAuthority);
             fixture.bootstrap.catalogRegistry().setGovernanceBindingStore(bindingStore);
             var binder = new TableControlPolicyBinder(

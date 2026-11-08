@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.worker;
+import org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus;
 
 import org.pangrova.scheduler.api.placement.HealthState;
 import java.time.Duration;
@@ -31,7 +32,7 @@ import org.slf4j.LoggerFactory;
  * use ConcurrentHashMap.compute for atomicity.</p>
  */
 @ThreadSafe
-public final class WorkerManager {
+public final class WorkerManager implements org.pangrova.query.core.recovery.RecoveredWorkerHealth {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerManager.class);
 
@@ -144,7 +145,7 @@ public final class WorkerManager {
             org.pangrova.coordination.api.membership.WorkerRegistrationIdentity expected, HeartbeatData data) {
         checkNotNull(expected, "expected must not be null");
         checkNotNull(data, "HeartbeatData must not be null");
-        var status = new AtomicReference<>(org.pangrova.coordination.api.heartbeat.WorkerHeartbeatStatus.REGISTRATION_REQUIRED);
+        var status = new AtomicReference<>(WorkerHeartbeatStatus.REGISTRATION_REQUIRED);
         AtomicBoolean changed = new AtomicBoolean();
         workers.compute(expected.workerId(), (id, existing) -> {
             var accepted = registry.heartbeat(expected, toHeartbeatSnapshot(data));

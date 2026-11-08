@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query.execution.dispatch.listener;
 
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
-import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionListener;
+import org.pangrova.query.core.dispatch.StatementCompletionEvent;
+import org.pangrova.query.core.dispatch.StatementCompletionListener;
 import org.pangrova.planner.core.statistics.StatisticsCollector;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;

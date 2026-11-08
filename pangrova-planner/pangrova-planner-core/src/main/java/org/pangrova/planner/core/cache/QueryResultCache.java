@@ -1,5 +1,7 @@
 package org.pangrova.planner.core.cache;
 
+import org.pangrova.cache.api.CachedResult;
+import org.pangrova.cache.api.L2CacheStore;
 import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.util.ArrayList;

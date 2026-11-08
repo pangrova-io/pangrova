@@ -1,5 +1,8 @@
 package org.pangrova.ai.worker.embedding.openai;
 
+import org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider;
+import org.pangrova.ai.provider.openai.embedding.OpenAiEmbeddingConfig;
+
 import eu.rekawek.toxiproxy.Proxy;
 import eu.rekawek.toxiproxy.ToxiproxyClient;
 import eu.rekawek.toxiproxy.model.ToxicDirection;

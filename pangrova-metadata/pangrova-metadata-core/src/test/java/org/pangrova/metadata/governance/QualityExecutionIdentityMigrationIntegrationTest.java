@@ -1,12 +1,12 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.api.quality.Severity;
 import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 
 import java.time.Instant;
 
@@ -49,9 +49,8 @@ class QualityExecutionIdentityMigrationIntegrationTest {
 
     @Test
     void definitionUpdatePersistsReplacementIdentityAcrossStoreRestart() throws Exception {
-        var source = SharedPostgresContainer.isolatedDataSource("quality_identity_store");
+        var source = SharedPostgresContainer.migratedDataSource("quality_identity_store");
         var store = new JdbcQualityRuleStore(source);
-        store.initSchema();
         Instant created = Instant.parse("2026-01-01T00:00:00Z");
         store.saveRule(rule(created, new QualityExecutionIdentity("owner-a", "tenant-a")));
         var replacement = new QualityExecutionIdentity("owner-b", "tenant-b");

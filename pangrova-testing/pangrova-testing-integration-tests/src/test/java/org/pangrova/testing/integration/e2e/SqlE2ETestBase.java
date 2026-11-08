@@ -104,8 +104,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
 
 // StageFragmenter removed from prod — QueryDispatcher now takes only (deps, statementDispatcher)
 
@@ -265,9 +266,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             sharedStatementDispatcher;
     private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
             materializationDispatcher;
-    private static volatile org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository
+    private static volatile org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository
             materializationRepository;
-    private static volatile org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog
+    private static volatile org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog
             materializationCatalog;
     private static volatile org.pangrova.security.spi.authorization.AccessControl featureAccessControl;
     private static volatile boolean durableStorageProfileScenario;
@@ -2054,7 +2055,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     static TransportRefs createTestTransportRefs(TaskExecutor executor) {
         org.pangrova.worker.result.NativeResultTransport resultTransport = null;
         try {
-            var shuffleTransport = new org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport(
+            var shuffleTransport = new org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport(
                     executor::executeCommand, IN_PROCESS_WORKER_HOST, "");
             resultTransport = new org.pangrova.worker.result.NativeResultTransport(
                     executor, IN_PROCESS_WORKER_HOST);
@@ -2145,7 +2146,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         currentAccessControl = featureAccessControl == null
                 ? E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL,
                         metadataBootstrap.catalogRegistry()) : featureAccessControl;
-        var embeddingRegistry = new org.pangrova.ai.control.store.jdbc.embedding.JdbcEmbeddingModelRegistry(
+        var embeddingRegistry = new org.pangrova.persistence.ai.postgresql.embedding.JdbcEmbeddingModelRegistry(
                 java.util.Objects.requireNonNull(
                         stateStoreDataSource, "E2E PostgreSQL state store must be initialized"),
                 E2eCurrentAuthority.MODEL_ADMIN_ROLE, E2eCurrentAuthority.MODEL_USAGE_ROLE);
@@ -2309,7 +2310,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static org.pangrova.coordinator.indexing.IndexAwareSplitFetcher registerIndexHandlers(
             org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher statementDispatcher) {
         try {
-            var indexMetadataStore = new org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore(stateStoreDataSource, org.pangrova.metadata.service.TableControlDeferredPolicy::requireCurrent);
+            var indexMetadataStore = new org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore(stateStoreDataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
             closeQuietly(sharedIndexingBootstrap, "indexing_lifecycle_rebuild");
             sharedIndexingBootstrap = new org.pangrova.server.coordinator.bootstrap.IndexingBootstrap(
                     tempDir.resolve("index-artifacts").toString(),
@@ -2393,7 +2394,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
                 org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
         ddlExecutor.setMetadataService(metadataBootstrap.metadataService());
-        ddlExecutor.setColumnMaskStore(new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
+        ddlExecutor.setColumnMaskStore(new org.pangrova.metadata.security.TableControlColumnMaskStore(
                 new RegistryTablePolicyAuthority(catalog),
                 new org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore(stateStoreDataSource)));
         sharedDdlExecutor = ddlExecutor;
@@ -2455,7 +2456,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.OptimizeTask(maintenanceExecutor));
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(ddlExecutor, dmlDispatch));
+                new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(
+                        ddlExecutor, dmlDispatch, SqlE2ETestBase::buildSqlCompiler));
         // Views
         tasks.put(org.pangrova.parser.api.ast.statement.CreateViewStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CreateViewTask(catalog));
@@ -2508,7 +2510,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                 + sharedWorkerHttpPort), fileAudit, E2E_INTERNAL_AUTH_SECRET,
                         new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(stateStoreDataSource,
                                 new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(stateStoreDataSource))));
-        var fileClient = org.pangrova.file.adapter.worker.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);
+        var fileClient = org.pangrova.file.worker.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);
         org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
                 metadataFactory, fileSpaces, currentAccessControl, fileAudit,
                 new org.pangrova.file.core.directory.StageDirectoryRefreshService(
@@ -2521,7 +2523,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.file.RemoveStageTask(
                         fileAccess, fileClient, fileClient));
         if (featureAccessControl != null) {
-            var aiStores = org.pangrova.ai.control.assembly.AiInfrastructureStores.jdbc(
+            var aiStores = org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores.jdbc(
                     stateStoreDataSource, ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource));
             var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
                     aiStores.catalogExports(),
@@ -2555,7 +2557,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         sharedGeneratedValueCoordinator));
 
         var factories = new java.util.ArrayList<
-                org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory<?>>();
+                org.pangrova.query.core.dispatch.StatementExecutionFactory<?>>();
         factories.add(metadataFactory);
         factories.add(planFactory);
 
@@ -2584,6 +2586,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 java.util.Objects.requireNonNull(sharedDdlExecutor),
                 (sm, session, stmt) -> java.util.Objects.requireNonNull(sharedQueryDispatcher)
                         .executeDmlStatement(sm, stmt, session),
+                SqlE2ETestBase::buildSqlCompiler,
                 stateStoreDataSource, currentAccessControl);
         dispatcher.registerFactory(factory);
         materializationDispatcher = dispatcher;
@@ -2623,22 +2626,22 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return readerPinLeases;
     }
 
-    private static org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository
+    private static org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository
             materializationRepository() {
         var repository = materializationRepository;
         if (repository == null) {
-            repository = new org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository(
+            repository = new org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository(
                     java.util.Objects.requireNonNull(stateStoreDataSource));
             materializationRepository = repository;
         }
         return repository;
     }
 
-    private static org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog
+    private static org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog
             materializationCatalog() {
         var catalog = materializationCatalog;
         if (catalog == null) {
-            catalog = new org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog(
+            catalog = new org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog(
                     java.util.Objects.requireNonNull(stateStoreDataSource));
             materializationCatalog = catalog;
         }
@@ -2646,16 +2649,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     /** Reopens the persisted materialization authority as a coordinator restart would. */
-    protected static org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog
+    protected static org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog
             reopenDynamicTablePublicationCatalog() {
-        return new org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog(
+        return new org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog(
                 java.util.Objects.requireNonNull(stateStoreDataSource));
     }
 
     /** Durable authority pair wired into the E2E Dynamic Table runtime. */
     protected record DurableDynamicTableAuthority(
-            org.pangrova.materialization.store.jdbc.JdbcMaterializationRepository repository,
-            org.pangrova.materialization.store.jdbc.JdbcMaterializationCatalog catalog) {
+            org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository repository,
+            org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog catalog) {
     }
 
     /**
@@ -2719,7 +2722,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         MetadataBootstrap startingBootstrap = null;
         try {
             System.err.println("[E2E-DEBUG] initializeMetadata: creating datasource");
-            startingPool = org.pangrova.metadata.store.jdbc.catalog.PooledDataSourceFactory.create(
+            startingPool = org.pangrova.persistence.jdbc.support.PooledDataSourceFactory.create(
                     pgJdbcUrl(), pgUsername(), pgPassword());
             DataSource ds = startingPool;
             System.err.println("[E2E-DEBUG] initializeMetadata: datasource created");
@@ -2739,12 +2742,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     () -> requireE2ECoordination().getCurrentEpoch());
             java.util.function.Function<org.pangrova.metadata.api.catalog.CatalogDescriptor,
                     org.pangrova.connector.spi.metadata.ManagedSourceCatalog> sourceCatalogs = descriptor ->
-                    new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(ds,
+                    new org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog(ds,
                             new org.pangrova.connector.api.metadata.SourceCatalogDeployment(
                                     descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                             E2E_WRITE_COMMIT_FENCER::currentAnchor,
                             new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
-                            ModelAuthorityFixtures.models());
+                            ModelAuthorityFixtures.models(),
+                                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
             TestConnectorHandleFactory connectorFactory = new TestConnectorHandleFactory(descriptor ->
                     java.util.Optional.of(new org.pangrova.coordinator.metadata.WorkerNativeDatasetControl(
                             descriptor, dependencies, sharedDatasetControlClient, sourceCatalogs.apply(descriptor))),

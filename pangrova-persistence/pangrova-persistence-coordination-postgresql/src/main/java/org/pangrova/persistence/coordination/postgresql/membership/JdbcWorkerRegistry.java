@@ -1,4 +1,5 @@
 package org.pangrova.persistence.coordination.postgresql.membership;
+import org.pangrova.coordination.api.membership.WorkerRegistrationIdentity;
 
 import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
 
@@ -240,7 +241,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
     }
 
     @Override
-    public Optional<WorkerSnapshot> heartbeat(org.pangrova.coordination.api.membership.WorkerRegistrationIdentity expected, HeartbeatSnapshot snapshot) {
+    public Optional<WorkerSnapshot> heartbeat(
+            WorkerRegistrationIdentity expected, HeartbeatSnapshot snapshot) {
         Objects.requireNonNull(expected, "expected must not be null");
         Objects.requireNonNull(snapshot, "snapshot must not be null");
         try (Connection conn = dataSource.getConnection();

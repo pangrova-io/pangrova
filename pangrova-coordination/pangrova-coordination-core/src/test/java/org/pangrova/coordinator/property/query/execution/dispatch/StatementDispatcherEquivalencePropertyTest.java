@@ -15,7 +15,7 @@ import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.query.api.statement.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.query.core.statement.StatementTableTargets;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.InsertStatement;

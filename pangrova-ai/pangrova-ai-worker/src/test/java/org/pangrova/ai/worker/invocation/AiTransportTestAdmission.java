@@ -22,7 +22,7 @@ import org.pangrova.ai.api.capability.Modality;
 import org.pangrova.ai.api.embedding.EmbeddingPurpose;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
-import org.pangrova.ai.worker.context.AiProviderCallContext;
+import org.pangrova.ai.spi.invocation.AiProviderCallContext;
 import org.pangrova.ai.worker.context.AiTestTaskAuthority;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 import org.pangrova.ai.worker.context.GovernedAiBindings;

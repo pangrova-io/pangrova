@@ -3,7 +3,8 @@ package org.pangrova.coordinator.ai.embedding;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.query.api.write.WriteAuthorityRequest;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+import org.pangrova.persistence.jdbc.api.security.policy.AuthorizationPublicationLock;
+import org.pangrova.persistence.security.api.tenant.DeferredTenantAuthority;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.security.api.error.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
@@ -32,14 +33,20 @@ final class GeneratedWriteAuthorityResolver {
     private final DataSource dataSource;
     private final GeneratedValueMaterializationCoordinator coordinator;
     private final CurrentModelAuthority modelAuthority;
+    private final DeferredTenantAuthority tenantAuthority;
+    private final AuthorizationPublicationLock publicationLock;
 
     GeneratedWriteAuthorityResolver(CatalogRegistry catalogs, DataSource dataSource,
                                      GeneratedValueMaterializationCoordinator coordinator,
-                                     CurrentModelAuthority modelAuthority) {
+                                     CurrentModelAuthority modelAuthority,
+                                     DeferredTenantAuthority tenantAuthority,
+                                     AuthorizationPublicationLock publicationLock) {
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.coordinator = coordinator;
         this.modelAuthority = Objects.requireNonNull(modelAuthority, "modelAuthority");
+        this.tenantAuthority = Objects.requireNonNull(tenantAuthority, "tenantAuthority");
+        this.publicationLock = Objects.requireNonNull(publicationLock, "publicationLock");
     }
 
     WriteAuthorizationReceipt resolve(WriteAuthorityRequest request) {
@@ -86,30 +93,47 @@ final class GeneratedWriteAuthorityResolver {
         String principal = request.session().getUser();
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate.lockPublication(connection);
-            var models = modelNames.isEmpty() ? List.<DeferredAuthorizationScope.ModelSnapshot>of()
-                    : modelAuthority.observe(connection, principal, modelNames);
-            var permissions = new ArrayList<>(reads);
-            request.requiredWritePrivileges().forEach(privilege -> permissions.add(
-                    new DeferredAuthorizationScope.TablePermission(
-                    request.table(), Set.of(), privilege, DeferredAuthorizationScope.ReadMode.NONE,
-                    DeferredAuthorizationScope.PolicySnapshot.empty())));
-            var scope = new DeferredAuthorizationScope(permissions,
-                    Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, models)));
-            JdbcTenantStore.requireDeferredTenant(connection, principal, tenant, scope,
-                    request.internalMaterializationExecution()
-                            ? org.pangrova.coordinator.query.security.AccessControlEnforcer
-                                    ::isReservedDynamicTableGeneration
-                            : table -> false);
-            if (!request.internalMaterializationExecution()) {
-                org.pangrova.metadata.service.TableControlDeferredPolicy.requireCurrent(connection, principal, scope);
+            try {
+                return authorizeAndEncode(connection, request, principal, tenant, declaration, reads, modelNames);
+            } catch (SQLException | RuntimeException failure) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollback) {
+                    failure.addSuppressed(rollback);
+                }
+                throw failure;
             }
-            var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
-            connection.commit();
-            return receipt;
         } catch (SQLException failure) {
             throw new IllegalStateException("Cannot observe current generated write authority", failure);
         }
+    }
+
+    private WriteAuthorizationReceipt authorizeAndEncode(java.sql.Connection connection,
+        WriteAuthorityRequest request, String principal, String tenant,
+        WriteDeclarationSnapshot declaration, List<DeferredAuthorizationScope.TablePermission> reads,
+        Set<String> modelNames) throws SQLException {
+        publicationLock.lockPublication(connection);
+        var models = modelNames.isEmpty() ? List.<DeferredAuthorizationScope.ModelSnapshot>of()
+                : modelAuthority.observe(connection, principal, modelNames);
+        var permissions = new ArrayList<>(reads);
+        request.requiredWritePrivileges().forEach(privilege -> permissions.add(
+                new DeferredAuthorizationScope.TablePermission(
+                request.table(), Set.of(), privilege, DeferredAuthorizationScope.ReadMode.NONE,
+                DeferredAuthorizationScope.PolicySnapshot.empty())));
+        var scope = new DeferredAuthorizationScope(permissions,
+                Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, models)));
+        tenantAuthority.requireCurrent(connection, principal, tenant, scope,
+                request.internalMaterializationExecution()
+                        ? org.pangrova.coordinator.query.security.AccessControlEnforcer
+                                ::isReservedDynamicTableGeneration
+                        : table -> false);
+        if (!request.internalMaterializationExecution()) {
+            org.pangrova.metadata.service.TableControlWriteAuthorities.postgres().requireCurrent(connection,
+                    principal, scope);
+        }
+        var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
+        connection.commit();
+        return receipt;
     }
 
 }

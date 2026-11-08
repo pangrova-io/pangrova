@@ -42,7 +42,9 @@ public record HeartbeatPayload(
     public HeartbeatPayload(String workerId, String memoryPressure,
                             double cpuUtilization, int runningTaskCount,
                             long availableMemoryBytes, long nativeUsedBytes,
-                            long nativeCapacityBytes, org.pangrova.protocol.execution.identity.WorkerExecutionIdentity workerExecutionIdentity) {
+                            long nativeCapacityBytes,
+                                    org.pangrova.protocol.execution.identity.WorkerExecutionIdentity
+            workerExecutionIdentity) {
         this(workerId, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, nativeUsedBytes, nativeCapacityBytes,
                 List.of(), 0, 0, 0, 0, Map.of(), Map.of(), workerExecutionIdentity);
@@ -50,7 +52,9 @@ public record HeartbeatPayload(
 
     public HeartbeatPayload(String workerId, String memoryPressure,
                             double cpuUtilization, int runningTaskCount,
-                            long availableMemoryBytes, org.pangrova.protocol.execution.identity.WorkerExecutionIdentity workerExecutionIdentity) {
+                            long availableMemoryBytes,
+                                    org.pangrova.protocol.execution.identity.WorkerExecutionIdentity
+            workerExecutionIdentity) {
         this(workerId, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, 0, 0, workerExecutionIdentity);
     }

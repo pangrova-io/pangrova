@@ -19,8 +19,8 @@ package org.pangrova.coordinator.query.execution.dispatch.task.semantic;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.coordinator.semantic.SemanticViewStatementService;
 import org.pangrova.parser.api.ast.statement.CreateSemanticViewStatement;
 import org.pangrova.types.value.TypedRow;

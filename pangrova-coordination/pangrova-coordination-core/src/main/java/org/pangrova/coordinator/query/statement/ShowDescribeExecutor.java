@@ -65,7 +65,8 @@ public final class ShowDescribeExecutor {
     public List<TypedRow> executeShowSchemas(ShowSchemasStatement stmt, QuerySession context) {
         UserIdentity user = context.userIdentity();
         String catalog = stmt.catalogName();
-        ConnectorSession session = SessionContextConverter.toConnectorSession(context, catalog, SessionTableNames.defaultSchema(context));
+        ConnectorSession session = SessionContextConverter.toConnectorSession(context, catalog,
+                SessionTableNames.defaultSchema(context));
         ConnectorMetadata metadata = ConnectorTableLookup.getMetadata(
                 catalogRegistry, catalog, session);
         List<String> schemas = metadata.listSchemaNames(session);

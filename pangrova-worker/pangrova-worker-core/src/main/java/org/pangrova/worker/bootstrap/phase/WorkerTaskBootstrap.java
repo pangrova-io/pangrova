@@ -8,7 +8,7 @@ import org.pangrova.worker.bootstrap.ownership.WorkerTaskOwnership;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientPool;
-import org.pangrova.shuffle.adapter.nativebridge.NativeShuffleTransport;
+import org.pangrova.worker.nativebridge.shuffle.NativeShuffleTransport;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
 import org.pangrova.worker.task.memory.MemoryRefs;
@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
  * shuffle/exchange/results). No Java fallback.
  */
 public final class WorkerTaskBootstrap {
+    private static final int MAX_CLEANUP_INTERVAL_SECONDS = 60;
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerTaskBootstrap.class);
     private static final java.security.SecureRandom SHUFFLE_KEY_RANDOM = new java.security.SecureRandom();
@@ -131,7 +132,7 @@ public final class WorkerTaskBootstrap {
         tm.startPeriodicCleanup(
                 cleanupExecutor,
                 java.time.Duration.ofSeconds(config.resultRetentionSeconds()),
-                java.time.Duration.ofSeconds(Math.min(60, config.resultRetentionSeconds())));
+                java.time.Duration.ofSeconds(Math.min(MAX_CLEANUP_INTERVAL_SECONDS, config.resultRetentionSeconds())));
     }
 
     /**

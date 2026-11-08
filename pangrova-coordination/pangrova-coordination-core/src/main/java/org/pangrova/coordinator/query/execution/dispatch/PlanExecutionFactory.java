@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
 
 import org.pangrova.query.api.statement.StatementCategory;
 
@@ -25,6 +26,8 @@ import org.pangrova.parser.api.ast.statement.dml.UpdateStatement;
 import org.pangrova.types.value.TypedRow;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
 
 /**
  * Executes statements that require compilation to a Substrait plan and

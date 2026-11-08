@@ -17,8 +17,8 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.metadata.store.jdbc.catalog.PooledDataSourceFactory;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.postgresql.ds.PGSimpleDataSource;
 
 /** Real pooled PostgreSQL sessions cover cached ranges, upgrades and absent-row acquisition races. */

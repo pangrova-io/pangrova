@@ -2,7 +2,7 @@ package org.pangrova.coordinator.materialization;
 
 import java.util.Locale;
 import java.util.regex.Pattern;
-import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.parser.api.ast.Identifier;

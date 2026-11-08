@@ -1,4 +1,6 @@
 package org.pangrova.metadata.coordination;
+
+import org.pangrova.metadata.governance.TestQualityRuleExecutor;
 import org.pangrova.persistence.query.postgresql.lineage.JdbcQueryLineageOutbox;
 
 import io.openlineage.client.transports.HttpConfig;
@@ -10,7 +12,7 @@ import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
 import org.pangrova.governance.lineage.openlineage.OpenLineageHttpTransport;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.query.api.lineage.QueryLineageFact;
 import org.pangrova.query.api.lineage.QueryLineageMetadata;
 import org.pangrova.testing.testkit.lineage.ReferenceLineageBackend;
@@ -161,10 +163,9 @@ class QueryLineageHttpRecoveryIntegrationTest {
     private void closeActualGovernanceOwner() throws Exception {
         String run = UUID.randomUUID().toString();
         var emitter = new LineageEventEmitter(transport(null, 1000), outbox, reference.namespace(), 100);
-        var store = new org.pangrova.governance.store.jdbc.JdbcQualityRuleStore(dataSource);
-        store.initSchema();
+        var store = new org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore(dataSource);
         var handler = new org.pangrova.governance.core.quality.GovernanceStatementHandler(store,
-                new org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor(),
+                new org.pangrova.metadata.governance.TestQualityRuleExecutor(),
                 new org.pangrova.governance.core.quality.DataQualityAlerter(
                         new org.pangrova.governance.core.quality.AlertChannelRegistry()));
         var scheduler = new org.pangrova.governance.core.quality.CronScheduler(handler);

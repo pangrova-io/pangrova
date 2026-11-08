@@ -1,21 +1,16 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
+import org.pangrova.planner.core.analysis.StagePlanAccess;
 
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
-
-
 import org.pangrova.execution.core.binding.TaskRequestFactory;
 import org.pangrova.execution.api.stage.TaskStage;
 import org.pangrova.execution.api.stage.TaskPurpose;
-
 import org.pangrova.query.api.task.QuerySplit;
-
 import org.pangrova.query.core.task.StageDispatchRecord;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
-
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.StagePartitionDispatcher;
@@ -168,7 +163,7 @@ final class LeafStageDispatcher {
         boolean outputStage = input.dag().findDownstreamEdge(
                 input.plan().stageId()) == null;
         if (outputStage && shuffleConfig == null && !input.distributedRetrieval()
-                && input.plan().stagePlan().mode() == org.pangrova.planner.core.analysis.StagePlanAccess.Mode.LIVE_QUERY) {
+                && input.plan().stagePlan().mode() == StagePlanAccess.Mode.LIVE_QUERY) {
             taskCount = 1;
         }
         return taskCount;

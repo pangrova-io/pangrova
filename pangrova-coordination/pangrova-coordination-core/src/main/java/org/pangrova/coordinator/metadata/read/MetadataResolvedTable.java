@@ -33,7 +33,8 @@ final class MetadataResolvedTable extends AbstractTable {
 
     @Override
     public RelDataType getRowType(RelDataTypeFactory typeFactory) {
-        return org.pangrova.planner.core.type.ConnectorColumnTypeMapper.rowType(declaration().typedColumns(), typeFactory);
+        return org.pangrova.planner.core.type.ConnectorColumnTypeMapper.rowType(declaration().typedColumns(),
+                typeFactory);
     }
 
     @Override

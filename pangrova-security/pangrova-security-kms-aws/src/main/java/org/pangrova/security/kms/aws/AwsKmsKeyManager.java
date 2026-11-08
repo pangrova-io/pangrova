@@ -27,7 +27,6 @@ import javax.crypto.spec.SecretKeySpec;
 import java.net.URI;
 import java.util.Objects;
 import org.pangrova.security.spi.crypto.KeyManager;
-import org.pangrova.security.kms.aws.KmsConfiguration;
 
 /**
  * AWS KMS key management using envelope encryption.

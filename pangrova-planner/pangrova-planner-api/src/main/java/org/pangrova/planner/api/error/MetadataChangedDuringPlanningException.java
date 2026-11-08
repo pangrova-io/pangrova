@@ -3,7 +3,6 @@ package org.pangrova.planner.api.error;
 import org.pangrova.common.api.annotation.Internal;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.planner.api.error.PlannerException;
 
 /**
  * Thrown when metadata for a catalog changes during query planning.

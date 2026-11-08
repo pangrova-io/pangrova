@@ -1,4 +1,5 @@
 package org.pangrova.persistence.coordination.memory.membership;
+import org.pangrova.coordination.api.membership.WorkerRegistrationIdentity;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot;
@@ -38,7 +39,8 @@ public final class InMemoryWorkerRegistry implements WorkerRegistry {
     }
 
     @Override
-    public Optional<WorkerSnapshot> heartbeat(org.pangrova.coordination.api.membership.WorkerRegistrationIdentity expected, HeartbeatSnapshot snapshot) {
+    public Optional<WorkerSnapshot> heartbeat(
+            WorkerRegistrationIdentity expected, HeartbeatSnapshot snapshot) {
         Objects.requireNonNull(expected, "expected must not be null");
         Objects.requireNonNull(snapshot, "snapshot must not be null");
         // F-CHAIN-CACHE-02: preserve cacheSummary on heartbeat. Previously
@@ -64,7 +66,7 @@ public final class InMemoryWorkerRegistry implements WorkerRegistry {
                 snapshot.cacheSummary() != null ? snapshot.cacheSummary() : existing.cacheSummary(),
                 existing.capabilityInventory(),
                 existing.copyTaskTlsPort(), existing.admissionDomainId(), existing.incarnationId()
-        );
+            );
             updated.set(next);
             return next;
         });

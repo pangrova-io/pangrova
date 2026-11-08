@@ -171,10 +171,9 @@ class SpiWiringVerificationTest {
             "org.pangrova.indexing.fs.LocalFileSystemAccessor",
             "org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData",
             // Metadata — pending metadata P0 wiring
-            "org.pangrova.metadata.adapter.FederationColumnHandle",
-            "org.pangrova.metadata.adapter.FederationConnectorMetadata",
-            "org.pangrova.metadata.adapter.FederationTableHandle",
-            "org.pangrova.metadata.checkpoint.JdbcCheckpointStore",
+            "org.pangrova.metadata.federation.FederationColumnHandle",
+            "org.pangrova.metadata.federation.FederationConnectorMetadata",
+            "org.pangrova.metadata.federation.FederationTableHandle",
             "org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry",
             "org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease",
             "org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal",
@@ -205,13 +204,12 @@ class SpiWiringVerificationTest {
             // Streaming — pending streaming P0 wiring
             "org.pangrova.streaming.cdc.CdcRegistrationHandler",
             "org.pangrova.streaming.store.memory.InMemoryCdcRegistrationStore",
-            "org.pangrova.streaming.store.jdbc.cdc.JdbcCdcRegistrationStore",
-            "org.pangrova.streaming.store.jdbc.watermark.JdbcWatermarkPositionStore",
+            "org.pangrova.persistence.streaming.postgresql.JdbcCdcRegistrationStore",
+            "org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore",
             "org.pangrova.streaming.cdcformat.canal.CanalJsonConverter",
             "org.pangrova.streaming.cdcformat.debezium.DebeziumJsonConverter",
             "org.pangrova.streaming.cdcformat.maxwell.MaxwellJsonConverter",
             "org.pangrova.streaming.store.memory.InMemoryWatermarkStore",
-            "org.pangrova.streaming.store.jdbc.watermark.JdbcWatermarkStore",
             "org.pangrova.streaming.writer.lake.LakeTableWriter",
             "org.pangrova.streaming.writer.mergetree.MergeTreeTableWriter",
             // Exchange/shuffle — pending distributed correctness P0
@@ -259,7 +257,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.coordinator.indexing.ai.lifecycle.DefaultIndexAvailabilityPublisher",
             // AI Worker — optional runtime installed on the Worker classpath; its
             // ServiceLoader adapters are not reachable from the Worker bootstrap roots.
-            "org.pangrova.ai.worker.embedding.openai.OpenAiCompatibleEmbeddingProvider",
+            "org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider",
             "org.pangrova.ai.worker.function.AiClassifyFunction",
             "org.pangrova.ai.worker.function.AiCompletionFunction",
             "org.pangrova.ai.worker.function.AiEmbedFunction",
@@ -277,7 +275,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.ai.worker.function.AiTranscribeFunction",
             "org.pangrova.ai.worker.function.file.FileFromBytesFunction",
             "org.pangrova.ai.worker.function.file.FileFromUrlFunction",
-            "org.pangrova.ai.worker.inference.openai.OpenAiCompatibleInferenceProvider",
+            "org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider",
             "org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry"
     );
 

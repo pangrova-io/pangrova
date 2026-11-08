@@ -20,7 +20,7 @@ package org.pangrova.coordinator.feature;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementResult;
 import org.pangrova.parser.api.ast.statement.CreateFeatureViewStatement;
 import org.pangrova.parser.api.ast.statement.MaterializeFeatureViewStatement;
 import org.pangrova.parser.api.ast.statement.PublishFeatureViewStatement;

@@ -4,7 +4,7 @@ import org.pangrova.testing.testkit.metadata.CurrentCatalogProjectionFixture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.adapter.FederatedCatalog;
+import org.pangrova.metadata.api.catalog.FederatedCatalog;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 
 /** Exercises the real SQL progress owner through the sync service, not just a setter invocation. */
 class MetadataSyncWatermarkTest {
@@ -118,7 +118,7 @@ class MetadataSyncWatermarkTest {
                 new QualifiedTableRef("catalog", "schema", "expected"), change("wrong-table").metadata());
         var source = new Inventory(new MetadataChangeBatch(List.of(change("valid-first"), mismatched), Optional.of(BOUND)));
         assertThatThrownBy(() -> service.syncWithRetry(deployment, source))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionScopeException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionScopeException.class);
         assertThat(source.requested).containsExactly(Instant.EPOCH);
         assertThat(tables.loadTable("catalog", "schema", "valid-first")).isEmpty();
         assertThat(tables.loadTable("catalog", "schema", "wrong-table")).isEmpty();
@@ -132,7 +132,7 @@ class MetadataSyncWatermarkTest {
         service.subscribeToPushNotifications(deployment, source);
         assertThatThrownBy(() -> source.listener.onChange(new MetadataChange(MetadataChange.ChangeType.DELETE,
                 new QualifiedTableRef("other", "schema", "one"), null)))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionScopeException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionScopeException.class);
     }
 
     private void advanceDeployment() {
@@ -229,7 +229,7 @@ class MetadataSyncWatermarkTest {
         var uncertain = new MetadataSyncService(tables, uncertainProjections(false, false, writes), synchronization,
                 new TieredMetadataCache(), dispatcher);
         assertThatThrownBy(() -> uncertain.syncWithRetry(deployment, source))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionOutcomeUnknownException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionOutcomeUnknownException.class);
         assertThat(writes).hasValue(1);
         assertThat(source.requested).containsExactly(Instant.EPOCH);
         assertThat(tables.loadTable("catalog", "schema", "one")).isEmpty();
@@ -243,7 +243,7 @@ class MetadataSyncWatermarkTest {
         var uncertain = new MetadataSyncService(tables, uncertainProjections(true, true, writes), synchronization,
                 new TieredMetadataCache(), dispatcher);
         assertThatThrownBy(() -> uncertain.syncWithRetry(deployment, source))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionOutcomeUnknownException.class)
+                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionOutcomeUnknownException.class)
                 .satisfies(failure -> assertThat(failure.getSuppressed()).singleElement().satisfies(suppressed -> assertThat(suppressed).hasMessage("confirmation unavailable")));
         assertThat(writes).hasValue(1);
         assertThat(source.requested).containsExactly(Instant.EPOCH);
@@ -268,7 +268,7 @@ class MetadataSyncWatermarkTest {
         service.subscribeToPushNotifications(deployment, source);
         advanceDeployment();
         assertThatThrownBy(() -> source.listener.onChange(change("one")))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException.class);
         assertThat(tables.loadTable("catalog", "schema", "one")).isEmpty();
     }
 
@@ -277,25 +277,25 @@ class MetadataSyncWatermarkTest {
         var source = new Inventory(new MetadataChangeBatch(List.of(), Optional.empty()));
         source.beforeFetch = this::advanceDeployment;
         assertThatThrownBy(() -> service.validateSingleTable(scope, source, change("one")))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException.class);
         assertThat(tables.loadTable("catalog", "schema", "one")).isEmpty();
         assertThat(service.getSchemaDriftDetectedCount()).isZero();
     }
 
-    private org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions uncertainProjections(
+    private org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions uncertainProjections(
             boolean committed, boolean confirmationFails, java.util.concurrent.atomic.AtomicInteger writes) {
-        return new org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions() {
+        return new org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions() {
             @Override public void recoverPending(CatalogDeploymentIdentity requestedScope) {
                 projections.recoverPending(requestedScope);
             }
-            @Override public org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt apply(
-                    org.pangrova.persistence.catalog.api.projection.MetadataProjectionMutation mutation) {
+            @Override public org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt apply(
+                    org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation mutation) {
                 writes.incrementAndGet();
                 if (committed) projections.apply(mutation);
-                throw new org.pangrova.persistence.catalog.api.projection.MetadataProjectionOutcomeUnknownException(
+                throw new org.pangrova.persistence.workflow.api.projection.MetadataProjectionOutcomeUnknownException(
                         mutation.operationId(), new java.sql.SQLException("lost acknowledgment"));
             }
-            @Override public Optional<org.pangrova.persistence.catalog.api.projection.MetadataProjectionReceipt> findReceipt(java.util.UUID id) {
+            @Override public Optional<org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt> findReceipt(java.util.UUID id) {
                 if (confirmationFails) throw new IllegalStateException("confirmation unavailable");
                 return projections.findReceipt(id);
             }
@@ -333,7 +333,7 @@ class MetadataSyncWatermarkTest {
         private Runnable beforeRead = () -> {};
         private Runnable beforeSchemas = () -> {};
         private Runnable beforeFetch = () -> {};
-        private org.pangrova.metadata.adapter.ChangeListener listener;
+        private org.pangrova.metadata.api.catalog.ChangeListener listener;
         Inventory(MetadataChangeBatch batch) { this.batch = batch; }
         @Override public List<String> listSchemas() { beforeSchemas.run(); return List.of("schema"); }
         @Override public List<String> listTables(String schema) { return List.of("one"); }
@@ -344,7 +344,7 @@ class MetadataSyncWatermarkTest {
             beforeRead.run();
             return batch;
         }
-        @Override public void subscribeToChanges(org.pangrova.metadata.adapter.ChangeListener callback) { listener = callback; }
+        @Override public void subscribeToChanges(org.pangrova.metadata.api.catalog.ChangeListener callback) { listener = callback; }
         @Override public void close() {}
     }
 }

@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.query.cache;
 
 import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller;
+import org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller;
 import org.pangrova.planner.core.cache.CacheEntryMetadata;
 import org.pangrova.planner.core.cache.CacheKey;
-import org.pangrova.planner.core.cache.CachedResult;
-import org.pangrova.planner.core.cache.L2CacheStore;
+import org.pangrova.cache.api.CachedResult;
+import org.pangrova.cache.api.L2CacheStore;
 import org.pangrova.planner.core.cache.QueryResultCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +27,7 @@ import java.util.Set;
  *   <li>Clear L2 (L2CacheStore.removeByTable)</li>
  *   <li>Write invalidation_log (RESULT_CACHE type) for cross-coordinator propagation</li>
  * </ol>
- * Other coordinators pick up the invalidation_log entry via PostgresInvalidationPoller
+ * Other coordinators pick up the invalidation_log entry via InvalidationLogPoller
  * and clear their own L1. They do NOT clear L2 — the originating coordinator
  * already did that (single-writer model).</p>
  */
@@ -37,7 +37,7 @@ public final class ResultCacheCoordinator {
 
     private final QueryResultCache l1Cache;
     private final L2CacheStore l2Store;
-    private final PostgresInvalidationPoller invalidationPoller;
+    private volatile InvalidationLogPoller invalidationPoller;
 
     /**
      * @param l1Cache            L1 JVM heap cache (nullable — disables caching)
@@ -46,10 +46,19 @@ public final class ResultCacheCoordinator {
      */
     public ResultCacheCoordinator(QueryResultCache l1Cache,
                                   L2CacheStore l2Store,
-                                  PostgresInvalidationPoller invalidationPoller) {
+                                  InvalidationLogPoller invalidationPoller) {
         this.l1Cache = l1Cache;
         this.l2Store = l2Store;
         this.invalidationPoller = invalidationPoller;
+        wirePollerCallback();
+    }
+
+    /**
+     * Attaches the single invalidation-log participant after bootstrap created it.
+     * Cross-coordinator L1 invalidation stays inactive until this owner is present.
+     */
+    public void attachInvalidationPoller(InvalidationLogPoller poller) {
+        this.invalidationPoller = java.util.Objects.requireNonNull(poller, "poller");
         wirePollerCallback();
     }
 

@@ -107,7 +107,7 @@ SQL writer 证据来自主源字符串扫描，并人工补全字符串拼接与
 | `JdbcIndexGenerationPublicationStore` | `index_descriptors`、`index_generation_builds`、`index_generation_manifests`、`artifact_build_jobs` | Indexing；旧代 retirement、指针切换与任务终态同事务 |
 | `JdbcTabularExportPublicationStore` | `tabular_export_generations`、`artifact_build_jobs` | 通用关系导出 adapter；不能因 Feature 的一个调用点自动归 AI |
 | `JdbcGeneratedValueBuildSubmissionStore` | `write_commit_journal`；调用 helper 写任务/依赖/页/dispatch 和 generated descriptor | AI submission + Query redo ack + 公共任务事务 bridge；全部提交或全部回滚 |
-| `JdbcCheckpointStore` | `checkpoints` | Coordinator；目前未找到生产构造点，存在类不是实际 durable wiring |
+
 
 ### 2.3 Catalog 的职责不能吞并 Table、AI 或 Indexing
 
@@ -372,13 +372,12 @@ S2/S3 已通过 transaction bridge 替代跨 owner `PostgresGenerationQueries` �
 | [api/relation/DependencyViolationException.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/DependencyViolationException.java) | Catalog 技术对象依赖图 | — | 1/1 | ObjectDependencyService |
 | [api/relation/MetadataMaintenanceHook.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/MetadataMaintenanceHook.java) | Catalog 技术对象依赖图 | — | 2/3 | LineageBridgeMaintenanceHook, ObjectDependencyService |
 | [api/relation/ObjectDependency.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectDependency.java) | Catalog 技术对象依赖图 | — | 3/3 | ObjectDependencyService, InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
-| [api/relation/ObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectDependencyStore.java) | Catalog 技术对象依赖图 | — | 3/3 | ObjectDependencyService, InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
+| [ObjectDependencyStore.java](../../../pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/dependency/ObjectDependencyStore.java) | Catalog 技术对象依赖图 | — | 3/3 | ObjectDependencyService, InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
 | [api/relation/ObjectKind.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectKind.java) | Catalog 技术对象依赖图 | — | 2/5 | ObjectRef, JdbcObjectDependencyStore |
 | [api/relation/ObjectRef.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectRef.java) | Catalog 技术对象依赖图 | — | 10/5 | LineageBridgeMaintenanceHook, ObjectDependencyService, ObjectDependencyKey |
 | [assembly/databuild/DataBuildStores.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/generation/GenerationStores.java) | Coordinator 进程组合根 | — | 4/6 | QueryMaterializationWiring, HighAvailabilityBootstrap, CoordinatorBootstrap |
 | [assembly/security/ColumnMaskStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security/ColumnMaskStoreWiring.java) | Catalog→Table/Security 适配；进程组合根装配 | — | 2/0 | CoordinatorBootstrap, QueryExecutionBootstrap |
 | [assembly/security/package-info.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security/package-info.java) | Catalog→Table/Security 适配；进程组合根装配 | — | 0/0 | — |
-| [checkpoint/JdbcCheckpointStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/checkpoint/JdbcCheckpointStore.java) | Coordinator 恢复/checkpoint provider（当前未接生产） | `checkpoints` | 0/0 | — |
 | [core/cache/DisabledL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/cache/DisabledL2CacheStore.java) | Catalog 观测、缓存与失效 | — | 1/1 | TieredMetadataCache |
 | [core/cache/InMemoryL2CacheStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/cache/InMemoryL2CacheStore.java) | Catalog 观测、缓存与失效 | — | 0/1 | — |
 | [core/cache/InvalidationMetrics.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/cache/InvalidationMetrics.java) | Catalog 观测、缓存与失效 | — | 0/0 | — |
@@ -398,8 +397,8 @@ S2/S3 已通过 transaction bridge 替代跨 owner `PostgresGenerationQueries` �
 | [core/outbox/MetadataSyncService.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/outbox/MetadataSyncService.java) | Catalog 观测、缓存与失效 | — | 2/8 | ModuleIntegrationBootstrap, MetadataBootstrap |
 | [core/outbox/TableVersionObservationReport.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/outbox/TableVersionObservationReport.java) | Catalog 观测、缓存与失效 | — | 2/1 | ModuleIntegrationBootstrap, TableVersionObserver |
 | [core/outbox/TableVersionObserver.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/outbox/TableVersionObserver.java) | Catalog 观测、缓存与失效 | — | 2/1 | ModuleIntegrationBootstrap, MetadataBootstrap |
-| [core/relation/ObjectDependencyKey.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/relation/ObjectDependencyKey.java) | Catalog 技术对象依赖图 | — | 3/0 | ObjectDependencyOrder, InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
-| [core/relation/ObjectDependencyOrder.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/relation/ObjectDependencyOrder.java) | Catalog 技术对象依赖图 | — | 2/0 | InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
+| [dependency/ObjectDependencyKey.java](../../../pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/dependency/ObjectDependencyKey.java) | Catalog 技术对象依赖图（已迁 Catalog API） | — | 3/0 | ObjectDependencyOrder, InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
+| [dependency/ObjectDependencyOrder.java](../../../pangrova-persistence/pangrova-persistence-catalog-api/src/main/java/org/pangrova/persistence/catalog/api/dependency/ObjectDependencyOrder.java) | Catalog 技术对象依赖图（已迁 Catalog API） | — | 2/0 | InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
 | [core/relation/ObjectDependencyService.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/relation/ObjectDependencyService.java) | Catalog 技术对象依赖图 | — | 0/3 | — |
 | [core/schema/SchemaChange.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/schema/SchemaChange.java) | Catalog 技术 Schema 投影/校验 | — | 6/8 | IndexCommitHandler, MetadataSyncService, SchemaEvolutionValidator |
 | [core/schema/SchemaEvolutionValidator.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/schema/SchemaEvolutionValidator.java) | Catalog 技术 Schema 投影/校验 | — | 3/12 | MetadataBootstrap, MetadataSyncService, DefaultMetadataService |
@@ -460,7 +459,7 @@ S2/S3 已通过 transaction bridge 替代跨 owner `PostgresGenerationQueries` �
 | [store/jdbc/catalog/MetadataJsonMapper.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/MetadataJsonMapper.java) | 各 owner 序列化；解除共享 mapper 反向依赖 | — | 4/2 | FeatureViewStatementService, FeatureViewDefinitionValidator, JdbcMetadataStore |
 | [store/jdbc/catalog/PooledDataSourceFactory.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/PooledDataSourceFactory.java) | 进程数据库启动/迁移；测试工具另归 testing | — | 1/4 | CoordinatorBootstrap |
 | [store/jdbc/catalog/SchemaMigrationRunner.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog/SchemaMigrationRunner.java) | 进程数据库启动/迁移；测试工具另归 testing | — | 1/14 | CoordinatorBootstrap |
-| [store/jdbc/object/JdbcObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/object/JdbcObjectDependencyStore.java) | Catalog 技术对象依赖图 | `pangrova_object_dependencies` | 0/1 | — |
+| [dependency/JdbcObjectDependencyStore.java](../../../pangrova-persistence/pangrova-persistence-catalog-postgresql/src/main/java/org/pangrova/persistence/catalog/postgresql/dependency/JdbcObjectDependencyStore.java) | Catalog 技术对象依赖图（已迁 Catalog Persistence） | `pangrova_object_dependencies` | 0/1 | — |
 | [tenant/JdbcTenantStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/tenant/JdbcTenantStore.java) | Security 租户 PostgreSQL provider | `tenant_user_memberships`, `tenants` | 7/21 | ModuleIntegrationBootstrap, CoordinatorBootstrap, QueryExecutionBootstrap |
 
 ## 8. 生成任务初审 69 文件逐项分区

@@ -3,8 +3,8 @@ package org.pangrova.coordinator.generation.read;
 import org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver;
 
 import org.pangrova.generation.api.output.GenerationOutputTypeIds;
-import org.pangrova.metadata.generation.GeneratedValueBuildMetadataStore;
-import org.pangrova.metadata.generation.GeneratedValueGenerationReference;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueGenerationReference;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.OperatorBinding;
 

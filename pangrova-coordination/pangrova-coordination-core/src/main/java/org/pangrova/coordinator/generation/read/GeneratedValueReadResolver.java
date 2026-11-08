@@ -1,8 +1,9 @@
 package org.pangrova.coordinator.generation.read;
+import org.pangrova.planner.core.substrait.NativeDatasetSchemaCompiler;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.generation.GeneratedValueBuildMetadataStore;
+import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
@@ -115,7 +116,7 @@ public final class GeneratedValueReadResolver {
 
     private static void requireSchema(io.substrait.proto.ReadRel read,
                                       org.pangrova.connector.api.metadata.table.ConnectorTableMetadata table) {
-        var actual = org.pangrova.planner.core.substrait.NativeDatasetSchemaCompiler.compile(table.typedColumns()).schema();
+        var actual = NativeDatasetSchemaCompiler.compile(table.typedColumns()).schema();
         if (!read.hasBaseSchema() || !(read.getBaseSchema().equals(actual)
                 || hasExactRetrievalIdentity(read.getBaseSchema(), actual))) {
             throw new IllegalStateException("Generated query compiled scan differs from its declared SDK schema");

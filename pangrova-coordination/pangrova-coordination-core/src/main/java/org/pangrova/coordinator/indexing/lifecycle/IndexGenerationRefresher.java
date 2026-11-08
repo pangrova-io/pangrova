@@ -57,8 +57,10 @@ final class IndexGenerationRefresher {
         if (!started) {
             return false;
         }
-        IndexDescriptor rebuilding = IndexDescriptorTransitions.transition(descriptor.withGeneration(nextGeneration, startedAt)
-                .withBuildSnapshotId(sourceSnapshot, startedAt), IndexState.BUILDING, startedAt);
+        IndexDescriptor rebuilding = IndexDescriptorTransitions.transition(
+                descriptor.withGeneration(nextGeneration, startedAt)
+                        .withBuildSnapshotId(sourceSnapshot, startedAt),
+                IndexState.BUILDING, startedAt);
         try {
             if (!nativeArtifact) {
                 IndexSourceAuthority.forDescriptor(

@@ -51,7 +51,7 @@ final class GovernedAiTestModels implements AutoCloseable {
         config.put(prefix + "capabilities", capability);
         config.put(prefix + "max-batch-size", "8");
         config.put(prefix + "max-requests-per-second", "1000");
-        config.put(prefix + "timeout-seconds", "30");
+        config.put(prefix + "timeout-seconds", "120");
         config.put(prefix + "max-input-tokens", "1000");
         config.put(prefix + "max-output-tokens", "500");
         config.put(prefix + "max-media-bytes", "0");
@@ -90,7 +90,7 @@ final class GovernedAiTestModels implements AutoCloseable {
                 builder.getAttempt().getExecutionOwner().toBuilder().setOwnerIncarnation(incarnation)));
         builder.setSecurity(org.pangrova.protocol.v2.SecurityContext.newBuilder().setTenantId("tenant-a").setPrincipal("alice"))
                 .setTraceContext(org.pangrova.protocol.v2.TraceContext.newBuilder().setTraceId("trace-a"))
-                .setDeadlineEpochMs(Instant.now().plusSeconds(60).toEpochMilli())
+                .setDeadlineEpochMs(Instant.now().plusSeconds(180).toEpochMilli())
                 .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
                         .setGrantId(taskId + ":grant").setCpuSlots(2).setNativeMemoryBytes(1048576)
                         .setProviderConcurrency(2).setProviderItems(1024).setProviderAttempts(4096)

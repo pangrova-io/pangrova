@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Actual PostgreSQL directory and plugin/bootstrap chain; no metadata or planner substitutes. */
@@ -49,12 +49,13 @@ class PlannerWiringSessionIntegrationTest {
                 "lance", CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "", Set.of()));
         var factory = new PluginConnectorHandleFactory(ConnectorFactory.class.getClassLoader(),
                 new SecretResolverRegistry(), ignored -> Optional.empty(), descriptor -> Optional.of(
-                        new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(dataSource,
+                        new org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog(dataSource,
                                 new org.pangrova.connector.api.metadata.SourceCatalogDeployment(
                                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                                 ignored -> { throw new IllegalStateException("No write execution in this read fixture"); },
                                 new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
-                                ModelAuthorityFixtures.models())));
+                                ModelAuthorityFixtures.models(),
+                                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)));
         MetadataBootstrap metadata = MetadataBootstrap.initialize(store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), factory);
         try {
             SqlCompiler template = new PlannerWiring(CoordinatorBootstrapConfig.withDefaults("scope-test", 0),

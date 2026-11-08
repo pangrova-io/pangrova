@@ -164,17 +164,22 @@ public final class IndexGarbageCollector implements AutoCloseable {
         boolean sharedFile = store.getIndexFileMappings(mapping.indexId()).stream()
                 .anyMatch(other -> other.generation() != mapping.generation()
                         && other.indexFilePath().equals(mapping.indexFilePath()));
-        if (!sharedFile && !deleteIndexFile(mapping.indexFilePath(), descriptor)) {
-            return false;
-        }
+        // Fence the durable mapping before touching the file. If the descriptor
+        // changed after observation, deleting first would leave a live index
+        // pointing at a missing artifact.
         boolean removed = store.removeIndexFileMappingIfState(
                 mapping, observedState, observedGeneration);
-        if (removed) {
-            return true;
+        if (!removed) {
+            LOG.info("action=gc_skip_state_changed indexId={} file={} observedState={}",
+                    mapping.indexId(), mapping.dataFilePath(), observedState);
+            return false;
         }
-        LOG.info("action=gc_skip_state_changed indexId={} file={} observedState={}",
-                mapping.indexId(), mapping.dataFilePath(), observedState);
-        return false;
+        if (!sharedFile && !deleteIndexFile(mapping.indexFilePath(), descriptor)) {
+            // The mapping is already gone; the unreferenced file is an operator-visible leak.
+            LOG.warn("action=gc_orphan_file_retained indexId={} file={}",
+                    mapping.indexId(), mapping.indexFilePath());
+        }
+        return true;
     }
 
     private boolean shouldSkipMapping(IndexFileMapping mapping, IndexDescriptor descriptor) {

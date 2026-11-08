@@ -14,7 +14,7 @@ import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.pangrova.metadata.api.catalog.MetadataChange;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.projection.PostgresMetadataProjectionTransactions;
+import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataProjectionTransactions;
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 
 /** Actual PostgreSQL inventory component evidence, not a production federation provider or Native E2E. */
@@ -150,7 +150,7 @@ class MetadataDriftSamplingIntegrationTest {
             }
             try {
                 assertThatThrownBy(() -> service.validateSingleTable(scope, source, change(actual)))
-                        .isInstanceOf(org.pangrova.persistence.catalog.api.projection.MetadataProjectionPendingException.class)
+                        .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException.class)
                         .satisfies(failure -> assertThat(((SQLException) failure.getCause()).getSQLState()).isEqualTo("42501"));
                 assertThat(service.getSchemaDriftDetectedCount()).isZero();
                 assertThat(sinkTables.loadTable("cat", "sch", "t1")).contains(original);

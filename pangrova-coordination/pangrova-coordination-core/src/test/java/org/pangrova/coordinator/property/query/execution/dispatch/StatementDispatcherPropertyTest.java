@@ -1,4 +1,7 @@
 package org.pangrova.coordinator.property.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
+import org.pangrova.query.core.dispatch.StatementCompletionEvent;
+import org.pangrova.query.core.dispatch.StatementCompletionListener;
 
 import org.pangrova.query.core.statement.StatementClassifier;
 
@@ -26,6 +29,8 @@ import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.core.dispatch.StatementExecutionFactory;
 
 /**
  * Property-based tests for the unified statement dispatch path.

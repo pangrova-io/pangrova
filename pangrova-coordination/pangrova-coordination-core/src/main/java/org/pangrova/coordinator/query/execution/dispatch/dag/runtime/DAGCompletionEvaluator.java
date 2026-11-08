@@ -37,6 +37,7 @@ public final class DAGCompletionEvaluator {
                         == StageState.FINISHED);
     }
 
+    /** Stages whose exchange sources already have producer task records. */
     public static Set<Integer> collectActiveStageIds(StageDAG dag) {
         Set<Integer> ids = new HashSet<>();
         for (Stage s : dag.stageEntities()) {
@@ -94,6 +95,7 @@ public final class DAGCompletionEvaluator {
                         .mapToInt(Stage::stageId).max().orElse(0));
     }
 
+    /** Waits for DAG completion, translating timeout and interruption into query failures. */
     public static DispatchResult awaitCompletion(
             CompletableFuture<DispatchResult> completion,
             long timeoutMs, String queryId) {

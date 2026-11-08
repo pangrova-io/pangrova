@@ -388,7 +388,7 @@ RUN DATA QUALITY CHECK ON iceberg.sales.orders;
 
 ### 4.3 Quality Rule Storage
 
-`org.pangrova.governance.store.jdbc.JdbcQualityRuleStore` owns the
+`org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore` owns the
 PostgreSQL `quality_rules` and `quality_check_results` tables; governance is the
 single owner of the store, while metadata decorates it with the stable
 table-identity projection (`metadata.adapter.governance`). V53 converges the old
@@ -621,8 +621,8 @@ identity-bound authored masks with mandatory PII masks derived from these bindin
 `ColumnMaskingProcessor` renders their SQL through the same typed operator contracts
 used by ordinary queries. The resulting expression executes in Native.
 
-`TableControlDeferredPolicy` reads the current table/catalog identity and the same
-bindings on the durable publication transaction. A background raw-artifact read cannot
+`PostgresTableControlWriteAuthority` reads the current table/catalog identity and the same
+bindings on the durable publication transaction through the Workflow provider. A background raw-artifact read cannot
 bypass a canonical classification merely because another coordinator has not received
 an event. Production bootstrap does not create a second event-maintained mask authority.
 

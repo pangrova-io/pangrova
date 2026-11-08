@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.query.core.dispatch.StatementResult;
 
 import org.pangrova.query.core.task.DispatchResult;
 
@@ -20,7 +21,7 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.metadata.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.parser.api.ast.Expression;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.InsertStatement;
@@ -49,6 +50,7 @@ import org.pangrova.connector.api.metadata.table.TableStatistics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.pangrova.query.core.dispatch.StatementExecutionContext;
 
 /** Verifies that literal DML is admitted and dispatched without a Coordinator row writer. */
 class PlanExecutionFactoryInsertTest {
@@ -179,7 +181,7 @@ class PlanExecutionFactoryInsertTest {
             stateMachine = new QueryStateMachine();
             stateMachine.tryTransition(QueryState.PLANNING);
             return factory.execute(statement, new StatementExecutionContext(
-                    stateMachine, "insert-query", session, null, null));
+                    stateMachine, "insert-query", session));
         }
     }
 

@@ -93,7 +93,8 @@ public final class QueryResource {
                               ContainerRequestContext requestContext) {
         UserIdentity identity = extractUserIdentity(requestContext);
         QuerySession session = new QuerySession(
-                queryId, request.sessionProperties(), identity, null, java.util.Optional.empty(), traceContexts.capture());
+                queryId, request.sessionProperties(), identity, null, java.util.Optional.empty(),
+                        traceContexts.capture());
         var result = queryManager.submitQuery(
                 queryId, request.query(), session);
         return Response.ok(QueryResponseMapper.submission(result)).build();

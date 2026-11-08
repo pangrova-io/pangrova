@@ -41,7 +41,7 @@ final class GovernanceBootstrapTestAuthority {
                 java.util.Optional.of(new org.pangrova.connector.api.metadata.table.TableIdentity(
                         "ICEBERG", "quality-bootstrap-owner", "s3://test/quality-source", "schema")),
                 java.util.Optional.empty()).orElseThrow();
-        var store = new org.pangrova.governance.store.jdbc.JdbcQualityRuleStore(source);
+        var store = new org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore(source);
         var now = java.time.Instant.now();
         store.saveRule(new org.pangrova.governance.api.quality.DataQualityRule(1, "required_positive",
                 "quality_catalog", "default", "quality_source", "id > 0",
