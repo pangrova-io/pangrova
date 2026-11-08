@@ -52,9 +52,9 @@ unreadable PEM files, a TLS endpoint received by a plaintext worker, or a
 plaintext endpoint received by a TLS worker fail startup/task admission; there
 is no plaintext fallback.
 
-With transport TLS enabled and `worker.internal-auth-secret` configured, the
-Worker also binds a dedicated HTTPS task-control port for private
-COPY admission. It advertises this actual port in its Coordinator registration;
+With transport TLS enabled, `worker.internal-auth-secret` configured, and
+`worker.copy.task-tls-port` set to a nonzero value, the Worker binds a dedicated
+HTTPS task-control port for private COPY admission. It advertises this actual port in its Coordinator registration;
 the Coordinator stores it in the JDBC worker registry for leader recovery.
 This port requires a client certificate trusted by
 `worker.transport.tls.root-ca-path` and the normal `X-Internal-Auth` service

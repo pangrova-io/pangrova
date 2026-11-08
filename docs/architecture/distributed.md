@@ -548,6 +548,10 @@ ZooKeeper          Coordinator                    Worker
 
 ### 3.2 Query Ownership Management
 
+> The `QueryOwnershipManager`/Curator example below illustrates the optional
+> ZooKeeper coordination backend. The default deployment persists leases and
+> ownership-relevant state in the metadata PostgreSQL authority.
+
 ```java
 /**
  * Query ownership management
