@@ -1,11 +1,11 @@
-package org.pangrova.coordinator.query.audit;
+package org.pangrova.query.audit;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.api.audit.QueryAuditRecord;
 import org.pangrova.query.api.audit.QueryAuditSink;
 import org.pangrova.security.api.audit.AccessedObject;
 import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.audit.AuditEventEmitter;
+import org.pangrova.security.api.audit.AuditEventWriter;
 import org.pangrova.security.api.enums.AuditEventType;
 
 import java.time.Instant;
@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Builds and emits audit events for query lifecycle transitions.
- * Isolates audit concern from QueryManager core logic.
+ * The caller owns event delivery and terminal record persistence independently.
  */
 public final class QueryAuditEmitter {
 
@@ -31,13 +31,14 @@ public final class QueryAuditEmitter {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryAuditEmitter.class);
 
-    private final AuditEventEmitter emitter;
+    private final AuditEventWriter events;
     private final QueryAuditSink auditService;
 
-    public QueryAuditEmitter(AuditEventEmitter emitter, QueryAuditSink auditService) {
-        this.emitter = emitter;
+    /** Borrows the independently configured event and history outputs for this process. */
+    public QueryAuditEmitter(AuditEventWriter events, QueryAuditSink auditService) {
+        this.events = events;
         this.auditService = auditService;
-        if (emitter == null && auditService == null) {
+        if (events == null && auditService == null) {
             LOG.warn("event=audit_emitter_noop reason=no_emitter_or_service");
         }
     }
@@ -50,11 +51,12 @@ public final class QueryAuditEmitter {
         return new QueryAuditEmitter(null, null);
     }
 
+    /** Records submission with the principal from the submitting session. */
     public void emitQuerySubmitted(String queryId, String sql, QuerySession session) {
-        if (emitter == null) {
+        if (events == null) {
             return;
         }
-        emitter.emit(buildEvent(AuditEventType.QUERY_SUBMITTED, queryId, sql,
+        events.write(buildEvent(AuditEventType.QUERY_SUBMITTED, queryId, sql,
                 new AuditSubject(principalFrom(session), session != null ? session.tenantId() : null),
                 true, null, 0));
     }
@@ -66,12 +68,7 @@ public final class QueryAuditEmitter {
 
     /** Emits completion and persists the submitted SQL with the durable record. */
     public void emitQueryCompleted(String queryId, long durationMs, AuditSubject subject, String sql) {
-        java.util.Objects.requireNonNull(subject, "subject");
-        if (emitter != null) {
-            emitter.emit(buildEvent(AuditEventType.QUERY_COMPLETED, queryId, null,
-                    subject, true, null, durationMs));
-        }
-        persistAuditRecord(queryId, durationMs, true, subject, sql);
+        emitTerminal(AuditEventType.QUERY_COMPLETED, queryId, durationMs, subject, sql, null);
     }
 
     /** Emits failure with the same attribution as the query, including anonymous rejection. */
@@ -82,17 +79,28 @@ public final class QueryAuditEmitter {
     /** Emits failure and persists the submitted SQL with the durable record. */
     public void emitQueryFailed(String queryId, String errorMessage, long durationMs,
                                 AuditSubject subject, String sql) {
-        java.util.Objects.requireNonNull(subject, "subject");
-        if (emitter != null) {
-            emitter.emit(buildEvent(AuditEventType.QUERY_FAILED, queryId, null,
-                    subject, false, errorMessage, durationMs));
-        }
-        persistAuditRecord(queryId, durationMs, false, subject, sql);
+        emitTerminal(AuditEventType.QUERY_FAILED, queryId, durationMs, subject, sql, errorMessage);
     }
 
+    /** Records the cancellation decision while physical task cleanup may still be in flight. */
+    public void emitQueryCancelled(String queryId, long durationMs, AuditSubject subject, String sql) {
+        emitTerminal(AuditEventType.QUERY_CANCELLED, queryId, durationMs, subject, sql, null);
+    }
+
+    private void emitTerminal(AuditEventType type, String queryId, long durationMs,
+                              AuditSubject subject, String sql, String errorMessage) {
+        java.util.Objects.requireNonNull(subject, "subject");
+        boolean success = type == AuditEventType.QUERY_COMPLETED;
+        if (events != null) {
+            events.write(buildEvent(type, queryId, null, subject, success, errorMessage, durationMs));
+        }
+        persistAuditRecord(queryId, durationMs, success, subject, sql);
+    }
+
+    /** Emits table access after the caller has resolved the catalog, schema and identity. */
     public void emitTableAccessed(String queryId, String catalog, String schema,
                            String table, QuerySession session) {
-        if (emitter == null) {
+        if (events == null) {
             return;
         }
         AuditEvent event = new AuditEvent(
@@ -101,7 +109,7 @@ public final class QueryAuditEmitter {
                 queryId, null, catalog, schema,
                 List.of(new AccessedObject("TABLE", catalog, schema, table, List.of(), "SELECT")),
                 true, null, 0, 0, 0, Map.of());
-        emitter.emit(event);
+        events.write(event);
     }
 
     private void persistAuditRecord(String queryId, long durationMs, boolean success,

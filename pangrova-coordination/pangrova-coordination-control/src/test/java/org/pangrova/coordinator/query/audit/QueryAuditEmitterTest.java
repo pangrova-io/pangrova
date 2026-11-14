@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.audit;
 
+import org.pangrova.query.audit.QueryAuditEmitter;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore;
 import org.pangrova.query.audit.QueryAuditService;
@@ -15,6 +17,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Checks asynchronous terminal event attribution without retaining per-query session maps. */
 class QueryAuditEmitterTest {
+    @Test
+    void cancellationPublishesItsOwnSecurityEventAndUnsuccessfulQueryHistory() {
+        var events = new java.util.ArrayList<AuditEvent>();
+        var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
+        var emitter = new QueryAuditEmitter(events::add, service);
+        var subject = new QueryAuditEmitter.AuditSubject("alice", "tenant-a");
+        emitter.emitQueryCancelled("cancelled-query", 41, subject, "SELECT 42");
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.eventType()).isEqualTo(AuditEventType.QUERY_CANCELLED);
+            assertThat(event.principal()).isEqualTo("alice");
+            assertThat(event.success()).isFalse();
+            assertThat(event.errorMessage()).isNull();
+        });
+        var record = service.findByQueryId("cancelled-query").orElseThrow();
+        assertThat(record.success()).isFalse();
+        assertThat(record.tenantId()).isEqualTo("tenant-a");
+        assertThat(record.wallTimeMs()).isEqualTo(41);
+        assertThat(record.sql()).isEqualTo("SELECT 42");
+    }
+
     @Test
     void completedRecordKeepsTheSubmittingIdentityWithoutAnEventBackend() {
         var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
@@ -64,7 +86,7 @@ class QueryAuditEmitterTest {
         var events = new CopyOnWriteArrayList<AuditEvent>();
         var backend = new AuditEventEmitter(events::add);
         try {
-            var emitter = new QueryAuditEmitter(backend, null);
+            var emitter = new QueryAuditEmitter(backend::emit, null);
             emitter.emitQueryCompleted("alice-query", 17,
                     new QueryAuditEmitter.AuditSubject("alice", "tenant-a"));
             emitter.emitQueryFailed("bob-query", "denied", 23,
@@ -90,7 +112,7 @@ class QueryAuditEmitterTest {
         var events = new CopyOnWriteArrayList<AuditEvent>();
         var backend = new AuditEventEmitter(events::add);
         try {
-            var emitter = new QueryAuditEmitter(backend, null);
+            var emitter = new QueryAuditEmitter(backend::emit, null);
             emitter.emitQuerySubmitted("anonymous-query", "SELECT 1", null);
             emitter.emitQueryFailed("anonymous-query", "anonymous rejected", 7,
                     new QueryAuditEmitter.AuditSubject("anonymous", null));

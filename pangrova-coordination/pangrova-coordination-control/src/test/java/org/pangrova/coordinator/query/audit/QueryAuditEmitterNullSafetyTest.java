@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.audit;
 
+import org.pangrova.query.audit.QueryAuditEmitter;
+
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 

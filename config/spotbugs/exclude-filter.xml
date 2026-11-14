@@ -2524,7 +2524,7 @@
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.coordinator.query.audit.QueryAuditEmitter" />
+        <Class name="org.pangrova.query.audit.QueryAuditEmitter" />
         <Field name="emitter" type="org.pangrova.security.audit.AuditEventEmitter" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>

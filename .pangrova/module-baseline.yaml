@@ -760,7 +760,6 @@ artifacts:
       - org.pangrova.coordinator.query.execution.dispatch.task.storage
       - org.pangrova.coordinator.query.execution.dispatch.task.stream
       - org.pangrova.coordinator.query.execution.phase
-      - org.pangrova.coordinator.query.execution.result
       - org.pangrova.coordinator.query.execution.retrieval
       - org.pangrova.coordinator.query.execution.security
       - org.pangrova.coordinator.query.execution.split

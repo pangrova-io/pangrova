@@ -7,7 +7,7 @@ import org.pangrova.query.lifecycle.QueryStateMachine;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.coordinator.query.audit.QueryAuditEmitter;
+import org.pangrova.query.audit.QueryAuditEmitter;
 import org.pangrova.coordinator.query.audit.QueryLineageInfo;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.query.api.session.QuerySession;
@@ -75,6 +75,8 @@ final class QueryAuditDispatcher {
 
     void emitAuditCancelled(String queryId, QueryStateMachine state) {
         emitTerminal(queryId, state, QueryState.CANCELLED, Optional.empty());
+        if (auditEmitter != null) auditEmitter.emitQueryCancelled(
+                queryId, state.getDurationMs(), subject(state), state.getSql());
     }
 
     void emitTableAccessedAudit(String queryId, String catalog, String schema,
@@ -151,6 +153,7 @@ final class QueryAuditDispatcher {
 
     static QueryAuditEmitter createAuditEmitter(AuditEventEmitter emitter,
             org.pangrova.query.api.audit.QueryAuditSink service) {
-        return emitter == null ? null : new QueryAuditEmitter(emitter, service);
+        if (emitter == null && service == null) return null;
+        return new QueryAuditEmitter(emitter == null ? null : emitter::emit, service);
     }
 }

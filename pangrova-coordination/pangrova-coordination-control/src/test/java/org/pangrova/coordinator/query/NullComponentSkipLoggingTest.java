@@ -42,6 +42,19 @@ class NullComponentSkipLoggingTest {
     }
 
     @Test
+    void terminalAuditRecordIsWrittenWhenSecurityEventDeliveryIsAbsent() {
+        var records = new java.util.ArrayList<org.pangrova.query.api.audit.QueryAuditRecord>();
+        var audit = QueryAuditDispatcher.createAuditEmitter(null, records::add);
+        var subject = new org.pangrova.query.audit.QueryAuditEmitter.AuditSubject("alice", "tenant-a");
+        audit.emitQueryCompleted("q-finished", 15, subject, "SELECT 1");
+        audit.emitQueryFailed("q-failed", "denied", 11, subject, "SELECT 2");
+        assertThat(records).extracting(record -> record.queryId(), record -> record.success(),
+                        record -> record.tenantId(), record -> record.sql())
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("q-finished", true, "tenant-a", "SELECT 1"),
+                        org.assertj.core.groups.Tuple.tuple("q-failed", false, "tenant-a", "SELECT 2"));
+    }
+
+    @Test
     void lineageEmitterNull_emitsDebugLogWithSkipEvent() {
         QueryAuditDispatcher bridge = new QueryAuditDispatcher(null, null, null);
 

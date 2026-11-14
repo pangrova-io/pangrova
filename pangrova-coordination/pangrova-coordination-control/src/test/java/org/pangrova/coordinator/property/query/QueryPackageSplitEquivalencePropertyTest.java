@@ -57,8 +57,6 @@ class QueryPackageSplitEquivalencePropertyTest {
                     "ShowDescribeExecutor.java"),
             "statement/dml", Set.of(
                     "DeleteFilterConverter.java"),
-            "audit", Set.of(
-                    "QueryAuditEmitter.java"),
             "security", Set.of(
                     "AccessControlEnforcer.java")
     );
@@ -70,17 +68,18 @@ class QueryPackageSplitEquivalencePropertyTest {
             "QueryManager.java"
     );
 
-    private static final Map<String, String> DOMAIN_OWNERS = Map.of(
-            "StatementClassifier.java", "pangrova-query/src/main/java/org/pangrova/query/statement",
-            "StatementTableTargets.java", "pangrova-query/src/main/java/org/pangrova/query/statement",
-            "SessionTableNames.java", "pangrova-query/src/main/java/org/pangrova/query/session",
-            "StatementCategory.java", "pangrova-query/src/main/java/org/pangrova/query/api/statement",
-            "QueryStateMachine.java", "pangrova-query/src/main/java/org/pangrova/query/lifecycle",
-            "QueryConnectorAuthority.java", "pangrova-query/src/main/java/org/pangrova/query/lifecycle",
-            "QueryTerminalCleanup.java", "pangrova-query/src/main/java/org/pangrova/query/lifecycle",
-            "QueryRetentionScheduler.java", "pangrova-query/src/main/java/org/pangrova/query/retention",
-            "StageStateMachine.java", "pangrova-query/src/main/java/org/pangrova/query/stage",
-            "QuerySession.java", "pangrova-query/src/main/java/org/pangrova/query/api/session");
+    private static final Map<String, String> DOMAIN_OWNERS = Map.ofEntries(
+            Map.entry("StatementClassifier.java", "statement"),
+            Map.entry("StatementTableTargets.java", "statement"),
+            Map.entry("SessionTableNames.java", "session"),
+            Map.entry("StatementCategory.java", "api/enums"),
+            Map.entry("QueryStateMachine.java", "lifecycle"),
+            Map.entry("QueryConnectorAuthority.java", "lifecycle"),
+            Map.entry("QueryTerminalCleanup.java", "lifecycle"),
+            Map.entry("QueryRetentionScheduler.java", "retention"),
+            Map.entry("StageStateMachine.java", "stage"),
+            Map.entry("QuerySession.java", "api/session"),
+            Map.entry("QueryAuditEmitter.java", "audit"));
 
     /**
      * Maximum files allowed in the root query/ package (excluding sub-packages).
@@ -140,7 +139,7 @@ class QueryPackageSplitEquivalencePropertyTest {
         }
 
         for (var entry : DOMAIN_OWNERS.entrySet()) {
-            Path owner = PROJECT_ROOT.resolve("pangrova-query").resolve(entry.getValue()).resolve(entry.getKey());
+            Path owner = PROJECT_ROOT.resolve("pangrova-query/src/main/java/org/pangrova/query").resolve(entry.getValue()).resolve(entry.getKey());
             checks.add(new StructuralCheck("Unique domain owner: " + owner, Files.isRegularFile(owner)));
             try (Stream<Path> files = Files.walk(QUERY_SRC)) {
                 checks.add(new StructuralCheck("No Coordinator duplicate: " + entry.getKey(),
