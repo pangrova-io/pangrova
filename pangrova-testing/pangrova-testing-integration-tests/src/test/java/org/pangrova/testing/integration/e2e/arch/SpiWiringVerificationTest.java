@@ -301,9 +301,10 @@ class SpiWiringVerificationTest {
                 Map.of(), "", Set.of("tenant"));
         new PostgresCatalogDeploymentRepository(source)
                 .saveCatalogDescriptor(descriptor);
-        new PostgresMetadataProjectionTransactions(source)
-                .apply(new MetadataProjectionMutation.ObserveSchemas(
-                        UUID.randomUUID(), descriptor.identity(), List.of("observed")));
+        var transactions = new PostgresMetadataProjectionTransactions(source);
+        long observationEpoch = transactions.beginObservation(descriptor.identity());
+        transactions.apply(observationEpoch, new MetadataProjectionMutation.ObserveSchemas(
+                UUID.randomUUID(), descriptor.identity(), List.of("observed")));
     }
 
     private static boolean liesUnderContractRoot(String className) {
