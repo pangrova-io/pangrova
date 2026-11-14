@@ -2,8 +2,8 @@ package org.pangrova.persistence.generation.postgresql.publication;
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs;
 import org.pangrova.generation.api.output.GenerationOutput;
-import org.pangrova.generation.api.output.GenerationOutputScope;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats;
 import org.pangrova.generation.api.output.GenerationOutputFormat;
 import org.pangrova.generation.api.output.GenerationOutputRole;
@@ -39,7 +39,7 @@ final class GenerationPublicationOutputValidator {
                 throw new IllegalStateException("Empty artifact generation unexpectedly has outputs");
             }
             if (job.emptyPartitionPolicy()
-                    != org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
+                    != org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
                     || !BuiltInGenerationOutputFormats.require(job.formatId(), job.artifactType())
                             .supportsEmptyPartitions()) {
                 throw new IllegalStateException(
@@ -54,7 +54,7 @@ final class GenerationPublicationOutputValidator {
         return outputs.stream().map(PageOutput::output)
                 .filter(output -> output.scope() != GenerationOutputScope.WORK_UNIT
                         || job.artifactType().equals(
-                                org.pangrova.generation.api.output.GenerationOutputTypeIds.TABULAR_EXPORT))
+                                org.pangrova.generation.api.constants.GenerationOutputTypeIds.TABULAR_EXPORT))
                 .toList();
     }
 
@@ -125,7 +125,7 @@ final class GenerationPublicationOutputValidator {
                 java.util.stream.Collectors.groupingBy(
                         PageOutput::pageId, LinkedHashMap::new,
                         java.util.stream.Collectors.toList()));
-        if (job.artifactType().equals(org.pangrova.generation.api.output.GenerationOutputTypeIds.TABULAR_EXPORT)) {
+        if (job.artifactType().equals(org.pangrova.generation.api.constants.GenerationOutputTypeIds.TABULAR_EXPORT)) {
             validateRelationalTerminalPages(connection, job, pages, contract);
             return;
         }
@@ -206,7 +206,7 @@ final class GenerationPublicationOutputValidator {
         }
         if (output.rowCount() == 0
                 && (job.emptyPartitionPolicy()
-                        != org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy
+                        != org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy
                                 .ALLOW_ZERO_ROWS
                         || !BuiltInGenerationOutputFormats.require(
                                 job.formatId(), job.artifactType())

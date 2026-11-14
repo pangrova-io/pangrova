@@ -1,20 +1,20 @@
 package org.pangrova.server.coordinator.sql.security;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
-import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.query.core.dispatch.StatementExecutionContext;
-import org.pangrova.query.core.dispatch.StatementResult;
-import org.pangrova.query.core.session.SessionTableNames;
+import org.pangrova.query.api.enums.StatementCategory;
+import org.pangrova.query.dispatch.StatementExecutionContext;
+import org.pangrova.query.dispatch.StatementResult;
+import org.pangrova.query.session.SessionTableNames;
 import org.pangrova.parser.api.ast.Identifier;
-import org.pangrova.parser.api.ast.statement.GrantPrivilegeStatement;
-import org.pangrova.parser.api.ast.statement.RevokePrivilegeStatement;
-import org.pangrova.parser.api.ast.statement.ShowPrivilegeMutationStatement;
+import org.pangrova.parser.api.ast.statement.privilege.GrantPrivilegeStatement;
+import org.pangrova.parser.api.ast.statement.privilege.RevokePrivilegeStatement;
+import org.pangrova.parser.api.ast.statement.privilege.ShowPrivilegeMutationStatement;
 import org.pangrova.persistence.security.api.grant.PrivilegeMutationRepository;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.grant.PrivilegeMutation;
 import org.pangrova.security.api.grant.PrivilegeScope;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.types.value.TypedRow;
 
 import java.util.List;

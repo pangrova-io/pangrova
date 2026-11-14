@@ -39,6 +39,12 @@ public record CoordinatorSnapshot(
         Objects.requireNonNull(host, "host must not be null");
     }
 
+    /** Re-registration refreshes membership while the poller owns the stored watermark. */
+    public CoordinatorSnapshot withInvalidationProgress(long lastProcessedId) {
+        return new CoordinatorSnapshot(coordinatorId, host, httpPort, role, epoch,
+                lastHeartbeatMs, registeredAtMs, lastProcessedId);
+    }
+
     /** Creates a snapshot before invalidation progress has been observed. */
     public CoordinatorSnapshot(String coordinatorId, String host, int httpPort,
                                 String role, long epoch,

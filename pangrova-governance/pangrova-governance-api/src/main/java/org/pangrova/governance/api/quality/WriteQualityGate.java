@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.quality;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 /**
  * Pre-commit validation gate that evaluates data quality rules before
  * INSERT/UPDATE operations are committed.
@@ -7,6 +9,7 @@ package org.pangrova.governance.api.quality;
  * <p>Implementations check all enabled quality rules for the target table
  * and block the write if any rule with blocking severity fails.</p>
  */
+@Experimental
 public interface WriteQualityGate {
 
     /**

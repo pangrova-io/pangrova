@@ -19,7 +19,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
         config.put("models.chat.modalities", "text,image");
         config.put("models.chat.max-media-bytes", "1048576");
 
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(config))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(config))
                 .hasMessageContaining("no governed FILE content loader");
     }
 
@@ -30,8 +30,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
         config.put("models.chat.modalities", "text,image,document");
         config.put("models.chat.max-media-bytes", "1048576");
 
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(
-                config, true))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(withFileStorage(config)))
                 .hasMessageContaining("supports only TEXT and IMAGE");
     }
 
@@ -43,7 +42,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 "text,image,document",
                 "4");
 
-        var model = ConfiguredAiProviderRegistry.describeModels(config, true)
+        var model = new WorkerAiModelCatalog().describeModels(withFileStorage(config))
                 .iterator().next();
 
         assertThat(model.provider()).isEqualTo("openai-responses");
@@ -54,9 +53,9 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 config, ignored -> "key", ignored -> new byte[0])) {
             assertThat(registry.resolveInference("media").supportedModalities())
                     .containsExactlyInAnyOrder(
-                            org.pangrova.ai.api.capability.Modality.TEXT,
-                            org.pangrova.ai.api.capability.Modality.IMAGE,
-                            org.pangrova.ai.api.capability.Modality.DOCUMENT);
+                            org.pangrova.ai.api.enums.Modality.TEXT,
+                            org.pangrova.ai.api.enums.Modality.IMAGE,
+                            org.pangrova.ai.api.enums.Modality.DOCUMENT);
         }
     }
 
@@ -68,7 +67,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 "text,audio",
                 "1");
 
-        var model = ConfiguredAiProviderRegistry.describeModels(config, true)
+        var model = new WorkerAiModelCatalog().describeModels(withFileStorage(config))
                 .iterator().next();
 
         assertThat(model.provider()).isEqualTo("openai-transcription");
@@ -76,8 +75,8 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 config, ignored -> "key", ignored -> new byte[0])) {
             assertThat(registry.resolveInference("media").supportedModalities())
                     .containsExactlyInAnyOrder(
-                            org.pangrova.ai.api.capability.Modality.TEXT,
-                            org.pangrova.ai.api.capability.Modality.AUDIO);
+                            org.pangrova.ai.api.enums.Modality.TEXT,
+                            org.pangrova.ai.api.enums.Modality.AUDIO);
         }
     }
 
@@ -88,8 +87,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 "https://api.example/v1/responses",
                 "text,audio",
                 "4");
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(
-                responsesAudio, true))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(withFileStorage(responsesAudio)))
                 .hasMessageContaining("TEXT, IMAGE and DOCUMENT");
 
         var transcriptionBatch = multimodalConfig(
@@ -97,8 +95,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 "https://api.example/v1/audio/transcriptions",
                 "text,audio",
                 "2");
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(
-                transcriptionBatch, true))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(withFileStorage(transcriptionBatch)))
                 .hasMessageContaining("max-batch-size must be 1");
 
         var wrongEndpoint = multimodalConfig(
@@ -106,8 +103,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 "https://api.example/v1/chat/completions",
                 "text,audio",
                 "1");
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(
-                wrongEndpoint, true))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(withFileStorage(wrongEndpoint)))
                 .hasMessageContaining("endpoint path must be /v1/audio/transcriptions");
 
         var endpointQuery = multimodalConfig(
@@ -115,8 +111,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 "https://api.example/v1/responses?api-version=2026-09-01",
                 "text,image,document",
                 "4");
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(
-                endpointQuery, true))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(withFileStorage(endpointQuery)))
                 .hasMessageContaining("without user-info, query or fragment");
     }
 
@@ -126,9 +121,10 @@ class ConfiguredAiMultimodalProviderRegistryTest {
         config.put("models.chat.capabilities", "inference,multimodal");
         config.put("models.chat.modalities", "text,image");
         config.put("models.chat.max-media-bytes", "1048576");
+        // Blob-capable models must consent to the exact egress host.
+        config.put("models.chat.authorization.egress-hosts", "models.example");
 
-        var model = ConfiguredAiProviderRegistry.describeModels(
-                config, true).iterator().next();
+        var model = new WorkerAiModelCatalog().describeModels(withFileStorage(config)).iterator().next();
 
         assertThat(model.capabilities())
                 .extracting(AiCapabilityDescriptor::operation)
@@ -139,8 +135,8 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 config, reference -> "key", reference -> new byte[0])) {
             assertThat(registry.resolveInference("chat").supportedModalities())
                     .containsExactlyInAnyOrder(
-                            org.pangrova.ai.api.capability.Modality.TEXT,
-                            org.pangrova.ai.api.capability.Modality.IMAGE);
+                            org.pangrova.ai.api.enums.Modality.TEXT,
+                            org.pangrova.ai.api.enums.Modality.IMAGE);
         }
     }
 
@@ -162,7 +158,7 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 Map.entry("models.embed.max-provider-items-per-task", "1024"),
                 Map.entry("models.embed.embedding-dimension", "384"));
 
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(config))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(config))
                 .hasMessageContaining("support only TEXT inputs");
     }
 
@@ -184,8 +180,13 @@ class ConfiguredAiMultimodalProviderRegistryTest {
                 Map.entry("models.embed.max-provider-items-per-task", "1024"),
                 Map.entry("models.embed.embedding-dimension", "384"));
 
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(config, true))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(withFileStorage(config)))
                 .hasMessageContaining("support only TEXT inputs");
     }
 
+    private static Map<String, String> withFileStorage(Map<String, String> config) {
+        var withStorage = new java.util.HashMap<>(config);
+        withStorage.put("file.storage-backend", "local");
+        return withStorage;
+    }
 }

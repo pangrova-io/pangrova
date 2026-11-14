@@ -3,6 +3,9 @@ package org.pangrova.protocol.task;
 import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThat;
+import org.pangrova.protocol.v2.ShufflePartitionPublication;
+import com.google.protobuf.ByteString;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.pangrova.protocol.v2.ShuffleExecutionBinding;
@@ -15,6 +18,24 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 class CanonicalRemoteShuffleAdmissionTest {
+
+    @Test
+    void partitionPublicationRequiresPresentBoundsAndFullDigestEvenForEmptyOutput() {
+        var empty = ShufflePartitionPublication.newBuilder()
+                .setLastSequence(-1).setTotalRows(0).setTotalBytes(0)
+                .setManifestSha256(ByteString.copyFrom(new byte[32])).build();
+        var populated = empty.toBuilder().setLastSequence(1).setTotalRows(2).setTotalBytes(3).build();
+        assertThat(CanonicalTaskRequests.validPartitionPublication(empty)).isTrue();
+        assertThat(CanonicalTaskRequests.validPartitionPublication(populated)).isTrue();
+        for (var invalid : List.of(
+                empty.toBuilder().clearLastSequence(), empty.toBuilder().clearTotalRows(),
+                empty.toBuilder().clearTotalBytes(), empty.toBuilder().setTotalBytes(1),
+                empty.toBuilder().setLastSequence(-2), populated.toBuilder().setLastSequence(2),
+                populated.toBuilder().clearManifestSha256(),
+                populated.toBuilder().setManifestSha256(ByteString.copyFrom(new byte[33])))) {
+            assertThat(CanonicalTaskRequests.validPartitionPublication(invalid.build())).isFalse();
+        }
+    }
 
     @Test
     void rejectsUnspecifiedRemovedAndUnknownWireFormats() {

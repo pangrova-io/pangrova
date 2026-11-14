@@ -7,8 +7,13 @@
     <name>Pangrova Table Persistence postgresql</name>
     <properties><module.name>org.pangrova.persistence.table.postgresql</module.name></properties>
     <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-table-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-support</artifactId></dependency>

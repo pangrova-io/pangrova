@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg.type;
 
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.NullOnlyType;
 import org.pangrova.types.VectorType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;

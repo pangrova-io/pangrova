@@ -1,11 +1,15 @@
 package org.pangrova.persistence.security.postgresql.tenant;
 
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
+import org.pangrova.security.api.exception.TenantMembershipOutcomeUnknownException;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.security.api.tenant.TenantStore;
 import org.pangrova.security.api.tenant.*;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

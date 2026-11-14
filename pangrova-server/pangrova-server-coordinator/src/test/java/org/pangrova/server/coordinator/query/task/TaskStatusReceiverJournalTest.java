@@ -4,7 +4,7 @@ package org.pangrova.server.coordinator.query.task;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.testing.testkit.ContainerTestBase;
 

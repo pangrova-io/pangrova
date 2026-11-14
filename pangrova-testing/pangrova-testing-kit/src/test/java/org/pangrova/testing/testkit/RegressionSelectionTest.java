@@ -90,16 +90,16 @@ class RegressionSelectionTest {
             var property = "pangrova." + module + ".excludedTestGroups";
             assertThat(value(project, PROFILE + "/properties/" + property)).isEqualTo("none");
             var ownerPath = switch (module) {
-                case "worker" -> "pangrova-worker/pangrova-worker-core";
-                case "coordinator" -> "pangrova-coordination/pangrova-coordination-core";
-                default -> "pangrova-metadata/pangrova-metadata-core";
+                case "worker" -> "pangrova-worker";
+                case "coordinator" -> "pangrova-coordination/pangrova-coordination-control";
+                default -> "pangrova-metadata/pangrova-metadata-catalog";
             };
             var owner = read(ROOT.resolve(ownerPath).resolve("pom.xml"));
             assertThat(value(owner, "/project/properties/" + property)).isEmpty();
             assertThat(value(owner, "/project/build/plugins/plugin[artifactId='maven-surefire-plugin']"
                     + "/configuration/excludedGroups")).isEqualTo("${" + property + "}");
         }
-        var worker = read(ROOT.resolve("pangrova-worker/pangrova-worker-core/pom.xml"));
+        var worker = read(ROOT.resolve("pangrova-worker/pom.xml"));
         assertThat(value(worker, CONFIGURATION + "/excludes/exclude")).isEqualTo("none");
         var profileRetries = value(worker, CONFIGURATION + "/rerunFailingTestsCount");
         var inheritedRetries = value(worker, "/project/build/plugins/plugin[artifactId='maven-surefire-plugin']"
@@ -113,7 +113,7 @@ class RegressionSelectionTest {
         // only an explicit override can drop the late-bound JaCoCo agent.
         var inherited = value(read(ROOT.resolve("pom.xml")),
                 "//plugin[artifactId='maven-surefire-plugin']/configuration/argLine");
-        for (var module : List.of("", "pangrova-worker/pangrova-worker-core/", "pangrova-coordination/pangrova-coordination-core/", "pangrova-scheduler/pangrova-scheduler-api/", "pangrova-scheduler/pangrova-scheduler-core/", "pangrova-scheduler/pangrova-scheduler-strategies-builtin/",
+        for (var module : List.of("", "pangrova-worker/", "pangrova-coordination/pangrova-coordination-control/", "pangrova-scheduler/pangrova-scheduler-api/", "pangrova-scheduler/pangrova-scheduler-policy/", "pangrova-scheduler/pangrova-scheduler-strategies-builtin/",
                 "pangrova-client/pangrova-client-cli/", "pangrova-testing/pangrova-testing-integration-tests/")) {
             var project = read(ROOT.resolve(module + "pom.xml"));
             var override = value(project, "//plugin[artifactId='maven-surefire-plugin']/configuration/argLine");

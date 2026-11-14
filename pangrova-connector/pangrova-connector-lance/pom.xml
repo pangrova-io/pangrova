@@ -9,6 +9,8 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-workflow-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId><scope>test</scope></dependency>
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId><scope>test</scope></dependency>
@@ -21,7 +23,6 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-jdbc-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-types</artifactId>
@@ -31,16 +32,16 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-core</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-catalog</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-metadata-core</artifactId>
+            <artifactId>pangrova-metadata-catalog</artifactId>
             <version>${project.version}</version>
             <type>test-jar</type>
             <classifier>tests</classifier>
             <scope>test</scope>
         </dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-core</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query</artifactId><scope>test</scope></dependency>
 
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>

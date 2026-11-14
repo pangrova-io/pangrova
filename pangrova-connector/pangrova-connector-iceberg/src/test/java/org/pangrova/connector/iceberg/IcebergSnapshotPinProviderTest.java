@@ -10,7 +10,7 @@ import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.connector.api.index.SnapshotExpiredException;
+import org.pangrova.connector.api.exception.SnapshotExpiredException;
 
 import java.io.IOException;
 import java.nio.file.Path;

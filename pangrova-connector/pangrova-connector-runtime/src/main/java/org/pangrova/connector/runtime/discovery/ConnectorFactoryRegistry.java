@@ -1,10 +1,10 @@
 package org.pangrova.connector.runtime.discovery;
 
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.connector.spi.plugin.ConnectorFactoryContract;
-import org.pangrova.connector.spi.plugin.ConnectorRole;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
+import org.pangrova.connector.api.constants.ConnectorFactoryContract;
+import org.pangrova.connector.api.enums.ConnectorRole;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

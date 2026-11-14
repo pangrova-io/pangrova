@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.types.value.TypedRow;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;

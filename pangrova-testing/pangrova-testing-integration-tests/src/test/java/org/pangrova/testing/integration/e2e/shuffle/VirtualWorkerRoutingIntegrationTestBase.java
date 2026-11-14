@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.shuffle;
 
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
@@ -14,23 +14,23 @@ import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.scheduler.api.placement.HealthState;
+import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
-import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.transport.api.result.ResultEndpoint;
-import org.pangrova.common.value.MemoryPressure;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.runner.SqlTestRunner;
 import org.pangrova.testing.integration.e2e.setup.TestDataSetup;
-import org.pangrova.worker.task.RemoteTaskStatusReporter;
+import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -215,8 +215,8 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         var deps = QueryDispatcherContext.withDefaults(
                 compiler,
                 new org.pangrova.coordinator.query.security.AccessControlEnforcer(authority),
-                new org.pangrova.planner.core.security.ColumnMaskApplier(authority),
-                new org.pangrova.planner.core.security.RowFilterApplier(authority),
+                new org.pangrova.planner.security.ColumnMaskApplier(authority),
+                new org.pangrova.planner.security.RowFilterApplier(authority),
                 dispatcher,
                 new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 routingWorkerManager,
@@ -350,9 +350,9 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                     .atMost(Duration.ofMillis(Long.getLong(
                             "pangrova.e2e.poll.timeout.ms", 600_000L)))
                     .until(() -> routingQueryManager.getQueryState(queryId)
-                            .map(state -> state == org.pangrova.query.api.lifecycle.QueryState.FINISHED
-                                    || state == org.pangrova.query.api.lifecycle.QueryState.FAILED
-                                    || state == org.pangrova.query.api.lifecycle.QueryState.CANCELLED)
+                            .map(state -> state == org.pangrova.query.api.enums.QueryState.FINISHED
+                                    || state == org.pangrova.query.api.enums.QueryState.FAILED
+                                    || state == org.pangrova.query.api.enums.QueryState.CANCELLED)
                             .orElse(false));
             var terminal = routingQueryManager.getQueryState(queryId).orElseThrow();
             if (terminal != QueryState.FINISHED) {

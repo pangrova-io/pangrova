@@ -18,14 +18,14 @@ import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
-import org.pangrova.config.ShuffleMode;
+import org.pangrova.config.enums.ShuffleMode;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.persistence.query.postgresql.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

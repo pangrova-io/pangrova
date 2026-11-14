@@ -43,6 +43,14 @@ WITH (
 );
 ```
 
+The identifier after `FROM` selects a source provider on the Coordinator. Kafka is
+the bundled source. Its `bootstrap.servers` and `topic` settings must be nonblank.
+Without an explicit `group.id`, each creation uses its own checkpoint identity as
+the consumer group suffix. Kafka readers use byte-array deserializers and explicit
+offset commits. `FORMAT` selects a separate envelope decoder. Unknown providers,
+unsupported formats, and invalid required source settings fail before the definition
+is stored. Restart uses the provider identifier recorded with that definition.
+
 ### ALTER STREAM
 
 **SUSPEND:**
@@ -69,8 +77,13 @@ ALTER STREAM clickstream_ingest SET (
 The current pipeline reads `batch_size` and `max_consecutive_failures` from
 stream properties. A RUNNING stream restarts with a new ownership epoch when
 properties change. Each source batch has its own durable checkpoint; the former
-`checkpoint.interval` example did not configure a timer. The bootstrap registers
-`debezium-json`, `canal-json`, and `maxwell-json` converters.
+`checkpoint.interval` example did not configure a timer. The Coordinator discovers `CdcFormatFactory` implementations through Java
+`ServiceLoader`. The distribution provides `debezium-json`, `canal-json`, and
+`maxwell-json`. SQL `FORMAT` matches the installed identifier exactly. An unknown
+format fails before the stream is stored. A plugin registers its factory in
+`META-INF/services/org.pangrova.streaming.api.format.CdcFormatFactory` and
+returns a thread-safe decoder with the same identifier. Duplicate factory IDs
+or a mismatched decoder fail registry construction at startup.
 
 DDL persists the requested state on the accepting coordinator. Only the elected
 maintenance coordinator starts pipelines; it reconciles changes accepted by other
@@ -457,8 +470,7 @@ SHOW MATERIALIZATION GC HISTORY FOR prod.analytics.daily_revenue_mv;
 | `SHOW MATERIALIZATION DEPENDENCIES` | `downstream`, `downstream_definition_revision`, `upstream`, `kind` |
 | `SHOW MATERIALIZATION GC HISTORY` | `object`, `generation`, `decision`, `state`, `evidence`, `created_at`, `updated_at` |
 
-Refresh history and GC history return the most recent 1000 rows per tenant (or
-per scoped object).
+The four commands require materialization authorization to be configured. Listings show objects the current principal can read. A dependency is visible when the principal can read both endpoints. A scoped request checks access to the named object before reading its history. Refresh and GC history examine the most recent 1000 rows per tenant or scoped object and return the visible rows from that window.
 
 ## Downstream Refresh
 

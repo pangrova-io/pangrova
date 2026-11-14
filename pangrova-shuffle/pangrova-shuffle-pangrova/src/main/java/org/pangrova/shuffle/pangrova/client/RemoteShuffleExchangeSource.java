@@ -1,8 +1,11 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import com.google.protobuf.ByteString;
+import io.grpc.Context;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
@@ -14,24 +17,26 @@ import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
 import org.pangrova.shuffle.api.ShuffleAccess;
 
 import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Streams verified external-shuffle chunks without whole-batch JVM materialization. */
 @ThreadSafe
-public final class RemoteShuffleExchangeSource implements AutoCloseable {
+public final class RemoteShuffleExchangeSource implements org.pangrova.shuffle.api.worker.ShuffleReader<BatchChunk> {
 
     private final PangrovaPartitionRead binding;
     private final PangrovaShuffleClient client;
     private final RemoteShuffleClientLease clientLease;
     private final ExchangeChannelContext context;
     private final RenewableShuffleAccess access;
-    private final Object readerOwnership = new Object();
+    private final Context.CancellableContext rpcScope = Context.current().fork().withCancellation();
     private final Set<RemoteShufflePartitionRead> ownedReads = ConcurrentHashMap.newKeySet();
     private volatile RemoteShufflePartitionRead read;
     private ShuffleAccessCapability activeCapability;
     private final StreamingBatchChunkValidator validator = new StreamingBatchChunkValidator();
+    private RuntimeException readFailure;
     private final AtomicBoolean finished = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -56,10 +61,11 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
             this.access = new RenewableShuffleAccess(
                     client, binding.shuffleId(), context.taskAttempt(),
                     ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ, initial);
-            this.activeCapability = access.currentAtBoundary(context.deadlineEpochMillis());
-            this.read = client.openPartitionRead(binding.shuffleId(), context, activeCapability, 0);
+            this.activeCapability = currentCapability();
+            this.read = openRead(activeCapability, 0);
             ownedReads.add(read);
         } catch (RuntimeException | Error failure) {
+            rpcScope.cancel(failure);
             try {
                 clientLease.close();
             } catch (RuntimeException | Error cleanup) {
@@ -77,17 +83,30 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
         if (finished.get()) {
             return null;
         }
+        if (readFailure != null) {
+            throw readFailure;
+        }
+        try {
+            return nextFrame();
+        } catch (RuntimeException failure) {
+            readFailure = failure;
+            rpcScope.cancel(failure);
+            throw failure;
+        }
+    }
+
+    private BatchChunk nextFrame() {
         if (!validator.hasPartialBatch()) {
             rotateAtBatchBoundary();
         }
         ReadBatchResponse frame = read.next();
         if (frame == null) {
-            throw corruption("partition stream ended before its terminal frame");
+            throw RemoteShuffleClientException.corruption("partition stream ended before its terminal frame");
         }
         return switch (frame.getFrameCase()) {
             case CHUNK -> verifiedChunk(frame.getChunk(), frame.getRowCount());
             case TERMINAL -> terminalFrame(frame);
-            case FRAME_NOT_SET -> throw corruption("partition stream contains an empty frame");
+            case FRAME_NOT_SET -> throw RemoteShuffleClientException.corruption("partition stream contains an empty frame");
         };
     }
 
@@ -100,45 +119,60 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
         return finished.get();
     }
 
+    private ShuffleAccessCapability currentCapability() {
+        Context previous = rpcScope.attach();
+        try {
+            return access.currentAtBoundary(context.deadlineEpochMillis());
+        } finally {
+            rpcScope.detach(previous);
+        }
+    }
+
+    private RemoteShufflePartitionRead openRead(ShuffleAccessCapability capability, long sequence) {
+        Context previous = rpcScope.attach();
+        try {
+            return client.openPartitionRead(binding.shuffleId(), context, capability, sequence);
+        } finally {
+            rpcScope.detach(previous);
+        }
+    }
+
     private void rotateAtBatchBoundary() {
-        ShuffleAccessCapability next = access.currentAtBoundary(context.deadlineEpochMillis());
+        ShuffleAccessCapability next = currentCapability();
         if (next.equals(activeCapability)) {
             return;
         }
-        RemoteShufflePartitionRead replacement =
-                client.openPartitionRead(
-                        binding.shuffleId(), context, next, validator.nextBatchSequence());
-        final RemoteShufflePartitionRead previous;
-        synchronized (readerOwnership) {
-            ownedReads.add(replacement);
-            previous = read;
-            if (!closed.get()) {
-                read = replacement;
-                activeCapability = next;
-            }
-        }
-        if (closed.get()) {
-            replacement.revoke();
-            throw new RemoteShuffleClientException("External shuffle source was revoked");
-        }
+        var replacement = openRead(next, validator.nextBatchSequence());
+        ownedReads.add(replacement);
+        var previous = read;
+        read = replacement;
+        activeCapability = next;
         previous.close();
         ownedReads.remove(previous);
     }
 
     private BatchChunk verifiedChunk(BatchChunk chunk, long rowCount) {
+        var published = binding.publication();
+        if (chunk.getBatchSequence() > published.lastSequence()
+                || (chunk.getChunkIndex() == 0
+                        && chunk.getBatchSizeBytes() > published.bytes() - validator.totalBytes())
+                || chunk.getData().size() > published.bytes() - validator.totalBytes()
+                || rowCount > published.rows() - validator.totalRows()) {
+            throw RemoteShuffleClientException.corruption("read exceeds coordinator publication");
+        }
         validator.accept(chunk, rowCount);
         return chunk;
     }
 
     private BatchChunk terminalFrame(ReadBatchResponse frame) {
         if (frame.getRowCount() != 0) {
-            throw corruption("terminal frame row count must be zero");
+            throw RemoteShuffleClientException.corruption("terminal frame row count must be zero");
         }
         ReadPartitionTerminal terminal = frame.getTerminal();
         validateTerminal(terminal);
         ReadBatchResponse afterTerminal = read.next();
         if (afterTerminal != null) {
-            throw corruption(
+            throw RemoteShuffleClientException.corruption(
                     afterTerminal.hasTerminal()
                             ? "partition stream contains duplicate terminal frames"
                             : "partition stream contains data after its terminal frame");
@@ -150,26 +184,42 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
     private void validateTerminal(ReadPartitionTerminal terminal) {
         if (validator.hasPartialBatch()
                 || terminal.getCommittedLastSequence() != validator.nextBatchSequence() - 1) {
-            throw corruption("terminal frame does not match complete batches");
+            throw RemoteShuffleClientException.corruption("terminal frame does not match complete batches");
         }
         if (terminal.getTotalBytes() != validator.totalBytes()
                 || terminal.getTotalRows() != validator.totalRows()) {
-            throw corruption("terminal partition totals do not match received data");
+            throw RemoteShuffleClientException.corruption("terminal partition totals do not match received data");
         }
         if (terminal.getGenerationPlanEpoch() != binding.planEpoch()
                 || terminal.getCommittedProducerCount() != binding.expectedProducerPartitions()) {
-            throw corruption("terminal generation or producer count does not match binding");
+            throw RemoteShuffleClientException.corruption("terminal generation or producer count does not match binding");
         }
         requireExpectedChecksum(
                 terminal.getProducerSetChecksum(),
                 binding.expectedProducerSetChecksum(),
                 "producer set");
+        var published = binding.publication();
+        if (terminal.getCommittedLastSequence() != published.lastSequence()
+                || terminal.getTotalBytes() != published.bytes() || terminal.getTotalRows() != published.rows()) {
+            throw RemoteShuffleClientException.corruption("terminal totals do not match coordinator publication");
+        }
+        requireExpectedChecksum(terminal.getOutputChecksum(),
+                HexFormat.of().parseHex(published.manifestSha256()), "coordinator publication");
         validator.validateOutputChecksum(terminal.getOutputChecksum());
     }
 
     @Override
     public void close() {
         revoke();
+        // Cancellation happens before joining the reader. It wakes both a blocked renewal
+        // and a blocked partition stream, including an RPC being installed during rotation.
+        synchronized (this) {
+            closeReads();
+            clientLease.close();
+        }
+    }
+
+    private void closeReads() {
         RuntimeException failure = null;
         for (RemoteShufflePartitionRead owned : ownedReads) {
             try {
@@ -181,14 +231,12 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
             }
         }
         if (failure != null) throw failure;
-        clientLease.close();
     }
 
     /** Stops new reads without treating cancellation as a verified terminal. */
     public void revoke() {
-        synchronized (readerOwnership) {
-            closed.set(true);
-        }
+        closed.set(true);
+        rpcScope.cancel(null);
         RuntimeException failure = null;
         for (RemoteShufflePartitionRead owned : ownedReads) {
             try {
@@ -206,11 +254,8 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
         if (checksum.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
                 || checksum.getDigest().size() != 32
                 || !MessageDigest.isEqual(checksum.getDigest().toByteArray(), expected)) {
-            throw corruption(description + " checksum is invalid");
+            throw RemoteShuffleClientException.corruption(description + " checksum is invalid");
         }
     }
 
-    private static RemoteShuffleClientException corruption(String message) {
-        return new RemoteShuffleClientException("External shuffle corruption: " + message);
-    }
 }

@@ -3,14 +3,14 @@ package org.pangrova.persistence.workflow.postgresql.projection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionScopeException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionScopeException;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import javax.sql.DataSource;
@@ -67,7 +67,7 @@ class PostgresMetadataProjectionTransactionsTest {
         }
         var mutation = upsert(table);
         assertThatThrownBy(() -> transactions.apply(mutation))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         assertThat(new PostgresSchemaProjectionRepository(source).loadSchemas("cat")).containsExactly("sch");
         assertThat(tables.loadTable("cat", "new_schema", "new_table")).isEmpty();
         assertThat(transactions.findReceipt(mutation.operationId())).isEmpty();
@@ -98,7 +98,7 @@ class PostgresMetadataProjectionTransactionsTest {
     @Test void exactReplayAfterReplacementConfirmsHistoryWithoutChangingCurrentProjection() throws Exception {
         var mutation = upsert(table("one"));
         var receipt = transactions.apply(mutation);
-        deployments.deleteCatalogDescriptor("cat");
+        deployments.deleteCatalogDescriptor(descriptor.identity());
         var replacement = new CatalogDescriptor("cat", CatalogType.FEDERATION, "replacement", CatalogState.ACTIVE,
                 Map.of(), "", Set.of("tenant-b"));
         deployments.saveCatalogDescriptor(replacement);
@@ -141,7 +141,7 @@ class PostgresMetadataProjectionTransactionsTest {
     }
 
     @Test void deletedDeploymentCannotMutateEvenAnEmptyObservation() {
-        deployments.deleteCatalogDescriptor("cat");
+        deployments.deleteCatalogDescriptor(descriptor.identity());
         var operation = new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of());
         assertThatThrownBy(() -> transactions.apply(operation)).isInstanceOf(MetadataProjectionConflictException.class);
         assertThat(transactions.findReceipt(operation.operationId())).isEmpty();
@@ -271,7 +271,7 @@ class PostgresMetadataProjectionTransactionsTest {
                                         if (call.getName().equals("prepareStatement") && parameters[0].toString().startsWith("SELECT incarnation_id")
                                                 && interleaved.compareAndSet(false, true)) {
                                             transactions.apply(mutation);
-                                            deployments.deleteCatalogDescriptor("cat");
+                                            deployments.deleteCatalogDescriptor(descriptor.identity());
                                             deployments.saveCatalogDescriptor(new CatalogDescriptor("cat", CatalogType.FEDERATION,
                                                     "replacement", CatalogState.ACTIVE, Map.of(), "", Set.of()));
                                         }

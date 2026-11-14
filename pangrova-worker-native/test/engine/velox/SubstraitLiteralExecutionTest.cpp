@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "TestMemoryHelper.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "engine/velox/plan/VeloxPlanConverter.h"
 #include "substrait/plan.pb.h"
 #include "velox/core/PlanFragment.h"

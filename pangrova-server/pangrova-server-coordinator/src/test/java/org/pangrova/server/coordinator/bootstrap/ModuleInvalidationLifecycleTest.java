@@ -21,7 +21,50 @@ class ModuleInvalidationLifecycleTest extends ContainerTestBase {
     @Test
     void bootstrapShutdownJoinsOwnedInvalidationPoller() throws Exception {
         try (var modules = new ModuleIntegrationBootstrap()) {
-            assertPollerTerminated(modules::setInvalidationPoller, modules);
+            assertPollerTerminated(modules.catalogMaintenance()::setInvalidationPoller, modules);
+        }
+    }
+
+    @Test
+    void successiveLeadershipTermsOwnOneCleanupTaskAndReleaseTheExecutor() throws Exception {
+        var executor = new java.util.concurrent.ScheduledThreadPoolExecutor(1);
+        executor.setRemoveOnCancelPolicy(true);
+        try (var modules = new ModuleIntegrationBootstrap(executor)) {
+            var data = SharedPostgresContainer.migratedDataSource("cleanup_leadership");
+            modules.catalogMaintenance().setInvalidationPoller(new PostgresInvalidationPoller(data, new TieredMetadataCache()));
+            modules.onLeaderElected();
+            modules.onLeaderElected();
+            assertThat(executor.getQueue()).hasSize(1);
+            modules.onLeadershipLost();
+            assertThat(executor.getQueue()).isEmpty();
+            modules.onLeaderElected();
+            assertThat(executor.getQueue()).hasSize(1);
+        }
+        assertThat(executor.isTerminated()).isTrue();
+    }
+
+    @Test
+    void electionCanBeRetriedAfterTheCatalogSchedulerRejectsStartup() throws Exception {
+        var rejectFirst = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var executor = new java.util.concurrent.ScheduledThreadPoolExecutor(1) {
+            @Override
+            public java.util.concurrent.ScheduledFuture<?> scheduleWithFixedDelay(Runnable action,
+                    long initialDelay, long delay, java.util.concurrent.TimeUnit unit) {
+                if (rejectFirst.getAndSet(false)) throw new java.util.concurrent.RejectedExecutionException("injected");
+                return super.scheduleWithFixedDelay(action, initialDelay, delay, unit);
+            }
+        };
+        executor.setRemoveOnCancelPolicy(true);
+        try (var modules = new ModuleIntegrationBootstrap(executor)) {
+            var data = SharedPostgresContainer.migratedDataSource("failed_leadership");
+            modules.catalogMaintenance().setInvalidationPoller(new PostgresInvalidationPoller(data, new TieredMetadataCache()));
+            org.assertj.core.api.Assertions.assertThatThrownBy(modules::onLeaderElected)
+                    .isInstanceOf(java.util.concurrent.RejectedExecutionException.class).hasMessage("injected");
+            assertThat(executor.getQueue()).isEmpty();
+            modules.onLeaderElected();
+            assertThat(executor.getQueue()).hasSize(1);
+            modules.onLeadershipLost();
+            assertThat(executor.getQueue()).isEmpty();
         }
     }
 
@@ -31,7 +74,7 @@ class ModuleInvalidationLifecycleTest extends ContainerTestBase {
                 (PGSimpleDataSource) SharedPostgresContainer.migratedDataSource("poller_lifecycle"));
         try (var poller = new PostgresInvalidationPoller(source, new TieredMetadataCache())) {
             register.accept(poller);
-            poller.initSchema();
+            poller.validateSchema();
             poller.start();
             await().atMost(Duration.ofSeconds(5))
                     .untilAsserted(() -> assertThat(source.pollingThread.get()).isNotNull());

@@ -11,7 +11,7 @@ sidebar_label: "Dynamic Filter Lifecycle"
 > take precedence.
 
 > **Status**: Reference documentation  
-> **Related modules**: `pangrova-connector/pangrova-connector-api` (contract), `pangrova-planner` (generation), `pangrova-coordination/pangrova-coordination-core` (orchestration), `pangrova-connector-*` (consumption)
+> **Related modules**: `pangrova-connector/pangrova-connector-api` (contract), `pangrova-planner` (generation), `pangrova-coordination/pangrova-coordination-control` (orchestration), `pangrova-connector-*` (consumption)
 > **Related docs**: [query-execution.md](./query-execution.md), [query-optimization.md](./query-optimization.md)
 
 ## 1. Overview
@@ -73,7 +73,7 @@ The planner annotates the physical plan with **runtime filter targets**: each ta
 When the coordinator materializes the `StageDAG` for execution, it creates one `SettableDynamicFilter` per runtime filter target:
 
 ```java
-// pangrova-coordination/pangrova-coordination-core: SettableDynamicFilter.java
+// pangrova-coordination/pangrova-coordination-control: SettableDynamicFilter.java
 SettableDynamicFilter filter = SettableDynamicFilter.create(
     "order_date",   // target column
     true            // awaitable = probe side should block
@@ -142,7 +142,7 @@ Transitioning to `READY` completes the `CompletableFuture` returned by `isBlocke
 When the coordinator dispatches probe-side leaf-stage tasks, `DynamicFilterBinder.resolveFilters()` checks the `RuntimeFilterRegistry` for filters targeting the probe stage:
 
 ```java
-// pangrova-coordination/pangrova-coordination-core: DynamicFilterBinder.java
+// pangrova-coordination/pangrova-coordination-control: DynamicFilterBinder.java
 List<DynamicFilterPayload> filters = DynamicFilterBinder.resolveFilters(
     stageId, queryId, runtimeFilterRegistry);
 ```
@@ -166,7 +166,7 @@ TaskRequestFactory.createLeafTask(session, planBytes, splits,
 For tasks already running when the filter becomes ready, the coordinator uses the `injectDynamicFilter` RPC:
 
 ```java
-// pangrova-coordination/pangrova-coordination-core: RemoteTaskDispatcher.java
+// pangrova-coordination/pangrova-coordination-control: RemoteTaskDispatcher.java
 dispatcher.injectDynamicFilter(taskId, planNodeId, filterProto);
 ```
 
@@ -297,9 +297,9 @@ All `DynamicFilter` implementations must be thread-safe. The SPI contract docume
 | File | Role |
 |------|------|
 | `pangrova-connector/pangrova-connector-api/.../metadata/DynamicFilter.java` | API/SPI contract with lifecycle state machine |
-| `pangrova-coordination/pangrova-coordination-core/.../adaptive/SettableDynamicFilter.java` | Mutable coordinator-side implementation |
-| `pangrova-coordination/pangrova-coordination-core/.../adaptive/DynamicFilterBinder.java` | Serializes filters into protocol messages |
-| `pangrova-coordination/pangrova-coordination-core/.../handler/RuntimeFilterStageHandler.java` | Generates filters from build-side results |
+| `pangrova-coordination/pangrova-coordination-control/.../adaptive/SettableDynamicFilter.java` | Mutable coordinator-side implementation |
+| `pangrova-coordination/pangrova-coordination-control/.../adaptive/DynamicFilterBinder.java` | Serializes filters into protocol messages |
+| `pangrova-coordination/pangrova-coordination-control/.../handler/RuntimeFilterStageHandler.java` | Generates filters from build-side results |
 | `pangrova-planner/.../runtimefilter/RuntimeFilterGenerator.java` | Min/max and bloom filter construction |
 | `pangrova-planner/.../runtimefilter/RuntimeFilterRegistry.java` | Per-query filter storage |
 | `pangrova-connector-iceberg/.../IcebergSplitManager.java` | Iceberg split-level pruning |

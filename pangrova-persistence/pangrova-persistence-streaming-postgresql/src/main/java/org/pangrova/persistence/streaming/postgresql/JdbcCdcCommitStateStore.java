@@ -1,7 +1,7 @@
 package org.pangrova.persistence.streaming.postgresql;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -24,7 +24,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
-import org.pangrova.streaming.api.commit.CdcCommitState;
+import org.pangrova.streaming.api.enums.CdcCommitState;
 import org.pangrova.streaming.api.commit.CdcBatchCheckpoint;
 import org.pangrova.streaming.api.commit.CdcCommitStateStore;
 import org.pangrova.streaming.api.commit.SourceId;

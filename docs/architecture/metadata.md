@@ -5,6 +5,9 @@ sidebar_label: "Metadata Management"
 
 # Pangrova — Metadata Management
 
+Federation factory providers implement `org.pangrova.metadata.api.catalog.FederatedCatalogFactory` from `pangrova-metadata-api` and register that exact service name. The Server installs `pangrova-metadata-catalog`, which validates factory IDs at startup and converts the selected catalog to a metadata handle. No production Federation backend ships in the repository. Examples using external federation providers require separately installed implementations.
+
+
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
 > than implemented support. For current behavior, code wiring and end-to-end tests
@@ -68,12 +71,12 @@ lineage uses its durable outbox. Future integration requires an explicit identit
 authority and atomicity design. Historical V9 schema and checksums remain intact.
 
 Generation stores now consume `GenerationTransactionAuthority` from
-`generation.spi.jdbc`. This is explicitly a caller-owned JDBC transaction port,
+`persistence.jdbc.api.generation`. This is explicitly a caller-owned JDBC transaction port,
 not a data-source container or an authorization snapshot. The real
 `MetadataGenerationTransactionAuthority` adapter retains the current tenant and
 table-policy checks and delegates model validation through Security's
-`security.spi.jdbc.CurrentModelAuthority` on that same connection. The process
-root constructs AI Control's `store.jdbc.embedding.JdbcCurrentModelAuthority`
+`persistence.jdbc.api.security.model.CurrentModelAuthority` on that same connection. The process
+root constructs AI Control's `persistence.ai.postgresql.embedding.JdbcCurrentModelAuthority`
 with the real `JdbcCurrentDirectRoleReader`, then explicitly passes it to
 `new GenerationStores(modelAuthority)` and the managed-source and generated-write
 consumers. The instance factory supplies that adapter to build, stage, exchange,
@@ -133,18 +136,21 @@ wires this real fence into build, stage, exchange and publication stores.
 Managed-source publication and File's COPY-source read admission also receive the
 Query transaction port explicitly; neither calls a static anchor-store helper.
 The former File-owned duplicate anchor-fence interface has been removed.
-Current authorization and the
-two publication fence checks around blocking job/descriptor work retain their
-existing order and transaction.
+Server Coordinator composes a `PostgresTableControlWriteAuthority` with the same
+identity-bound row and mask projection used for foreground policy reads. Query and
+Generation receive the `TableControlWriteAuthority` port. The PostgreSQL workflow
+checks current direct roles, grants and policies under the publication lock on the
+caller's connection. The caller owns commit, rollback and close. Generation checks
+the tenant, then the table, then the required model snapshots on that connection.
 
 Generic job/page/stage state, revocation and exchange writers now live in
 `generation.store.postgresql.job` and `generation.store.postgresql.exchange`. Execution context
 resolution lives in `generation.store.postgresql.execution` and receives Security's
-`security.spi.jdbc.CurrentDirectRoleReader`; the real JDBC provider reads current
+`persistence.jdbc.api.security.policy.CurrentDirectRoleReader`; the real JDBC provider reads current
 direct roles on the same connection after current authorization and execution
 fencing. It never owns the caller's transaction or substitutes IdP groups.
 
-Publication candidate selection uses `generation.spi.jdbc.GenerationPublicationCandidates`,
+Publication candidate selection uses `persistence.jdbc.api.generation.GenerationPublicationCandidates`,
 implemented by Metadata's shared-database projection. The SQL filters live owners
 before sorting/limiting candidates and reads persisted publication ownership without
 acquiring an anchor lock after the job lock. This read projection is not an execution
@@ -156,7 +162,7 @@ remain in Metadata pending their owner migration. Current model authority is alr
 implemented by AI Control through the Security-owned transaction port. Historical SQL resources have their
 separate schema-migrations owner; their location does not make Metadata the writer
 for every domain table.
-Stage/exchange consumers now depend on `generation.spi.storage` contracts and their
+Stage/exchange consumers now depend on `persistence.generation.api` contracts and their
 immutable records rather than nested JDBC implementation types. The JDBC providers
 retain fresh checks and the same transaction-scoped preparation callbacks. Their
 private current-authority context implements a read-only view; that view is not an
@@ -569,6 +575,13 @@ public class MetadataService {
 ```
 
 ### 3.2 CatalogRegistry — Catalog Registration and Lifecycle
+
+A drop compares the catalog name, incarnation and revision of the local handle in
+the PostgreSQL delete. Only a matching row produces a catalog invalidation in the
+same transaction. Registration compensates a handle creation failure only after
+the database acknowledged the save, using that same compare-and-delete operation.
+An unconfirmed save leaves durable state for reconciliation. Reconciliation
+replaces a local handle when the stored incarnation or revision changes.
 
 
 
@@ -1368,8 +1381,7 @@ The caching decorator forwards incremental batches without caching them.
 A complete-through bound must represent every change (including deletions) in the
 requested interval and exclude late commits into that interval. A successful SELECT,
 an empty result, or the current database time is insufficient. An adapter without
-that guarantee explicitly returns an absent bound. The current push-subscription
-default is a no-op and must not be treated as evidence of push support. Federation
+that guarantee explicitly returns an absent bound. Pull-only providers reject a push subscription with an explicit unsupported-operation error. Federation
 factory discovery is plugin-based; a configured provider name alone does not establish
 an installed implementation or its capabilities.
 
@@ -1607,6 +1619,13 @@ Serialization example:
 ```
 
 ### 4.7 Table Control Plane (Ownership and Admission)
+
+At startup the coordinator selects the `postgresql` `TableStoreFactory` through
+`ServiceLoader` and supplies the metadata data source. The factory creates the
+ownership, statistics, governance binding and maintenance repositories together.
+`CatalogRegistry` receives them before it opens catalogs. SQL maintenance and
+scheduled maintenance share the same policy service and persisted run history.
+Tests select a fresh memory store set or provide a PostgreSQL authority explicitly.
 
 Catalog visibility is not ownership. The control plane adds the management state that a
 connector cannot answer: who owns a table, which format identity it has, and whether
@@ -2250,9 +2269,9 @@ public record ValidationResult(boolean compatible, List<String> errors, List<Str
 
 ```text
 pangrova-metadata/
-  pangrova-metadata-api/       # metadata.api and actual metadata.spi contracts
-  pangrova-metadata-codec/     # shared table/JSON encoding
-  pangrova-metadata-core/      # domain orchestration, caches and remaining adapters
+  pangrova-metadata-api/       # metadata.api values and provider contracts
+  pangrova-metadata-codec/     # shared table metadata encoding
+  pangrova-metadata-catalog/      # domain orchestration, caches and remaining adapters
 pangrova-persistence/
   pangrova-persistence-catalog-api/
     .../api/catalog/          # deployment authority
@@ -2300,7 +2319,8 @@ Metadata management emits the following spans (see [14 §4](./observability.md) 
 
 
 > **Cross-reference (§3.1 MetadataService):** `MetadataService` resolves tables and
-> `MetadataSchemaBuilder` builds the Calcite root schema from `CatalogRegistry`.
+> Planner builds its Calcite root using `MetadataSchemaBuilder`. The registry implements the
+> borrowed `CatalogReadAccess` contract. Table ownership checks remain in Table.
 > `FederationCatalogHandle` wraps the `FederatedCatalog` SPI described in §3.8.
 
 

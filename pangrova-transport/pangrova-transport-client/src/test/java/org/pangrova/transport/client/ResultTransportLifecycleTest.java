@@ -1,5 +1,7 @@
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportConnectionException;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 

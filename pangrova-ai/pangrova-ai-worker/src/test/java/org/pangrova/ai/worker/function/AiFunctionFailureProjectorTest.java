@@ -14,7 +14,7 @@
 package org.pangrova.ai.worker.function;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
 

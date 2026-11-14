@@ -19,7 +19,7 @@ package org.pangrova.persistence.ai.postgresql.evaluation;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.control.api.AiControlException;
+import org.pangrova.ai.control.exception.AiControlException;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
 import javax.sql.DataSource;
@@ -29,14 +29,14 @@ import java.sql.SQLException;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetId;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetVersion;
 import org.pangrova.ai.control.evaluation.EvaluationMetric;
-import org.pangrova.ai.control.evaluation.EvaluationMetricDirection;
+import org.pangrova.ai.control.enums.EvaluationMetricDirection;
 import org.pangrova.ai.control.evaluation.EvaluationMetricPolicy;
 import org.pangrova.ai.control.evaluation.EvaluationMetricRule;
 import org.pangrova.ai.control.evaluation.EvaluationReleaseDecision;
 import org.pangrova.ai.control.evaluation.EvaluationRun;
-import org.pangrova.ai.control.evaluation.EvaluationRunState;
+import org.pangrova.ai.control.enums.EvaluationRunState;
 import org.pangrova.ai.control.evaluation.EvaluationStore;
-import org.pangrova.ai.control.evaluation.EvaluationSubjectType;
+import org.pangrova.ai.control.enums.EvaluationSubjectType;
 import java.time.Instant;
 import java.util.List;
 

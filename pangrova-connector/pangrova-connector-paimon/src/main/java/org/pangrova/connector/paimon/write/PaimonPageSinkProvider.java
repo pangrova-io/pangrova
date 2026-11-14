@@ -1,13 +1,13 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;

@@ -3,7 +3,7 @@ package org.pangrova.ai.worker.invocation;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;

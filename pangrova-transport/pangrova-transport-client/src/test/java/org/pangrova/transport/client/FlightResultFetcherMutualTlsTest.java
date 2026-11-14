@@ -1,5 +1,7 @@
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportConnectionException;
+
 import org.apache.arrow.flight.FlightProducer;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
@@ -13,8 +15,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
-import org.pangrova.transport.api.result.ResultEndpoint;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 

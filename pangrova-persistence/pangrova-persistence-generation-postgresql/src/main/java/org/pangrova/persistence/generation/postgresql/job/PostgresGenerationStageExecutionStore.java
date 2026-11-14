@@ -12,11 +12,11 @@ import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentGenerationAuthority;
 import org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.time.Instant;

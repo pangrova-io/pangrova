@@ -2,7 +2,7 @@ package org.pangrova.persistence.generation.api.execution;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.util.Set;
 

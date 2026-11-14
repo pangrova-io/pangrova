@@ -3,7 +3,7 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries;
 
 import org.pangrova.generation.api.page.GenerationLease;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;

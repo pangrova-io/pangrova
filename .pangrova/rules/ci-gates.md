@@ -115,7 +115,7 @@ fixture or zero-valued baseline qualifies. See `docs/testing/tpc-benchmark-metho
 | AddressSanitizer | `cmake --preset dev-asan && cmake --build build-asan`; Native runner with `--build-dir pangrova-worker-native/build-asan` | 0 findings |
 | UBSan (on demand) | `cmake --preset dev-ubsan && cmake --build build-ubsan`; Native runner with `--build-dir pangrova-worker-native/build-ubsan` | 0 findings |
 | Native lib package | `package-native-lib.sh` | Successfully staged to Java resources |
-| JNI integration | `mvn -q -pl pangrova-worker/pangrova-worker-core -am test` | 100% pass |
+| JNI integration | `mvn -q -pl pangrova-worker -am test` | 100% pass |
 | Symbol visibility | Only `Java_*` and `JNI_On*` in `.dylib` exports | `nm -gU` verification |
 
 ## Connectivity Gates

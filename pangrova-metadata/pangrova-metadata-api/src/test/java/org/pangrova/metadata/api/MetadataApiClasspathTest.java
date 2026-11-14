@@ -19,8 +19,8 @@ class MetadataApiClasspathTest {
 
         Path classes = Path.of(types.toURI());
         try (var loader = new URLClassLoader(new URL[]{types,
-                     org.pangrova.connector.spi.plugin.ConnectorFactory.class.getProtectionDomain().getCodeSource().getLocation(),
-                     org.pangrova.table.api.ownership.OwnershipMode.class.getProtectionDomain().getCodeSource().getLocation(),
+                     org.pangrova.connector.api.plugin.ConnectorFactory.class.getProtectionDomain().getCodeSource().getLocation(),
+                     org.pangrova.table.api.enums.OwnershipMode.class.getProtectionDomain().getCodeSource().getLocation(),
                      org.pangrova.common.api.annotation.Experimental.class.getProtectionDomain().getCodeSource().getLocation(),
                      org.pangrova.types.Type.class.getProtectionDomain().getCodeSource().getLocation(),
                      org.pangrova.batch.api.page.Page.class.getProtectionDomain().getCodeSource().getLocation()}, ClassLoader.getPlatformClassLoader());

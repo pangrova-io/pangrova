@@ -23,7 +23,7 @@ identity fixture; OAuth2/LDAP implementations have separate integration coverage
 
 ## Current module boundary (2026-11-02)
 
-`pangrova-security` is now an aggregator. Its API artifact owns `.api` and `.spi`;
+`pangrova-security` is now an aggregator. Its API artifact owns calling and plugin contracts under `.api`;
 Core owns orchestration, and authentication (builtin/LDAP/OAuth2), RBAC policy,
 environment/file secrets and AWS KMS are separate implementation artifacts.
 OAuth2 owns its JJWT/Jackson/cache dependencies; KMS owns AWS configuration and SDK.
@@ -78,19 +78,19 @@ SecurityStatementHandler/event bus mutation path has been removed. Production SQ
 and tenant mutations are registered by `SecurityAdministrationBootstrap` and recheck current
 PostgreSQL authority; test-only event delivery is not an alternative authorization path.
 
-`SecretTemplates` is Core interpolation logic, not API. `SecretResolverRegistry`
-rejects duplicate or blank provider prefixes rather than replacing a credential
-authority at runtime. Prefixes remain case-sensitive; there is no plugin hot reload.
+The lightweight `pangrova-security-secrets` runtime owns template expansion and
+provider discovery for Coordinator, Worker, and AI. Its registry rejects duplicate
+or blank prefixes. Prefixes are case-sensitive and installation takes effect at process restart.
 
-Server owns audit backend selection and constructs the current authentication and
-RBAC providers. Typed factory discovery/version/role negotiation is not yet delivered
-by this extraction. AWS KMS's physical rotation version is not exposed by its current
-logical envelope version; KMS resource lifecycle and capability tightening remain
-explicit follow-up work, not production-readiness claims.
+Coordinator discovers authentication providers through `AuthenticatorFactory`, checks
+the contract version and validates the selected mechanism before the HTTP entry point
+accepts traffic. Anonymous mode is reserved for the built-in NOOP authenticator.
+Server selects the audit backend and wires PostgreSQL-backed RBAC. The AWS envelope
+encryption library records a logical format version. KMS owns physical key rotation.
 
 ## Public policy contracts
 
-`org.pangrova.security.api.error.AuthorizationDeniedException` is the shared authorization
+`org.pangrova.security.api.exception.AuthorizationDeniedException` is the shared authorization
 failure, retaining the `AccessDeniedException` hierarchy and `ACCESS_DENIED` error code.
 Consumers must not import this exception from the former `security.core.authz` package.
 `security.api.policy.SqlIdentifierValidator` owns lexical identifier/policy checks used
@@ -1128,44 +1128,16 @@ security:
 
 ### 7.3 Key Management
 
-```java
-/**
- * Key management SPI
- */
-public interface KeyManager {
-    /** Get the data encryption key */
-    SecretKey getDataEncryptionKey(String keyId);
+Security Core uses the `KeyManager` contract for AES-256-GCM envelope encryption.
+Tenant and table IDs are length-delimited in the additional authenticated data,
+which makes each tenant/table pair distinct even when an identifier contains a
+colon. An unsupported envelope format version is rejected before calling KMS.
 
-    /** Create a new key */
-    String createKey(String alias, KeySpec spec);
-
-    /** Rotate a key */
-    String rotateKey(String keyId);
-
-    /** Encrypt a data key (encrypted with the master key) */
-    byte[] encryptDataKey(SecretKey dataKey, String masterKeyId);
-
-    /** Decrypt a data key */
-    SecretKey decryptDataKey(byte[] encryptedKey, String masterKeyId);
-}
-
-/**
- * AWS KMS implementation
- */
-public class AwsKmsKeyManager implements KeyManager {
-    private final KmsClient kmsClient;
-
-    @Override
-    public SecretKey getDataEncryptionKey(String keyId) {
-        GenerateDataKeyResponse response = kmsClient.generateDataKey(
-            GenerateDataKeyRequest.builder()
-                .keyId(keyId)
-                .keySpec(DataKeySpec.AES_256)
-                .build());
-        return new SecretKeySpec(response.plaintext().asByteArray(), "AES");
-    }
-}
-```
+The AWS implementation owns its SDK client. Close the provider after the last
+encryption or decryption. Its rotation operation enables AWS automatic rotation
+for the customer-managed key. The library's LocalStack integration covers the
+encrypt/decrypt round trip. SQL and storage entry points currently do not install
+the library as a data-at-rest policy.
 
 ---
 
@@ -1303,130 +1275,43 @@ security:
 
 ## 9. Secret Management
 
-Pangrova enforces a **zero-plaintext-credential** policy. All sensitive configuration values (passwords, secrets, keys) must use secret reference syntax. Plaintext credentials are rejected at startup.
+Coordinator and Worker discover prefix-scoped `SecretProvider` implementations through
+the same registry. Coordinator includes ENV and FILE. The standard Worker includes
+ENV for both AI credentials and connector references. Embedded hosts can install
+additional providers on their process classpath. An unavailable prefix fails lookup,
+and duplicate prefixes fail registration. ENV validates the variable name before
+reading it and rejects blank values. FILE reads the first line and resolves projected
+volume symlinks within its administrator-controlled directory. Links outside that
+directory are rejected. These providers receive the tenant scope where the caller
+supplies one. Neither caches plaintext on behalf of another tenant.
 
-> **See also:** [Security configuration](../configuration/security.md) for the
-> currently verified startup keys and validation behavior.
+### 9.1 Connector credentials
 
-### 9.1 Supported Secret Providers
+Catalog properties consumed by a connector can contain templates such as
+`${ENV:AWS_ACCESS_KEY_ID}` and `${FILE:s3-secret-key}`. The default FILE root is
+`/etc/pangrova/secrets`. A relative reference is resolved within that directory.
+The process constructing the connector needs the referenced provider and credential.
+A remote Worker may therefore need its own provider installation and secret mount.
 
-| Provider | Syntax | Description | Use Case |
-|----------|--------|-------------|----------|
-| **Environment Variable** | `${ENV:VAR_NAME}` | Reads from OS environment variable | CI/CD pipelines, container orchestration |
-| **HashiCorp Vault** | `${VAULT:path#field}` | Fetches from Vault KV v2 engine | Production secrets with audit trail |
-| **AWS KMS** | `${KMS:key-id}` | Decrypts via AWS KMS (or compatible cloud KMS) | Cloud-native deployments, envelope encryption |
-| **File Reference** | `${FILE:path}` | Reads from local file (first line, trimmed) | Kubernetes Secret volume mounts |
+### 9.2 Worker AI credentials
 
-### 9.2 Secret Reference Syntax
+A configured model accepts a URI-shaped reference such as
+`worker.ai.models.chat.secret-reference=env://PANGROVA_CHAT_API_KEY`.
+Worker resolves that reference when constructing the provider client. A governed
+FILE capability secret is resolved when its Worker runtime initializes. Both paths
+use the role's secret registry. Refer to the [Worker configuration](../configuration/worker.md)
+for the model and governed FILE settings.
 
-```yaml
-# Environment variable — simplest, suitable for dev/CI
-s3:
-  access-key: ${ENV:AWS_ACCESS_KEY_ID}
+### 9.3 Rotation and revocation
 
-# HashiCorp Vault — recommended for production
-s3:
-  secret-key: ${VAULT:secret/pangrova/s3#key}
+ENV reads the process environment. Restart the affected role to load a changed
+environment variable. FILE reads its current target on lookup. An existing
+connector or model client can retain credentials for its lifetime. Rotate the
+credential in its authority and recreate the affected runtime when the new value
+must take effect. Pangrova ships no background refresh timer or file watcher.
 
-# AWS KMS — cloud-native envelope encryption
-security:
-  ldap:
-    bind-password: ${KMS:alias/pangrova-ldap}
-
-# File reference — Kubernetes Secret mount
-security:
-  oauth2:
-    client-secret: ${FILE:/run/secrets/oauth2}
-```
-
-**Resolution order:** At startup, the configuration loader resolves all `${...}` references before the application context initializes. If any provider is unreachable, startup fails with a clear error message identifying the unresolvable reference.
-
-### 9.3 Key Rotation Strategy
-
-Pangrova uses **TTL-based auto-refresh** for secret rotation:
-
-| Provider | Rotation Support | Default TTL | Behavior |
-|----------|-----------------|-------------|----------|
-| ENV | Manual only | — | Requires process restart to pick up changes |
-| VAULT | Auto-refresh | 1 hour | Background thread re-fetches on TTL expiry |
-| KMS | Auto-refresh | 1 hour | Background thread re-decrypts on TTL expiry |
-| FILE | File-watch | 30 seconds | Watches file modification time, reloads on change |
-
-**Auto-refresh flow (Vault / KMS):**
-
-```
-1. Startup: resolve secret → cache value with TTL
-2. Background scheduler checks TTL every 30s
-3. TTL expired → re-fetch from provider
-4. Success → update cached value, reset TTL
-5. Failure → log warning, retain previous value, retry on next cycle
-6. 3 consecutive failures → emit CRITICAL alert via observability pipeline
-```
-
-**Configuration:**
-
-```yaml
-secret-management:
-  vault:
-    address: https://vault.example.com:8200
-    auth-method: kubernetes          # kubernetes, token, approle
-    ttl: 1h                          # rotation interval
-    retry-interval: 30s
-    max-retry: 3
-  kms:
-    region: us-east-1
-    ttl: 1h
-    retry-interval: 30s
-    max-retry: 3
-  file:
-    watch-interval: 30s
-```
-
-### 9.4 Key Lifecycle
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        Secret Lifecycle                                   │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  Creation          Resolution         Rotation          Revocation       │
-│  ─────────         ──────────         ────────          ──────────       │
-│  Admin provisions  Config loader      TTL-based         Admin rotates    │
-│  secret in         resolves ${...}    auto-refresh      master secret    │
-│  Vault/KMS/ENV     at startup         re-fetches        in provider      │
-│       │                 │             from provider          │           │
-│       ▼                 ▼                  │                 ▼           │
-│  Secret stored     Value cached       ┌───┴───┐        Old secret       │
-│  in provider       in memory          │Success│        invalidated       │
-│                         │             └───┬───┘        by provider       │
-│                         ▼                 ▼                  │           │
-│                    Application        Update cache          ▼           │
-│                    uses secret        + reset TTL       Next rotation    │
-│                                                         picks up new    │
-│                                           │             value via TTL    │
-│                                      ┌────┴────┐                        │
-│                                      │ Failure │                        │
-│                                      └────┬────┘                        │
-│                                           ▼                             │
-│                                      Retain previous                    │
-│                                      value + alert                      │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
-```
-
-**Lifecycle phases:**
-
-| Phase | Actor | Action |
-|-------|-------|--------|
-| **Creation** | Ops/Admin | Provision secret in external provider (Vault, KMS, ENV, file) |
-| **Resolution** | Config Loader | Resolve `${...}` references at startup; fail-fast on unresolvable |
-| **Rotation** | Secret Manager | TTL-based background refresh (Vault/KMS); file-watch (FILE); manual restart (ENV) |
-| **Revocation** | Ops/Admin | Rotate master secret in provider; Pangrova picks up new value on next TTL cycle |
-
-**Security invariants:**
-- Secrets are **never** written to disk, logs, or diagnostic dumps
-- In-memory secret values are stored in dedicated buffers cleared on rotation
-- All secret access is recorded in the audit log (Section 6) as `CONFIG_SECRET_ACCESS` events
+Vault and KMS secret references require a separately installed provider. The AWS
+KMS key manager serves envelope encryption through a separate API.
 
 ---
 
@@ -1487,11 +1372,9 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 
-> **SPI registration:** The implemented extension points are `Authenticator` and
-> `KeyManager`. `Authenticator` works with `AuthenticationRequest`, exposes
-> `authenticate`, `supports`, `isHealthy`, `init`, and `close`; `KeyManager` owns
-> data-key creation, lookup, rotation, and envelope encryption. The interfaces in
-> `pangrova-security/pangrova-security-api` and their owning providers are authoritative for their exact signatures.
+> **Provider registration.** Coordinator loads `AuthenticatorFactory` for authentication.
+> The secret registry loads `SecretProvider` for prefix-based resolution. Embedders
+> construct the AWS `KeyManager` with its configuration and own its lifetime.
 
 
 > **Audit implementation:** Security events use `AuditEventEmitter`. A separate

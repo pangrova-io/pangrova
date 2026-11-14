@@ -1,8 +1,8 @@
 package org.pangrova.connector.runtime.lifecycle;
 
-import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
 
 import java.util.Map;
 

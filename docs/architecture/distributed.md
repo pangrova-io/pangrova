@@ -8,7 +8,7 @@ sidebar_label: "Distributed Architecture"
 Cluster membership snapshots, process identities and lease values live in
 `pangrova-coordination-api`. Their persistence ports now live in the dedicated
 `pangrova-persistence-coordination-api`: `.api.membership`, `.api.lease` and
-`.api.admission`, with the real quorum extension in `.spi.provider` in the same
+`.api.admission`, with the real quorum extension in `.api.provider` in the same
 artifact. PostgreSQL and process-local Memory implementations are separate
 `pangrova-persistence-coordination-postgresql` and `pangrova-persistence-coordination-memory`
 artifacts. Core receives these contracts explicitly; it cannot select a Memory backend.
@@ -169,7 +169,7 @@ public class PangrovaCoordinator implements Lifecycle {
 
 ### 1.3 Query Lifecycle Management
 
-`org.pangrova.query.core.lifecycle.QueryStateMachine` is the single owner of in-process
+`org.pangrova.query.lifecycle.QueryStateMachine` is the single owner of in-process
 query state. `QueryManager` currently remains in Coordination Core and coordinates
 admission, dispatch and lifecycle collaborators; that remaining migration is not complete.
 
@@ -217,16 +217,16 @@ journal and Native ownership tests; a class move alone is not execution evidence
 
 ```text
 pangrova-query/
-├── pangrova-query-api/           # State/session/event contracts and cleanup ports
-└── pangrova-query-core/
-    └── org.pangrova.query.core/
+├── pangrova-query/           # State/session/event contracts and cleanup ports
+└── pangrova-query/
+    └── org.pangrova.query/
         ├── lifecycle/          # QueryStateMachine, QueryTerminalCleanup, timeout
         ├── retention/          # QueryRetentionScheduler, reader-pin renewal
         ├── stage/              # StageStateMachine
         └── audit/, event/, profiling/, task/
 pangrova-server/pangrova-server-coordinator/
 └── org.pangrova.server.coordinator/  # Process bootstrap and endpoints
-pangrova-coordination/pangrova-coordination-core/
+pangrova-coordination/pangrova-coordination-control/
 └── org.pangrova.coordinator/
     ├── query/                  # Remaining QueryManager/admission/dispatch integration
     ├── worker/                 # Current worker discovery and membership integration
@@ -324,26 +324,27 @@ Note: On the write path, the Worker-side Java `TableWriter` is responsible for f
 ### 2.3 Worker Module Structure
 
 ```text
-pangrova-worker/pangrova-worker-core/
+pangrova-worker/
 └── src/main/java/org/pangrova/worker/
     ├── bootstrap/        # config/, phase/, lifecycle/, ownership/, registration/
     ├── http/             # WorkerHttpServer
     ├── execution/        # TaskExecutor and task execution
     ├── task/             # task tracking and completion
-    ├── memory/           # NativeMemoryCoordinator, NativeSpillBridge
+    ├── memory/           # NativeMemoryCoordinator, NativeSpillController
     ├── exchange/         # shuffle/exchange integration
     ├── split/            # split fetching and delivery
     ├── result/           # result publication
     └── ...               # cache, copy, file, heartbeat, resource, transport
 
-pangrova-worker/pangrova-worker-native-bridge/
-└── src/main/java/org/pangrova/worker/nativebridge/jni/
+pangrova-worker/
+└── src/main/java/org/pangrova/worker/jni/
     # NativeRuntime, NativeLibraryLoader and JNI command entry points
 
 pangrova-worker-native/
 ├── CMakeLists.txt
 ├── src/
-│   ├── bridge/           # JNI exports and lifecycle
+│   ├── jni/              # Runtime entry points and JVM reference ownership
+│   ├── command/          # Command dispatch, task binding, handles and Flight services
 │   ├── capabilities/     # capability catalog, function registry, artifact retrieval
 │   ├── engine/           # Velox execution, shuffle/Flight, memory, write, delete
 │   ├── indexing/         # index pruning, BM25 and retrieval fusion
@@ -1375,8 +1376,11 @@ class WorkerCacheReporter:
 
 **Implementation status (module refactoring):** the diagrams and pseudocode below
 describe the broader design, not a completed capability inventory. Actual placement
-uses Scheduler Core eligibility checks and the injected builtin
-`org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy`. It ranks the current
+uses Scheduler Core eligibility checks. The Coordinator selects the factory named by
+`coordinator.query.placement-provider` from Java services registered under
+`org.pangrova.scheduler.api.placement.WorkerSelectionStrategyFactory`. Missing IDs,
+duplicate IDs and incompatible factory API versions fail startup. The default
+`load-balanced` implementation ranks the current
 memory-pressure and CPU snapshot, with concurrent rotation of ties. Disk/network
 latencies are not supplied on this path, and scoring thresholds do not currently
 drive blacklisting. The old FairShareStrategy (retired) and common-factor score multiplier
@@ -1384,6 +1388,14 @@ have been removed: multiplying every candidate by the same share did not provide
 tenant fairness. The optional Java `WeightedFairScheduler` still has its own queue
 and lifecycle; its existence is not proof that distributed query execution uses
 weighted CPU allocation. Those integrations remain unimplemented.
+
+Failed-task retries use `coordinator.worker.max-retry`. The query stage owns the
+budget for each original task and its replacements. The launcher looks up the
+original query and an alternative worker before requesting a slot through
+`TaskRetryAdmission`. The DAG records the replacement's route before submission
+and refunds the reservation if dispatch fails. A speculative duplicate follows a
+separate path controlled by `coordinator.speculation.enabled`. The experimental
+`SchedulerControlLoop` and `RetryBudget` contracts have isolated tests only.
 
 This section introduces a composite Worker Performance Score and a weighted fair CPU scheduler, replacing the current binary health model (alive/dead) with multi-dimensional performance awareness.
 

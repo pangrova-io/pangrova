@@ -5,14 +5,14 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
-import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
+import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.resolution.MetadataService;
-import org.pangrova.observability.core.profiling.ProfilerEndpoint;
-import org.pangrova.query.core.profiling.QueryProfileService;
+import org.pangrova.observability.profiling.ProfilerEndpoint;
+import org.pangrova.query.profiling.QueryProfileService;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
-import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 
 import java.util.function.LongSupplier;
@@ -49,7 +49,7 @@ public record CoordinatorHttpServerContext(
         String internalAuthSecret,
         LongSupplier coordinatorEpochSupplier,
         CopySourceReadResource copySourceReadResource,
-        org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource) {
+        org.pangrova.server.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource) {
 
     public CoordinatorHttpServerContext {
         checkNotNull(receiver, "receiver must not be null");

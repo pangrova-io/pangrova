@@ -2,7 +2,7 @@ package org.pangrova.persistence.catalog.postgresql.dependency;
 
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyKey;
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyOrder;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import org.pangrova.persistence.catalog.api.dependency.ObjectDependencyStore;
-import org.pangrova.metadata.api.relation.ObjectKind;
+import org.pangrova.metadata.api.enums.ObjectKind;
 import org.pangrova.metadata.api.relation.ObjectRef;
 
 /**

@@ -1,7 +1,7 @@
 package org.pangrova.generation.api.dependency;
 
-import org.pangrova.common.util.Utf8Order;
 import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.util.Utf8Order;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;

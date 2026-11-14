@@ -84,7 +84,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.server.coordinator.tes
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             var source = org.pangrova.coordinator.testinfra.SharedPostgresContainer
                     .migratedDataSource("governance_wiring");
-            wiring.startGovernance(buildAllModulesEnabled(), GovernanceBootstrapTestAuthority.bind(wiring, source));
+            wiring.startGovernance(buildAllModulesEnabled(), source, GovernanceBootstrapTestAuthority.bind(wiring, source));
             assertThat(wiring.getLineageEmitter()).isNotNull();
             assertThat(wiring.getWriteQualityGate()).isNotNull();
             GovernanceBootstrapTestAuthority.assertMissingRunnerBlocks(wiring.getWriteQualityGate(), source);
@@ -94,7 +94,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.server.coordinator.tes
     @Test
     void startGovernanceSkippedWhenDisabled() {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
-            wiring.startGovernance(CoordinatorBootstrapConfig.withDefaults("coord-test", 0), null);
+            wiring.startGovernance(CoordinatorBootstrapConfig.withDefaults("coord-test", 0), null, null);
             assertThat(wiring.getLineageEmitter()).isNull();
             assertThat(wiring.getWriteQualityGate()).isNull();
         }
@@ -175,7 +175,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.server.coordinator.tes
     void securityInitializedWhenEnabled() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-sec", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -288,8 +288,9 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.server.coordinator.tes
         ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap();
         CoordinatorBootstrapConfig config = buildAllModulesEnabled();
         wiring.startStreaming(config, null);
-        wiring.startGovernance(config,
-                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_close")));
+        var source = org.pangrova.coordinator.testinfra.SharedPostgresContainer
+                .migratedDataSource("governance_close");
+        wiring.startGovernance(config, source, GovernanceBootstrapTestAuthority.bind(wiring, source));
         wiring.startResilience(config);
         wiring.startTenant(config, null);
         wiring.startOperations(config);
@@ -319,7 +320,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.server.coordinator.tes
     void enabledGovernanceRejectsMissingDurableDatasourceBeforePublishingComponents() {
         try (var wiring = new ModuleIntegrationBootstrap()) {
             org.assertj.core.api.Assertions.assertThatThrownBy(
-                    () -> wiring.startGovernance(buildAllModulesEnabled(), null))
+                    () -> wiring.startGovernance(buildAllModulesEnabled(), null, null))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("durable metadata datasource");
             assertThat(wiring.getLineageEmitter()).isNull();
@@ -332,14 +333,14 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.server.coordinator.tes
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-all-modules", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, new CoordinatorBootstrapConfig.SecurityConfig(
-                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                        "OAUTH2",
                         "bootstrap-test-internal-secret", java.util.Map.of("issuerUri", issuerUri())), null);
     }
 

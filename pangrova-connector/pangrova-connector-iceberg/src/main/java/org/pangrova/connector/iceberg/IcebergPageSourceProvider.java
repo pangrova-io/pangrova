@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergDeleteFile;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
@@ -9,9 +9,9 @@ import org.pangrova.connector.iceberg.read.IcebergPageSource;
 import org.pangrova.connector.iceberg.read.IcebergParquetReader;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
-import org.pangrova.connector.api.error.ConnectorException;
-import org.pangrova.connector.spi.data.ConnectorPageSource;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.api.data.ConnectorPageSource;
+import org.pangrova.connector.api.data.ConnectorPageSourceProvider;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
@@ -134,8 +134,8 @@ public class IcebergPageSourceProvider implements ConnectorPageSourceProvider {
                 }
             }
         } catch (java.io.IOException e) {
-            throw new org.pangrova.connector.api.error.ConnectorException(
-                    org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_READ_ERROR,
+            throw new org.pangrova.connector.api.exception.ConnectorException(
+                    org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_READ_ERROR,
                     "Failed to read position deletes: " + deleteFile.filePath(), e);
         }
     }
@@ -164,8 +164,8 @@ public class IcebergPageSourceProvider implements ConnectorPageSourceProvider {
             bitmap.deserialize(java.nio.ByteBuffer.wrap(dvBytes));
             bitmap.forEach((org.roaringbitmap.IntConsumer) pos -> positions.add((long) pos));
         } catch (java.io.IOException e) {
-            throw new org.pangrova.connector.api.error.ConnectorException(
-                    org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_READ_ERROR,
+            throw new org.pangrova.connector.api.exception.ConnectorException(
+                    org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_READ_ERROR,
                     "Failed to read deletion vector: " + dvPath, e);
         }
     }

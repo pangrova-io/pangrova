@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
 
 /** Commit-shape selection for partitioned overwrites and copy-on-write deletes. */
 class IcebergOverwriteCommitTest {

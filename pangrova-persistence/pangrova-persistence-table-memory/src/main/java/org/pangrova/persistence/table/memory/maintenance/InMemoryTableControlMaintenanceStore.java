@@ -1,6 +1,6 @@
 package org.pangrova.persistence.table.memory.maintenance;
 
-import org.pangrova.persistence.table.api.maintenance.TableControlMaintenanceStore;
+import org.pangrova.table.api.maintenance.TableControlMaintenanceStore;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 import org.pangrova.common.concurrent.ThreadSafe;

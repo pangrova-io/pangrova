@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.schema;
 
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.paimon.schema.Schema;

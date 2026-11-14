@@ -31,7 +31,7 @@ class HaLeaseBackendFallbackTest {
         // Configure with a non-loopback advertised host but no metadata JDBC (no datasource)
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-1", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-1", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, false,
                         false, false, false, false),
@@ -55,7 +55,7 @@ class HaLeaseBackendFallbackTest {
     void multiNodeNonLoopbackAlternativeHostFailsFast() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, false,
                         false, false, false, false),
@@ -91,7 +91,7 @@ class HaLeaseBackendFallbackTest {
     void singleNodeEmptyShuffleEndpointsUsesInMemory() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-4", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-4", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, false,
                         false, false, false, false),

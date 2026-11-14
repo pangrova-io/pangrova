@@ -3,5 +3,5 @@
 <modelVersion>4.0.0</modelVersion>
 <parent><groupId>org.pangrova</groupId><artifactId>pangrova-bom</artifactId><version>0.1.0-SNAPSHOT</version></parent>
 <artifactId>pangrova-scheduler</artifactId><packaging>pom</packaging><name>Pangrova Scheduler</name>
-<modules><module>pangrova-scheduler-api</module><module>pangrova-scheduler-core</module><module>pangrova-scheduler-strategies-builtin</module></modules>
+<modules><module>pangrova-scheduler-api</module><module>pangrova-scheduler-policy</module><module>pangrova-scheduler-strategies-builtin</module></modules>
 </project>

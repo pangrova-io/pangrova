@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.protocol.v2.ShuffleAccessCapability;

@@ -1,42 +1,41 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.connector.api.write.TableFormat;
+import org.pangrova.streaming.enums.WatermarkState;
+
+import org.pangrova.connector.api.enums.TableFormat;
 import org.pangrova.connector.api.write.WriteContext;
-import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.api.enums.WriteMode;
 import org.pangrova.connector.api.write.WriteRecord;
 import org.pangrova.connector.api.write.WriteResult;
-import org.pangrova.connector.spi.write.TableWriter;
+import org.pangrova.connector.api.write.TableWriter;
 
 import org.pangrova.common.lifecycle.ResourceCloser;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.*;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.pangrova.governance.core.GovernanceDeps;
-import org.pangrova.governance.core.GovernanceContext;
+import org.pangrova.governance.runtime.GovernanceDeps;
+import org.pangrova.governance.runtime.GovernanceContext;
 import org.pangrova.governance.api.classification.AuditConfigStore;
-import org.pangrova.governance.core.classification.TagBasedSecurityPolicy;
-import org.pangrova.governance.core.quality.AlertChannelRegistry;
-import org.pangrova.governance.core.quality.DataQualityAlerter;
-import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor;
-import org.pangrova.governance.core.quality.GovernanceStatementHandler;
-import org.pangrova.governance.core.quality.InMemoryQualityRuleStore;
-import org.pangrova.governance.core.quality.CronScheduler;
+import org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy;
+import org.pangrova.governance.runtime.quality.AlertChannelRegistry;
+import org.pangrova.governance.runtime.quality.DataQualityAlerter;
+import org.pangrova.governance.runtime.quality.UnconfiguredQualityRuleExecutor;
+import org.pangrova.governance.runtime.quality.GovernanceStatementHandler;
+import org.pangrova.governance.runtime.quality.InMemoryQualityRuleStore;
+import org.pangrova.governance.runtime.quality.CronScheduler;
 import org.pangrova.security.api.mask.ColumnMask;
 import org.pangrova.persistence.security.api.mask.EnrichedColumnMaskStore;
 
 
 
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
-import org.pangrova.streaming.api.cdc.CdcOperation;
+import org.pangrova.streaming.api.enums.CdcOperation;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
-import org.pangrova.streaming.cdc.*;
 import org.pangrova.streaming.watermark.*;
-import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
-import org.pangrova.governance.core.classification.InMemoryAuditConfigStore;
-import org.pangrova.governance.core.lineage.LineageEventEmitter;
+import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -175,7 +174,7 @@ class StreamingGovernanceChainTest extends org.pangrova.server.coordinator.testi
     /** DebeziumJsonConverter parses a Debezium JSON message into correct CdcEnvelope fields. */
     @Test
     void debeziumConverterParsesMessage() {
-        var converter = new org.pangrova.streaming.cdcformat.debezium.DebeziumJsonConverter();
+        var converter = new org.pangrova.streaming.format.debezium.DebeziumJsonConverter();
 
         CdcEnvelope envelope = converter.deserialize(
                 buildDebeziumJson().getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -237,7 +236,7 @@ class StreamingGovernanceChainTest extends org.pangrova.server.coordinator.testi
         TagBasedSecurityPolicy policy = new TagBasedSecurityPolicy(
                 new InMemoryColumnMaskStore(), new InMemoryAuditConfigStore());
         return new GovernanceContext(new GovernanceDeps(
-                emitter, handler, policy, scheduler, ruleStore, new org.pangrova.governance.core.classification.ColumnTagService(
+                emitter, handler, policy, scheduler, ruleStore, new org.pangrova.governance.runtime.classification.ColumnTagService(
                         table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()))));
     }
 
@@ -281,9 +280,7 @@ class StreamingGovernanceChainTest extends org.pangrova.server.coordinator.testi
         }
 
         @Override
-        public boolean isAvailable() {
-            return true;
-        }
+        public void close() {}
     }
 
     private static class BlockingLineageBackend implements LineageBackend {
@@ -297,17 +294,15 @@ class StreamingGovernanceChainTest extends org.pangrova.server.coordinator.testi
         }
 
         @Override
-        public boolean isAvailable() {
-            return true;
-        }
+        public void close() {}
     }
 
     private static class InMemoryWatermarkStore implements WatermarkStore {
         private final Map<String, Instant> store = new HashMap<>();
 
         @Override
-        public void save(String tableName, Instant watermark) {
-            store.put(tableName, watermark);
+        public Instant advance(String tableName, Instant watermark) {
+            return store.merge(tableName, watermark, (a, b) -> a.isAfter(b) ? a : b);
         }
 
         @Override

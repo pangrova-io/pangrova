@@ -2,6 +2,8 @@ package org.pangrova.connector.api.materialization;
 
 import org.pangrova.common.api.annotation.Stable;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Fully qualified identity of a table read by a materialization definition.
  *
@@ -30,12 +32,5 @@ public record SourceRef(String connectorId, String catalog, String schema, Strin
      */
     public String canonicalName() {
         return connectorId + ":" + catalog + "." + schema + "." + table;
-    }
-
-    private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-        return value;
     }
 }

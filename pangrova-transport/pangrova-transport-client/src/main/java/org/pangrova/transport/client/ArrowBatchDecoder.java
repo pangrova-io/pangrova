@@ -13,6 +13,8 @@
  */
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportException;
+
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.LogicalType;
 import io.substrait.proto.Type;

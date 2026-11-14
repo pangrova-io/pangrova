@@ -1,8 +1,11 @@
 package org.pangrova.indexing.builtin.sparse.provider;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.sparse.serializer.SparseSerializer;
+
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.indexing.api.data.spatial.SparseEntry;
 import org.pangrova.indexing.api.data.spatial.SparseIndexData;
@@ -26,6 +29,11 @@ public final class SparseStrategyProvider implements IndexStrategyProvider {
 
     private static final String PROP_STRIDE = "sparse.stride";
     private static final int DEFAULT_STRIDE = 1000;
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new SparseSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

@@ -1,5 +1,7 @@
 package org.pangrova.observability.api.tracing;
 
+import org.pangrova.observability.api.enums.StatusCode;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 /**

@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.quality;
 
+import org.pangrova.governance.api.enums.Severity;
+
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

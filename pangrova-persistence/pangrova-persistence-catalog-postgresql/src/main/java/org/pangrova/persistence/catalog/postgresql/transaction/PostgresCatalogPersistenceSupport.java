@@ -1,10 +1,10 @@
 package org.pangrova.persistence.catalog.postgresql.transaction;
 
-import org.pangrova.metadata.codec.json.MetadataJsonMapper;
+import org.pangrova.common.json.CanonicalJsonMapper;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -34,18 +34,20 @@ public abstract class PostgresCatalogPersistenceSupport {
         this.dataSource = java.util.Objects.requireNonNull(dataSource, "dataSource");
     }
 
-    protected final void executeMutation(String operation, String cacheKey, InvalidationType type,
+    protected final boolean executeMutation(String operation, String cacheKey, InvalidationType type,
             JdbcSupport.SqlFunction<Connection, Boolean> mutation) {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
-                if (mutation.apply(conn)) {
+                boolean changed = mutation.apply(conn);
+                if (changed) {
                     executeUpdate(conn, INSERT_INVALIDATION, ps -> {
                         ps.setString(1, cacheKey);
                         ps.setString(2, type.name());
                     });
                 }
                 commitMutation(conn, operation, cacheKey);
+                return changed;
             } catch (SQLException | RuntimeException | Error failure) {
                 rollbackMutation(conn, failure);
                 throw failure;
@@ -113,7 +115,7 @@ public abstract class PostgresCatalogPersistenceSupport {
 
     private <T> String serializeToJson(T value) {
         try {
-            return MetadataJsonMapper.writeValueAsString(value);
+            return CanonicalJsonMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON serialization failed", e);
         }

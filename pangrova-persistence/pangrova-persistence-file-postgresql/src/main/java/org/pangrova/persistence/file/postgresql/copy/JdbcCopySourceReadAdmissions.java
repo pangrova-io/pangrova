@@ -1,25 +1,25 @@
 package org.pangrova.persistence.file.postgresql.copy;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.file.api.copy.CopySourceEndpointPolicy;
 import org.pangrova.persistence.jdbc.api.query.ExecutionTransactionFence;
-import org.pangrova.persistence.file.api.profile.StorageProfileRevision;
-import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.file.api.profile.StorageProfileRevision;
+import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
-import org.pangrova.security.api.error.AccessDeniedException;
-import org.pangrova.security.spi.authorization.StorageProfileAccessControl;
+import org.pangrova.security.api.exception.AccessDeniedException;
+import org.pangrova.security.api.authorization.StorageProfileAccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
 
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -28,7 +28,6 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -93,7 +92,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
         byte[] nonceBytes = new byte[NONCE_BYTES];
         random.nextBytes(nonceBytes);
         String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
-        String nonceHash = sha256(nonceBytes);
+        String nonceHash = DigestUtils.sha256Hex(nonceBytes);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -160,7 +159,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
                 accessControl.checkCanReadStorageProfile(root.identity(), current.profile().name());
                 String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
                 StagedSource proof = root.stagedSource().orElseThrow();
-                insert(connection, sha256(nonceBytes), scope, root.identity(), root.authorizationRevision(),
+                insert(connection, DigestUtils.sha256Hex(nonceBytes), scope, root.identity(), root.authorizationRevision(),
                         parentHash, proof);
                 requireCurrentFences(connection, scope, expectedAnchor);
                 connection.commit();
@@ -215,7 +214,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
     public Redemption redeem(Ticket ticket, Scope presented, ExecutionAnchor expectedAnchor) {
         Objects.requireNonNull(ticket, "ticket");
         Objects.requireNonNull(presented, "presented");
-        String nonceHash = sha256(Base64.getUrlDecoder().decode(ticket.nonce()));
+        String nonceHash = DigestUtils.sha256Hex(Base64.getUrlDecoder().decode(ticket.nonce()));
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -263,7 +262,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
         if (!expectedManagedObjectUri(presented, staged).equals(staged.managedObjectUri())) {
             throw denied();
         }
-        String nonceHash = sha256(Base64.getUrlDecoder().decode(ticket.nonce()));
+        String nonceHash = DigestUtils.sha256Hex(Base64.getUrlDecoder().decode(ticket.nonce()));
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -569,14 +568,6 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
         }
     }
 
-    private static String sha256(byte[] value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
-    }
-
     private static String expectedManagedObjectUri(Scope scope, StagedSource staged) {
         return scope.managedStorageRootUri() + "/tenants/" + staged.tenantScope()
                 + "/sha256/" + staged.contentSha256().substring(0, 2)
@@ -584,7 +575,7 @@ public final class JdbcCopySourceReadAdmissions implements CopySourceReadAdmissi
     }
 
     private static String expectedTenantScope(String tenantId) {
-        return sha256(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8));
+        return DigestUtils.sha256Hex(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8));
     }
 
     private static AccessDeniedException denied() {

@@ -1,8 +1,8 @@
 package org.pangrova.shuffle.local.spool;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 /** Private, versioned batch framing. Never Java object serialization or a SQL-type codec. */
 final class LocalSpoolFormat {
@@ -15,12 +15,8 @@ final class LocalSpoolFormat {
     private LocalSpoolFormat() {}
 
     static byte[] digest(ByteBuffer data) {
-        try {
-            var digest = MessageDigest.getInstance("SHA-256");
-            digest.update(data.duplicate());
-            return digest.digest();
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("JDK SHA-256 unavailable", impossible);
-        }
+        var digest = DigestUtils.sha256();
+        digest.update(data.duplicate());
+        return digest.digest();
     }
 }

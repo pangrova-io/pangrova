@@ -1,6 +1,6 @@
 package org.pangrova.types.mapping;
 
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.RowType;
 import org.pangrova.types.Type;
 import org.pangrova.types.VectorType;

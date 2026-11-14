@@ -13,9 +13,9 @@
  */
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.spi.reranking.RerankingProvider;
+import org.pangrova.ai.api.reranking.RerankingProvider;
 import org.pangrova.types.value.ColumnValue;
-import org.pangrova.function.spi.scalar.BatchableScalarFunction;
+import org.pangrova.function.api.scalar.BatchableScalarFunction;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;

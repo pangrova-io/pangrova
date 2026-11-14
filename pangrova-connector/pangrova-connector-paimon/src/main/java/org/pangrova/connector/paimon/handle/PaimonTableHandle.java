@@ -7,6 +7,8 @@ import java.util.Optional;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.SnapshotRange;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Immutable handle referencing a Paimon table by schema, name, and metadata snapshot.
  *
@@ -62,12 +64,12 @@ public record PaimonTableHandle(
      * Compact constructor with defensive copies and null safety.
      */
     public PaimonTableHandle {
-        requireNonBlank(schemaName, "schemaName");
-        requireNonBlank(tableName, "tableName");
-        requireNonBlank(tableLocation, "tableLocation");
-        requireNonBlank(tableUuid, "tableUuid");
-        requireNonBlank(schemaFingerprint, "schemaFingerprint");
-        requireNonBlank(rowTypeJson, "rowTypeJson");
+        requireText(schemaName, "schemaName");
+        requireText(tableName, "tableName");
+        requireText(tableLocation, "tableLocation");
+        requireText(tableUuid, "tableUuid");
+        requireText(schemaFingerprint, "schemaFingerprint");
+        requireText(rowTypeJson, "rowTypeJson");
         snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
         primaryKeys = primaryKeys == null ? List.of() : List.copyOf(primaryKeys);
         partitionKeys = partitionKeys == null ? List.of() : List.copyOf(partitionKeys);
@@ -81,12 +83,6 @@ public record PaimonTableHandle(
             var presentProperties = new java.util.HashMap<>(properties);
             presentProperties.values().removeIf(value -> value == null);
             properties = Map.copyOf(presentProperties);
-        }
-    }
-
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
         }
     }
 

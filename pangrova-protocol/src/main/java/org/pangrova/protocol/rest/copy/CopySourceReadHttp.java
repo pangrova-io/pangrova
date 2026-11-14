@@ -1,7 +1,7 @@
 package org.pangrova.protocol.rest.copy;
 
 import org.pangrova.common.file.CopySourceStagingDigest;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 
 import java.util.Objects;
 

@@ -3,7 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.coordination.spi.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.lease.LeaseEntry;
 

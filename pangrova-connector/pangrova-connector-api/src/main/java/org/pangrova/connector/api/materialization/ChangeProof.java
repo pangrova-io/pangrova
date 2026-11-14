@@ -1,7 +1,11 @@
 package org.pangrova.connector.api.materialization;
 
+import org.pangrova.connector.api.enums.ChangeSetMode;
+
 import java.time.Instant;
 import org.pangrova.common.api.annotation.Stable;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Proof that a change-set plan was fully evaluated and may be applied.
@@ -57,12 +61,5 @@ public record ChangeProof(
                     "Incomplete change proof for " + source.canonicalName()
                             + " from " + fromToken + " to " + toToken);
         }
-    }
-
-    private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-        return value;
     }
 }

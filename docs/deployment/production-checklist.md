@@ -174,7 +174,7 @@ Coordinator port into a TLS endpoint.
 
 - [ ] Pangrova registered as an application/client in the IdP
 - [ ] Client ID and Client Secret obtained and stored in secrets manager
-- [ ] `security.enabled: true` and `security.auth.type: OAUTH2` (or `LDAP`) set in `coordinator.yml` — startup fails with `CONFIG_MISSING_KEY` if `security.auth.type` is missing
+- [ ] `security.enabled: true` and `security.auth.type: OAUTH2` (or `LDAP`) set in `coordinator.yml` — startup fails with `CONFIG_INVALID_VALUE` if `security.auth.type` is missing
 - [ ] Test token obtained and validated:
   ```bash
   # Obtain a test token (example with client_credentials):

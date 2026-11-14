@@ -6,8 +6,8 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 
 import java.util.Set;
 

@@ -1,7 +1,7 @@
 package org.pangrova.persistence.coordination.memory.membership;
 
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
-import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 
 import java.time.Duration;
@@ -32,7 +32,8 @@ public final class InMemoryCoordinatorRegistry implements CoordinatorRegistry {
     @Override
     public void register(CoordinatorSnapshot coordinator) {
         Objects.requireNonNull(coordinator, "coordinator must not be null");
-        coordinators.put(coordinator.coordinatorId(), coordinator);
+        coordinators.merge(coordinator.coordinatorId(), coordinator, (current, registration) ->
+                registration.withInvalidationProgress(current.lastProcessedInvalidationId()));
     }
 
     @Override
@@ -75,16 +76,7 @@ public final class InMemoryCoordinatorRegistry implements CoordinatorRegistry {
     @Override
     public void updateLastProcessedInvalidationId(String coordinatorId, long lastProcessedId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
-        coordinators.computeIfPresent(coordinatorId, (id, existing) -> new CoordinatorSnapshot(
-                existing.coordinatorId(),
-                existing.host(),
-                existing.httpPort(),
-                existing.role(),
-                existing.epoch(),
-                existing.lastHeartbeatMs(),
-                existing.registeredAtMs(),
-                lastProcessedId
-        ));
+        coordinators.computeIfPresent(coordinatorId, (id, existing) -> existing.withInvalidationProgress(lastProcessedId));
     }
 
     @Override

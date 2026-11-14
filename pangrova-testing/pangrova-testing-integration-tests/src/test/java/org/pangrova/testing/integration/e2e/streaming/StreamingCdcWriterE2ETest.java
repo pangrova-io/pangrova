@@ -1,9 +1,9 @@
 package org.pangrova.testing.integration.e2e.streaming;
 
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.connector.spi.write.DataFileSink;
+import org.pangrova.connector.api.write.DataFileSink;
 import org.pangrova.connector.api.write.WriteContext;
-import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.api.enums.WriteMode;
 import org.pangrova.connector.api.write.WriteRecord;
 import org.pangrova.connector.api.write.WriteResult;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;

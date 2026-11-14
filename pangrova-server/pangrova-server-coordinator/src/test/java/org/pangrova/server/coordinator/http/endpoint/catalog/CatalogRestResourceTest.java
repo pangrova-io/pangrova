@@ -4,7 +4,7 @@ package org.pangrova.server.coordinator.http.endpoint.catalog;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
@@ -171,6 +171,17 @@ class CatalogRestResourceTest {
     // ── Stub MetadataService ──
 
     private static final class StubMetadataService implements MetadataService {
+        @Override
+        public java.util.Optional<CatalogDescriptor> getCatalogDescriptor(String name) {
+            throw new UnsupportedOperationException("Fixture does not provide catalog deployments");
+        }
+
+        @Override
+        public java.util.Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+                String name, String incarnation, long revision) {
+            throw new UnsupportedOperationException("Fixture does not provide deployment history");
+        }
+
 
         @Override
         public List<String> listCatalogs(MetadataSessionContext session) {

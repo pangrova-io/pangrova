@@ -1,5 +1,7 @@
 package org.pangrova.ai.api.embedding;
 
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;

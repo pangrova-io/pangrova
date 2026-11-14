@@ -39,7 +39,7 @@ metadata:
   host: pangrova-postgresql
   port: 5432
   database: pangrova_meta
-  existingSecret: pangrova-metadata-core
+  existingSecret: pangrova-metadata-catalog
 
 # ---- Service Account ----
 serviceAccount:
@@ -91,6 +91,10 @@ coordinator:
 # ---- Worker ----
 worker:
   replicas: 3
+
+  # Worker drains in-flight tasks for up to 30s on SIGTERM, then deregisters and
+  # releases resources. The K8s default of 30s left no room for that tail.
+  terminationGracePeriodSeconds: 120
 
   resources:
     requests:
@@ -173,7 +177,9 @@ config:
         service:
           spill-directory: /opt/pangrova/data
       memory:
-        budget-bytes: 536870912
+        # Matches etc/worker.yml. A 512MB override here silently defeated the
+        # 16GB shipped default for every Helm deployment.
+        budget-bytes: 17179869184
         system-reserved-bytes: 67108864
         node-bytes: 1073741824
       threads:
@@ -192,6 +198,84 @@ config:
     security:
       enabled: false
 
+# ---- External durable shuffle service ----
+# The canonical v2 shuffle server persists batches in PostgreSQL and immutable
+# objects in S3-compatible storage. Enable it, pre-create the four referenced
+# Secrets, then set the Coordinator and Worker shuffle mode to REMOTE with the
+# advertised endpoints (coordinator.shuffle.mode / coordinator.shuffle.endpoints
+# and worker.shuffle.mode in config.coordinator / config.worker).
+shuffle:
+  enabled: false
+  image:
+    repository: pangrova/pangrova
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  # Partition ranges are split evenly across replicas; last replica absorbs the
+  # remainder. Must be >= replicas.
+  partitions: 16
+  port: 9090
+  fsGroup: 999
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+  database:
+    jdbcUrl: "jdbc:postgresql://pangrova-postgresql:5432/pangrova_meta"
+    username: pangrova
+    maximumPoolSize: 16
+    # Must contain keys: username, password
+    existingSecret: pangrova-shuffle-db
+    # Development only; never set these in production values.
+    password: ""
+  objectStorage:
+    bucket: pangrova-shuffle
+    prefix: shuffle
+    region: us-east-1
+    endpoint: ""
+    pathStyleAccess: false
+    replicationEnabled: false
+    # Optional keys: access-key, secret-key. Omit to use IRSA/instance roles.
+    existingSecret: pangrova-shuffle-object-storage
+    accessKey: ""
+    secretKey: ""
+  security:
+    # Must contain keys: tls.crt, tls.key, ca.crt
+    existingSecret: pangrova-shuffle-tls
+    # Must contain key: capability-secret
+    capabilityExistingSecret: pangrova-shuffle-capability
+    capabilityTtlSeconds: 3600
+    coordinatorTlsIdentities:
+      - "pangrova-coordinator.pangrova.svc"
+    certificateChainPem: ""
+    privateKeyPem: ""
+    rootCaPem: ""
+    capabilitySecret: ""
+  limits:
+    maxChunkBytes: 1048576
+    maxBatchBytes: 268435456
+    maxInflightBytes: 805306368
+    maxWriteStreams: 64
+    ioThreads: 32
+    maxQueuedOperations: 1024
+  secrets:
+    # Never enable in production.
+    create: false
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
 # ---- Persistence (Worker data volumes) ----
 persistence:
   enabled: false
@@ -199,6 +283,11 @@ persistence:
   storageClass: ""
   # accessModes:
   #   - ReadWriteOnce
+
+# ---- Voluntary disruption (node drains, cluster upgrades) ----
+disruptionBudget:
+  enabled: true
+  maxUnavailable: 1
 
 # ---- Autoscaling (Worker HPA) ----
 autoscaling:

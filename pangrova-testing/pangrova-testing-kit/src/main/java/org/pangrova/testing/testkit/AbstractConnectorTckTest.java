@@ -1,8 +1,8 @@
 package org.pangrova.testing.testkit;
 
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.TableProcedure;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.TableProcedure;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;

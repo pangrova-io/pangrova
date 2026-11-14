@@ -1,5 +1,7 @@
 package org.pangrova.persistence.security.api.tenant;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.function.Predicate;
@@ -11,6 +13,7 @@ import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
  * Validates deferred-work tenant membership and namespace on the caller's transaction.
  * Implementations must use the caller-owned connection and never commit, roll back or close it.
  */
+@Experimental
 public interface DeferredTenantAuthority {
 
     /** Requires the principal to be an active member of the tenant with an in-scope namespace. */

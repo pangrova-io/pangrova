@@ -1,9 +1,9 @@
 package org.pangrova.persistence.security.memory.tenant;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.enums.TenantRole;
 
 import java.util.List;
 import java.util.Map;
@@ -33,7 +33,7 @@ public class InMemoryTenantStore implements TenantStore {
     @Override
     public synchronized List<Tenant> getAllActiveTenants() {
         return tenants.values().stream()
-                .filter(tenant -> tenant.status() == org.pangrova.security.api.tenant.TenantStatus.ACTIVE).toList();
+                .filter(tenant -> tenant.status() == org.pangrova.security.api.enums.TenantStatus.ACTIVE).toList();
     }
 
     @Override

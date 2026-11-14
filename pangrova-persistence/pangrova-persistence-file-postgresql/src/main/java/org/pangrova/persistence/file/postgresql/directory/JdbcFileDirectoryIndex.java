@@ -10,14 +10,15 @@ import java.util.Objects;
 import java.util.UUID;
 import javax.sql.DataSource;
 
-import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.persistence.file.api.directory.FileDirectoryIndex;
-import org.pangrova.persistence.file.api.directory.FileDirectoryIndex.RefreshToken;
+import org.pangrova.file.api.directory.DirectoryRefresh;
+import org.pangrova.file.api.directory.DirectoryRefresh.RefreshToken;
 import org.pangrova.file.api.directory.FileDirectoryReference;
 import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 import org.pangrova.filesystem.api.object.FileStat;
 
 /**
@@ -64,7 +65,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
     /** Starts a full or directory-scoped refresh and fences an earlier unfinished scan. */
     @Override
     public RefreshToken begin(FileSpace space, String subpath) {
-        String prefix = FileDirectoryIndex.normalizeSubpath(subpath);
+        String prefix = DirectoryRefresh.normalizeSubpath(subpath);
         return transaction(connection -> {
             UUID id;
             try (var query = connection.prepareStatement("SELECT file_space_id, updated_at, created_at, "
@@ -121,7 +122,7 @@ public final class JdbcFileDirectoryIndex implements FileDirectoryIndex {
                     + "etag=excluded.etag,content_type=excluded.content_type,"
                     + "provider_version=excluded.provider_version,md5=excluded.md5")) {
                 for (FileStat file : page.files()) {
-                    FileDirectoryIndex.validatePath(file.path());
+                    DirectoryRefresh.validatePath(file.path());
                     if (!within(file.path(), progress.subpath())) {
                         throw invalid("Directory observation is outside the refresh subpath");
                     }

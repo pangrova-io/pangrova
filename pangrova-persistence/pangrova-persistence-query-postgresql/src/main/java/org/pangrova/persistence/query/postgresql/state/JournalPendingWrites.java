@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.query.api.journal.JournalEventContext;
-import org.pangrova.persistence.query.api.commit.JournalWriteException;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.TaskStateEvent;
 

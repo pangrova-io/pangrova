@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.chaos.fault;
 
+import org.pangrova.testing.integration.exception.FaultInjectionException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;

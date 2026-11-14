@@ -1,11 +1,14 @@
 package org.pangrova.indexing.builtin.bitmap.provider;
 
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.bitmap.serializer.BitmapSerializer;
+
 import org.pangrova.indexing.builtin.normalize.IndexValueNormalizer;
 import org.pangrova.indexing.builtin.bitmap.serializer.ContainerAccumulator;
 import org.pangrova.indexing.builtin.bitmap.serializer.RoaringBitmapCodec;
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.bitmap.BitmapIndexData;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.connector.api.index.predicate.EqualTo;
@@ -34,6 +37,11 @@ public final class BitmapStrategyProvider implements IndexStrategyProvider {
 
     private static final String PROP_MAX_CARDINALITY = "bitmap.max_cardinality";
     private static final int DEFAULT_MAX_CARDINALITY = 10_000;
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new BitmapSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

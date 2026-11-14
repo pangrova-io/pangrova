@@ -1,12 +1,12 @@
 package org.pangrova.server.coordinator.query;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 
 import org.pangrova.coordinator.query.QueryManager;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
-import org.pangrova.query.api.error.QueryRejectedException;
+import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.session.QuerySession;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,15 +36,15 @@ import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
-import org.pangrova.scheduler.api.placement.HealthState;
+import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
-import org.pangrova.planner.core.analysis.SqlCompiler;
-import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -52,7 +52,7 @@ import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.worker.task.RemoteTaskStatusReporter;
+import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 
 /**
  * Single-JVM HTTP routing/JNI component scenarios, not multi-process E2E or independent capacity.

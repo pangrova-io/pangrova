@@ -1,6 +1,6 @@
 package org.pangrova.common.resilience.policy;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.resilience.policy.ErrorClassifier.ErrorCategory;
 import org.junit.jupiter.api.Test;
 

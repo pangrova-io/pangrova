@@ -1,16 +1,16 @@
 package org.pangrova.ai.worker.inference.openai;
 
-import org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider;
-import org.pangrova.ai.provider.openai.inference.OpenAiInferenceConfig;
+import org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider;
+import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
 import org.pangrova.ai.provider.openai.inference.OpenAiResponsesInferenceProvider;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
 
 import java.net.InetSocketAddress;

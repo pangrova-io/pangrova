@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.junit.jupiter.api.BeforeAll;

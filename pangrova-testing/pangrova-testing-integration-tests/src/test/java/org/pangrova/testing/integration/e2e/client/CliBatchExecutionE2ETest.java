@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.client;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import org.pangrova.client.cli.PangrovaCli;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

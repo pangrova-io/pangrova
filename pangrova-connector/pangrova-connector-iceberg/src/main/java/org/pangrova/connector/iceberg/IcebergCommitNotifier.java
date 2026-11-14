@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.api.index.CommitEvent;
-import org.pangrova.connector.api.index.CommitEventType;
-import org.pangrova.connector.spi.index.CommitListener;
+import org.pangrova.connector.api.enums.CommitEventType;
+import org.pangrova.connector.api.index.CommitListener;
 
 import java.time.Instant;
 import java.util.List;

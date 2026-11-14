@@ -13,7 +13,7 @@
 #include <folly/ScopeGuard.h>
 #include "engine/columnar/ColumnarImportLayout.h"
 #include "engine/executor/driver/TaskExecutor.h"
-#include "bridge/command/StatusSerializer.h"
+#include "command/StatusSerializer.h"
 #include "engine/observability/ColumnarReadMetrics.h"
 #include "engine/velox/runner/VeloxTaskRunner.h"
 #include "engine/velox/plan/VeloxPlanConverter.h"

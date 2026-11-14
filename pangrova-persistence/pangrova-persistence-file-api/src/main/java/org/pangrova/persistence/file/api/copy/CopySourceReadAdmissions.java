@@ -2,8 +2,8 @@ package org.pangrova.persistence.file.api.copy;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.common.file.CopySourceStagingDigest;
-import org.pangrova.persistence.file.api.profile.StorageProfileRevision;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.file.api.profile.StorageProfileRevision;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.security.api.identity.UserIdentity;
 
 import java.nio.charset.StandardCharsets;

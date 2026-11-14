@@ -4,14 +4,14 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.provider.openai.embedding.OpenAiEmbeddingConfig;
-import org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider;
-import org.pangrova.ai.provider.openai.inference.OpenAiInferenceConfig;
+import org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider;
+import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
 import org.pangrova.ai.provider.openai.rerank.OpenAiCompatibleRerankingProvider;
 

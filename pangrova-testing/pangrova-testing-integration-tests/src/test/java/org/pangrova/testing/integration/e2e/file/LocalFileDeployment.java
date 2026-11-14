@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.pangrova.ai.worker.blob.TenantCapabilitySigner;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
+import org.pangrova.worker.jni.NativeRuntime;
 
 /** Real persistent filesystem namespace selected by production FILE factory configuration. */
 public final class LocalFileDeployment implements FileStorageDeployment {

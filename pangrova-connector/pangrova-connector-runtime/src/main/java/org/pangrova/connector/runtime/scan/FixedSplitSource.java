@@ -2,7 +2,7 @@ package org.pangrova.connector.runtime.scan;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 
 import java.util.List;
 

@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.materialization;
 
+import org.pangrova.connector.api.enums.ChangeSetMode;
+
 import java.time.Instant;
 import java.util.List;
 import org.pangrova.common.api.annotation.Stable;

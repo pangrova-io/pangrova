@@ -1,7 +1,7 @@
 package org.pangrova.filesystem.api.object;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 
 /** Owns one backend's accessor cache and provider resources, without exposing SDK types. */

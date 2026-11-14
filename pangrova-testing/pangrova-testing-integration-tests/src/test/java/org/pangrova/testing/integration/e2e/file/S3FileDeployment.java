@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.file;
 
 import org.pangrova.ai.worker.blob.TenantCapabilitySigner;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
+import org.pangrova.worker.jni.NativeRuntime;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.MountableFile;
@@ -73,7 +73,7 @@ public final class S3FileDeployment implements FileStorageDeployment {
             installTrustedFixtureCertificate();
             String secret = randomBase64();
             installCredentials(secret);
-            container = new GenericContainer<>("minio/minio:RELEASE.2024-12-18T13-15-44Z")
+            container = org.pangrova.testing.testkit.MinioContainer.create()
                     .withNetwork(SharedTestContainers.NETWORK).withExposedPorts(9000)
                     .withEnv("MINIO_ROOT_USER", ACCESS_KEY).withEnv("MINIO_ROOT_PASSWORD", secret)
                     .withEnv("MINIO_KMS_SECRET_KEY", "pangrova-file-e2e:" + randomBase64())

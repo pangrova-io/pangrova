@@ -2,6 +2,8 @@ package org.pangrova.protocol.rest.task;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Exact fenced identity of the process that owns a query or background job. */
 public record ExecutionOwnerIdentity(
         @JsonProperty("owner_id") String ownerId,
@@ -9,8 +11,8 @@ public record ExecutionOwnerIdentity(
         @JsonProperty("fencing_token") long fencingToken) {
 
     public ExecutionOwnerIdentity {
-        requireNonBlank(ownerId, "ownerId");
-        requireNonBlank(ownerIncarnation, "ownerIncarnation");
+        requireText(ownerId, "ownerId");
+        requireText(ownerIncarnation, "ownerIncarnation");
         if (fencingToken <= 0) {
             throw new IllegalArgumentException("fencingToken must be positive");
         }
@@ -25,11 +27,5 @@ public record ExecutionOwnerIdentity(
         return new ExecutionOwnerIdentity(
                 owner.getOwnerId(), owner.getOwnerIncarnation(),
                 owner.getFencingToken());
-    }
-
-    private static void requireNonBlank(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
     }
 }

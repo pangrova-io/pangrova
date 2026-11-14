@@ -11,17 +11,11 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.pangrova.planner.core.cache.CacheEntryMetadata;
-import org.pangrova.planner.core.cache.CacheHint;
-import org.pangrova.planner.core.cache.CacheKey;
-import org.pangrova.cache.api.CachedResult;
-import org.pangrova.cache.memory.InMemoryL2CacheStore;
-import org.pangrova.planner.core.cache.QueryResultCache;
-import org.pangrova.planner.core.statistics.StatisticsCollector;
-import org.pangrova.planner.core.statistics.PlannerTableStatistics;
-import org.pangrova.planner.core.throttle.QueryThrottlingService;
-import org.pangrova.planner.core.throttle.ThrottlePermit;
-import org.pangrova.planner.core.throttle.ThrottleResult;
+import org.pangrova.planner.statistics.StatisticsCollector;
+import org.pangrova.planner.statistics.PlannerTableStatistics;
+import org.pangrova.planner.throttle.QueryThrottlingService;
+import org.pangrova.planner.throttle.ThrottlePermit;
+import org.pangrova.planner.throttle.ThrottleResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +37,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Acceptance test: validates planner advanced features are active from main().
  *
  * <p>Chain under test: StatisticsCollector → CBO confidence,
- * QueryResultCache → L1/L2 tiered caching,
  * QueryThrottlingService → global/tenant/user throttling,
  * CoordinatorBootstrap → planner chain wired end-to-end.</p>
  *
@@ -143,63 +136,7 @@ class PlannerChainTest extends org.pangrova.server.coordinator.testinfra.SignedO
         assertThat(retrieved.get().columns()).hasSize(2);
     }
 
-    @Test
-    void queryResultCacheHitAndMiss() {
-        InMemoryL2CacheStore l2 = new InMemoryL2CacheStore();
-        QueryResultCache cache = new QueryResultCache(l2);
-        CachedResult result = new CachedResult(
-                new byte[]{1, 2, 3}, Instant.now());
 
-        CacheKey key = CacheKey.of("select * from orders", "t1", "alice", Map.of(), null);
-        CacheEntryMetadata metadata = new CacheEntryMetadata(Set.of("orders"), "alice", "");
-        cache.put(key, result, metadata);
-
-        Optional<CachedResult> hit = cache.get(key, CacheHint.NONE);
-        assertThat(hit).isPresent();
-
-        Optional<CachedResult> noCache = cache.get(key, CacheHint.NO_CACHE);
-        assertThat(noCache).isEmpty();
-
-        cache.invalidateByTable("orders");
-
-        Optional<CachedResult> miss = cache.get(key, CacheHint.NONE);
-        assertThat(miss).isEmpty();
-    }
-
-    @Test
-    void queryResultCacheL2Promotion() {
-        InMemoryL2CacheStore l2 = new InMemoryL2CacheStore();
-        QueryResultCache cache = new QueryResultCache(l2);
-        CachedResult result = new CachedResult(
-                new byte[]{10, 20}, Instant.now());
-
-        CacheKey key = CacheKey.of("select * from promo", "t1", "alice", Map.of(), null);
-        CacheEntryMetadata metadata = new CacheEntryMetadata(Set.of("promo"), "alice", "");
-        cache.put(key, result, metadata);
-
-        // Verify L1 hit
-        Optional<CachedResult> l1Hit = cache.get(key, CacheHint.NONE);
-        assertThat(l1Hit).isPresent();
-
-        // Invalidate with matching table clears L1 entries referencing "promo"
-        cache.invalidateByTable("promo");
-
-        // L1 cleared, L2 also cleared by invalidateByTable — verify miss
-        Optional<CachedResult> afterInvalidate = cache.get(key, CacheHint.NONE);
-        assertThat(afterInvalidate).isEmpty();
-
-        // Re-put to L2 only (simulate external population)
-        l2.put(key.keyString(), result);
-
-        // L1 miss → L2 hit → promoted to L1
-        Optional<CachedResult> promoted = cache.get(key, CacheHint.NONE);
-        assertThat(promoted).isPresent();
-        assertThat(promoted.get().data()).isEqualTo(new byte[]{10, 20});
-
-        // Second get should be L1 hit (promoted)
-        Optional<CachedResult> l1AfterPromo = cache.get(key, CacheHint.NONE);
-        assertThat(l1AfterPromo).isPresent();
-    }
 
     @Test
     void coordinatorBootstrapPlannerChainActive() throws Exception {

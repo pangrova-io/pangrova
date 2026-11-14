@@ -20,7 +20,7 @@ class ExecutionContractIsolationTest {
         URL api = org.pangrova.execution.api.stage.TaskStage.class.getProtectionDomain().getCodeSource().getLocation();
         URL common = Preconditions.class.getProtectionDomain().getCodeSource().getLocation();
         try (var loader = new URLClassLoader(new URL[] {api, common}, ClassLoader.getPlatformClassLoader())) {
-            for (String unavailable : List.of("org.pangrova.execution.core.binding.TaskRequestFactory",
+            for (String unavailable : List.of("org.pangrova.execution.binding.TaskRequestFactory",
                     "org.pangrova.protocol.v2.TaskRequest", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.arrow.vector.VectorSchemaRoot")) {
                 assertThatThrownBy(() -> loader.loadClass(unavailable)).isInstanceOf(ClassNotFoundException.class);

@@ -1,9 +1,9 @@
 package org.pangrova.security.policy.builtin.authorization;
 
-import org.pangrova.security.api.error.AuthorizationDeniedException;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,12 +12,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Objects;
-import org.pangrova.security.spi.mask.ColumnMaskSource;
+import org.pangrova.security.api.mask.ColumnMaskSource;
 import org.pangrova.persistence.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.persistence.security.api.policy.RoleStore;
-import org.pangrova.security.spi.rowfilter.RowFilterSource;
+import org.pangrova.security.api.rowfilter.RowFilterSource;
 
 /**
  * Current authorization from the authoritative role catalog and privilege store.

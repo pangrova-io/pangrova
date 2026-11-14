@@ -2,7 +2,12 @@ package org.pangrova.persistence.streaming.postgresql;
 
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
-import org.junit.jupiter.api.AfterEach;
+import org.flywaydb.core.Flyway;
+import org.pangrova.testing.testkit.postgres.SharedPostgres;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.pangrova.streaming.commit.CommitParticipant;
 import org.pangrova.streaming.api.commit.CdcCommitStateStore;
 import org.pangrova.streaming.commit.TwoPhaseCommitCoordinator;
-import org.pangrova.streaming.api.commit.CdcCommitState;
+import org.pangrova.streaming.api.enums.CdcCommitState;
 import org.pangrova.streaming.api.commit.CdcBatchCheckpoint;
 import org.pangrova.streaming.api.commit.SourceId;
 import org.pangrova.streaming.api.commit.PrepareToken;
@@ -36,49 +41,26 @@ import org.pangrova.streaming.api.commit.OffsetRange;
  *
  * <p>Uses PostgreSQL TestContainer for unit testing.</p>
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class TwoPhaseCommitCoordinatorTest extends org.pangrova.testing.testkit.ContainerTestBase {
 
-    private javax.sql.DataSource dataSource;
+    private static javax.sql.DataSource dataSource;
     private JdbcCdcCommitStateStore stateStore;
     private TwoPhaseCommitCoordinator coordinator;
 
-    @BeforeEach
-    void setUp() throws Exception {
-        dataSource = CdcCheckpointDatabase.isolatedDataSource();
-
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS cdc_commit_state");
-        }
-
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS cdc_commit_state (
-                    id              VARCHAR(255)  NOT NULL PRIMARY KEY,
-                    source_id       VARCHAR(255)  NOT NULL,
-                    offset_ranges   JSONB         NOT NULL,
-                    state           VARCHAR(32)   NOT NULL,
-                    deadline        TIMESTAMP     NOT NULL,
-                    created_at      TIMESTAMP     NOT NULL,
-                    batch_key       VARCHAR(255)
-                )""");
-            stmt.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_cdc_commit_state_dedup
-                    ON cdc_commit_state (source_id, batch_key)
-                    WHERE state <> 'ROLLED_BACK'""");
-        }
-
-        stateStore = new JdbcCdcCommitStateStore(dataSource);
-        coordinator = new TwoPhaseCommitCoordinator(stateStore, Duration.ofMinutes(5));
+    @BeforeAll
+    static void initializeDatabase() throws Exception {
+        dataSource = MigratedPostgres.create();
     }
 
-    @AfterEach
-    void tearDown() throws Exception {
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DELETE FROM cdc_commit_state");
+    @BeforeEach
+    void setUp() throws Exception {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("TRUNCATE cdc_commit_state");
         }
+        stateStore = new JdbcCdcCommitStateStore(dataSource);
+        coordinator = new TwoPhaseCommitCoordinator(stateStore, Duration.ofMinutes(5));
     }
 
     @Test
@@ -700,18 +682,29 @@ class TwoPhaseCommitCoordinatorTest extends org.pangrova.testing.testkit.Contain
 
     @Test
     void legacyHistoryCannotInventTopicsOrSilentlyDisappearFromRecovery() throws Exception {
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-            // V73 preserves pre-upgrade rows with unknown complete checkpoints.
-            statement.execute("ALTER TABLE cdc_commit_state ALTER COLUMN offset_ranges DROP NOT NULL");
+        var legacySource = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(legacySource).locations("classpath:db/migration")
+                .target("72").load().migrate();
+        try (var connection = legacySource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("""
-                    INSERT INTO cdc_commit_state (id,source_id,state,deadline,created_at,batch_key)
-                    VALUES ('old','legacy-stream','COMMITTED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'old')
+                    INSERT INTO cdc_commit_state
+                        (id,source_id,partition_num,start_offset,end_offset,state,deadline,created_at,batch_key)
+                    VALUES ('old','legacy-stream',0,1,4,'COMMITTED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'old'),
+                           ('rolled','rolled-stream',0,1,4,'ROLLED_BACK',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'rolled')
                     """);
-            var failure = assertThrows(IllegalStateException.class,
-                    () -> coordinator.findLastCommittedOffsets(new SourceId("legacy-stream")));
-            assertTrue(failure.getMessage().contains("reconcile"));
-            statement.executeUpdate("UPDATE cdc_commit_state SET state='ROLLED_BACK' WHERE id='old'");
-            assertTrue(coordinator.findLastCommittedOffsets(new SourceId("legacy-stream")).isEmpty());
+        }
+        Flyway.configure().dataSource(legacySource).locations("classpath:db/migration").load().migrate();
+        var recovered = new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(legacySource));
+        var failure = assertThrows(IllegalStateException.class,
+                () -> recovered.findLastCommittedOffsets(new SourceId("legacy-stream")));
+        assertTrue(failure.getMessage().contains("reconcile"));
+        assertTrue(recovered.findLastCommittedOffsets(new SourceId("rolled-stream")).isEmpty());
+        try (var connection = legacySource.getConnection(); var statement = connection.createStatement()) {
+            var rejected = assertThrows(java.sql.SQLException.class, () -> statement.executeUpdate("""
+                    INSERT INTO cdc_commit_state (id,source_id,state,deadline,created_at)
+                    VALUES ('invalid','new-stream','PREPARED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                    """));
+            assertEquals("23514", rejected.getSQLState());
         }
     }
 

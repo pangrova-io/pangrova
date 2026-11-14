@@ -2,7 +2,7 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.DeletionMode;
+import org.pangrova.connector.api.enums.DeletionMode;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.Schema;

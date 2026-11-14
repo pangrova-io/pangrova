@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
@@ -72,6 +72,17 @@ class ZooKeeperCoordinatorRegistryTest {
 
     private static CoordinatorSnapshot snap(String id, String role, long heartbeatMs) {
         return new CoordinatorSnapshot(id, "host-" + id, 8080, role, 1L, heartbeatMs, heartbeatMs, 0L);
+    }
+
+    @Test
+    void reregisterUpdatesMembershipAndRetainsTheLastReportedWatermark() {
+        long now = System.currentTimeMillis();
+        registry.register(new CoordinatorSnapshot("self", "old-host", 8080, "STANDBY", 1, now, now));
+        registry.updateLastProcessedInvalidationId("self", 181);
+        registry.register(new CoordinatorSnapshot("self", "new-host", 9090, "STANDBY", 2, now + 1, now + 1));
+        var current = registry.getCoordinator("self").orElseThrow();
+        assertThat(current.host()).isEqualTo("new-host");
+        assertThat(current.lastProcessedInvalidationId()).isEqualTo(181);
     }
 
     @Test

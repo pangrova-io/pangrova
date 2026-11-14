@@ -5,28 +5,15 @@ import org.pangrova.common.api.annotation.Experimental;
 import java.time.Instant;
 import java.util.Optional;
 
-/**
- * SPI for persisting watermark positions.
- *
- * <p>Implementations provide durable storage for CDC watermark state,
- * ensuring watermark positions survive coordinator restarts.</p>
- */
+/** Per-source monotonic event-time position. Retention across restarts depends on the selected backend. */
 @Experimental
 public interface WatermarkStore {
-
     /**
-     * Persists the watermark position for the given source.
-     *
-     * @param tableName the source table identifier
-     * @param watermark the watermark timestamp to persist
+     * Atomically stores the later of the proposed and recorded positions and returns the stored position.
+     * Concurrent or repeated updates cannot regress a source. Failed writes propagate to the caller.
      */
-    void save(String tableName, Instant watermark);
+    Instant advance(String tableName, Instant watermark);
 
-    /**
-     * Loads the last persisted watermark position for the given source.
-     *
-     * @param tableName the source table identifier
-     * @return the watermark if previously saved, empty otherwise
-     */
+    /** Returns the recorded position, or empty when this source has no position. */
     Optional<Instant> load(String tableName);
 }

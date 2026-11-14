@@ -3,8 +3,8 @@ package org.pangrova.testing.testkit.file;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.file.api.error.FileStorageException;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.file.api.exception.FileStorageException;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 
 import java.util.Map;

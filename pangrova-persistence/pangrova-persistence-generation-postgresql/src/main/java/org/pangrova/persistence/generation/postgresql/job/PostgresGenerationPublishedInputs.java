@@ -8,10 +8,10 @@ import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate.PublicationRead;
-import org.pangrova.generation.api.output.GenerationOutputScope;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

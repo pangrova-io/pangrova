@@ -6,6 +6,10 @@
     <name>pangrova-security-codec</name>
     <properties><module.name>org.pangrova.security.codec</module.name></properties>
     <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>

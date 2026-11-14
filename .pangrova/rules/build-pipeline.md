@@ -106,8 +106,15 @@ python3 pangrova-worker-native/bin/run-native-tests.py \
   --build-dir pangrova-worker-native/build-asan
 ```
 
+On macOS arm64 with Folly v2026.01.05.00 and LLVM 17.0.6, build the pinned
+Folly archive using the [qualified Darwin dependency](../../docs/development/darwin-function-sanitizer.md#build-the-integer-corrected-dependency).
+Pass its install prefix as `PANGROVA_ASAN_FOLLY_PREFIX` to the Native configure.
+
 The macOS gate qualifies address checks with
 `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`; it does not qualify LeakSanitizer.
+The Native test runner retains each invocation's per-test output and rejects a
+recoverable sanitizer diagnostic even when CTest exits successfully. Record
+the actual diagnostic, scope and toolchain when investigating a dependency.
 Dependency runtime probes use the same platform scope. Linux ASan/LSan is a
 separate release gate and must not be inferred from the macOS result.
 
@@ -115,7 +122,7 @@ separate release gate and must not be inferred from the macOS result.
 
 ```bash
 ./pangrova-worker-native/bin/package-native-lib.sh
-# Target: pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/{os}/{arch}/libpangrova_native.*
+# Target: pangrova-worker/src/main/resources/META-INF/native/{os}/{arch}/libpangrova_native.*
 ```
 
 Before testing with `-Pnative-runtime`, install the platform classifier from these
@@ -127,7 +134,7 @@ The loader must keep rejecting conflicting native payloads on the classpath.
 For macOS AArch64, from the repository root:
 
 ```bash
-pangrova_native_resource_dir="$PWD/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/osx/aarch64"
+pangrova_native_resource_dir="$PWD/pangrova-worker/src/main/resources/META-INF/native/osx/aarch64"
 mvn -q -pl pangrova-native-bundle \
   -Dnative.platform.classifier=osx-aarch_64 \
   -Dnative.resource.os=osx -Dnative.resource.arch=aarch64 \

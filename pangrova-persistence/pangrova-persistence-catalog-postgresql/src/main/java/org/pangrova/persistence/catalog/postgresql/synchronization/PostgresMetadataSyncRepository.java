@@ -1,11 +1,11 @@
 package org.pangrova.persistence.catalog.postgresql.synchronization;
 
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion;
-import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncConflictException;
-import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncOutcomeUnknownException;
+import org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException;
+import org.pangrova.persistence.catalog.api.exception.MetadataSyncOutcomeUnknownException;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository;
-import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncPendingException;
+import org.pangrova.persistence.catalog.api.exception.MetadataSyncPendingException;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 import javax.sql.DataSource;

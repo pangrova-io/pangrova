@@ -14,10 +14,10 @@
 package org.pangrova.ai.worker.function;
 
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.api.invocation.InferenceResult;
 import org.pangrova.types.value.ColumnValue;
-import org.pangrova.function.spi.scalar.ScalarFunction;
+import org.pangrova.function.api.scalar.ScalarFunction;
 import org.pangrova.protocol.function.GovernedBindingProjection;
 import org.pangrova.protocol.function.GovernedScalarValue;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
@@ -179,6 +179,15 @@ class AiFunctionFactoryTest {
     }
 
     @Test
+    void closedOwnerCannotCreateAnotherProductionRuntime() throws Exception {
+        var discovered = new AiFunctionFactory();
+        assertTrue(discovered.getScalarFunctions(Map.of()).isEmpty());
+        discovered.close();
+        discovered.close();
+        assertThrows(IllegalStateException.class, () -> discovered.getScalarFunctions(Map.of()));
+    }
+
+    @Test
     void incompleteFileStorageConfigFailsClosed() {
         var discovered = new AiFunctionFactory();
 
@@ -247,7 +256,7 @@ class AiFunctionFactoryTest {
             List<ColumnValue> changed = new java.util.ArrayList<>(first);
             changed.set(2 + FunctionBindingDeclarations.governedLayout("AI_MODEL")
                     .ordinal("provider_items"), new ColumnValue.StringValue("1"));
-            return ((org.pangrova.function.spi.scalar.BatchableScalarFunction) function)
+            return ((org.pangrova.function.api.scalar.BatchableScalarFunction) function)
                     .invokeBatch(List.of(first, changed));
         }));
     }

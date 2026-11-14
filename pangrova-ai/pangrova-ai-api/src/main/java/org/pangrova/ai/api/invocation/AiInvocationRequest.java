@@ -13,10 +13,10 @@
  */
 package org.pangrova.ai.api.invocation;
 
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Instant;
@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Immutable request crossing the engine/provider AI invocation boundary. */
 @Experimental
@@ -138,12 +140,6 @@ public record AiInvocationRequest(
             throw new AiInvocationException(
                     AiInvocationException.Category.TIMEOUT, false,
                     "AI invocation deadline has expired for request " + requestId);
-        }
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
         }
     }
 }

@@ -12,8 +12,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include "bridge/command/FlightServerRegistry.h"
-#include "bridge/command/NativeCommandDispatcher.h"
+#include "command/flight/FlightServerRegistry.h"
+#include "command/NativeCommandDispatcher.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "engine/result/FlightResultServer.h"
 

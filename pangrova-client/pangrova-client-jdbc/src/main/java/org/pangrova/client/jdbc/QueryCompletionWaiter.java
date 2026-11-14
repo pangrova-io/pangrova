@@ -1,10 +1,10 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.transport.client.http.PangrovaRestClient;
+import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.transport.api.result.ResultEndpoint;
-import org.pangrova.client.protocol.SubmitQueryResponse;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 
 import java.sql.SQLException;
 import java.sql.SQLTimeoutException;

@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "TestMemoryHelper.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "indexing/retrieval/RetrievalFusion.h"
 #include "engine/velox/plan/RetrievalMergeOperator.h"
 #include "engine/velox/connector/PangrovaTableHandle.h"

@@ -10,15 +10,19 @@ import java.util.stream.Stream;
 
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore;
-import org.pangrova.persistence.workflow.api.security.TableControlPolicyEvaluator;
-import org.pangrova.persistence.workflow.api.security.TableControlPolicyEvaluator.PolicyObserver;
+import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
+import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentGrantReader;
+import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentPolicyReader;
+import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
+import org.pangrova.security.authorization.deferred.DeferredAuthorization;
+import org.pangrova.security.authorization.deferred.DeferredPolicyReader;
 import org.pangrova.persistence.workflow.api.security.TableControlPolicyProjections;
 import org.pangrova.persistence.workflow.api.security.TableControlWriteAuthority;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.PolicySnapshot;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
-import org.pangrova.table.api.policybinding.GovernanceBinding;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
+import org.pangrova.table.api.policy.GovernanceBinding;
 
 /**
  * Cross-domain same-connection write authority: binds Metadata-owned policy projections with
@@ -26,23 +30,19 @@ import org.pangrova.table.api.policybinding.GovernanceBinding;
  */
 public final class PostgresTableControlWriteAuthority implements TableControlWriteAuthority {
 
-    private final TableControlPolicyEvaluator evaluator;
+    private final DeferredAuthorization authorization = new DeferredAuthorization(
+            AuthorizationTransactionGate::lockPublication, new JdbcCurrentDirectRoleReader(), new JdbcCurrentGrantReader());
+    private final DeferredPolicyReader policies = new DeferredPolicyReader(new JdbcCurrentPolicyReader());
     private final TableControlPolicyProjections projections;
 
-    public PostgresTableControlWriteAuthority(TableControlPolicyEvaluator evaluator,
-            TableControlPolicyProjections projections) {
-        this.evaluator = Objects.requireNonNull(evaluator, "evaluator");
+    public PostgresTableControlWriteAuthority(TableControlPolicyProjections projections) {
         this.projections = Objects.requireNonNull(projections, "projections");
     }
 
     @Override
     public void requireCurrent(Connection connection, String principal,
             DeferredAuthorizationScope scope) throws SQLException {
-        evaluator.requireCurrent(connection, principal, scope, adapter());
-    }
-
-    private PolicyObserver adapter() {
-        return this::observe;
+        authorization.requireCurrent(connection, principal, scope, this::observe);
     }
 
     private PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
@@ -53,7 +53,7 @@ public final class PostgresTableControlWriteAuthority implements TableControlWri
                 : JdbcTableControlGovernanceBindingStore.list(connection, tableId);
         var boundRows = tableId == null ? List.<org.pangrova.security.api.rowfilter.RowPolicy>of()
                 : JdbcRowPolicyStore.list(connection, tableId);
-        return evaluator.observePolicies(connection, principal, roles, permission,
+        return policies.observe(connection, principal, roles, permission,
                 rows -> projections.projectRows(tableId, table.catalog(), table.schema(), table.table(),
                         Stream.concat(rows.stream(), boundRows.stream()).toList()),
                 (column, masks) -> projections.projectColumns(tableId, table.catalog(), table.schema(),

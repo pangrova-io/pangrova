@@ -1,7 +1,7 @@
 package org.pangrova.connector.lance;
 
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 
 import java.security.MessageDigest;
 import java.util.Objects;

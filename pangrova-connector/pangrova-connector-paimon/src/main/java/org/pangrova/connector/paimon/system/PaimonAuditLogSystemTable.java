@@ -10,7 +10,7 @@ import java.util.HexFormat;
 import java.util.List;
 
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.paimon.data.DataGetters;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;

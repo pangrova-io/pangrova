@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.write.IcebergPageSinkProvider;
 import org.pangrova.connector.api.session.ConnectorSession;

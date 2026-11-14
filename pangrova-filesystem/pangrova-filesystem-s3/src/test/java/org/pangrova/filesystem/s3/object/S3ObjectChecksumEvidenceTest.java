@@ -2,7 +2,7 @@ package org.pangrova.filesystem.s3.object;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.filesystem.api.object.ObjectLocation;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;

@@ -1,5 +1,6 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.nativewire.exception.ShuffleChannelAdmissionException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -14,17 +15,6 @@ import org.pangrova.common.concurrent.ThreadSafe;
 @ThreadSafe
 public final class RemoteShuffleChannelAdmission {
     private static final int MAX_TCP_PORT = 65_535;
-
-    public record Limits(int maxOwnedChannels, int maxOwnedChannelsPerEndpoint) {
-        public Limits {
-            if (maxOwnedChannels <= 0
-                    || maxOwnedChannelsPerEndpoint <= 0
-                    || maxOwnedChannelsPerEndpoint > maxOwnedChannels) {
-                throw new IllegalArgumentException(
-                        "Channel limits require 0 < per-endpoint <= total");
-            }
-        }
-    }
 
     /** An exact TLS-bound address, not a DNS/IP equivalence or an OS socket identity. */
     public record Endpoint(String host, int port, String tlsIdentity) {
@@ -51,7 +41,7 @@ public final class RemoteShuffleChannelAdmission {
         }
     }
 
-    private final Limits limits;
+    private final org.pangrova.shuffle.api.worker.ShuffleChannelLimits limits;
 
     @GuardedBy("this")
     private final Set<Reservation> reservations = new HashSet<>();
@@ -62,7 +52,7 @@ public final class RemoteShuffleChannelAdmission {
     @GuardedBy("this")
     private boolean sealed;
 
-    public RemoteShuffleChannelAdmission(Limits limits) {
+    public RemoteShuffleChannelAdmission(org.pangrova.shuffle.api.worker.ShuffleChannelLimits limits) {
         this.limits = java.util.Objects.requireNonNull(limits, "limits");
     }
 
@@ -71,11 +61,11 @@ public final class RemoteShuffleChannelAdmission {
         EndpointCredits previous = counts.get(endpoint);
         int endpointCount = previous == null ? 0 : previous.count;
         if (reservations.size() >= limits.maxOwnedChannels()) {
-            throw new RemoteShuffleAdmissionException(
+            throw new ShuffleChannelAdmissionException(
                     "TOTAL", reservations.size(), limits.maxOwnedChannels());
         }
         if (endpointCount >= limits.maxOwnedChannelsPerEndpoint()) {
-            throw new RemoteShuffleAdmissionException(
+            throw new ShuffleChannelAdmissionException(
                     "ENDPOINT", endpointCount, limits.maxOwnedChannelsPerEndpoint());
         }
         var reservation = new Reservation(this, endpoint);

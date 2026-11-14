@@ -30,6 +30,7 @@ final class AiProviderTestConfigurations {
                 Map.entry("models.media.provider-model", "provider-deployment-pinned"),
                 Map.entry("models.media.version", "sha256:deployment"),
                 Map.entry("models.media.endpoint", endpoint),
+                Map.entry("models.media.authorization.egress-hosts", "api.example"),
                 Map.entry("models.media.secret-reference", "env://MEDIA_KEY"),
                 Map.entry("models.media.capabilities", "multimodal"),
                 Map.entry("models.media.modalities", modalities),

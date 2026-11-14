@@ -1,6 +1,6 @@
 package org.pangrova.security.policy.builtin.authorization;
 
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 
 /** File-specific privilege scope matching for the built-in authorization provider. */

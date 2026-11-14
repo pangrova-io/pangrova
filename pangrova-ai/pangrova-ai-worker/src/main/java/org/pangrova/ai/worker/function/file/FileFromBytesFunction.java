@@ -17,7 +17,7 @@ import org.pangrova.types.value.ColumnValue;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
-import org.pangrova.function.spi.scalar.ScalarFunction;
+import org.pangrova.function.api.scalar.ScalarFunction;
 import org.pangrova.ai.worker.blob.GovernedBlobStore;
 
 import java.time.LocalDateTime;
@@ -70,9 +70,7 @@ public final class FileFromBytesFunction implements ScalarFunction {
         String mimeType = decodeMimeType(mimeArg);
         BlobReference reference = blobStore.persist(content, mimeType);
 
-        return FileStructHelper.createFileStruct(
-                reference.uri(), reference.mimeType(), reference.size(),
-                reference.checksum(), LocalDateTime.now());
+        return FileStruct.encode(reference, LocalDateTime.now());
     }
 
     private static byte[] decodeContent(ColumnValue content) {

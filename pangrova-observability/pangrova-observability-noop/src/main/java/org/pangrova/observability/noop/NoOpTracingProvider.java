@@ -4,10 +4,10 @@ import org.pangrova.common.api.annotation.Internal;
 
 import org.pangrova.observability.api.tracing.Context;
 import org.pangrova.observability.api.tracing.Span;
-import org.pangrova.observability.api.tracing.SpanKind;
+import org.pangrova.observability.api.enums.SpanKind;
 import org.pangrova.observability.api.tracing.TextMapGetter;
 import org.pangrova.observability.api.tracing.TextMapSetter;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 
 /**
  * No-operation {@link TracingProvider} implementation.

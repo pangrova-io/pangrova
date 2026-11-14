@@ -13,11 +13,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.common.lifecycle.BootstrapFailedException;
+import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.nativebridge.jni.NativeCommandBuilder;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
+import org.pangrova.worker.jni.NativeCommandBuilder;
+import org.pangrova.worker.jni.NativeRuntime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

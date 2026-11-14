@@ -1,9 +1,11 @@
 # Local spool storage
 
 `pangrova-shuffle-local` provides the `local-fs` implementation of `SpoolStoreFactory`.
-It is a synchronous, single-owner file storage primitive. The production Coordinator
-and Worker launchers do not currently assemble it as an exchange Provider. It does
-not provide exchange receipts, network serving, distributed recovery or Celeborn integration.
+It provides synchronous, single-owner segments for Java callers. SQL uses the
+Worker's Native disk store when both roles select `LOCAL`. Each query pins its
+exchanges to one Worker incarnation. Producers share the Flight server's disk and
+file budgets, and consumers read signed partitions after the upstream stage finishes.
+Worker exit ends availability. Durable publication and Celeborn remain unsupported.
 
 ## Configuration
 

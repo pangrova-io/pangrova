@@ -150,7 +150,7 @@ serves them through Native Flight. Arrow can share buffers at specific boundarie
 IPC encoding, format conversion,
 compression, Java callbacks, and network transfer still require separate accounting;
 the whole query pipeline is not established as zero-copy.
-See [JNI Bridge](jni-bridge.md), [Native Execution](native-execution.md), and
+See [JNI Bridge](jni-runtime.md), [Native Execution](native-execution.md), and
 [Query Execution](query-execution.md).
 
 ## 5. Component Ownership
@@ -160,7 +160,7 @@ See [JNI Bridge](jni-bridge.md), [Native Execution](native-execution.md), and
 Contracts live in the artifact that owns the domain boundary: connectors in
 `pangrova-connector-api`, observability in `pangrova-observability-api`, indexing
 in `pangrova-indexing-api`, AI in `pangrova-ai-api`, and admission/placement in
-`pangrova-scheduler-api`'s `.api` and `.spi` packages. Production callers and bootstrap wiring
+`pangrova-scheduler-api`'s `.api` packages. Production callers and bootstrap wiring
 determine which providers are active. Not every contract is discovered through
 `ServiceLoader`; `.pangrova/modules.yaml` records the registered providers.
 
@@ -172,7 +172,8 @@ its strategy, JDBC and planner implementation separation remains in progress.
 Placement ranking runs through `WorkerSelectionStrategy` using an immutable,
 current candidate set. Scheduler Core enforces health, memory, resource-pool,
 capability and locality constraints; it rejects an identity outside that set.
-Server creates `LoadBalancedStrategyFactory` from `pangrova-scheduler-strategies-builtin`.
+Server discovers `WorkerSelectionStrategyFactory` implementations via Java services and selects
+the configured `coordinator.query.placement-provider` (default `load-balanced`).
 The builtin implementation ranks resource headroom and rotates equal scores.
 It does not claim tenant CPU fairness. Specifying a pool with no eligible workers
 returns no placement; it cannot fall back to a different pool.
@@ -197,7 +198,7 @@ statement dispatch, planner dependencies, metadata, leases, and service provider
 Protocol also owns Java Substrait version stamping/validation and its structured
 error, independent of Planner conversion exceptions. Frozen Generation templates,
 publication-dependent partition binding and exact partition resource budgets belong
-to `pangrova-generation-core`. Replay consumes the authority and publication evidence
+to `pangrova-generation-workflow`. Replay consumes the authority and publication evidence
 already obtained by the persistence transaction; moving these computations does not
 create another transaction, authority or connection owner. Native retrieval preparation
 and plan conversion share an explicit version validator: both require version metadata,
@@ -228,8 +229,8 @@ durable metadata publication is configured.
 
 ### 5.4 Planner
 
-`pangrova-planner/pangrova-planner-core` owns Calcite integration, transformations,
-and plan conversion. Its sibling `pangrova-planner-api` owns SDK-free intent,
+`pangrova-planner` owns Calcite integration, transformations,
+and plan conversion. Its sibling `pangrova-planner` owns SDK-free intent,
 statistics, result-origin and adaptive notification contracts. Compiler and live
 fragment implementations still reside in Core; this split does not yet complete
 the full compiler API boundary.
@@ -248,11 +249,12 @@ This is a selected ownership map, not a fixed count of Maven reactor modules.
 
 | Area | Source roots |
 |---|---|
-| Shared contracts/configuration | `pangrova-protocol`, `pangrova-common`, `pangrova-config`, `pangrova-types`, `pangrova-batch/pangrova-batch-api`, `pangrova-transport/pangrova-transport-api` |
-| Parsing and planning | `pangrova-parser/pangrova-parser-api`, `pangrova-parser/pangrova-parser-core`, `pangrova-planner` |
-| Coordination and metadata | `pangrova-coordination/pangrova-coordination-core`, `pangrova-metadata/pangrova-metadata-core` |
-| Query and durable generation contracts/runtime | `pangrova-query/pangrova-query-api`, `pangrova-query/pangrova-query-core`; `pangrova-generation` contains API, codec and core leaves; immutable generation values belong to Generation API, wire layouts/encoding to Codec, and storage contracts and PostgreSQL implementations live in `pangrova-persistence/pangrova-persistence-generation-api` / `pangrova-persistence-generation-postgresql`, with borrowed-connection ports in `pangrova-persistence/pangrova-persistence-jdbc-api` (authority/publication adapters still reside in Metadata) |
-| Execution | `pangrova-worker/pangrova-worker-core`, `pangrova-worker-native`, `pangrova-shuffle`, `pangrova-transport` |
+| Shared JSON encoding | `pangrova-common` (`org.pangrova.common.json` owns Jackson configuration and canonical persistence encoding) |
+| Shared contracts/configuration | `pangrova-protocol`, `pangrova-common`, `pangrova-config`, `pangrova-types`, `pangrova-batch` |
+| Parsing and planning | `pangrova-parser`, `pangrova-planner` |
+| Coordination and metadata | `pangrova-coordination/pangrova-coordination-control`, `pangrova-metadata/pangrova-metadata-catalog` |
+| Query and durable generation contracts/runtime | `pangrova-query`, `pangrova-query`; `pangrova-generation` contains API, codec and core leaves; immutable generation values belong to Generation API, wire layouts/encoding to Codec, and storage contracts and PostgreSQL implementations live in `pangrova-persistence/pangrova-persistence-generation-api` / `pangrova-persistence-generation-postgresql`, with borrowed-connection ports in `pangrova-persistence/pangrova-persistence-jdbc-api` (authority/publication adapters still reside in Metadata) |
+| Execution | `pangrova-worker`, `pangrova-worker-native`, `pangrova-shuffle`, `pangrova-transport` |
 | Connectors | `pangrova-connector/pangrova-connector-api` (API/SPI), `pangrova-connector/pangrova-connector-runtime`, `pangrova-connector-{iceberg,paimon,lance}` providers |
 | Platform services | Security API/Core, PostgreSQL/Tenant-memory persistence, and authentication/policy/secret/KMS Providers, `pangrova-operations`, `pangrova-governance`, `pangrova-streaming`, `pangrova-observability`, `pangrova-indexing` |
 | Server, clients and packaging | `pangrova-server/pangrova-server-coordinator`, `pangrova-client`, `pangrova-standalone`, `pangrova-native-bundle` |
@@ -264,11 +266,10 @@ This is a selected ownership map, not a fixed count of Maven reactor modules.
 Use module POMs for actual compile/runtime dependencies. Architecture policy defines
 permitted access across modules and the Java/Native boundary; a dependency graph
 sketch is not a substitute for those rules. Coordinator production dependencies
-exclude Worker Core and Native Bridge; fixtures remain test-scoped. Shared result
-addresses belong to Transport API, result serving adapters to Transport Flight,
-and client networking to Transport Client. Query dispatch outcomes are currently
-internal Query Core values; their Protocol shuffle descriptor still requires the
-planned generic Shuffle boundary. Scheduler-facing Query/Task adapters borrow
+exclude the Worker JAR and JNI. The shared result address lives in Common.
+Client HTTP owns REST requests and authentication. Transport Client fetches and
+decodes result batches, and Transport Flight serves results. Execution Core
+retains task dispatch outcomes with their exact Protocol shuffle descriptors. Scheduler-facing Query/Task adapters borrow
 the authoritative registries and are explicitly composed by Server Coordinator.
 
 ## 8. Development Policy
@@ -299,13 +300,13 @@ and a C++20 compiler. A Native library or matching packaged Native bundle is req
 for Worker execution; a Java-only build is not a substitute.
 
 
-Query 契约现由 `pangrova-query-api` 的 `.api/.spi` 拥有；QueryState 与 StageState
+Query 契约现由 `pangrova-query` 的 `.api` 拥有；QueryState 与 StageState
 均为唯一领域状态值。Query Core 拥有已迁移的 stage 状态转换和 audit/profile 服务，
 后端选择归 Server Coordinator。Query API 不依赖中央 SPI、Protocol、Planner 或后端。
 其余 Coordinator 中的查询编排迁移尚未完成；实际支持与后续事项以
 [Roadmap](../getting-started/roadmap.md) 和当前测试为准。
 
-Connector 契约现由 `pangrova-connector-api` 的 `.api/.spi` 独占，依赖仅为 Common、
+Connector 契约现由 `pangrova-connector-api` 的 `.api` 独占，依赖仅为 Common、
 Types、Batch API。写提交 journal/outbox 及其他 Query 存储端口归
 `pangrova-persistence-query-api`；同连接 execution fence 归
 `pangrova-persistence-jdbc-api`。File、Table、Query、Coordination、Security、Generation 的已有

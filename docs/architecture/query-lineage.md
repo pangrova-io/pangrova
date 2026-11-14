@@ -5,6 +5,10 @@ description: "Logical query START and terminal publication with ownership bounda
 
 # Query lineage publication
 
+Governance API defines `ColumnDerivationKind`. Query audit records and OpenLineage publishers
+use the same DIRECT, TRANSFORM and AGGREGATE values. Connector plugins share the host's
+lineage contract when they load a query lineage fact.
+
 A logical query emits START from `QueryManager.submitQuery`, after its local state and
 connector authority have been registered, within the submitting trace scope, before
 admission or execution can terminate it. `QueryTerminalCleanup` owns the single logical
@@ -12,9 +16,9 @@ terminal effect: FINISHED maps to COMPLETE, FAILED to FAIL, CANCELLED to ABORT. 
 write commit finishes before the task completion owner can signal logical success.
 Task completion and query dispatch do not publish another logical query event.
 
-`pangrova-query-api` owns immutable query/split events (`org.pangrova.query.api.event`)
-and `org.pangrova.query.spi.event.QueryEventListener`. Query Core owns
-`org.pangrova.query.core.event.QueryEventDispatcher`; it invokes observers synchronously
+`pangrova-query` owns immutable query/split events (`org.pangrova.query.api.event`)
+and `org.pangrova.query.api.event.QueryEventListener`. Query Core owns
+`org.pangrova.query.event.QueryEventDispatcher`; it invokes observers synchronously
 on the publisher thread and isolates `java.lang.RuntimeException` from each listener. It does
 not provide durable delivery, replay, deduplication, or exactly-once guarantees.
 
@@ -45,13 +49,13 @@ records the empty source set for this leaf; lineage classification marks its
 outputs as transformed. Table functions with inputs still require a known
 column mapping and cannot be treated as source-free.
 
-Governance bootstrap selects `pangrova.lineage.backend` explicitly (`LOG` by default to
-preserve the existing log deployment; `HTTP` for an external backend). HTTP requires
-`OPENLINEAGE_URL`; `OPENLINEAGE_API_KEY` is optional bearer authentication. The namespace
-is `pangrova.lineage.namespace` (default `pangrova`). An invalid or absent configured
-HTTP endpoint fails initialization and never changes to log delivery. The programmatic
-HTTP constructor accepts the existing OpenLineage SDK HTTP configuration object. No YAML loading is
-claimed by the environment constructor.
+Coordinator bootstrap discovers `LineageBackendFactory` providers and selects the ID
+from `pangrova.lineage.backend`. LOG is the default and uses the process-local queue.
+HTTP requires the PostgreSQL outbox and `OPENLINEAGE_URL`. It optionally authenticates
+with `OPENLINEAGE_API_KEY` and reads `pangrova.lineage.namespace` (default `pangrova`).
+Duplicate IDs, incompatible factory versions and missing dependencies fail initialization.
+The provider owns SDK configuration, and the Server transfers its fresh transport to
+the emitter. External providers declare either transient or durable-outbox delivery.
 
 The emitter consumer owns its HTTP transport. Actual queued sends and shutdown drain
 finish before the consumer closes the transport. A logical terminal event, a timeout,
@@ -75,7 +79,7 @@ Prepare a native Java 17 image before running these tests:
 ```bash
 python3.12 .pangrova/scripts/prepare-lineage-test-image.py \
   --runtime-image eclipse-temurin:17-jre
-mvn -pl :pangrova-metadata-core -am \
+mvn -pl :pangrova-metadata-catalog -am \
   -Dtest=QueryLineageHttpRecoveryIntegrationTest \
   -Dsurefire.failIfNoSpecifiedTests=false \
   -Dpangrova.test.marquez.image=<image-tag-from-preparation> test

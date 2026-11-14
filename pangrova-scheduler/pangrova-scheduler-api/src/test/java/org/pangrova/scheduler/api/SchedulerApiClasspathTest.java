@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SchedulerApiClasspathTest {
     @Test
     void contractsLinkWithoutRuntimeOrCentralSpi() throws Exception {
-        URL types = org.pangrova.scheduler.api.placement.HealthState.class.getProtectionDomain().getCodeSource().getLocation();
+        URL types = org.pangrova.scheduler.api.enums.HealthState.class.getProtectionDomain().getCodeSource().getLocation();
         URL common = Experimental.class.getProtectionDomain().getCodeSource().getLocation();
         Path classes = Path.of(types.toURI());
         try (var loader = new URLClassLoader(new URL[]{types, common}, ClassLoader.getPlatformClassLoader());
@@ -44,11 +44,11 @@ class SchedulerApiClasspathTest {
                     field.getGenericType();
                 }
             }
-            for (String excluded : List.of("org.pangrova.scheduler.core.placement.TaskScheduler",
+            for (String excluded : List.of("org.pangrova.scheduler.placement.TaskScheduler",
                     "org.pangrova.scheduler.builtin.placement.LoadBalancedStrategyFactory",
                     "org.pangrova.protocol.v2.CapabilityInventory", "com.google.protobuf.Message",
-                    "org.pangrova.connector.spi.plugin.Connector",
-                    "org.pangrova.worker.nativebridge.jni.NativeFunctionBridge",
+                    "org.pangrova.connector.api.plugin.Connector",
+                    "org.pangrova.worker.function.NativeFunctionCallbacks",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap", "org.apache.arrow.vector.VectorSchemaRoot", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.calcite.rel.type.RelDataType", "org.postgresql.Driver")) {
                 assertThatThrownBy(() -> loader.loadClass(excluded)).isInstanceOf(ClassNotFoundException.class);

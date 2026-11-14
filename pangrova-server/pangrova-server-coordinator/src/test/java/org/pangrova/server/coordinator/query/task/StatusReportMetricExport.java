@@ -9,7 +9,7 @@ import io.opentelemetry.sdk.metrics.export.MetricExporter;
 import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import org.pangrova.observability.sdk.metrics.otel.OtelMetricsProvider;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 
 import java.time.Duration;
 import java.util.Collection;

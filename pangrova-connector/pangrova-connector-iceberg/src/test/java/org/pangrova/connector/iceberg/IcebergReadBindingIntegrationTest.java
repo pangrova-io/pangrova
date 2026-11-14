@@ -215,15 +215,15 @@ class IcebergReadBindingIntegrationTest {
         try (var catalog = catalog()) {
             var metadata = new IcebergMetadata(catalog, "bound");
             var tags = metadata.getMetadataListing(SESSION,
-                    org.pangrova.connector.api.metadata.MetadataTableKind.TAGS).orElseThrow();
+                    org.pangrova.connector.api.enums.MetadataTableKind.TAGS).orElseThrow();
             var branches = metadata.getMetadataListing(SESSION,
-                    org.pangrova.connector.api.metadata.MetadataTableKind.BRANCHES).orElseThrow();
-            assertThat(tags.source()).isEqualTo(org.pangrova.connector.api.metadata.MetadataTableKind.REFS);
+                    org.pangrova.connector.api.enums.MetadataTableKind.BRANCHES).orElseThrow();
+            assertThat(tags.source()).isEqualTo(org.pangrova.connector.api.enums.MetadataTableKind.REFS);
             assertThat(tags.equalityFilters()).containsExactlyEntriesOf(Map.of("type", "TAG"));
-            assertThat(branches.source()).isEqualTo(org.pangrova.connector.api.metadata.MetadataTableKind.REFS);
+            assertThat(branches.source()).isEqualTo(org.pangrova.connector.api.enums.MetadataTableKind.REFS);
             assertThat(branches.equalityFilters()).containsExactlyEntriesOf(Map.of("type", "BRANCH"));
             assertThat(metadata.getMetadataListing(SESSION,
-                    org.pangrova.connector.api.metadata.MetadataTableKind.OPTIONS)).isEmpty();
+                    org.pangrova.connector.api.enums.MetadataTableKind.OPTIONS)).isEmpty();
         }
     }
 

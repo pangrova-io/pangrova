@@ -91,7 +91,8 @@ class PartitionDemuxer {
   explicit PartitionDemuxer(
       SerializedShuffleQueue* source,
       std::shared_ptr<ShuffleBufferStore> store =
-          std::make_shared<ShuffleBufferStore>());
+          std::make_shared<ShuffleBufferStore>(),
+      bool disk_only = false);
   ~PartitionDemuxer();
 
   // Non-copyable, non-movable.
@@ -175,6 +176,8 @@ class PartitionDemuxer {
 
   SerializedShuffleQueue* source_;
   const std::shared_ptr<ShuffleBufferStore> store_;
+  // Spill segments belong to this handle so its own reader can release them.
+  ShuffleBufferStore::HandleScope spill_scope_;
   std::shared_ptr<ShuffleBufferStore::Reservation> handle_reservation_;
   std::atomic<bool> running_{false};
   CancellationSource cancellation_;
@@ -231,7 +234,7 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
                       int32_t num_partitions,
                       uint64_t plan_epoch,
                       uint32_t attempt_id,
-                      uint64_t fencing_token);
+                      uint64_t fencing_token, bool disk_only = false);
 
   // Unregister an executor handle. Quiesces/stops its demuxer.
   // Clean producers linger; un-clean producers are force-dropped.

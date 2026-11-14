@@ -3,7 +3,7 @@ package org.pangrova.scheduler.builtin.placement;
 import org.pangrova.scheduler.api.placement.WorkerSelectionCandidate;
 import org.pangrova.scheduler.api.placement.WorkerSelectionRequest;
 import org.pangrova.scheduler.builtin.scoring.WorkerPerformanceScorer;
-import org.pangrova.scheduler.spi.placement.WorkerSelectionStrategy;
+import org.pangrova.scheduler.api.placement.WorkerSelectionStrategy;
 
 import java.util.ArrayList;
 import java.util.Comparator;

@@ -1,7 +1,7 @@
 package org.pangrova.persistence.file.postgresql.claim;
 
 import org.pangrova.common.annotation.DeadCode;
-import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
 import org.pangrova.persistence.file.api.claim.CopyFileClaimStore;
 

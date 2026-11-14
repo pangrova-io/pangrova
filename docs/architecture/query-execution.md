@@ -21,7 +21,7 @@ no-op providers, absent task registration, and qualification limits.
 
 ## Query session ownership
 
-`pangrova-query-api` owns `api.session.QuerySession`. The immutable session borrows
+`pangrova-query` owns `api.session.QuerySession`. The immutable session borrows
 its exact issued `ConnectorQueryAuthority`; copying a session never creates,
 replaces or closes that lifetime. Tenant/property enrichment retains source
 snapshots, incremental ranges and the trusted internal-materialization marker.
@@ -90,7 +90,7 @@ Note: the diagram above shows only the result path. Data from the Compute Worker
 
 ### Live split enumeration and published reads
 
-`QuerySplit` in `pangrova-query-api` owns the immutable encoded split plus cache-affinity
+`QuerySplit` in `pangrova-query` owns the immutable encoded split plus cache-affinity
 locations. Enumeration and dispatch consume this value without depending on a nested
 class of the catalog fetch implementation. It owns no connector session or buffer lease and does not grant publication or data-access
 authority. Execution still validates the encoded connector payload.
@@ -197,76 +197,20 @@ Serialization timing and location:
 
 ### 2.2 Schema Hierarchy
 
-`MetadataSchemaBuilder` is the implemented coordinator entry point: it builds a
-Calcite `CalciteSchema` from `CatalogRegistry`. The class sketch below is conceptual
-and should not be copied as the current source API.
+Planner's `MetadataSchemaBuilder` constructs a Calcite root for the authenticated
+compilation. `MetadataService` enumerates visible catalogs. `CatalogReadAccess`
+supplies each borrowed catalog handle and the table ownership checks. Server wires
+the live registry. The planner package has no compile dependency on Coordinator
+or the Metadata implementation.
 
-
-```java
-/**
- * Conceptual schema hierarchy for all catalogs in the Calcite schema tree.
- *
- * Uses MetadataService (metadata.md §3.1) as the unified entry point
- * for all metadata operations. Does NOT access CatalogRegistry or CatalogHandle
- * directly — MetadataService encapsulates access control, caching, and routing.
- */
-public class MetadataSchemaBuilder {
-    private final MetadataService metadataService;
-    private final SessionContext sessionContext;
-
-    @Override
-    protected Map<String, Schema> getSubSchemaMap() {
-        // Lazy-load Catalog Schemas via MetadataService.listCatalogs()
-        // MetadataService handles tenant filtering and access control internally
-        for (String catalogName : metadataService.listCatalogs(sessionContext)) {
-            subSchemas.computeIfAbsent(catalogName,
-                name -> new PangrovaCatalogSchema(metadataService, sessionContext, name));
-        }
-        return subSchemas;
-    }
-}
-
-/**
- * PangrovaCatalogSchema — Represents a single Catalog in the Calcite schema tree.
- *
- * Delegates schema/table listing to MetadataService rather than holding a
- * CatalogHandle reference directly. This ensures all metadata access goes
- * through the unified entry point with access control and caching.
- * See metadata.md §3.1 for MetadataService API.
- */
-public class PangrovaCatalogSchema extends AbstractSchema {
-    private final MetadataService metadataService;
-    private final SessionContext sessionContext;
-    private final String catalogName;
-
-    @Override
-    protected Map<String, Schema> getSubSchemaMap() {
-        Map<String, Schema> schemas = new LinkedHashMap<>();
-        for (String schemaName : metadataService.listSchemas(sessionContext, catalogName)) {
-            schemas.put(schemaName,
-                new PangrovaSchemaSchema(metadataService, sessionContext, catalogName, schemaName));
-        }
-        return schemas;
-    }
-}
-
-/**
- * Pangrova Table - Calcite Table implementation, bridges to Connector SPI.
- */
-public class PangrovaTable extends AbstractTable implements ScannableTable {
-    @Override
-    public RelDataType getRowType(RelDataTypeFactory typeFactory) {
-        ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(session, tableHandle);
-        // Convert to Calcite RelDataType
-    }
-
-    @Override
-    public Statistic getStatistic() {
-        TableStatistics stats = metadata.getTableStatistics(session, tableHandle);
-        return new PangrovaStatistic(stats);
-    }
-}
-```
+`LazyMetadataSchema` uses a direct connector lookup for a named table and lists
+tables for explicit enumeration. Catalog failures propagate as metadata errors.
+Each compilation owns one `PlanningReadBindings` instance shared by Calcite table
+declarations and cost statistics. It verifies table identity, the selected snapshot
+or incremental range, and retained query authority. A reused binding is checked
+against the current table owner. `CatalogStatisticsProvider` can use statistics
+from ANALYZE while the stored version matches. Worker receives the bound execution
+plan; Calcite schemas remain in the coordinator process.
 
 ### 2.3 Custom Optimization Rules
 
@@ -566,8 +510,8 @@ and canonical replay comparison remain unchanged.
 
 Generation values live in `pangrova-generation-api`; they do not own serialization. Canonical graph,
 exchange and source-split codecs live in `pangrova-generation-codec`. Submission construction,
-publication routing and generic immutable read binding live in `pangrova-generation-core` under
-`org.pangrova.generation.core`. The generic reader has no Query retrieval intent or ANN eligibility
+publication routing and generic immutable read binding live in `pangrova-generation-workflow` under
+`org.pangrova.generation`. The generic reader has no Query retrieval intent or ANN eligibility
 branch; query-side retrieval planning selects the capability and handles permitted exact-plan
 fallback. Task-local materialization still verifies the exact source object coverage and checksum.
 
@@ -3209,7 +3153,7 @@ Catalog/Connector resources.
 `TableProcedureCall` owns CALL table-literal interpretation shared by
 admission and execution. Clustering, Index DDL, Branch DDL, and Server streaming
 assembly no longer depend on the former query-statement TableResolver (retired) class.
-Metadata's helpers currently ship in the existing `pangrova-metadata-core` artifact;
+Metadata's helpers currently ship in the existing `pangrova-metadata-catalog` artifact;
 its full API/Core/Provider split remains pending. Query session adaptation still
 lives in Coordinator until the session contract closure is extracted.
 

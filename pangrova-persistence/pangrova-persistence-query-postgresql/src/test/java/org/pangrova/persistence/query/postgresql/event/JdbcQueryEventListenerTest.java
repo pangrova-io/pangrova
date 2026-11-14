@@ -6,10 +6,10 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.event.QueryCompletedEvent;
 import org.pangrova.query.api.event.QueryCreatedEvent;
-import org.pangrova.query.spi.event.QueryEventListener;
+import org.pangrova.query.api.event.QueryEventListener;
 import org.pangrova.query.api.event.QueryStatistics;
 import org.pangrova.query.api.event.SplitCompletedEvent;
 import org.junit.jupiter.api.AfterAll;
@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.query.core.event.QueryEventDispatcher;
+import org.pangrova.query.event.QueryEventDispatcher;
 
 /**
  * Validates the durable EventListener contract (#181): a completed query fired through

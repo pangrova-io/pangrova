@@ -1,7 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
-import org.pangrova.scheduler.core.placement.ExactModelResolver;
+import org.pangrova.scheduler.placement.ExactModelResolver;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.task.AlterEmbeddingModelTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.CreateEmbeddingModelTask;

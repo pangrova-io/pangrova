@@ -2,14 +2,14 @@ package org.pangrova.persistence.ai.postgresql.feature;
 
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.persistence.jdbc.api.generation.GenerationJobSubmissionTransactions;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.ai.control.api.CatalogExportStorageException;
+import org.pangrova.ai.control.exception.CatalogExportStorageException;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

@@ -7,7 +7,7 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 JAVA_ROOTS=(
-    "${ROOT_DIR}/pangrova-worker/pangrova-worker-native-bridge/src/main/java"
+    "${ROOT_DIR}/pangrova-worker/src/main/java"
     "${ROOT_DIR}/pangrova-ai/pangrova-ai-worker/src/main/java"
 )
 for java_root in "${JAVA_ROOTS[@]}"; do

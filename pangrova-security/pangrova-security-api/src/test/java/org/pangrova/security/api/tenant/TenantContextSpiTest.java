@@ -3,8 +3,8 @@ package org.pangrova.security.api.tenant;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 
 import org.junit.jupiter.api.Test;
 

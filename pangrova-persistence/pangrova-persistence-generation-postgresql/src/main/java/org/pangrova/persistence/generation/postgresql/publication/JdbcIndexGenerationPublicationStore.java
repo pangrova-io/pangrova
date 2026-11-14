@@ -5,16 +5,16 @@ import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransacti
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs;
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.output.GenerationOutput;
-import org.pangrova.generation.api.output.GenerationOutputScope;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
 import org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
+import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
@@ -138,13 +139,13 @@ public final class JdbcIndexGenerationPublicationStore
                 result.getString("tenant_id"), jobId, result.getString("artifact_id"),
                 result.getString("artifact_type"), result.getString("staging_generation"),
                 result.getString("source_id"), result.getString("source_snapshot"),
-                org.pangrova.generation.api.execution.GenerationExecutionKind.valueOf(
+                org.pangrova.generation.api.enums.GenerationExecutionKind.valueOf(
                         result.getString("execution_kind")),
                 new org.pangrova.generation.api.dependency.GenerationDependencySet(
                         inputs.loadJobDependencies(
                                 connection, result.getString("tenant_id"), jobId),
                         result.getString("dependency_set_sha256")),
-                org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.valueOf(
+                org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.valueOf(
                         result.getString("empty_partition_policy")),
                 result.getString("format_id"),
                 result.getInt("format_major"), result.getInt("format_minor"),
@@ -434,12 +435,6 @@ public final class JdbcIndexGenerationPublicationStore
         }
     }
 
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
-    }
-
     private enum PublicationMode { INITIAL_BUILD, ONLINE_REPLACEMENT }
 
     private record DescriptorFence(
@@ -456,9 +451,9 @@ public final class JdbcIndexGenerationPublicationStore
             String generation,
             String sourceId,
             String sourceSnapshot,
-            org.pangrova.generation.api.execution.GenerationExecutionKind executionKind,
+            org.pangrova.generation.api.enums.GenerationExecutionKind executionKind,
             org.pangrova.generation.api.dependency.GenerationDependencySet dependencySet,
-            org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy emptyPartitionPolicy,
+            org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy emptyPartitionPolicy,
             String formatId,
             int formatMajor,
             int formatMinor,

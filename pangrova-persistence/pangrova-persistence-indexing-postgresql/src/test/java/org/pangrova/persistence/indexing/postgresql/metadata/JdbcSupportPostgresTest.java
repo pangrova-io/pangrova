@@ -1,10 +1,12 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import javax.sql.DataSource;
@@ -115,13 +117,13 @@ class JdbcSupportPostgresTest {
         Instant next = Instant.parse("2026-09-19T04:06:06.987654321Z");
         Instant nextExpected = Instant.parse("2026-09-19T04:06:06.987654Z");
 
-        new JdbcIndexMetadataStore(utc, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent).registerIndex(new IndexDescriptor(
+        new JdbcIndexMetadataStore(utc, TableWriteAuthorityFixture.create()::requireCurrent).registerIndex(new IndexDescriptor(
                 "cross-zone-index", "cross_zone", "lake", "sales", "orders",
                 List.of("embedding"), IndexType.VECTOR, Map.of(),
                 IndexState.BUILDING, null, 0, "snapshot-1", null,
                 initial, initial, "tenant-a"));
 
-        JdbcIndexMetadataStore losAngelesStore = new JdbcIndexMetadataStore(losAngeles, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        JdbcIndexMetadataStore losAngelesStore = new JdbcIndexMetadataStore(losAngeles, TableWriteAuthorityFixture.create()::requireCurrent);
         IndexDescriptor observed = losAngelesStore.findIndex("cross-zone-index").orElseThrow();
         assertThat(observed.createdAt()).isEqualTo(initialExpected);
         assertThat(observed.updatedAt()).isEqualTo(initialExpected);
@@ -129,7 +131,7 @@ class JdbcSupportPostgresTest {
                 observed.indexId(), IndexState.READY.name(), next, observed.updatedAt()))
                 .isTrue();
 
-        assertThat(new JdbcIndexMetadataStore(utc, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent).findIndex(observed.indexId()).orElseThrow())
+        assertThat(new JdbcIndexMetadataStore(utc, TableWriteAuthorityFixture.create()::requireCurrent).findIndex(observed.indexId()).orElseThrow())
                 .satisfies(updated -> {
                     assertThat(updated.state()).isEqualTo(IndexState.READY);
                     assertThat(updated.updatedAt()).isEqualTo(nextExpected);

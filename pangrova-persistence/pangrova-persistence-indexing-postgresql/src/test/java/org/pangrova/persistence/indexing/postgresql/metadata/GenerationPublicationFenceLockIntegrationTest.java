@@ -1,10 +1,12 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import org.pangrova.generation.core.submission.GenerationStageGraphFactory;
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 
-import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
+import org.pangrova.generation.submission.GenerationStageGraphFactory;
 
-import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
+import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
+
+import org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException;
 import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedValuePublicationStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -16,7 +18,7 @@ import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDesc
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.page.GenerationSplit;
@@ -24,22 +26,22 @@ import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
-import org.pangrova.generation.api.output.GenerationOutputScope;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
 
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
@@ -213,7 +215,7 @@ class GenerationPublicationFenceLockIntegrationTest {
             JdbcIndexMetadataStore indexes = null;
             GenerationPublicationStore publisher;
             if (kind == Kind.INDEX) {
-                indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+                indexes = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
                 indexes.registerIndex(new IndexDescriptor("artifact", "vector_index", "lake", "raw", "items",
                         List.of("embedding"), IndexType.VECTOR, Map.of("algorithm", "DISK_ANN"), IndexState.BUILDING,
                         null, 0, "snapshot", null, start, start, "tenant"));

@@ -1,7 +1,7 @@
 package org.pangrova.indexing.builtin.test.engine;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.connector.api.index.predicate.LikePattern;
 import org.pangrova.indexing.api.data.BloomFilterIndexData;

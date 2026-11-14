@@ -101,6 +101,8 @@ message IndexEvalHintDetail {
   int32 generation = 4;
   string data_file_path = 5;
   IndexPredicate predicate = 6;
+  uint64 index_size_bytes = 7;
+  bytes index_sha256 = 8; // 32 bytes, over the entire published index artifact.
 }
 
 message ColumnStatistics {
@@ -238,6 +240,9 @@ message FileSplitDetail {
     PaimonSplitDetail paimon = 11;
     SystemTableSplitDetail system_table = 12;
   }
+  // Index into TaskRequest.schema_descriptors. Mutually exclusive with an
+  // inline schema_evolution; generation persistence keeps the inline form.
+  optional uint32 schema_descriptor_ref = 8;
 }
 
 message ScanPartitionDetail {

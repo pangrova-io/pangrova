@@ -10,7 +10,7 @@ import java.util.Optional;
  *
  * <p>Implementations must be thread-safe. The default in-memory implementation
  * lives in {@code pangrova-streaming}; the JDBC implementation lives in
- * {@code pangrova-metadata-core}.</p>
+ * {@code pangrova-metadata-catalog}.</p>
  */
 @Experimental
 public interface CdcRegistrationStore {

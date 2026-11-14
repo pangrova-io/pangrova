@@ -1,10 +1,12 @@
 package org.pangrova.scheduler.api.placement;
 
+import org.pangrova.scheduler.api.enums.HealthState;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;
 
-import org.pangrova.common.value.MemoryPressure;
+import org.pangrova.common.enums.MemoryPressure;
 
 /**
  * Read-only view of a worker used by placement and selection.

@@ -1,8 +1,11 @@
 package org.pangrova.persistence.generation.api.generated;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 import java.util.Optional;
 
 /** Metadata sidecar for generated-column artifact identity and snapshot selection. */
+@Experimental
 public interface GeneratedValueBuildMetadataStore {
 
     /** Registers or refreshes a generated-column identity before durable build submission. */

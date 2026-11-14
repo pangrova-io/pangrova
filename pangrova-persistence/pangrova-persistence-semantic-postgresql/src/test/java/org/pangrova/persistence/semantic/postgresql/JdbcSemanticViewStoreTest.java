@@ -20,12 +20,12 @@ package org.pangrova.persistence.semantic.postgresql;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.semantic.api.view.SemanticStoreException;
-import org.pangrova.semantic.api.view.SemanticViewId;
-import org.pangrova.semantic.api.view.SemanticViewPublication;
-import org.pangrova.semantic.api.view.SemanticViewStore;
-import org.pangrova.semantic.api.view.SemanticViewValidationState;
-import org.pangrova.semantic.api.view.SemanticViewVersion;
+import org.pangrova.semantic.api.exception.SemanticStoreException;
+import org.pangrova.semantic.api.identity.SemanticViewId;
+import org.pangrova.semantic.api.publication.SemanticViewPublication;
+import org.pangrova.semantic.api.version.SemanticViewStore;
+import org.pangrova.semantic.api.enums.SemanticViewValidationState;
+import org.pangrova.semantic.api.version.SemanticViewVersion;
 
 import java.time.Instant;
 import java.util.List;

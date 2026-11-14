@@ -2,7 +2,7 @@ package org.pangrova.persistence.generation.postgresql.job;
 
 import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries;
 
-import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
+import org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException;
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;

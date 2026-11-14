@@ -1,13 +1,13 @@
 package org.pangrova.persistence.file.postgresql.claim;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
 import org.pangrova.persistence.file.api.claim.CopyFileClaimStore;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 
 import java.sql.SQLException;
 import java.util.List;

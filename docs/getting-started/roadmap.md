@@ -36,10 +36,10 @@ The following are known incomplete areas; they are not end-to-end support claims
   parser, Calcite, and connector boundaries.
 - **Table and file plane:** Native DIRECTORY execution, billion-entry directory
   publication, 100 GiB transfer, PB-scale data, and Linux production qualification.
-- **Modularization:** P0–P12 boundaries are enforced by `.pangrova/modules.yaml` and
-  the [domain-modularization ADR](../architecture/domain-modularization-adr.md);
-  remaining work is tracked as issues, not as historical execution plans in the
-  repository.
+- **Modularization:** The module manifest records current package ownership and
+  dependency rules. Role-specific distributions, provider isolation, Shuffle
+  publication and release qualification have separate exit criteria in the
+  [domain-modularization ADR](../architecture/domain-modularization-adr.md).
 
 See the [AI architecture](../architecture/ai-native.md) for target designs.
 Propose priorities or concrete work through

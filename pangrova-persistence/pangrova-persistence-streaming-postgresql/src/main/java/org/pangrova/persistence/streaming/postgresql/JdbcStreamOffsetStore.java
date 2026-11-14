@@ -3,7 +3,7 @@ package org.pangrova.persistence.streaming.postgresql;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
-import org.pangrova.streaming.api.checkpoint.StreamingStoreException;
+import org.pangrova.streaming.api.exception.StreamingStoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

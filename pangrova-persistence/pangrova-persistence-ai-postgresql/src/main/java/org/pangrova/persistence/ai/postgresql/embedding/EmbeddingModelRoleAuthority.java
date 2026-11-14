@@ -1,8 +1,8 @@
 package org.pangrova.persistence.ai.postgresql.embedding;
 
-import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
-import org.pangrova.ai.control.embedding.ModelNotFoundException;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.ai.control.exception.EmbeddingRegistryAccessDeniedException;
+import org.pangrova.ai.control.exception.ModelNotFoundException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 import org.pangrova.security.api.identity.UserIdentity;
 

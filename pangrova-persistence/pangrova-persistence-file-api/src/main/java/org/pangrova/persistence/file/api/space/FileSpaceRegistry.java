@@ -5,11 +5,10 @@ import org.pangrova.file.api.space.FileSpaceDefinition;
 import org.pangrova.file.api.space.FileSpaceMutation;
 
 import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
+import org.pangrova.file.api.space.FileSpaceLookup;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 
 /**
  * Durable registry for Volumes and Stages.
@@ -22,7 +21,7 @@ import org.pangrova.file.api.space.FileSpaceType;
  * <p>Thread-safe: implementations must support concurrent reads and writes.</p>
  */
 @Experimental
-public interface FileSpaceRegistry {
+public interface FileSpaceRegistry extends FileSpaceLookup {
 
     /**
      * Creates a space. When {@code ifNotExists} is true and the name is already
@@ -41,11 +40,7 @@ public interface FileSpaceRegistry {
     FileSpace rename(FileSpaceType type, String catalog, String schema, String name,
             String newName);
 
-    /** Looks up an immutable namespace identity; dropped IDs never resolve to replacements. */
-    Optional<FileSpace> find(UUID id);
 
-    /** Looks up one space. */
-    Optional<FileSpace> find(FileSpaceType type, String catalog, String schema, String name);
 
     /**
      * Lists spaces of one type. A null {@code catalog} lists every space of that

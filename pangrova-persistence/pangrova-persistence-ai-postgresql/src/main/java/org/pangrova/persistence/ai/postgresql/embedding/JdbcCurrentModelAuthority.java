@@ -1,6 +1,6 @@
 package org.pangrova.persistence.ai.postgresql.embedding;
 
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;

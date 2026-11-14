@@ -103,6 +103,9 @@ message TaskRequest {
   // Worker -> JNI only. The original network splits and grant stay unchanged
   // so cancellation and creation recovery retain their exact admission seal.
   WorkerLocalCopyInput worker_local_copy_input = 20;
+  // Table-level schema descriptors referenced by FileSplitDetail.schema_descriptor_ref.
+  // Only the exact descriptor objects are deduplicated; split identity stays inline.
+  repeated SchemaEvolution schema_descriptors = 21;
 }
 
 message WorkerLocalCopyInput {

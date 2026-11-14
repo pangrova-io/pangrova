@@ -1,16 +1,16 @@
 package org.pangrova.testing.integration.e2e.security;
 
-import org.pangrova.security.api.error.AuthorizationDeniedException;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.security.policy.StaticGrantStore;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore;
 import org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;

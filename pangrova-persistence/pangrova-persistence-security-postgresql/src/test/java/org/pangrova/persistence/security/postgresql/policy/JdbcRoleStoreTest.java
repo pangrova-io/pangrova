@@ -107,7 +107,7 @@ class JdbcRoleStoreTest extends ContainerTestBase {
         store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
         var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("analyst",
-                org.pangrova.security.api.policy.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
+                org.pangrova.security.api.enums.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
         assertThat(store.dropRole("analyst")).isTrue();
         store.createRole(Role.of("analyst"));
         store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
@@ -120,7 +120,7 @@ class JdbcRoleStoreTest extends ContainerTestBase {
         store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
         var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("analyst",
-                org.pangrova.security.api.policy.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
+                org.pangrova.security.api.enums.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("DELETE FROM pangrova_roles WHERE role_name='analyst'");
         }
@@ -293,7 +293,7 @@ class JdbcRoleStoreTest extends ContainerTestBase {
         store.mapGroupToRole(GroupRoleMapping.of("ldap-analysts", "analyst"));
         var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("analyst",
-                org.pangrova.security.api.policy.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
+                org.pangrova.security.api.enums.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
         var originalRole = store.findRole("analyst");
         var originalGrants = grants.listGrantsForRole("analyst");
         var originalUsers = store.listUserRoles();

@@ -4,10 +4,10 @@ import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
-import org.pangrova.ai.spi.embedding.EmbeddingProvider;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
+import org.pangrova.ai.api.embedding.EmbeddingProvider;
 import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 
 import java.util.List;

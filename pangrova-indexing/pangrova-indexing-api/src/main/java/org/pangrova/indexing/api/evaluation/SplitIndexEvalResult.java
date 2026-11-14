@@ -2,7 +2,7 @@ package org.pangrova.indexing.api.evaluation;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 
 import java.util.List;
 import java.util.Map;

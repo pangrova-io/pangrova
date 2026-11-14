@@ -1,5 +1,8 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
+import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -16,14 +19,14 @@ import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.core.descriptor.IndexDescriptorTransitions;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JdbcIndexGenerationPublicationTest {
+    private static final String OWNER = "mapping-test-owner";
 
     private JdbcIndexMetadataStore store;
     private DataSource dataSource;
@@ -31,7 +34,7 @@ class JdbcIndexGenerationPublicationTest {
     @BeforeEach
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("index_publication");
-        store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
     }
 
     @Test
@@ -46,7 +49,8 @@ class JdbcIndexGenerationPublicationTest {
                 .isEqualTo(IndexState.BUILDING);
         assertThat(store.findActiveIndexGeneration(descriptor.indexId())).isEmpty();
 
-        store.registerIndexFile(mapping(0));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("idx", 0, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, mapping(0));
         var first = store.publishIndexGeneration(request(descriptor, 1));
         assertThat(first.generation()).isZero();
         assertThat(store.findIndex(descriptor.indexId()).orElseThrow().state())
@@ -63,16 +67,17 @@ class JdbcIndexGenerationPublicationTest {
                     assertThat(active.state()).isEqualTo(IndexState.READY);
                     assertThat(active.generation()).isZero();
                 });
-        store.registerIndexFile(mapping(1));
-        IndexDescriptor building = IndexDescriptorTransitions.transition(ready.withGeneration(1, nextTimestamp)
-                .withBuildSnapshotId("snapshot-2", nextTimestamp), IndexState.BUILDING, nextTimestamp);
-        var second = store.publishIndexGeneration(request(building, 1));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("idx", 1, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, mapping(1));
+        IndexDescriptor reservedGeneration = ready.withGeneration(1, nextTimestamp)
+                .withBuildSnapshotId("snapshot-2", nextTimestamp);
+        var second = store.publishIndexGeneration(request(reservedGeneration, 1));
         assertThat(store.isIndexGenerationBuildable(ready.indexId(), 1)).isFalse();
 
         assertThat(second.generation()).isEqualTo(1);
         assertThat(store.findActiveIndexGeneration(ready.indexId())
                 .orElseThrow().generation()).isEqualTo(1);
-        assertThat(store.publishIndexGeneration(request(building, 1)))
+        assertThat(store.publishIndexGeneration(request(reservedGeneration, 1)))
                 .isEqualTo(second);
     }
 
@@ -80,7 +85,8 @@ class JdbcIndexGenerationPublicationTest {
     void failedOnlineGenerationLeavesActiveGenerationQueryable() {
         IndexDescriptor descriptor = descriptor();
         store.registerIndex(descriptor);
-        store.registerIndexFile(mapping(0));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("idx", 0, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, mapping(0));
         store.publishIndexGeneration(request(descriptor, 1));
 
         IndexDescriptor ready = store.findIndex(descriptor.indexId()).orElseThrow();
@@ -114,20 +120,22 @@ class JdbcIndexGenerationPublicationTest {
                 descriptor.indexId(), "same-data", "v2/g2.idx",
                 10, 256, "b".repeat(64), 2,
                 "current", 0, Instant.EPOCH, 0);
-        store.registerIndexFile(oldFile);
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("idx", 0, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, oldFile);
         store.publishIndexGeneration(request(descriptor, 1));
         var ready = store.findIndex(descriptor.indexId()).orElseThrow();
         var buildVersion = ready.updatedAt().plusMillis(1);
         assertThat(store.beginIndexGeneration(ready.indexId(), 1, "snapshot-2", buildVersion,
                 ready.updatedAt(), ready.state(), ready.generation())).isTrue();
-        var building = IndexDescriptorTransitions.transition(ready.withGeneration(1, buildVersion)
-                .withBuildSnapshotId("snapshot-2", buildVersion), IndexState.BUILDING, buildVersion);
-        store.publishIndexGeneration(request(building, 0));
+        var reservedGeneration = ready.withGeneration(1, buildVersion)
+                .withBuildSnapshotId("snapshot-2", buildVersion);
+        store.publishIndexGeneration(request(reservedGeneration, 0));
         var readyGen1 = store.findIndex(descriptor.indexId()).orElseThrow();
         var gen2Version = readyGen1.updatedAt().plusMillis(1);
         assertThat(store.beginIndexGeneration(readyGen1.indexId(), 2, "snapshot-3", gen2Version,
                 readyGen1.updatedAt(), readyGen1.state(), readyGen1.generation())).isTrue();
-        store.registerIndexFile(currentFile);
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("idx", 2, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, currentFile);
 
         assertThat(store.removeIndexFileMappingIfState(
                 oldFile, IndexState.READY, 2)).isFalse();
@@ -163,7 +171,7 @@ class JdbcIndexGenerationPublicationTest {
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             var second = workers.submit(() -> {
                 competing.countDown();
-                new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)
+                new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent)
                         .withIndexLifecycleLock("same-index", acquired::countDown);
             });
             assertThat(competing.await(5, TimeUnit.SECONDS)).isTrue();

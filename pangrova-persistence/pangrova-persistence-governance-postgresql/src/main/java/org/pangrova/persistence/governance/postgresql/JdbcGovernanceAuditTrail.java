@@ -2,7 +2,7 @@ package org.pangrova.persistence.governance.postgresql;
 
 import org.pangrova.governance.api.audit.GovernanceAuditEntry;
 import org.pangrova.governance.api.audit.GovernanceAuditTrail;
-import org.pangrova.governance.api.audit.OperationType;
+import org.pangrova.governance.api.enums.OperationType;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

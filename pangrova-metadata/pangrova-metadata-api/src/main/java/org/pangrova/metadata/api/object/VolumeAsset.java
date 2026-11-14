@@ -1,5 +1,7 @@
 package org.pangrova.metadata.api.object;
 
+import org.pangrova.metadata.api.enums.AssetType;
+
 import java.time.Instant;
 import java.util.Map;
 

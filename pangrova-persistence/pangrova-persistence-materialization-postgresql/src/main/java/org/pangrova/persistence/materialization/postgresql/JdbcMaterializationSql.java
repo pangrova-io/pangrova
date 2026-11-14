@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
-import org.pangrova.materialization.domain.MaterializationException;
+import org.pangrova.materialization.api.exception.MaterializationException;
 
 /**
  * Connection, statement, and transaction plumbing shared by the materialization

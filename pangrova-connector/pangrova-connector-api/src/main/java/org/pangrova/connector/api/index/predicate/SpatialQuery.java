@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.index.predicate;
 
+import org.pangrova.connector.api.enums.SpatialOp;
+
 import java.util.Objects;
 
 import org.pangrova.common.api.annotation.Experimental;

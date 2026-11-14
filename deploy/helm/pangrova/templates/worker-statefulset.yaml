@@ -19,6 +19,9 @@ spec:
         app: pangrova
         component: worker
     spec:
+      # Must exceed the task drain timeout plus deregistration and resource
+      # cleanup, or SIGKILL truncates a drain that is still finishing queries.
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
       securityContext:
         fsGroup: {{ .Values.worker.fsGroup }}
       containers:
@@ -71,14 +74,10 @@ spec:
               subPath: worker.yml
             - name: logs
               mountPath: /opt/pangrova/logs
-            {{- if not .Values.persistence.enabled }}
+            # Same mount either way; persistence.enabled only selects the volume
+            # source below (emptyDir vs volumeClaimTemplate).
             - name: data
               mountPath: /opt/pangrova/data
-            {{- end }}
-            {{- if .Values.persistence.enabled }}
-            - name: data
-              mountPath: /opt/pangrova/data
-            {{- end }}
       volumes:
         - name: config
           configMap:

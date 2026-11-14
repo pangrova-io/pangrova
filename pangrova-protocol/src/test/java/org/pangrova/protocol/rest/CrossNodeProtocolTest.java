@@ -65,6 +65,20 @@ class CrossNodeProtocolTest {
         }
 
         @Test
+        void localShuffleRegistrationRoundTripsWithoutAnExternalProvider() throws Exception {
+            var identity = new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity(
+                    "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002");
+            var request = new WorkerRegistrationRequest("w", "host", 8080, 8081, 8082, 2, null,
+                    java.util.List.of(), "LOCAL", CanonicalCapabilityInventoryTestFixture.encodedInventory(), 0, identity);
+            var decoded = mapper.readValue(mapper.writeValueAsBytes(request), WorkerRegistrationRequest.class);
+            assertThat(decoded.shuffleMode()).isEqualTo("LOCAL");
+            assertThat(decoded.shuffleProvider()).isNull();
+            assertThatThrownBy(() -> new WorkerRegistrationRequest("w", "host", 8080, 8081, 8082, 2, null,
+                    java.util.List.of(), "LOCAL", CanonicalCapabilityInventoryTestFixture.encodedInventory(), 0, identity, "remote"))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
         void roundTripPreservesAllFields() throws Exception {
             WorkerRegistrationRequest original = new WorkerRegistrationRequest(
                     "worker-1", "10.0.0.1", 8080, 9090, 0, 2,

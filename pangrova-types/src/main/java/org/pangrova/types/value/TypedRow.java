@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import org.pangrova.common.util.OrderedMaps;
 
 /**
  * Type-safe row representation for the Java-side data path.
@@ -21,9 +22,8 @@ import java.util.Set;
 public record TypedRow(Map<String, ColumnValue> values) {
 
     public TypedRow {
-        // LinkedHashMap preserves insertion order — required for positional
-        // column mapping in the result pipeline (remapRow, columnar IPC).
-        values = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(values));
+        // Result remapping and columnar IPC use the input column order.
+        values = OrderedMaps.immutableCopy(values);
     }
 
     /** Creates a TypedRow from column name-value pairs. */

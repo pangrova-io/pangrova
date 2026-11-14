@@ -93,7 +93,7 @@ final class WriteCommitWiring {
         }
 
         @Override
-        public org.pangrova.query.api.ownership.ExecutionAnchor currentAnchor(
+        public org.pangrova.execution.api.ownership.ExecutionAnchor currentAnchor(
                 String executionId) {
             return hac.requireExecutionAnchor(executionId);
         }

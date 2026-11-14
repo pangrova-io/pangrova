@@ -17,6 +17,6 @@
 
     <modules>
         <module>pangrova-execution-api</module>
-        <module>pangrova-execution-core</module>
+        <module>pangrova-execution-binding</module>
     </modules>
 </project>

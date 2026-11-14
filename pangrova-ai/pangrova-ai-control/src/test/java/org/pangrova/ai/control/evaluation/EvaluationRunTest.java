@@ -17,6 +17,9 @@
  */
 package org.pangrova.ai.control.evaluation;
 
+import org.pangrova.ai.control.enums.EvaluationRunState;
+import org.pangrova.ai.control.enums.EvaluationSubjectType;
+
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

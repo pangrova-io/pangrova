@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
@@ -15,7 +15,7 @@ import org.apache.iceberg.hadoop.HadoopTableOperations;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.jdbc.JdbcCatalog;
-import org.pangrova.connector.api.metadata.ConditionalBranchDropResult;
+import org.pangrova.connector.api.enums.ConditionalBranchDropResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

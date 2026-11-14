@@ -4,7 +4,7 @@ import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 
-import org.pangrova.scheduler.api.placement.HealthState;
+import org.pangrova.scheduler.api.enums.HealthState;
 
 import java.time.Instant;
 
@@ -80,7 +80,7 @@ class WorkerHealthConfigurableThresholdsTest {
     @Test
     void configValuesFlowFromCoordinatorBootstrapConfig() {
         var config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-1", 8080, 30_000, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-1", 8080, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
                 new CoordinatorBootstrapConfig.QueryConfig(300, 10, 0),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),

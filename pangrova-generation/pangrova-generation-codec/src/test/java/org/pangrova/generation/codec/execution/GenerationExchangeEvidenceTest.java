@@ -1,5 +1,6 @@
 package org.pangrova.generation.codec.execution;
 
+import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
@@ -81,10 +82,9 @@ class GenerationExchangeEvidenceTest {
     }
 
     private static GenerationExchangeRegistration allocation() {
-        var address = new GenerationExchangeRegistration.Address("shuffle", 9080, "shuffle");
         return new GenerationExchangeRegistration("edge", "artifact:execution", "shuffle-actual", 1, 7,
                 "a".repeat(64), "b".repeat(64), "41", 1, "c".repeat(64), 1,
-                List.of(new GenerationExchangeRegistration.Endpoint(address, 0, 1)), address,
+                ShuffleProviderDescriptor.of("test", 1, new byte[]{1, 2, 3}),
                 new GenerationExecutionOwner("process", "incarnation", 3));
     }
 

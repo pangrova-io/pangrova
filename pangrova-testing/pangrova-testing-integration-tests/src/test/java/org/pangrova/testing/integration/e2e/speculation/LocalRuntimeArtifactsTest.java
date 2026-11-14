@@ -72,11 +72,13 @@ class LocalRuntimeArtifactsTest {
                 + os + "-" + classifierArch + ".jar");
         cli = Files.createDirectory(directory.resolve("cli")).resolve("pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar");
         thinCli = libDirectory.resolve("pangrova-client-cli-0.1.0-SNAPSHOT.jar");
-        worker = libDirectory.resolve("pangrova-worker-core-0.1.0-SNAPSHOT.jar");
+        worker = libDirectory.resolve("pangrova-worker-0.1.0-SNAPSHOT.jar");
         writeJar(bundle, Map.of(nativeEntry, NATIVE_BYTES));
         writeJar(cli, Map.of("cli.txt", new byte[] {1}));
         writeJar(thinCli, Map.of("thin-cli.txt", new byte[] {1}));
         writeJar(worker, Map.of(nativeEntry, NATIVE_BYTES));
+        stageRole("coordinator", List.of(thinCli));
+        stageRole("worker", List.of(worker, bundle));
         manifest = directory.resolve("runtime.sha256");
         refreshManifest();
         System.setProperty(LIB_DIR, libDirectory.toString());
@@ -101,8 +103,11 @@ class LocalRuntimeArtifactsTest {
         assertThat(artifacts.manifestSha256()).isEqualTo(hash(manifest));
         assertThat(artifacts.manifestPath()).isEqualTo(manifest);
         assertThat(artifacts.cliJar()).isEqualTo(cli);
-        assertThat(artifacts.classpath().split(java.io.File.pathSeparator))
-                .containsExactly(bundle.toString(), thinCli.toString(), worker.toString());
+        assertThat(artifacts.coordinatorClasspath()).isEqualTo(
+                libDirectory.resolve("coordinator").resolve(thinCli.getFileName()).toString());
+        assertThat(artifacts.workerClasspath().split(java.io.File.pathSeparator)).containsExactly(
+                libDirectory.resolve("worker").resolve(worker.getFileName()).toString(),
+                libDirectory.resolve("worker").resolve(bundle.getFileName()).toString());
     }
 
     @Test
@@ -158,7 +163,7 @@ class LocalRuntimeArtifactsTest {
 
     @Test
     void refusesTestsJarEvenWhenIncludedInFrozenManifest() throws Exception {
-        writeJar(libDirectory.resolve("pangrova-worker-core-0.1.0-SNAPSHOT-tests.jar"),
+        writeJar(libDirectory.resolve("pangrova-worker-0.1.0-SNAPSHOT-tests.jar"),
                 Map.of("test.txt", new byte[] {1}));
         refreshManifest();
 
@@ -196,6 +201,22 @@ class LocalRuntimeArtifactsTest {
                 .hasMessageContaining("Missing exact local process fixture input: " + SOURCE_COMMIT);
     }
 
+    @Test
+    void refusesAReorderedRoleListAgainstTheFrozenReceipt() throws Exception {
+        Files.write(libDirectory.resolve("worker/classpath.list"),
+                List.of(bundle.getFileName().toString(), worker.getFileName().toString()));
+        assertThatThrownBy(LocalRuntimeArtifacts::fromRequiredProperties)
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("frozen SHA-256 manifest");
+    }
+
+    private void stageRole(String role, List<Path> jars) throws Exception {
+        var dest = Files.createDirectory(libDirectory.resolve(role));
+        for (Path jar : jars) {
+            Files.copy(jar, dest.resolve(jar.getFileName()));
+        }
+        Files.write(dest.resolve("classpath.list"), jars.stream().map(j -> j.getFileName().toString()).toList());
+    }
+
     private void refreshManifest() throws Exception {
         List<String> lines = new ArrayList<>();
         lines.add(hash(cli) + "  " + directory.relativize(cli));
@@ -203,6 +224,16 @@ class LocalRuntimeArtifactsTest {
             for (Path jar : paths.filter(path -> path.getFileName().toString().endsWith(".jar"))
                     .sorted().toList()) {
                 lines.add(hash(jar) + "  " + directory.relativize(jar));
+            }
+        }
+        for (String role : List.of("coordinator", "worker")) {
+            Path roleDir = libDirectory.resolve(role);
+            Path classpath = roleDir.resolve("classpath.list");
+            lines.add(hash(classpath) + "  " + directory.relativize(classpath));
+            try (var paths = Files.list(roleDir)) {
+                for (Path jar : paths.filter(path -> path.getFileName().toString().endsWith(".jar")).sorted().toList()) {
+                    lines.add(hash(jar) + "  " + directory.relativize(jar));
+                }
             }
         }
         Files.writeString(manifest, String.join("\n", lines) + "\n");

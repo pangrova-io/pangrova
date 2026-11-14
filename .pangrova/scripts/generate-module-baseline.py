@@ -15,6 +15,7 @@ without a Maven build. The YAML `imports` field includes qualified code referenc
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import subprocess
@@ -47,7 +48,13 @@ def pom_artifacts() -> dict[str, dict]:
         tree = ET.parse(pom)
         root = tree.getroot()
         artifact_id = root.findtext("m:artifactId", namespaces=NS)
+        if artifact_id in artifacts:
+            raise ValueError(f"Duplicate reactor artifact {artifact_id}: "
+                             f"{artifacts[artifact_id]['pom']} and {rel(pom)}")
         packaging = root.findtext("m:packaging", namespaces=NS) or "jar"
+        children = root.findall("m:modules/m:module", NS)
+        if packaging == "pom" and pom.parent != ROOT and len(children) == 1:
+            raise ValueError(f"{rel(pom)} aggregates only {children[0].text}; flatten the family")
         has_sources = any((pom.parent / s).is_dir() for s in ("src/main/java", "src/test/java"))
         deps = {}
         for dep in root.findall("m:dependencies/m:dependency", NS):
@@ -153,7 +160,25 @@ def check_merge(names: list[str]) -> int:
     return 0
 
 
-def main(check: bool = False) -> int:
+def export_graphs(directory: Path, leaves: dict, main_packages: dict) -> None:
+    """Write deterministic DOT graphs of declared POM edges and production package ownership."""
+    directory.mkdir(parents=True, exist_ok=True)
+    dependencies = ['digraph dependencies {', '  rankdir=LR;']
+    ownership = ['digraph ownership {', '  rankdir=LR;']
+    for artifact, metadata in sorted(leaves.items()):
+        node = json.dumps(artifact)
+        dependencies.append(f'  {node};')
+        ownership.append(f'  {node} [shape=box];')
+        for target, scope in sorted(metadata["dependencies"].items()):
+            if target in leaves:
+                dependencies.append(f'  {node} -> {json.dumps(target)} [label={json.dumps(scope)}];')
+        for package in sorted(main_packages[artifact]):
+            ownership.append(f'  {node} -> {json.dumps(package)};')
+    for name, lines in (("module-dependencies", dependencies), ("package-ownership", ownership)):
+        (directory / f"{name}.dot").write_text("\n".join([*lines, "}", ""]), encoding="utf-8")
+
+
+def main(check: bool = False, graph_dir: Path | None = None) -> int:
     artifacts = pom_artifacts()
     leaves = {name: meta for name, meta in artifacts.items() if meta["leaf"]}
     aggregators = {name: meta for name, meta in artifacts.items() if not meta["leaf"]}
@@ -175,8 +200,10 @@ def main(check: bool = False) -> int:
 
     # Longest-prefix ownership across all declared packages.
     owner: dict[str, str] = {}
-    for name, pkgs in packages.items():
-        for package in pkgs:
+    for name, pkgs in sorted(packages.items()):
+        for package in sorted(pkgs):
+            if package in owner:
+                raise ValueError(f"Split package {package}: {owner[package]} and {name}")
             owner[package] = name
 
     def package_of(fqcn: str) -> str | None:
@@ -261,6 +288,10 @@ def main(check: bool = False) -> int:
             lines.append("    []")
 
     rendered = "\n".join(lines) + "\n"
+    if graph_dir is not None:
+        export_graphs(graph_dir, leaves, main_packages)
+        if not check:
+            return 0
     if check:
         current = BASELINE.read_text() if BASELINE.exists() else ""
         if current != rendered:
@@ -278,11 +309,12 @@ def main(check: bool = False) -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="check the existing fact baseline")
+    parser.add_argument("--graph-dir", type=Path, help="export graphs without rewriting the baseline")
     parser.add_argument("--check-merge", nargs="+", metavar="ARTIFACT",
                         help="simulate merging leaf artifacts using direct local POM edges, including test scope")
     options = parser.parse_args()
     if options.check_merge:
-        if options.check:
+        if options.check or options.graph_dir:
             parser.error("--check-merge is a standalone inspection")
         raise SystemExit(check_merge(options.check_merge))
-    raise SystemExit(main(options.check))
+    raise SystemExit(main(options.check, options.graph_dir))

@@ -13,10 +13,12 @@
  */
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportConnectionException;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.transport.api.result.ResultEndpoint;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import java.nio.file.Files;

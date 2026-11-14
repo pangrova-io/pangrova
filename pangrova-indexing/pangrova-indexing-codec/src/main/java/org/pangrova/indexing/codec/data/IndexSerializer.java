@@ -1,8 +1,8 @@
 package org.pangrova.indexing.codec.data;
 
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.IndexData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

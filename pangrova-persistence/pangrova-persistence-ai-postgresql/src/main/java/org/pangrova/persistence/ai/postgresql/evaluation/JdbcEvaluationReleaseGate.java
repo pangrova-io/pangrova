@@ -1,6 +1,6 @@
 package org.pangrova.persistence.ai.postgresql.evaluation;
 
-import org.pangrova.ai.control.evaluation.EvaluationMetricDirection;
+import org.pangrova.ai.control.enums.EvaluationMetricDirection;
 import org.pangrova.ai.control.evaluation.EvaluationMetricPolicy;
 import org.pangrova.ai.control.evaluation.EvaluationMetricRule;
 import java.sql.Connection;

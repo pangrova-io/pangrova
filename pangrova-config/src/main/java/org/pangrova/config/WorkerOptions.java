@@ -1,5 +1,7 @@
 package org.pangrova.config;
 
+import org.pangrova.config.enums.ShuffleMode;
+
 import java.time.Duration;
 
 /**
@@ -228,9 +230,25 @@ public final class WorkerOptions {
             .stringType().defaultValue("data/worker-admission")
             .withDescription("Persistent exclusive local directory for Worker execution incarnation proof").build();
 
+    public static final ConfigOption<String> SHUFFLE_PROVIDER = ConfigOptions.key("worker.shuffle.provider")
+            .stringType().defaultValue("pangrova").withDescription("Worker provider for external Native shuffle.").build();
+
+    public static final ConfigOption<ShuffleMode> SHUFFLE_MODE =
+            ConfigOptions.key("worker.shuffle.mode")
+                    .enumType(ShuffleMode.class)
+                    .defaultValue(ShuffleMode.NATIVE)
+                    .withDescription("NATIVE serves Flight shuffle; LOCAL pins disk-backed exchanges to this Worker; REMOTE "
+                            + "writes to the external shuffle service named by the Coordinator. Must match "
+                            + "coordinator.shuffle.mode, and REMOTE requires worker transport TLS because "
+                            + "the shuffle service demands mutual TLS.")
+                    .build();
+
     public static final ConfigOption<String> SPILL_DIRECTORY = ConfigOptions.key("worker.spill.directory")
             .stringType()
-            .withDescription("Directory for spilling intermediate data to disk")
+            .defaultValue("data/worker-spill")
+            .withDescription("Directory for spilling intermediate data to disk. "
+                    + "Empty disables engine-level spill, which forces large joins and "
+                    + "aggregations to fail instead of spilling.")
             .build();
 
     public static final ConfigOption<Long> SHUFFLE_SERVICE_RETENTION_BYTES =

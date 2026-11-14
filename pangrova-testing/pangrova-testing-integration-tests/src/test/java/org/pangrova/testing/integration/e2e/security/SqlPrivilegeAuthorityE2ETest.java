@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.security;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;

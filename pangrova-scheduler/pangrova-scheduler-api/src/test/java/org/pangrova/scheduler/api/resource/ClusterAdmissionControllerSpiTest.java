@@ -1,6 +1,8 @@
 package org.pangrova.scheduler.api.resource;
 
-import org.pangrova.scheduler.spi.admission.ClusterAdmissionController;
+import org.pangrova.scheduler.api.enums.AdmissionVerdict;
+
+import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
 
 import org.junit.jupiter.api.Test;
 

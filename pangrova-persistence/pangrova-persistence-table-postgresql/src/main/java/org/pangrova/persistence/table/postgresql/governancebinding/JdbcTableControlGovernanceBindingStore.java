@@ -1,10 +1,10 @@
 package org.pangrova.persistence.table.postgresql.governancebinding;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
-import org.pangrova.persistence.table.api.control.TableControlException;
-import org.pangrova.table.api.policybinding.GovernanceBinding;
-import org.pangrova.table.api.policybinding.GovernanceBindingType;
-import org.pangrova.persistence.table.api.governancebinding.TableControlGovernanceBindingStore;
+import org.pangrova.table.api.exception.TableControlException;
+import org.pangrova.table.api.policy.GovernanceBinding;
+import org.pangrova.table.api.enums.GovernanceBindingType;
+import org.pangrova.table.api.policy.TableControlGovernanceBindingStore;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
 

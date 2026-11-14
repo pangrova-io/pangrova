@@ -6,7 +6,7 @@ import org.pangrova.connector.api.metadata.SourceTableKey;
 
 import org.pangrova.connector.api.metadata.AcceptedSourceSnapshot;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.api.metadata.ManagedSourceCatalog;
 import org.pangrova.connector.api.metadata.PreparedSourcePublication;
 import org.pangrova.connector.api.metadata.SourcePublicationReservation;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;

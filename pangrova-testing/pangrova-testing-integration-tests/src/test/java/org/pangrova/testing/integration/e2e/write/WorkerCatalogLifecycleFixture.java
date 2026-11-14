@@ -11,7 +11,7 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.WriteTaskOptions;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
-import org.pangrova.worker.nativebridge.jni.write.catalog.WorkerCatalogRuntime;
+import org.pangrova.worker.catalog.WorkerCatalogRuntime;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;

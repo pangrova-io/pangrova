@@ -1,6 +1,6 @@
 package org.pangrova.common.resilience.policy;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 
 import java.util.Map;
 
@@ -8,7 +8,7 @@ import java.util.Map;
  * Classifies error codes into categories and determines retry eligibility.
  *
  * <p>Classification relies on the error code naming convention defined in
- * {@link org.pangrova.common.exception.PangrovaErrorCode}. Each error code follows
+ * {@link org.pangrova.common.enums.PangrovaErrorCode}. Each error code follows
  * the format {@code CATEGORY-NNNN} (e.g. {@code RESOURCE-0001}). The prefix
  * before the first hyphen is matched against a known prefix map to determine
  * the {@link ErrorCategory}. Unknown prefixes default to

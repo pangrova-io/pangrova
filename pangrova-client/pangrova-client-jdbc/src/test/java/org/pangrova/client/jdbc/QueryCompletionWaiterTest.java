@@ -4,9 +4,9 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.transport.client.http.PangrovaRestClient;
-import org.pangrova.transport.api.result.ResultEndpoint;
-import org.pangrova.client.protocol.SubmitQueryResponse;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

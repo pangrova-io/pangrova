@@ -5,9 +5,9 @@ import org.pangrova.testing.testkit.metadata.CurrentCatalogProjectionFixture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.TableMetadata;
@@ -83,8 +83,8 @@ class PostgresProjectionInvalidationIntegrationTest {
         projectionFixture.saveSchemas("cat", List.of("s1", "s2"));
         projectionFixture.saveSchemas("cat", List.of());
         assertThat(eventCount()).isEqualTo(3);
-        deployments.deleteCatalogDescriptor("cat");
-        deployments.deleteCatalogDescriptor("cat");
+        deployments.deleteCatalogDescriptor(second.identity());
+        deployments.deleteCatalogDescriptor(second.identity());
 
         assertThat(eventCount()).isEqualTo(4);
         assertThat(deployments.findCatalogDescriptorRevision("cat", first.incarnationId(), 1)).contains(first);
@@ -177,7 +177,7 @@ class PostgresProjectionInvalidationIntegrationTest {
         long events = eventCount();
         denyInvalidation();
 
-        assertDenied(() -> deployments.deleteCatalogDescriptor("cat"));
+        assertDenied(() -> deployments.deleteCatalogDescriptor(first.identity()));
 
         assertThat(deployments.getCatalogDescriptor("cat")).contains(first);
         assertThat(schemaCount()).isEqualTo(1);
@@ -185,7 +185,7 @@ class PostgresProjectionInvalidationIntegrationTest {
         assertThat(deployments.findCatalogDescriptorRevision("cat", first.incarnationId(), 1)).contains(first);
         assertThat(eventCount()).isEqualTo(events);
         allowInvalidation();
-        deployments.deleteCatalogDescriptor("cat");
+        deployments.deleteCatalogDescriptor(first.identity());
         assertThat(deployments.getCatalogDescriptor("cat")).isEmpty();
         assertThat(schemaCount()).isZero();
         assertThat(tables.loadTable("cat", "sch", "tbl")).isEmpty();

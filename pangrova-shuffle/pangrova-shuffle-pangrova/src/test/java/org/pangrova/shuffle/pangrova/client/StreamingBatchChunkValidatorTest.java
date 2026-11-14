@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

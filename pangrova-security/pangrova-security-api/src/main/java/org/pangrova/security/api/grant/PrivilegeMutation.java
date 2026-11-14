@@ -1,7 +1,7 @@
 package org.pangrova.security.api.grant;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 
 import java.util.Objects;
 import java.util.Set;

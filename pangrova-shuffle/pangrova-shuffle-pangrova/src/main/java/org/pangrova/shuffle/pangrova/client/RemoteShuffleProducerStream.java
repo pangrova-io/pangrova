@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.nio.ByteBuffer;
@@ -180,7 +182,12 @@ final class RemoteShuffleProducerStream implements AutoCloseable {
 
             @Override
             public void onCompleted() {
+                if (state.get() == State.ACTIVE) {
+                    error.compareAndSet(null, new RemoteShuffleClientException(
+                            "Remote shuffle server completed before the producer finished writing"));
+                }
                 completed.countDown();
+                signalReady();
             }
         };
     }

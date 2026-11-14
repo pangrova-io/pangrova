@@ -6,11 +6,11 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
-import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestObservability;
 
 /** Recovery-only manager with real task identity tracking and a closed dispatch boundary. */

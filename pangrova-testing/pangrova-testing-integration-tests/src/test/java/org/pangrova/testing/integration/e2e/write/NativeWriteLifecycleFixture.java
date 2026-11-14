@@ -15,9 +15,9 @@ import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.WriteTaskOptions;
-import org.pangrova.worker.nativebridge.jni.write.NativeWriteExecutor;
-import org.pangrova.worker.nativebridge.jni.write.catalog.WorkerCatalogRuntime;
-import org.pangrova.worker.nativebridge.jni.write.WriteDescriptor;
+import org.pangrova.worker.write.NativeWriteExecutor;
+import org.pangrova.worker.catalog.WorkerCatalogRuntime;
+import org.pangrova.worker.write.WriteDescriptor;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

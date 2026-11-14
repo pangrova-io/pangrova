@@ -5,7 +5,7 @@ import re
 
 from registration_catalog import canonical_json, read_export
 from registered_signature import exact_bool, exact_keys
-from physical_type_bridge import validate_bridge
+from physical_type_mapping import validate_bridge
 
 
 KINDS = {"SCALAR", "AGGREGATE", "WINDOW"}

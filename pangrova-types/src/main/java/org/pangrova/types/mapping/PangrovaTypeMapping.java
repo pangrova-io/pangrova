@@ -3,7 +3,7 @@ package org.pangrova.types.mapping;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;
 import org.pangrova.types.NullOnlyType;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.RowField;
 import org.pangrova.types.RowType;
 import org.pangrova.types.Type;

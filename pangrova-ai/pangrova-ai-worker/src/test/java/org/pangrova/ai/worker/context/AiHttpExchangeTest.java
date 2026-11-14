@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.context;
 
-import org.pangrova.ai.provider.openai.AiHttpExchange;
+import org.pangrova.ai.http.AiHttpExchange;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;

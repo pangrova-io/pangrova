@@ -2,11 +2,11 @@ package org.pangrova.connector.runtime.lifecycle;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.runtime.classloader.ConnectorClassLoaderFactory;
 import org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFactory;
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

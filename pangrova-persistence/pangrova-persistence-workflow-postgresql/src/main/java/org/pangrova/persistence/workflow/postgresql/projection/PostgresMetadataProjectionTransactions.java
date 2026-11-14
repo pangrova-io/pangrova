@@ -4,13 +4,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.codec.json.MetadataJsonMapper;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException;
+import org.pangrova.common.json.CanonicalJsonMapper;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionOutcomeUnknownException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionOutcomeUnknownException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions;
 
 import javax.sql.DataSource;
@@ -211,7 +211,7 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
                             "Metadata projection deployment is no longer current");
                 }
                 try {
-                    return Set.copyOf(MetadataJsonMapper.readValue(
+                    return Set.copyOf(CanonicalJsonMapper.readValue(
                             rows.getString(3), new TypeReference<Set<String>>() {}));
                 } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
                     throw new MetastoreException("Cannot read current projection tenant impact", failure);

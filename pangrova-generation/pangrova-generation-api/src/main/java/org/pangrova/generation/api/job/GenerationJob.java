@@ -1,11 +1,15 @@
 package org.pangrova.generation.api.job;
 
+import org.pangrova.generation.api.enums.GenerationJobState;
+
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
 
 import java.time.Instant;
 import java.util.Objects;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Immutable identity plus mutable progress snapshot for one artifact generation. */
 public record GenerationJob(
@@ -79,12 +83,6 @@ public record GenerationJob(
         }
         if (publicationFencingToken < 0) {
             throw new IllegalArgumentException("publicationFencingToken must be non-negative");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 }

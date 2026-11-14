@@ -2,8 +2,8 @@ package org.pangrova.persistence.generation.postgresql.publication;
 
 import java.time.Instant;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
 
 /** Package-local view shared by type-specific atomic publication adapters. */
 interface GenerationPublicationJob {

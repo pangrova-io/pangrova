@@ -1,5 +1,8 @@
 package org.pangrova.testing.integration.e2e.security;
 
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.security.api.tenant.*;
@@ -25,7 +28,7 @@ class TenantMembershipSqlE2ETest extends SqlE2ETestBase {
         var previous = store.getTenantForUser(owner);
         String tenant = "Tenant." + UUID.randomUUID().toString().replace("-", "");
         String principal = "User." + UUID.randomUUID().toString().replace("-", "");
-        new org.pangrova.security.core.tenant.TenantLifecycleManager(store).onboard(tenant, tenant, owner);
+        new org.pangrova.security.tenant.TenantLifecycleManager(store).onboard(tenant, tenant, owner);
         var definition = store.getTenant(tenant).orElseThrow();
         var persisted = definition;
         store.addUserToTenant(tenant, owner, TenantRole.OWNER);

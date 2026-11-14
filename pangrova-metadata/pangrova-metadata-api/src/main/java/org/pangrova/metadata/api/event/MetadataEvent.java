@@ -2,8 +2,8 @@ package org.pangrova.metadata.api.event;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.table.api.ownership.OwnershipMode;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.table.api.enums.OwnershipMode;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.schema.SchemaChange;

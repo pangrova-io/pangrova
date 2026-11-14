@@ -1,5 +1,7 @@
 package org.pangrova.connector.runtime.classloader;
 
+import org.pangrova.connector.runtime.enums.SharedPackagePolicy;
+
 import org.junit.jupiter.api.Test;
 
 import java.net.URL;

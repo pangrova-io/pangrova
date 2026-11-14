@@ -14,11 +14,11 @@
 package org.pangrova.ai.worker.function;
 
 import org.pangrova.ai.worker.config.AiFunctionActivation;
-import org.pangrova.ai.spi.embedding.EmbeddingProvider;
-import org.pangrova.ai.spi.inference.InferenceProvider;
-import org.pangrova.ai.spi.reranking.RerankingProvider;
-import org.pangrova.function.spi.registry.FunctionFactory;
-import org.pangrova.function.spi.scalar.ScalarFunction;
+import org.pangrova.ai.api.embedding.EmbeddingProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
+import org.pangrova.ai.api.reranking.RerankingProvider;
+import org.pangrova.function.api.registry.FunctionFactory;
+import org.pangrova.function.api.scalar.ScalarFunction;
 import org.pangrova.ai.worker.governance.AiInvocationAuthorizer;
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 import org.pangrova.ai.worker.governance.observer.CompositeAiInvocationObserver;
@@ -26,18 +26,14 @@ import org.pangrova.ai.worker.invocation.AiInvocationService;
 import org.pangrova.ai.worker.governance.ConfigurableAiInvocationAuthorizer;
 import org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry;
 import org.pangrova.security.api.secret.SecretResolver;
-import org.pangrova.ai.worker.provider.env.EnvironmentSecretProvider;
+import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 import org.pangrova.ai.worker.provider.governed.GovernedEmbeddingProvider;
 import org.pangrova.ai.worker.provider.governed.GovernedInferenceProvider;
 import org.pangrova.ai.worker.provider.governed.GovernedRerankingProvider;
 import org.pangrova.ai.worker.blob.GovernedBlobStore;
 import org.pangrova.ai.worker.blob.HttpsBlobImporter;
-import org.pangrova.filesystem.s3.blob.S3BlobStorage;
 import org.pangrova.filesystem.api.blob.BlobStorage;
-import org.pangrova.filesystem.local.blob.FileSystemBlobStorage;
-import org.pangrova.filesystem.s3.blob.S3BlobStorageSettingsParser;
-import org.pangrova.filesystem.oss.blob.OssBlobStorage;
-import org.pangrova.filesystem.oss.blob.OssBlobStorageSettingsParser;
+import org.pangrova.filesystem.api.blob.BlobStorageFactory;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -73,8 +69,8 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
     private final Function<String, RerankingProvider> rerankingLookup;
     private final BlobRuntime injectedBlobRuntime;
     private final boolean productionGovernance;
-    private volatile ProductionRuntime productionRuntime;
-    private volatile List<AutoCloseable> ownedResources = List.of();
+    private ProductionRuntime productionRuntime;
+    private boolean closed;
 
     public AiFunctionFactory() {
         this(null, null, null, null, true);
@@ -134,7 +130,10 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
     }
 
     @Override
-    public List<ScalarFunction> getScalarFunctions(Map<String, String> config) {
+    public synchronized List<ScalarFunction> getScalarFunctions(Map<String, String> config) {
+        if (closed) {
+            throw new IllegalStateException("AI function factory is closed");
+        }
         if (productionGovernance) {
             return productionFunctions(config == null ? Map.of() : config);
         }
@@ -143,11 +142,10 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
                 injectedBlobRuntime);
     }
 
-    private synchronized List<ScalarFunction> productionFunctions(
+    private List<ScalarFunction> productionFunctions(
             Map<String, String> config) {
         if (productionRuntime == null) {
             productionRuntime = createProductionRuntime(config);
-            ownedResources = productionRuntime.resources();
         }
         return enabledFunctions(productionRuntime);
     }
@@ -172,7 +170,7 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
         if (!modelsEnabled && !fileEnabled) {
             return ProductionRuntime.disabled();
         }
-        SecretResolver secretResolver = discoverSecretResolver();
+        SecretResolver secretResolver = SecretResolverRegistry.discover(AiFunctionFactory.class.getClassLoader());
         BlobRuntime blobs = createBlobRuntimeIfEnabled(
                 config, secretResolver, fileEnabled);
         ConfiguredAiProviderRegistry configured = null;
@@ -227,24 +225,6 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
         return governedLookups(config, inference, embedding, reranking);
     }
 
-    private static SecretResolver discoverSecretResolver() {
-        List<SecretResolver> implementations = ServiceLoader
-                .load(SecretResolver.class)
-                .stream()
-                .map(ServiceLoader.Provider::get)
-                .toList();
-        if (implementations.size() > 1) {
-            throw new IllegalStateException(
-                    "Multiple AI SecretResolver implementations are installed: "
-                            + implementations.stream()
-                            .map(value -> value.getClass().getName())
-                            .toList());
-        }
-        return implementations.isEmpty()
-                ? new EnvironmentSecretProvider()
-                : implementations.get(0);
-    }
-
     private GovernedLookups governedLookups(
             Map<String, String> config,
             Function<String, InferenceProvider> inferenceLookup,
@@ -296,23 +276,33 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
     }
 
     @Override
-    public void close() throws Exception {
-        Exception firstFailure = null;
-        for (AutoCloseable resource : ownedResources) {
+    public synchronized void close() throws Exception {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        var runtime = productionRuntime;
+        productionRuntime = null;
+        if (runtime == null) {
+            return;
+        }
+        Throwable firstFailure = null;
+        for (var resource : runtime.resources()) {
             try {
                 resource.close();
-            } catch (Exception failure) {
+            } catch (Exception | Error failure) {
                 if (firstFailure == null) {
                     firstFailure = failure;
-                } else {
+                } else if (firstFailure != failure) {
                     firstFailure.addSuppressed(failure);
                 }
             }
         }
-        ownedResources = List.of();
-        productionRuntime = null;
-        if (firstFailure != null) {
-            throw firstFailure;
+        if (firstFailure instanceof Exception exception) {
+            throw exception;
+        }
+        if (firstFailure instanceof Error error) {
+            throw error;
         }
     }
 
@@ -352,7 +342,8 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
             Set<String> mimeTypes,
             long maxBytes,
             byte[] capabilityKey) {
-        BlobStorage storage = createStorage(config);
+        BlobStorage storage = createStorage(config, ServiceLoader.load(BlobStorageFactory.class,
+                AiFunctionFactory.class.getClassLoader()));
         GovernedBlobStore store;
         try {
             store = new GovernedBlobStore(storage,
@@ -400,13 +391,23 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
                 positiveLong(config, "file.url.max-decoded-bytes", maxBytes), pool));
     }
 
-    private static BlobStorage createStorage(Map<String, String> config) {
-        return switch (required(config, "file.storage-backend")) {
-            case "s3" -> new S3BlobStorage(S3BlobStorageSettingsParser.parse(config));
-            case "local" -> new FileSystemBlobStorage(Path.of(required(config, "file.storage.local.root")));
-            case "oss" -> new OssBlobStorage(OssBlobStorageSettingsParser.parse(config));
-            default -> throw new IllegalArgumentException("Unsupported FILE storage backend");
-        };
+    static BlobStorage createStorage(Map<String, String> config, Iterable<BlobStorageFactory> factories) {
+        String selected = required(config, "file.storage-backend");
+        var installed = new java.util.HashMap<String, BlobStorageFactory>();
+        for (var factory : factories) {
+            String id = factory.providerId();
+            if (id == null || id.isBlank() || factory.apiVersion() != BlobStorageFactory.API_VERSION) {
+                throw new IllegalArgumentException("Invalid FILE storage factory: " + id);
+            }
+            if (installed.putIfAbsent(id, factory) != null) {
+                throw new IllegalArgumentException("Duplicate FILE storage backend: " + id);
+            }
+        }
+        var factory = installed.get(selected);
+        if (factory == null) {
+            throw new IllegalArgumentException("Unsupported FILE storage backend: " + selected);
+        }
+        return java.util.Objects.requireNonNull(factory.create(config), "FILE storage factory returned null");
     }
 
     private static String required(Map<String, String> config, String key) {

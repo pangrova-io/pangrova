@@ -38,6 +38,11 @@ class PangrovaArbitrator : public facebook::velox::memory::MemoryArbitrator {
   // Default priority for pools that don't specify one.
   static constexpr int32_t kDefaultPriority = 0;
 
+  // Bound on a single reclaim wait. Must be non-zero: Velox treats zero as
+  // "wait forever for the task to pause", which self-deadlocks when the task
+  // being reclaimed is the one requesting capacity.
+  static constexpr uint64_t kReclaimMaxWaitMs = 10'000;
+
   PangrovaArbitrator(
       const Config& config,
       BlockAllocationListener* listener);
@@ -120,9 +125,18 @@ class PangrovaArbitrator : public facebook::velox::memory::MemoryArbitrator {
  private:
   void commitCapacity(facebook::velox::memory::MemoryPool* pool,
                       int64_t granted, uint64_t requested);
+
+  // Frees up to targetBytes. Pass 1 shrinks unused capacity; pass 2 (only when
+  // allowSpill) drives operator reclaim so used bytes can be spilled. Returns
+  // the bytes actually released.
+  uint64_t reclaimCapacity(uint64_t targetBytes, bool allowSpill);
+
   // Metadata for a tracked memory pool.
   struct PoolEntry {
-    facebook::velox::memory::MemoryPool* pool;
+    // Weak so a candidate snapshot taken under pools_mutex_ can be safely
+    // locked after the mutex is released. Velox reclaim re-enters
+    // growCapacity, so holding the registry lock across it would deadlock.
+    std::weak_ptr<facebook::velox::memory::MemoryPool> pool;
     int32_t priority;  // Lower value = higher priority (shrunk last).
     uint64_t capacity;  // Capacity at registration time.
   };

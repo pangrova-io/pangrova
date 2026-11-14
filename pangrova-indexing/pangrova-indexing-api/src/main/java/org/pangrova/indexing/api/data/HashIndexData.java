@@ -1,7 +1,7 @@
 package org.pangrova.indexing.api.data;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 
 /**
  * Hash index data: open-addressing hash table for O(1) equality lookups.

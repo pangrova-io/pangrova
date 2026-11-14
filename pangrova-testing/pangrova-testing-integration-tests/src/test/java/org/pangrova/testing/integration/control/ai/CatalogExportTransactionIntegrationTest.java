@@ -3,18 +3,18 @@ package org.pangrova.testing.integration.control.ai;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
-import org.pangrova.ai.control.api.CatalogExportStorageException;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.ai.control.exception.CatalogExportStorageException;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
@@ -22,9 +22,9 @@ import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthori
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
-import org.pangrova.metadata.assembly.generation.GenerationStores;
+import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import javax.sql.DataSource;
@@ -147,8 +147,8 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
                 ModelAuthorityFixtures.artifacts().authority().requireCurrent(connection, spec);
             }
         };
-        var guardedBuilds = new PostgresGenerationJobStore(dataSource, authority, GenerationStores.executionFence(),
-                GenerationStores.currentRoles(), GenerationStores.publicationCandidates());
+        var guardedBuilds = new PostgresGenerationJobStore(dataSource, authority, PostgresGenerationStores.executionFence(),
+                PostgresGenerationStores.currentRoles(), PostgresGenerationStores.publicationCandidates());
         var guarded = AiInfrastructureStores.jdbc(dataSource, guardedBuilds).catalogExports();
         var job = job("authority-transaction");
         var request = request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL);

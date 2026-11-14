@@ -45,8 +45,8 @@ bool ticketOwnershipValid(
 // ── PartitionDemuxer ────────────────────────────────────────────────
 
 PartitionDemuxer::PartitionDemuxer(
-    SerializedShuffleQueue* source, std::shared_ptr<ShuffleBufferStore> store)
-    : source_(source), store_(std::move(store)),
+    SerializedShuffleQueue* source, std::shared_ptr<ShuffleBufferStore> store, bool disk_only)
+    : source_(source), store_(std::move(store)), spill_scope_(store_, disk_only),
       max_partitions_(store_ ? store_->limits().partitions_per_handle : 0),
       completed_partitions_(max_partitions_, false) {
   if (!source_ || !store_) throw std::invalid_argument("shuffle requires source and store");
@@ -215,7 +215,7 @@ void PartitionDemuxer::drainLoop() {
         break;
       }
       const auto partition_id = batch.partition_id;
-      auto stored = store_->store(std::move(batch), cancellation_.token());
+      auto stored = store_->store(std::move(batch), spill_scope_, cancellation_.token());
       if (!stored.ok()) {
         fail(stored.status());
         break;

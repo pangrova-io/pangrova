@@ -1,7 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
-import org.pangrova.persistence.coordination.spi.provider.CoordinationProvider;
+import org.pangrova.persistence.coordination.api.provider.CoordinationProvider;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

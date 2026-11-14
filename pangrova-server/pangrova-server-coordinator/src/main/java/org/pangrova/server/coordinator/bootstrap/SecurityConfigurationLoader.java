@@ -1,28 +1,18 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.config.CoordinatorOptions;
 import org.pangrova.config.PangrovaConfiguration;
+import org.pangrova.security.api.authentication.AuthenticatorFactory;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig;
-import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType;
 
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 /** Loads process authentication settings from YAML; permissions are owned by persistent SQL state. */
 final class SecurityConfigurationLoader {
     private static final String AUTH_PROPERTIES = "security.auth.properties.";
-    private static final Map<String, String> OAUTH_PROPERTIES = Map.of(
-            "issuer-uri", "issuerUri", "audience", "audience");
-    private static final Map<String, String> LDAP_PROPERTIES = Map.ofEntries(
-            Map.entry("ldap-url", "ldapUrl"), Map.entry("base-dn", "baseDn"),
-            Map.entry("user-search-filter", "userSearchFilter"), Map.entry("user-dn-pattern", "userDnPattern"),
-            Map.entry("bind-dn", "bindDn"), Map.entry("bind-password", "bindPassword"),
-            Map.entry("group-search-base", "groupSearchBase"), Map.entry("group-search-filter", "groupSearchFilter"),
-            Map.entry("group-attribute", "groupAttribute"), Map.entry("connect-timeout-ms", "connectTimeoutMs"),
-            Map.entry("read-timeout-ms", "readTimeoutMs"));
 
     private SecurityConfigurationLoader() {}
 
@@ -31,29 +21,19 @@ final class SecurityConfigurationLoader {
         String internalSecret = config.getString(CoordinatorOptions.INTERNAL_AUTH_SECRET);
         if (!config.getBoolean(CoordinatorOptions.SECURITY_ENABLED)) {
             return internalSecret == null ? null
-                    : new SecurityConfig(AuthenticatorType.NOOP, internalSecret, Map.of());
+                    : SecurityConfig.internalRequestsOnly(internalSecret);
         }
         String type = config.getString(CoordinatorOptions.SECURITY_AUTH_TYPE);
         if (type == null || type.isBlank()) {
             throw invalid("security.auth.type is required when security.enabled=true");
         }
-        AuthenticatorType authenticator;
-        try {
-            authenticator = AuthenticatorType.valueOf(type.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException failure) {
-            throw invalid("Unknown security.auth.type: " + type);
-        }
-        return new SecurityConfig(authenticator, internalSecret,
-                authenticatorProperties(config.toMap(), authenticator));
+        AuthenticatorFactory factory = CoordinatorAuthenticatorFactories.select(type);
+        return new SecurityConfig(factory, internalSecret, authenticatorProperties(config.toMap(), factory));
     }
 
     private static Map<String, String> authenticatorProperties(
-            Map<String, String> configuration, AuthenticatorType type) {
-        Map<String, String> names = switch (type) {
-            case OAUTH2 -> OAUTH_PROPERTIES;
-            case LDAP -> LDAP_PROPERTIES;
-            case NOOP -> Map.of();
-        };
+            Map<String, String> configuration, AuthenticatorFactory factory) {
+        Map<String, String> names = factory.configurationKeys();
         return configuration.entrySet().stream()
                 .filter(entry -> entry.getKey().startsWith(AUTH_PROPERTIES))
                 .collect(Collectors.toUnmodifiableMap(

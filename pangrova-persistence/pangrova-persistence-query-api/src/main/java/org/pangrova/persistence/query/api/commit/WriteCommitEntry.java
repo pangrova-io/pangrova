@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Objects;
 import org.pangrova.common.file.CopyFileCommitBinding;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Represents a write commit intent recorded in the {@link WriteCommitJournal}.
  *
@@ -80,9 +82,9 @@ public record WriteCommitEntry(
     }
 
     public WriteCommitEntry {
-        requireNonBlank(queryId, "queryId");
-        requireNonBlank(catalogName, "catalogName");
-        requireNonBlank(tableName, "tableName");
+        requireText(queryId, "queryId");
+        requireText(catalogName, "catalogName");
+        requireText(tableName, "tableName");
         Objects.requireNonNull(state, "state must not be null");
         if (timestampMs <= 0) {
             throw new IllegalArgumentException("timestampMs must be positive");
@@ -95,9 +97,9 @@ public record WriteCommitEntry(
                         .map(fragment -> Objects.requireNonNull(
                                 fragment, "commit fragment must not be null").clone())
                         .toList();
-        requireNonBlank(writeMode, "writeMode");
-        requireNonBlank(tenantId, "tenantId");
-        requireNonBlank(principal, "principal");
+        requireText(writeMode, "writeMode");
+        requireText(tenantId, "tenantId");
+        requireText(principal, "principal");
         Objects.requireNonNull(authorizationReceipt, "authorizationReceipt");
         if (baseSnapshotId < -1) {
             throw new IllegalArgumentException("baseSnapshotId must be -1 or non-negative");
@@ -127,12 +129,6 @@ public record WriteCommitEntry(
     private static void validatePublication(NativeWriteFinalization publication) {
         if (publication != null && publication.outcome() != NativeWriteFinalization.Outcome.COMMITTED) {
             throw new IllegalArgumentException("Only confirmed publication evidence may be persisted");
-        }
-    }
-
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
         }
     }
 

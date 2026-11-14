@@ -1,5 +1,7 @@
 package org.pangrova.indexing.api.vector;
 
+import org.pangrova.indexing.api.enums.DistanceMetric;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

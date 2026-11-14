@@ -7,7 +7,7 @@ import org.pangrova.protocol.checksum.ProtocolChecksums;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.UnknownFieldSet;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.SourcePreparationRequest;

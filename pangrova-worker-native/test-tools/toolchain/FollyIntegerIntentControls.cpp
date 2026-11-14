@@ -1,10 +1,13 @@
+#include <folly/container/detail/F14Table.h>
 #include <folly/hash/Hash.h>
 #include <folly/hash/SpookyHashV2.h>
 #include <folly/synchronization/DistributedMutex.h>
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <random>
 #include <string_view>
 
 namespace {
@@ -51,6 +54,10 @@ bool check(std::uint64_t value) {
 }
 
 bool checkRotation(std::uint64_t value, std::uint64_t& checks, std::uint64_t& digest) {
+  if (folly::hash::SpookyHashV2::Rot64(value, 0) != value ||
+      folly::hash::SpookyHashV2::Rot64(value, 64) != value) {
+    return false;
+  }
   for (unsigned bits = 1; bits < 64; ++bits) {
     const Wide modulus = Wide{1} << 64;
     const auto expected = static_cast<std::uint64_t>(
@@ -61,6 +68,31 @@ bool checkRotation(std::uint64_t value, std::uint64_t& checks, std::uint64_t& di
     digest ^= actual;
   }
   return true;
+}
+
+// seed_seq guarantees one 32-bit sequence for both output widths. All-one
+// seed words exercise the wide index addition; more than one output word
+// exercises the three-term narrowing in the final mixing pass.
+bool checkSeedWords() {
+  const std::array<std::uint32_t, 6> seeds{UINT32_MAX, 0, UINT32_MAX, 1, UINT32_MAX, 17};
+  std::seed_seq sequence(seeds.begin(), seeds.end());
+  std::array<std::uint32_t, 68> words{};
+  std::array<std::uint64_t, 68> wide{};
+  sequence.generate(words.begin(), words.end());
+  sequence.generate(wide.begin(), wide.end());
+  for (std::size_t i = 0; i < words.size(); ++i) {
+    if (wide[i] != words[i]) return false;
+  }
+  // The unmodified 17.0.6 implementation produces these words for the same input.
+  return words[0] == 2429959909U && words[1] == 1894649730U
+      && words[34] == 4006753950U && words[67] == 3576778638U;
+}
+
+bool checkPendingInserts() {
+  using folly::f14::detail::tlsPendingSafeInserts;
+  return !tlsPendingSafeInserts() && !tlsPendingSafeInserts(-1)
+      && tlsPendingSafeInserts(2) && tlsPendingSafeInserts(-1)
+      && !tlsPendingSafeInserts(-1) && !tlsPendingSafeInserts();
 }
 
 int rotations() {
@@ -85,6 +117,7 @@ int rotations() {
 int main(int argc, char** argv) {
   if (argc == 2 && std::string_view(argv[1]) == "--rotations-only") return rotations();
   if (argc != 1) return 2;
+  if (!checkSeedWords() || !checkPendingInserts()) return 1;
   std::uint64_t checks = 0;
   auto verify = [&](std::uint64_t value) {
     ++checks;

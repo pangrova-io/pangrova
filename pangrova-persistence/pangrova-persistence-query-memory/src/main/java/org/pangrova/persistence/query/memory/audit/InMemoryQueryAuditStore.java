@@ -1,6 +1,6 @@
 package org.pangrova.persistence.query.memory.audit;
 
-import org.pangrova.persistence.query.api.audit.QueryAuditStore;
+import org.pangrova.query.api.audit.QueryAuditStore;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;

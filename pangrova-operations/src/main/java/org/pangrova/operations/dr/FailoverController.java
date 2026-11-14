@@ -1,7 +1,7 @@
 package org.pangrova.operations.dr;
 
 import org.pangrova.common.annotation.Experimental;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

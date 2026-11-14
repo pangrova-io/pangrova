@@ -6,9 +6,9 @@
     <name>pangrova-persistence-catalog-api</name>
     <properties><module.name>org.pangrova.persistence.catalog.api</module.name></properties>
     <dependencies>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-table</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-batch-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-batch</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-types</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId></dependency>

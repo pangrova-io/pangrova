@@ -1,6 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap.query.audit;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore;
 import org.pangrova.query.api.audit.QueryAuditRecord;
 
 import java.time.Instant;
@@ -10,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class QueryAuditServicesTest {
     @Test
     void profilesReadTheSameRecordAdmittedByTheirAuditService() {
-        var services = new QueryAuditServices();
+        var services = new QueryAuditServices(new InMemoryQueryAuditStore());
         var record = record("profile-query");
         services.auditService().persist(record);
         assertThat(services.auditService().findByQueryId(record.queryId())).contains(record);
@@ -20,8 +21,8 @@ class QueryAuditServicesTest {
 
     @Test
     void independentCoordinatorsDoNotShareAuditOrProfileState() {
-        var first = new QueryAuditServices();
-        var second = new QueryAuditServices();
+        var first = new QueryAuditServices(new InMemoryQueryAuditStore());
+        var second = new QueryAuditServices(new InMemoryQueryAuditStore());
         first.auditService().persist(record("same-query"));
         assertThat(second.auditService().findByQueryId("same-query")).isEmpty();
         assertThat(second.profileService().getProfile("same-query")).isEmpty();

@@ -1,12 +1,13 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
 /** Bounded ordered SDK-owned object registration; its exact page receipt is durably idempotent. */
@@ -61,21 +62,17 @@ public record SourceObjectPage(int index, String afterPath, List<ObjectReference
      * unsigned 32-bit purpose (1/2), all big endian.
      */
     public static byte[] digest(List<ObjectReference> objects) {
-        try {
-            var digest = MessageDigest.getInstance("SHA-256");
-            int size = 0;
-            for (var object : objects) {
-                byte[] proof = proof(object);
-                size = Math.addExact(size, proof.length);
-                if (size > MAX_PAGE_BYTES) {
-                    throw new IllegalArgumentException("Object page exceeds its byte bound");
-                }
-                digest.update(proof);
+        var digest = DigestUtils.sha256();
+        int size = 0;
+        for (var object : objects) {
+            byte[] proof = proof(object);
+            size = Math.addExact(size, proof.length);
+            if (size > MAX_PAGE_BYTES) {
+                throw new IllegalArgumentException("Object page exceeds its byte bound");
             }
-            return digest.digest();
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
+            digest.update(proof);
         }
+        return digest.digest();
     }
     /** Encodes one exact object, also used when sealing a streamed database membership. */
     public static byte[] proof(ObjectReference object) {

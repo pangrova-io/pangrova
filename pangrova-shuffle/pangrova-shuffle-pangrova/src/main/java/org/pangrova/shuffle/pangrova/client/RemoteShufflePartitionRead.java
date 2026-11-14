@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import java.util.ArrayDeque;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;

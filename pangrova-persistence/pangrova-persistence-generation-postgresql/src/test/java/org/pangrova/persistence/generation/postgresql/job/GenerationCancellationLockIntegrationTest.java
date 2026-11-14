@@ -8,7 +8,7 @@ import org.pangrova.persistence.jdbc.api.generation.GenerationPublicationCandida
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
@@ -84,7 +84,7 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
         }
         var store = cancellationStore();
         assertThatThrownBy(() -> store.cancelArtifactBuilds("tenant-a", "artifact-a", NOW))
-                .isInstanceOf(org.pangrova.persistence.generation.api.GenerationStorageException.class);
+                .isInstanceOf(org.pangrova.persistence.generation.api.exception.GenerationStorageException.class);
         assertStates("tenant-a", "job-a", "QUEUED", "PENDING");
         try (var connection = dataSource.getConnection()) {
             execute(connection, "DROP TRIGGER reject_cancelled_page ON artifact_build_pages");

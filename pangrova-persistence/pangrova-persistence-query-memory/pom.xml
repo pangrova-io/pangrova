@@ -7,8 +7,9 @@
     <name>Pangrova Query Persistence memory</name>
     <properties><module.name>org.pangrova.persistence.query.memory</module.name></properties>
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
         <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></dependency>

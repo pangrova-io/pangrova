@@ -57,7 +57,7 @@ final class BootstrapSecurityAuthority implements AutoCloseable {
                         + (pg.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema,
                         pg.getUsername(), pg.getPassword()),
                 new CoordinatorBootstrapConfig.SecurityConfig(
-                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2, secret,
+                        "OAUTH2", secret,
                         Map.of("issuerUri", issuerUri(), "audience", "worker-bootstrap")), null);
     }
 

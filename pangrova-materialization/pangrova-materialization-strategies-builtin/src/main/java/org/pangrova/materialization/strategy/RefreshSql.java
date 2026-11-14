@@ -1,11 +1,9 @@
 package org.pangrova.materialization.strategy;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
-import org.pangrova.materialization.domain.MaterializationException;
-import org.pangrova.materialization.domain.PhysicalTableRef;
+import org.pangrova.common.util.DigestUtils;
+
+import org.pangrova.materialization.api.exception.MaterializationException;
+import org.pangrova.materialization.api.domain.PhysicalTableRef;
 
 /** Canonical SQL and fingerprint helpers shared by built-in refresh strategies. */
 public final class RefreshSql {
@@ -50,11 +48,6 @@ public final class RefreshSql {
 
     /** Returns the lowercase hexadecimal SHA-256 digest of the UTF-8 value. */
     public static String sha256(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is required by the Java runtime", failure);
-        }
+        return DigestUtils.sha256Hex(value);
     }
 }

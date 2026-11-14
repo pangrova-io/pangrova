@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import java.lang.reflect.Type;
@@ -39,7 +39,7 @@ class GenerationStorageContractIsolationTest {
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {
             for (String missing : List.of("com.fasterxml.jackson.databind.ObjectMapper",
                     "org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority",
-                    "org.pangrova.generation.core.submission.GenerationStageGraphFactory",
+                    "org.pangrova.generation.submission.GenerationStageGraphFactory",
                     "org.pangrova.generation.codec.execution.GenerationStageGraphCodec",
                     "org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec",
                     "org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore",
@@ -49,7 +49,7 @@ class GenerationStorageContractIsolationTest {
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
                     "org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore",
                     "org.postgresql.Driver",
-                    "org.pangrova.metadata.codec.json.MetadataJsonMapper")) {
+                    "org.pangrova.metadata.codec.table.TableMetadataSerializer")) {
                 assertThatThrownBy(() -> loader.loadClass(missing)).isInstanceOf(ClassNotFoundException.class);
             }
             for (var entry : java.util.Map.of(locations[0], "org/pangrova/generation/api",
@@ -68,7 +68,7 @@ class GenerationStorageContractIsolationTest {
                     "org.pangrova.generation.api.graph.template.GenerationStageTemplate");
             Object template = templateType.getMethod("of", byte[].class, List.class, List.class)
                     .invoke(null, new byte[]{2}, List.of(), List.of());
-            Class<?> kindType = loader.loadClass("org.pangrova.generation.api.execution.GenerationPageKind");
+            Class<?> kindType = loader.loadClass("org.pangrova.generation.api.enums.GenerationPageKind");
             Class<?> stageType = loader.loadClass(graphType.getName() + "$StagePlan");
             Object stage = stageType.getMethod("of", int.class, int.class, kindType, byte[].class,
                             templateType, List.class, List.class, boolean.class)
@@ -165,7 +165,7 @@ class GenerationStorageContractIsolationTest {
     private static void requireStorageValuesWithoutJdbc(ClassLoader loader) throws Exception {
         var keyType = loader.loadClass("org.pangrova.generation.api.identity.GenerationJobKey");
         Object key = keyType.getConstructor(String.class, String.class).newInstance("tenant", "job");
-        var anchorType = loader.loadClass("org.pangrova.query.api.ownership.ExecutionAnchor");
+        var anchorType = loader.loadClass("org.pangrova.execution.api.ownership.ExecutionAnchor");
         Instant now = Instant.parse("2026-10-01T00:00:00Z");
         Object anchor = anchorType.getConstructor(String.class, String.class, String.class, long.class,
                 Instant.class, Instant.class).newInstance(keyType.getMethod("executionId").invoke(key),
@@ -216,7 +216,7 @@ class GenerationStorageContractIsolationTest {
         }
         String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
         assertThat(classpath).isNotBlank();
-        for (String artifact : List.of("pangrova-generation-core", "pangrova-persistence-generation-postgresql", "pangrova-security-core", "pangrova-security-auth-builtin", "pangrova-security-auth-ldap",
+        for (String artifact : List.of("pangrova-generation-workflow", "pangrova-persistence-generation-postgresql", "pangrova-security-access", "pangrova-security-auth-builtin", "pangrova-security-auth-ldap",
                 "pangrova-security-auth-oauth2", "pangrova-security-policy-builtin",
                 "pangrova-security-secret-env", "pangrova-security-secret-file", "pangrova-security-kms-aws")) {
             assertThat(classpath).doesNotContain(artifact);

@@ -1,5 +1,6 @@
 package org.pangrova.protocol.index;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
@@ -7,6 +8,7 @@ import org.pangrova.protocol.v2.IndexEvalHintDetail;
 import org.pangrova.indexing.api.evaluation.IndexEvalHint;
 import org.pangrova.indexing.api.evaluation.IndexEvaluatedSplit;
 import org.pangrova.indexing.api.evaluation.SplitIndexEvalResult;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
@@ -64,6 +66,8 @@ public final class IndexEvalHintProtoCodec {
                 .setIndexType(hint.indexType().name())
                 .setIndexFilePath(hint.indexFilePath())
                 .setGeneration(hint.generation())
+                .setIndexSizeBytes(hint.indexSizeBytes())
+                .setIndexSha256(ByteString.copyFrom(HexFormat.of().parseHex(hint.checksum())))
                 .setPredicate(IndexPredicateProtoConverter.toProto(hint.predicate()))
                 .setDataFilePath(dataFilePath)
                 .build();
@@ -91,9 +95,11 @@ public final class IndexEvalHintProtoCodec {
     private static IndexEvalHint fromProto(IndexEvalHintDetail proto) {
         return new IndexEvalHint(
                 proto.getIndexId(),
-                org.pangrova.indexing.api.descriptor.IndexType.valueOf(proto.getIndexType()),
+                org.pangrova.indexing.api.enums.IndexType.valueOf(proto.getIndexType()),
                 IndexPredicateProtoConverter.fromProto(proto.getPredicate()),
                 proto.getIndexFilePath(),
-                proto.getGeneration());
+                proto.getGeneration(),
+                proto.getIndexSizeBytes(),
+                HexFormat.of().formatHex(proto.getIndexSha256().toByteArray()));
     }
 }

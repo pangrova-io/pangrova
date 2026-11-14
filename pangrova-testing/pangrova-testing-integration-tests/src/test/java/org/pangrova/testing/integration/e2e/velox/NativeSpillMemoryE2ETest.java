@@ -4,15 +4,18 @@ import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
-import org.pangrova.worker.nativebridge.jni.NativeCommandBuilder;
+import org.pangrova.worker.jni.NativeRuntime;
+import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * End-to-end tests verifying spill-to-disk and memory governance through
  * the complete Native Velox execution pipeline.
  *
- * <p>Tests exercise memory-constrained scenarios where Velox SharedArbitrator
+ * <p>Tests exercise memory-constrained scenarios where Velox PangrovaArbitrator
  * triggers automatic spill-to-disk for large aggregation/sort queries.
  * Memory limit updates are issued via the unified command channel
  * ({@link NativeRuntime#nativeCommand}) using
@@ -30,11 +33,20 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Spill statistics are verified through TaskStats (spill_bytes field)
  * collected after query execution.</p>
  *
+ * <p>The deployment installs a real {@code NativeMemoryCoordinator} listener
+ * (see {@code SqlE2ETestBase}), so this exercises the production
+ * {@code PangrovaArbitrator}, not Velox's test-only {@code SharedArbitrator}.
+ * These scenarios assert query completion and result correctness under a 2GB
+ * worker budget; they do not by themselves prove spill occurred, because the
+ * budget may suffice. The reclaim mechanism itself is covered by
+ * {@code VeloxMemoryGovernorTest.ReclaimReleasesUsedBytesNotJustUnusedCapacity}
+ * and {@code .TaskPoolHasRootReclaimer}.</p>
+ *
  * <p>All tests use TPC-H data and real infrastructure — no mocks or stubs.</p>
  *
  * <p>Validates: Requirements 6.6, 6.7, 6.8, 12.5, 12.7</p>
  */
-@DisplayName("Native Spill & Memory Governance E2E - SharedArbitrator Full Pipeline Verification")
+@DisplayName("Native Spill & Memory Governance E2E - PangrovaArbitrator Full Pipeline Verification")
 class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";
@@ -67,14 +79,14 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
     }
 
     // -----------------------------------------------------------------------
-    // Memory-Constrained Large Aggregation — SharedArbitrator Spill
+    // Memory-Constrained Large Aggregation — PangrovaArbitrator Spill
     // Under restricted memory, large aggregation queries should trigger
-    // spill-to-disk via SharedArbitrator and still complete correctly.
+    // spill-to-disk via PangrovaArbitrator and still complete correctly.
     // Validates: Requirements 6.8, 12.5
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Memory-Constrained Large Aggregation — SharedArbitrator Spill")
+    @DisplayName("Memory-Constrained Large Aggregation — PangrovaArbitrator Spill")
     class MemoryConstrainedAggregation {
 
         @Test
@@ -82,7 +94,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
         void largeAggregationCompletesWithSpill() {
             // Execute a heavy aggregation that processes all lineitem rows
             // grouped by multiple columns to maximize memory consumption.
-            // SharedArbitrator should trigger spill when memory is exhausted.
+            // PangrovaArbitrator should trigger spill when memory is exhausted.
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT l_returnflag, l_linestatus, "
                             + "COUNT(*) AS cnt, "
@@ -335,7 +347,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
     // VeloxMemoryBridge — Task Memory Pool Unified Arbitration
     // Task memory pools created via VeloxMemoryBridge participate in
-    // SharedArbitrator unified arbitration. Multiple concurrent queries
+    // PangrovaArbitrator unified arbitration. Multiple concurrent queries
     // should share memory fairly and trigger spill when needed.
     // Validates: Requirements 6.7
     // -----------------------------------------------------------------------
@@ -345,11 +357,11 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
     class TaskMemoryPoolArbitration {
 
         @Test
-        @DisplayName("Sequential heavy queries complete — SharedArbitrator manages memory across tasks")
+        @DisplayName("Sequential heavy queries complete — PangrovaArbitrator manages memory across tasks")
         void sequentialHeavyQueriesComplete() {
             // Execute multiple heavy queries sequentially.
             // Each query creates a Task memory pool that participates in
-            // SharedArbitrator arbitration. Memory from completed tasks
+            // PangrovaArbitrator arbitration. Memory from completed tasks
             // is reclaimed for subsequent tasks.
 
             List<TypedRow> query1 = sqlRunner.execute(
@@ -374,7 +386,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
                             + "ORDER BY total_price DESC");
             assertThat(query3).isNotEmpty();
 
-            // All three queries completed — SharedArbitrator successfully
+            // All three queries completed — PangrovaArbitrator successfully
             // managed memory allocation and reclamation across task pools.
             assertThat(query1.size() + query2.size() + query3.size())
                     .as("All three sequential queries should produce results")
@@ -527,4 +539,36 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
             long peakMemoryBytes,
             long spillBytes
     ) {}
+
+    // -----------------------------------------------------------------------
+    // Coordinator Operator Telemetry — real native stats reach the profile
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Coordinator operator telemetry")
+    class OperatorTelemetry {
+
+        @Test
+        @DisplayName("Profile aggregates operator stats reported by real Native tasks")
+        void profileUsesNativeOperatorStatsFromAcceptedReports() {
+            Set<String> before = Set.copyOf(queryManager.getStateMachines().keySet());
+            sqlRunner.execute("SELECT COUNT(*) FROM lineitem");
+            Set<String> submitted = new HashSet<>(queryManager.getStateMachines().keySet());
+            submitted.removeAll(before);
+            assertThat(submitted).as("query was registered").hasSize(1);
+            String queryId = submitted.iterator().next();
+
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30))
+                    .untilAsserted(() -> {
+                        assertThat(operatorStatsRegistry().operatorStats(queryId))
+                                .as("native operator telemetry reached the Coordinator")
+                                .isNotEmpty();
+                        var profile = queryProfileService().getProfile(queryId);
+                        assertThat(profile).isPresent();
+                        assertThat(profile.get().telemetryAvailable()).isTrue();
+                        assertThat(profile.get().operatorTree()).isNotEmpty();
+                        assertThat(profile.get().flameGraph()).isNotEmpty();
+                    });
+        }
+    }
 }

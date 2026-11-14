@@ -44,10 +44,10 @@ class AiApiClasspathTest {
                     field.getGenericType();
                 }
             }
-            for (String excluded : List.of("org.pangrova.connector.spi.plugin.Connector",
+            for (String excluded : List.of("org.pangrova.connector.api.plugin.Connector",
                     "org.pangrova.ai.control.config.AiModelConfigParser",
                     "org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry",
-                    "org.pangrova.worker.nativebridge.jni.NativeFunctionBridge",
+                    "org.pangrova.worker.function.NativeFunctionCallbacks",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap", "org.apache.arrow.vector.VectorSchemaRoot", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.calcite.rel.type.RelDataType", "org.postgresql.Driver")) {
                 assertThatThrownBy(() -> loader.loadClass(excluded)).isInstanceOf(ClassNotFoundException.class);

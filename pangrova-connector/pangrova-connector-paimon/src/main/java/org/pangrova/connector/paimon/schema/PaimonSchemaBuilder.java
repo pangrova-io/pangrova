@@ -5,7 +5,7 @@ import java.util.Map;
 import org.apache.paimon.schema.Schema;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.connector.paimon.type.PaimonDeclaredTypes;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.VectorType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 

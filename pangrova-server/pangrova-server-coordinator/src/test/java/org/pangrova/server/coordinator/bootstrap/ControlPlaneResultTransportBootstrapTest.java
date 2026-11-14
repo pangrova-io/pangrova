@@ -6,10 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
 import org.pangrova.transport.client.FlightResultFetcher;
-import org.pangrova.transport.client.TransportConnectionException;
+import org.pangrova.transport.client.exception.TransportConnectionException;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import java.nio.file.Path;
@@ -104,6 +104,6 @@ class ControlPlaneResultTransportBootstrapTest {
 
     @FunctionalInterface
     private interface EndpointAssertion {
-        void verify(org.pangrova.transport.api.result.ResultEndpoint endpoint) throws Exception;
+        void verify(org.pangrova.common.client.result.ResultEndpoint endpoint) throws Exception;
     }
 }

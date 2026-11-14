@@ -67,7 +67,7 @@ class ConnectorReadBindingTest {
     @Test
     void schemaEvidenceMustMatchTheExactSelectedDeclaration() {
         var field = new ConnectorTableMetadata.Column("email",
-                org.pangrova.types.PangrovaType.VARCHAR, java.util.OptionalInt.of(0));
+                org.pangrova.types.enums.PangrovaType.VARCHAR, java.util.OptionalInt.of(0));
         var evidence = new ConnectorReadSchemaIdentity(new TableIdentity("FORMAT", "owner", "location", "schema"),
                 "allocator", List.of(field), ConnectorReadSchemaIdentity.FieldIdStability.SELECTED_SOURCE);
         assertThatThrownBy(() -> new ConnectorReadBinding(handle, declaration, TableStatistics.UNKNOWN,

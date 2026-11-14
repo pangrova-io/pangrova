@@ -9,7 +9,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.indexing.builtin.sparse.provider.SparseStrategyProvider;
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.connector.api.index.predicate.RangeQuery;
 

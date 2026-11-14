@@ -26,7 +26,7 @@ class BlobContractIsolationTest {
         URL[] sources = {BlobStorage.class.getProtectionDomain().getCodeSource().getLocation(),
                 Stable.class.getProtectionDomain().getCodeSource().getLocation()};
         try (var loader = new URLClassLoader(sources, ClassLoader.getPlatformClassLoader())) {
-            for (Class<?> contract : List.of(BlobStorage.class, ManagedBlobStorage.class,
+            for (Class<?> contract : List.of(BlobStorage.class, BlobStorageFactory.class, ManagedBlobStorage.class,
                     BlobObjectId.class, BlobInputStream.class)) {
                 Class<?> isolated = loader.loadClass(contract.getName());
                 assertThat(isolated.getClassLoader()).isSameAs(loader);

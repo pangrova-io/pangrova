@@ -2,25 +2,21 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import java.util.List;
 
-import org.pangrova.coordinator.metadata.read.CatalogStatisticsProvider;
+import org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.materialization.KernelMaterializedViewRewriteCatalog;
-import org.pangrova.cache.redis.RedisL2CacheStore;
-import org.pangrova.planner.core.analysis.PangrovaPlanner;
-import org.pangrova.planner.core.analysis.PlannerContext;
-import org.pangrova.planner.core.analysis.SqlCompiler;
-import org.pangrova.cache.memory.InMemoryL2CacheStore;
-import org.pangrova.cache.api.L2CacheStore;
-import org.pangrova.planner.core.cache.QueryResultCache;
-import org.pangrova.planner.core.cost.CboConfig;
-import org.pangrova.planner.core.cost.CostModelConfig;
-import org.pangrova.planner.core.mv.DynamicTableRewriter;
-import org.pangrova.planner.core.mv.MaterializedViewRewriteCatalog;
+import org.pangrova.planner.analysis.PangrovaPlanner;
+import org.pangrova.planner.analysis.PlannerContext;
+import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.planner.cost.CboConfig;
+import org.pangrova.planner.cost.CostModelConfig;
+import org.pangrova.planner.mv.DynamicTableRewriter;
+import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
 import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
-import org.pangrova.planner.core.runtimefilter.DynamicPartitionPruningConfig;
-import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
-import org.pangrova.planner.core.statistics.StatisticsCollector;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
+import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.planner.statistics.StatisticsCollector;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,19 +58,18 @@ final class PlannerWiring {
      */
     SqlCompiler buildSqlCompiler(RuntimeFilterRegistry reg) {
         SqlCompiler compiler = new SqlCompiler(new PangrovaPlanner(),
-                new org.pangrova.planner.core.substrait.SubstraitConverter(),
-                new org.pangrova.planner.core.substrait.SubstraitPlanSerializer());
+                new org.pangrova.planner.substrait.SubstraitConverter(),
+                new org.pangrova.planner.substrait.SubstraitPlanSerializer());
         if (metadataBootstrap == null) {
             return compiler;
         }
-        var cache = new QueryResultCache(buildL2CacheStore());
-        return compiler.withQueryResultCache(cache).withSessionPlanner(
-                session -> buildMetadataAwarePlanner(reg, session, cache));
+        return compiler.withSessionPlanner(
+                session -> buildMetadataAwarePlanner(reg, session));
     }
 
     private PangrovaPlanner buildMetadataAwarePlanner(RuntimeFilterRegistry reg,
-            org.pangrova.connector.api.session.ConnectorSession session, QueryResultCache cache) {
-        var readBindings = new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
+            org.pangrova.connector.api.session.ConnectorSession session) {
+        var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
                 metadataBootstrap.catalogRegistry(), session);
         var rootSchema = metadataBootstrap.buildCalciteSchema(session, readBindings);
         var stats = new StatisticsCollector(
@@ -88,7 +83,7 @@ final class PlannerWiring {
         if (materializations != null) {
             String tenantId = session.getProperties().getOrDefault("tenant_id", "default");
             java.util.function.Consumer<
-                    org.pangrova.materialization.port.PublishedMaterialization> pinner =
+                    org.pangrova.materialization.api.port.PublishedMaterialization> pinner =
                     readerPin(session);
             dynamicTableRewriter = new DynamicTableRewriter(new DurableDynamicTableResolver(
                     materializations, tenantId, session.getCatalog().orElse(null),
@@ -96,7 +91,7 @@ final class PlannerWiring {
                     DynamicTableRewriter.isInternalExecution(session));
         }
         return new PangrovaPlanner(rootSchema, path,
-                new PlannerContext(stats, mvCatalog, cache,
+                new PlannerContext(stats, mvCatalog,
                         DynamicPartitionPruningConfig.DEFAULT, reg,
                         dynamicTableRewriter, null, CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT));
     }
@@ -118,20 +113,10 @@ final class PlannerWiring {
 
     /** Leases every published generation this admitted query resolves for execution. */
     private java.util.function.Consumer<
-            org.pangrova.materialization.port.PublishedMaterialization> readerPin(
+            org.pangrova.materialization.api.port.PublishedMaterialization> readerPin(
                     org.pangrova.connector.api.session.ConnectorSession session) {
         return new org.pangrova.coordinator.materialization.MaterializationReadPin(
                 java.util.Optional.ofNullable(readerPins), session);
     }
 
-    private L2CacheStore buildL2CacheStore() {
-        var cacheConfig = config.cacheConfig();
-        if (!cacheConfig.isRedisEnabled()) {
-            return new InMemoryL2CacheStore();
-        }
-        LOG.info("event=redis_l2_cache_enabled url={} ttl={} maxEntry={}",
-                cacheConfig.redisUrl(), cacheConfig.ttlSeconds(), cacheConfig.maxEntryBytes());
-        return new RedisL2CacheStore(
-                cacheConfig.redisUrl(), cacheConfig.ttlSeconds(), cacheConfig.maxEntryBytes());
-    }
 }

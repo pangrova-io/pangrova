@@ -1,11 +1,13 @@
 package org.pangrova.metadata.api.catalog;
 
+import org.pangrova.metadata.api.enums.CatalogState;
+
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.api.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
 
 /**
  * Unified handle for accessing a registered catalog regardless of its type.
@@ -27,7 +29,7 @@ public interface CatalogHandle {
     ConnectorMetadata getMetadata(ConnectorSession session);
 
     /** Registers a lifecycle callback; this port grants no data or table access. */
-    default void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
+    default void registerCommitListener(org.pangrova.connector.api.index.CommitListener listener) {
         throw new UnsupportedOperationException("Catalog does not publish commit events");
     }
 
@@ -51,8 +53,13 @@ public interface CatalogHandle {
      *
      * @return source contract, or empty if this catalog cannot serve one
      */
-    default java.util.Optional<org.pangrova.connector.spi.materialization.SourceProvider>
+    default java.util.Optional<org.pangrova.connector.api.materialization.SourceProvider>
             getMaterializationSourceProvider() {
+        return java.util.Optional.empty();
+    }
+
+    /** Borrowed catalog for external metadata synchronization. Its handle owns closing it. */
+    default java.util.Optional<FederatedCatalog> federationSource() {
         return java.util.Optional.empty();
     }
 

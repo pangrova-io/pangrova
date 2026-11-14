@@ -12,7 +12,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.connector.iceberg.schema.IcebergSchemaBuilder;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.query.ConnectorQueryAuthority;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.VectorType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;

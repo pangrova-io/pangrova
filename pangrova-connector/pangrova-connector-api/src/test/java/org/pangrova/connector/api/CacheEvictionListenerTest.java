@@ -1,6 +1,6 @@
 package org.pangrova.connector.api;
 
-import org.pangrova.connector.spi.cache.CacheEvictionListener;
+import org.pangrova.connector.api.cache.CacheEvictionListener;
 
 import org.junit.jupiter.api.Test;
 

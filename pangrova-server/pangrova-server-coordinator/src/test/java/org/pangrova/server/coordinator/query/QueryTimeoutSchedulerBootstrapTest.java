@@ -1,9 +1,9 @@
 package org.pangrova.server.coordinator.query;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 
-import org.pangrova.query.core.lifecycle.QueryStateMachine;
-import org.pangrova.query.core.lifecycle.QueryTimeoutScheduler;
+import org.pangrova.query.lifecycle.QueryStateMachine;
+import org.pangrova.query.lifecycle.QueryTimeoutScheduler;
 
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;

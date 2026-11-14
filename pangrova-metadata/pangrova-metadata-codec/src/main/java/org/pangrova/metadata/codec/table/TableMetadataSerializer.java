@@ -3,8 +3,8 @@ package org.pangrova.metadata.codec.table;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
-import org.pangrova.metadata.api.error.MetadataSerializationException;
+import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.metadata.api.exception.MetadataSerializationException;
 import org.pangrova.metadata.api.object.TableMetadata;
 
 /**

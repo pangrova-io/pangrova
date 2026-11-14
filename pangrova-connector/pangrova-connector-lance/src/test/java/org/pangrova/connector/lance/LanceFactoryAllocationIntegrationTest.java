@@ -4,10 +4,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.connector.api.plugin.ConnectorContext;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import java.nio.file.Path;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.NativeWriteAllocation;
 import org.pangrova.testing.testkit.ContainerTestBase;
 

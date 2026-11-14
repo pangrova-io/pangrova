@@ -2,7 +2,7 @@ package org.pangrova.persistence.jdbc.api.generation;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;

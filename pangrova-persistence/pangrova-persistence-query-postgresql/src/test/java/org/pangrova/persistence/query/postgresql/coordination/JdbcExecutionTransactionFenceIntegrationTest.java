@@ -2,8 +2,8 @@ package org.pangrova.persistence.query.postgresql.coordination;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.query.api.ownership.ExecutionOwnerLostException;
-import org.pangrova.query.api.ownership.ExecutionOwnerLostException.Reason;
+import org.pangrova.query.api.exception.ExecutionOwnerLostException;
+import org.pangrova.query.api.exception.ExecutionOwnerLostException.Reason;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
 

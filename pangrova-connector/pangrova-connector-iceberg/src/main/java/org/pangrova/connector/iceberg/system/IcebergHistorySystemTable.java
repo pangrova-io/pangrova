@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;

@@ -1,6 +1,6 @@
 package org.pangrova.metadata.codec.table;
 
-import org.pangrova.metadata.api.error.MetadataSerializationException;
+import org.pangrova.metadata.api.exception.MetadataSerializationException;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.TableMetadata;

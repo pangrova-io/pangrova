@@ -20,6 +20,8 @@ package org.pangrova.ai.control.feature;
 import java.time.Instant;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Immutable link between one catalog object version and its artifact build job. */
 public record CatalogExportRequest(
         String tenantId,
@@ -54,12 +56,6 @@ public record CatalogExportRequest(
 
     /** Catalog object family that owns the exported immutable version. */
     public enum ObjectKind { FEATURE_VIEW, TRAINING_DATASET }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
-    }
 
     private static void requireSha(String value, String name) {
         if (value == null || !value.matches("[0-9a-fA-F]{64}")) {

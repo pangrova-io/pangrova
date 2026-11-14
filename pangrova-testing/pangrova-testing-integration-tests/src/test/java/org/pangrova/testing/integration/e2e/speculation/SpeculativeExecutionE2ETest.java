@@ -4,12 +4,12 @@ import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInv
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeTaskRegistry;
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptCanceller;
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptDispatcher;
-import org.pangrova.scheduler.core.speculation.SpeculationConfig;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
+import org.pangrova.scheduler.speculation.SpeculationConfig;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.scheduler.api.placement.TaskDuration;
+import org.pangrova.scheduler.api.speculation.TaskDuration;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;

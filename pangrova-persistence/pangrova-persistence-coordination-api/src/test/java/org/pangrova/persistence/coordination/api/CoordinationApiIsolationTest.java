@@ -3,7 +3,7 @@ package org.pangrova.persistence.coordination.api;
 import org.pangrova.persistence.coordination.api.membership.WorkerRegistry;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
-import org.pangrova.persistence.coordination.spi.provider.CoordinationProvider;
+import org.pangrova.persistence.coordination.api.provider.CoordinationProvider;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.api.annotation.Internal;
@@ -23,15 +23,15 @@ class CoordinationApiIsolationTest {
                 Internal.class.getProtectionDomain().getCodeSource().getLocation(),
                 CoordinatorSnapshot.class.getProtectionDomain().getCodeSource().getLocation()};
         try (var loader = new URLClassLoader(artifacts, ClassLoader.getPlatformClassLoader())) {
-            for (Class<?> declared : List.of(org.pangrova.persistence.coordination.api.error.CoordinationStorageException.class, CoordinationProvider.class, CoordinatorRegistry.class,
+            for (Class<?> declared : List.of(org.pangrova.persistence.coordination.api.exception.CoordinationStorageException.class, CoordinationProvider.class, CoordinatorRegistry.class,
                     org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots.class,
-                    org.pangrova.coordination.api.membership.CoordinatorRole.class,
+                    org.pangrova.coordination.api.enums.CoordinatorRole.class,
                     CoordinatorSnapshot.class, DistributedLease.class,
                     org.pangrova.coordination.api.lease.LeaseEntry.class, WorkerRegistry.class,
                     org.pangrova.coordination.api.membership.WorkerSnapshot.class,
                     org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot.class,
                     org.pangrova.coordination.api.heartbeat.CacheCatalogSummary.class,
-                    org.pangrova.coordination.spi.leadership.MaintenanceLeaderAware.class)) {
+                    org.pangrova.coordination.api.leadership.MaintenanceLeaderAware.class)) {
                 var contract = loader.loadClass(declared.getName());
                 assertThat(contract.getClassLoader()).isSameAs(loader);
                 contract.getMethods();
@@ -40,7 +40,7 @@ class CoordinationApiIsolationTest {
             }
             assertThat(CoordinatorRegistry.class.getMethod("updateLastProcessedInvalidationId", String.class, long.class)
                     .isDefault()).as("invalidation progress cannot silently acknowledge an unsupported write").isFalse();
-            for (String absent : List.of("org.pangrova.persistence.table.api.control.TableControlStore",
+            for (String absent : List.of("org.pangrova.table.api.ownership.TableControlStore",
                     "org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry",
                     "org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",

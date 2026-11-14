@@ -20,6 +20,8 @@ package org.pangrova.ai.control.evaluation;
 import java.time.Instant;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Immutable release-gate decision tied to a completed, version-pinned run. */
 public record EvaluationReleaseDecision(
         String tenantId,
@@ -31,11 +33,11 @@ public record EvaluationReleaseDecision(
         Instant decidedAt) {
 
     public EvaluationReleaseDecision {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(runId, "runId");
-        EvaluationValidation.requireText(policyVersion, "policyVersion");
-        EvaluationValidation.requireText(reason, "reason");
-        EvaluationValidation.requireText(decidedBy, "decidedBy");
+        requireText(tenantId, "tenantId");
+        requireText(runId, "runId");
+        requireText(policyVersion, "policyVersion");
+        requireText(reason, "reason");
+        requireText(decidedBy, "decidedBy");
         Objects.requireNonNull(decidedAt, "decidedAt must not be null");
     }
 }

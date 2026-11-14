@@ -1,5 +1,7 @@
 package org.pangrova.streaming.api.checkpoint;
 
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -17,7 +19,8 @@ import java.util.UUID;
  * @param checkpointId        immutable identity for this creation's checkpoints and default consumer group
  * @param lifecycleState      current lifecycle state
  * @param targetTable         fully qualified target lakehouse table reference
- * @param sourceProperties    Kafka source properties (bootstrap.servers, topic, group.id, etc.)
+ * @param sourceProvider      SQL-selected source factory identifier
+ * @param sourceProperties    settings interpreted by that provider
  * @param sourceFormat        CDC format identifier (debezium-json, canal-json, maxwell-json)
  * @param streamProperties    stream-level WITH properties (batch_size, flush_interval, etc.)
  * @param creatorIdentity     identity of the user who created the stream
@@ -38,6 +41,7 @@ public record StreamState(
         String checkpointId,
         StreamLifecycleState lifecycleState,
         String targetTable,
+        String sourceProvider,
         Map<String, String> sourceProperties,
         String sourceFormat,
         Map<String, String> streamProperties,
@@ -62,6 +66,9 @@ public record StreamState(
         }
         Objects.requireNonNull(lifecycleState, "lifecycleState must not be null");
         Objects.requireNonNull(targetTable, "targetTable must not be null");
+        if (sourceProvider == null || sourceProvider.isBlank()) {
+            throw new IllegalArgumentException("sourceProvider must not be blank");
+        }
         Objects.requireNonNull(sourceProperties, "sourceProperties must not be null");
         Objects.requireNonNull(sourceFormat, "sourceFormat must not be null");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
@@ -98,7 +105,7 @@ public record StreamState(
         return new Builder()
                 .streamName(streamName).tenantId(tenantId).checkpointId(checkpointId)
                 .lifecycleState(lifecycleState).targetTable(targetTable)
-                .sourceProperties(sourceProperties).sourceFormat(sourceFormat)
+                .sourceProvider(sourceProvider).sourceProperties(sourceProperties).sourceFormat(sourceFormat)
                 .streamProperties(streamProperties).creatorIdentity(creatorIdentity)
                 .coordinatorId(coordinatorId).epoch(epoch)
                 .schemaVersion(schemaVersion).errorMessage(errorMessage)
@@ -123,6 +130,7 @@ public record StreamState(
         private String checkpointId = "stream:" + UUID.randomUUID();
         private StreamLifecycleState lifecycleState;
         private String targetTable;
+        private String sourceProvider;
         private Map<String, String> sourceProperties;
         private String sourceFormat;
         private Map<String, String> streamProperties;
@@ -159,6 +167,10 @@ public record StreamState(
         }
         public Builder targetTable(String v) {
             this.targetTable = v;
+            return this;
+        }
+        public Builder sourceProvider(String v) {
+            this.sourceProvider = v;
             return this;
         }
         public Builder sourceProperties(Map<String, String> v) {
@@ -222,7 +234,7 @@ public record StreamState(
         public StreamState build() {
             return new StreamState(
                     streamName, tenantId, checkpointId, lifecycleState, targetTable,
-                    sourceProperties, sourceFormat, streamProperties,
+                    sourceProvider, sourceProperties, sourceFormat, streamProperties,
                     creatorIdentity, coordinatorId, epoch, schemaVersion,
                     errorMessage, recordsConsumed, recordsWritten,
                     recordsDeadLettered, lastOffsetCommitTime,

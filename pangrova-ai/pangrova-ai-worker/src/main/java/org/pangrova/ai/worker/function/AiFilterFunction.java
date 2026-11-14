@@ -1,11 +1,11 @@
 package org.pangrova.ai.worker.function;
 
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
-import org.pangrova.function.spi.scalar.ScalarFunction;
+import org.pangrova.function.api.scalar.ScalarFunction;
 
 import java.util.List;
 import java.util.Set;

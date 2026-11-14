@@ -2,11 +2,11 @@ package org.pangrova.ai.worker.function;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.worker.context.WorkerAiCallbackScope;
-import org.pangrova.ai.spi.model.AiModelCatalog;
+import org.pangrova.ai.api.model.AiModelCatalog;
 import org.pangrova.ai.worker.provider.WorkerAiModelCatalog;
-import org.pangrova.function.spi.registry.FunctionFactory;
-import org.pangrova.function.spi.runtime.FunctionCallbackScope;
-import org.pangrova.function.spi.runtime.FunctionFailureProjector;
+import org.pangrova.function.api.registry.FunctionFactory;
+import org.pangrova.function.api.runtime.FunctionCallbackScope;
+import org.pangrova.function.api.runtime.FunctionFailureProjector;
 
 import java.util.ServiceLoader;
 

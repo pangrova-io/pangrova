@@ -13,6 +13,7 @@
  */
 package org.pangrova.transport.client;
 
+import io.substrait.proto.Type;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.LogicalType;
 
@@ -46,5 +47,24 @@ public record ColumnDescriptor(String name, int sqlType, String typeName, int pr
         } else if (typeName.startsWith("VECTOR(")) {
             throw new IllegalArgumentException("VECTOR metadata requires its canonical declaration");
         }
+    }
+
+    /** Java array representation actually emitted by the decoder for an annotated VECTOR column. */
+    public Optional<Class<?>> vectorArrayClass() {
+        return logicalType.map(declaration -> {
+            var element = declaration.getSubstraitType().getList().getType();
+            if (element.hasFp64()) {
+                return element.getFp64().getNullability() == Type.Nullability.NULLABILITY_NULLABLE
+                        ? Double[].class : double[].class;
+            }
+            return element.getFp32().getNullability() == Type.Nullability.NULLABILITY_NULLABLE
+                    ? Float[].class : float[].class;
+        });
+    }
+
+    /** Ordinary columns and nullable VECTOR rows permit nulls in result metadata. */
+    public boolean allowsNull() {
+        return logicalType.isEmpty() || logicalType.orElseThrow().getSubstraitType().getList().getNullability()
+                != Type.Nullability.NULLABILITY_REQUIRED;
     }
 }

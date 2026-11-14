@@ -1,5 +1,7 @@
 package org.pangrova.transport.flight;
 
+import org.pangrova.transport.flight.exception.TicketValidationException;
+
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;

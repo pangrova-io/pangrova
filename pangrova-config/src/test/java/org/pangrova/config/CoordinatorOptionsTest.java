@@ -1,5 +1,7 @@
 package org.pangrova.config;
 
+import org.pangrova.config.enums.StateStoreType;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -97,11 +99,6 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.HIGH_AVAILABILITY_ENABLED.key()).isEqualTo("coordinator.ha.enabled");
     }
 
-    @Test
-    void highAvailabilityJdbcUrlHasNoDefault() {
-        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_JDBC_URL.defaultValue()).isNull();
-        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_JDBC_URL.hasDefaultValue()).isFalse();
-    }
 
     // ---- Query defaults ----
 

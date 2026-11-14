@@ -5,6 +5,8 @@ import org.pangrova.common.api.annotation.Experimental;
 import java.util.List;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Immutable connector allocation for a Native dataset sink; contains no rows or credentials. */
 @Experimental
 public record NativeWriteAllocation(
@@ -85,7 +87,4 @@ public record NativeWriteAllocation(
     @Override
     public byte[] schemaFenceSha256() { return schemaFenceSha256.clone(); }
 
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
-    }
 }

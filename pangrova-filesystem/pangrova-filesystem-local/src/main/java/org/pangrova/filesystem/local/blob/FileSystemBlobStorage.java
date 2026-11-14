@@ -1,5 +1,6 @@
 package org.pangrova.filesystem.local.blob;
 
+import org.pangrova.common.util.DigestUtils;
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import java.io.IOException;
@@ -13,7 +14,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
 
@@ -109,7 +109,7 @@ public final class FileSystemBlobStorage implements BlobStorage {
         FileChannel channel = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
         try {
             if (channel.size() != object.size()) throw new IOException("Blob length differs from its identity");
-            MessageDigest digest = sha256();
+            MessageDigest digest = DigestUtils.sha256();
             ByteBuffer buffer = ByteBuffer.allocate(BUFFER_BYTES);
             while (channel.read(buffer) != -1) {
                 buffer.flip();
@@ -130,7 +130,7 @@ public final class FileSystemBlobStorage implements BlobStorage {
     }
 
     private static void copyAndVerify(Path source, Path draft, BlobObjectId object) throws IOException {
-        MessageDigest digest = sha256();
+        MessageDigest digest = DigestUtils.sha256();
         try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
              FileChannel output = FileChannel.open(draft, StandardOpenOption.WRITE)) {
             if (input.size() != object.size()) throw new IOException("Staged blob length differs from its identity");
@@ -161,14 +161,6 @@ public final class FileSystemBlobStorage implements BlobStorage {
     private static void forceDirectory(Path directory) throws IOException {
         try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ)) {
             channel.force(true);
-        }
-    }
-
-    private static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
         }
     }
 

@@ -1,13 +1,10 @@
 package org.pangrova.standalone;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.Map;
-
 import org.pangrova.config.PangrovaConfiguration;
-import org.pangrova.config.YamlConfigLoader;
+import org.pangrova.server.bootstrap.ServerConfigurationLoader;
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.server.coordinator.embedding.EmbeddedCoordinator;
-import org.pangrova.worker.embedding.EmbeddedWorker;
+import org.pangrova.server.worker.embedding.EmbeddedWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +32,7 @@ public final class PangrovaStandaloneMain {
     /** Starts a Coordinator and Worker from the standalone YAML configuration. */
     public static void main(String[] args) {
         try {
-            PangrovaConfiguration config = loadPangrovaConfiguration(args);
+            PangrovaConfiguration config = ServerConfigurationLoader.load(args, CLASSPATH_DEFAULT);
             // Validate coordinator + worker config before any module starts up.
             EmbeddedCoordinator.validator().validate(config);
             EmbeddedWorker.validator().validate(config);
@@ -47,18 +44,20 @@ public final class PangrovaStandaloneMain {
             EmbeddedWorker worker;
             try {
                 worker = EmbeddedWorker.start(config, coordinator.httpPort());
-            } catch (RuntimeException e) {
-                coordinator.close();
-                throw e;
+            } catch (RuntimeException | Error failure) {
+                ResourceCloser.closeAll(failure, coordinator::close);
+                throw failure;
             }
             LOG.info("event=standalone_worker_started workerId={}",
                     worker.workerId());
 
-            // Register shutdown hook AFTER both components start successfully.
-            // If start() throws, there's nothing to shut down.
-            Runtime.getRuntime().addShutdownHook(new Thread(
-                    () -> shutdownBoth(worker, coordinator),
-                    "standalone-shutdown"));
+            try {
+                Runtime.getRuntime().addShutdownHook(new Thread(
+                        () -> shutdownBoth(worker, coordinator), "standalone-shutdown"));
+            } catch (RuntimeException | Error failure) {
+                ResourceCloser.closeAll(failure, worker::close, coordinator::close);
+                throw failure;
+            }
 
             LOG.info("event=standalone_process_started mode=coordinator+worker");
         } catch (Exception e) {
@@ -68,52 +67,11 @@ public final class PangrovaStandaloneMain {
     }
 
     /**
-     * Parses CLI args and loads a unified {@link PangrovaConfiguration} containing
-     * both coordinator and worker config sections.
-     */
-    static PangrovaConfiguration loadPangrovaConfiguration(String[] args) throws IOException {
-        String configPath = parseConfigPath(args);
-        Map<String, String> flatMap;
-        if (configPath != null) {
-            LOG.info("event=config_loading source=cli_yaml path={}",
-                    configPath.replace('\r', '_').replace('\n', '_'));
-            flatMap = YamlConfigLoader.loadWithDefaults(Path.of(configPath), CLASSPATH_DEFAULT);
-        } else {
-            LOG.info("event=config_loading source=classpath_default resource={}", CLASSPATH_DEFAULT);
-            flatMap = YamlConfigLoader.loadFromClasspath(CLASSPATH_DEFAULT);
-        }
-        return PangrovaConfiguration.fromYamlWithEnvOverride(flatMap);
-    }
-
-    /**
-     * Scans CLI args for {@code --config <path>}. Returns the path or {@code null} if absent.
-     */
-    static String parseConfigPath(String[] args) {
-        for (int i = 0; i < args.length - 1; i++) {
-            if ("--config".equals(args[i])) {
-                return args[i + 1];
-            }
-        }
-        return null;
-    }
-
-    /**
      * Shuts down worker first, then coordinator (LIFO order).
      */
     static void shutdownBoth(EmbeddedWorker worker, EmbeddedCoordinator coordinator) {
         LOG.info("event=standalone_shutdown_start");
-        try {
-            worker.close();
-            LOG.info("event=standalone_worker_stopped");
-        } catch (Exception e) {
-            LOG.warn("event=standalone_worker_shutdown_error error={}", e.getMessage(), e);
-        }
-        try {
-            coordinator.close();
-            LOG.info("event=standalone_coordinator_stopped");
-        } catch (Exception e) {
-            LOG.warn("event=standalone_coordinator_shutdown_error error={}", e.getMessage(), e);
-        }
+        ResourceCloser.closeAll(null, worker::close, coordinator::close);
         LOG.info("event=standalone_shutdown_completed");
     }
 }

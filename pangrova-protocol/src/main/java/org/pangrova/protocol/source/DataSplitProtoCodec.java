@@ -1,7 +1,10 @@
 package org.pangrova.protocol.source;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.google.protobuf.Any;
 import com.google.protobuf.InvalidProtocolBufferException;
+import org.pangrova.common.util.OrderedMaps;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.LogicalType;
@@ -9,13 +12,12 @@ import org.pangrova.protocol.v2.PartitionValue;
 import org.pangrova.protocol.v2.TypedValue;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Collections;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Utilities for the generic v2 DataSplit envelope and typed file detail extension. */
 public final class DataSplitProtoCodec {
@@ -35,13 +37,9 @@ public final class DataSplitProtoCodec {
                 + safe(sourceSnapshot) + '\0' + safe(dataObjectId) + '\0'
                 + safe(opaqueLocation) + '\0'
                 + startOffset + '\0' + length;
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(identity.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("JVM does not provide SHA-256", impossible);
-        }
+        byte[] digest = DigestUtils.sha256()
+                .digest(identity.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(digest);
     }
 
     /** Verifies the immutable physical range identity independently of scan-only detail. */
@@ -88,13 +86,13 @@ public final class DataSplitProtoCodec {
             validateRange(startOffset, length);
             partitionValues = partitionValues == null
                     ? Map.of()
-                    : Collections.unmodifiableMap(new LinkedHashMap<>(partitionValues));
+                    : OrderedMaps.immutableCopy(partitionValues);
             detail = copyDetail(Objects.requireNonNull(detail, "detail must not be null"));
         }
 
         @Override
         public Map<String, String> partitionValues() {
-            return Collections.unmodifiableMap(new LinkedHashMap<>(partitionValues));
+            return OrderedMaps.immutableCopy(partitionValues);
         }
 
         @Override
@@ -124,12 +122,6 @@ public final class DataSplitProtoCodec {
                         .setColumnName(name)
                         .setValue(stringValue(value))));
         return builder.build();
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
     }
 
     private static FileSplitDetail copyDetail(FileSplitDetail detail) {

@@ -118,7 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stage retry now cancels old tasks before launching replacements
 - CoordinatorResultBuffer returns error code instead of throwing on buffer full
 - StageFragmenter parallelism configurable (was hardcoded 256MB/128 max)
-- JNI GetStringUTFChars null check in JniBridge.cpp
+- JNI GetStringUTFChars null check in JniEntryPoints.cpp
 - Arrow release callback verification in ColumnarDataExporter.cpp
 - NativeWriteCommitTracker timeout-based cleanup for orphaned write state
 - Task cancel verification polling to detect zombie native tasks

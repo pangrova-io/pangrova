@@ -1,12 +1,12 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.error.ConnectorException;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import org.pangrova.connector.api.metadata.NativeWriteAllocation;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
@@ -30,10 +30,10 @@ public final class LanceMetadata implements ConnectorMetadata {
     private final Supplier<LanceCatalogStore> store;
     private final Optional<NativeDatasetControlPlane> controlPlane;
     private final LanceSnapshotResolver snapshots;
-    private volatile org.pangrova.connector.spi.index.CommitListener commitListener;
+    private volatile org.pangrova.connector.api.index.CommitListener commitListener;
 
     /** Registers only the durable event append callback, not a source-row processor. */
-    void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
+    void registerCommitListener(org.pangrova.connector.api.index.CommitListener listener) {
         commitListener = java.util.Objects.requireNonNull(listener, "listener");
     }
 
@@ -236,8 +236,8 @@ public final class LanceMetadata implements ConnectorMetadata {
             return;
         }
         var type = output.allocation().operation() == NativeWriteAllocation.Operation.OVERWRITE
-                ? org.pangrova.connector.api.index.CommitEventType.OVERWRITE
-                : org.pangrova.connector.api.index.CommitEventType.APPEND;
+                ? org.pangrova.connector.api.enums.CommitEventType.OVERWRITE
+                : org.pangrova.connector.api.enums.CommitEventType.APPEND;
         // Dataset partitions are not file paths. Preserve their exact version without inventing FileSplits.
         listener.onCommit(new org.pangrova.connector.api.index.CommitEvent(context.tenantId(), catalog,
                 output.table().table().schema(), output.table().table().table(), List.of(), List.of(),

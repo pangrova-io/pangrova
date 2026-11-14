@@ -10,9 +10,9 @@ import net.jqwik.api.constraints.DoubleRange;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.indexing.builtin.rtree.provider.RTreeStrategyProvider;
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.connector.api.index.predicate.SpatialOp;
+import org.pangrova.connector.api.enums.SpatialOp;
 import org.pangrova.connector.api.index.predicate.SpatialQuery;
 
 import java.util.ArrayList;

@@ -1,7 +1,7 @@
 package org.pangrova.persistence.query.postgresql.transaction;
 
 import org.pangrova.common.api.annotation.ThreadSafe;
-import org.pangrova.persistence.query.api.commit.JournalWriteException;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.common.file.CopyFileCommitBinding;

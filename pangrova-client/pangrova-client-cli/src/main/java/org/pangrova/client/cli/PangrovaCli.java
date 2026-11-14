@@ -1,8 +1,8 @@
 package org.pangrova.client.cli;
 
-import org.pangrova.transport.client.http.PangrovaRestClient;
-import org.pangrova.transport.client.authentication.ClientAuthentication;
-import org.pangrova.transport.client.http.PangrovaRestClientConfig.TlsSettings;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.client.http.authentication.ClientAuthentication;
+import org.pangrova.client.http.PangrovaRestClientConfig.TlsSettings;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import java.io.BufferedReader;
@@ -58,7 +58,7 @@ public final class PangrovaCli {
         }
         try (PangrovaRestClient client = createClient(parsed)) {
             if (parsed.catalog != null) out.println("Catalog: " + parsed.catalog);
-            new SqlShell(QueryClient.wrap(client), reader, out, parsed.queryTimeout,
+            new SqlShell(client, reader, out, parsed.queryTimeout,
                     parsed.catalog, parsed.schema).run();
         }
     }
@@ -85,14 +85,14 @@ public final class PangrovaCli {
             String queryId;
             try (PangrovaRestClient client = createClient(parsed)) {
                 if (parsed.batch.output() == null) {
-                    queryId = new SqlShell(QueryClient.wrap(client), reader, out, parsed.queryTimeout,
+                    queryId = new SqlShell(client, reader, out, parsed.queryTimeout,
                             parsed.catalog, parsed.schema).execute(sql);
                 } else {
                     queryId = executeToFile(parsed, client, reader, sql);
                 }
             }
             if (parsed.batch.receipt() != null) {
-                String receipt = org.pangrova.common.json.jackson.JsonMapperFactory
+                String receipt = org.pangrova.common.json.JsonMapperFactory
                         .writer().writeValueAsString(
                         java.util.Map.of("queryId", queryId, "state", "FINISHED", "sqlSha256",
                                 org.pangrova.common.util.DigestUtils.sha256Hex(sql), "resultConsumed", true));
@@ -110,7 +110,7 @@ public final class PangrovaCli {
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE), false, StandardCharsets.UTF_8);
         String queryId;
         try (result) {
-            queryId = new SqlShell(QueryClient.wrap(client), reader, result, parsed.queryTimeout,
+            queryId = new SqlShell(client, reader, result, parsed.queryTimeout,
                     parsed.catalog, parsed.schema).execute(sql);
         }
         if (result.checkError()) throw new IOException("Failed to close query result output");

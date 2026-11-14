@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg.read;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.HadoopTestGuard;
 import org.pangrova.connector.iceberg.IcebergPageSourceProvider;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
@@ -11,13 +11,13 @@ import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
-import org.pangrova.connector.api.error.ConnectorException;
-import org.pangrova.batch.api.page.BatchFormat;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.batch.api.enums.BatchFormat;
 import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.batch.api.page.NativePage;
-import org.pangrova.types.PangrovaType;
-import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.data.ConnectorPageSource;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;

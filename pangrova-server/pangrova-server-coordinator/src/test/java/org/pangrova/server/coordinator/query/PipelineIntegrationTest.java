@@ -2,12 +2,12 @@ package org.pangrova.server.coordinator.query;
 
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.query.core.lifecycle.QueryStateMachine;
+import org.pangrova.query.lifecycle.QueryStateMachine;
 
-import org.pangrova.query.api.error.QueryRejectedException;
+import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.session.QuerySession;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,8 +21,8 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
@@ -30,11 +30,11 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.observability.spi.tracing.TracingProvider;
-import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.observability.api.tracing.TracingProvider;
+import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
@@ -91,7 +91,7 @@ class PipelineIntegrationTest {
         var dagEngine = orchestrator.dagEngine();
         workerTaskManager.setAutoFinishReporter(report ->
                 dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                        report.state(), org.pangrova.coordinator.query.task.TaskReportQueryAdapter.failure(report)));
+                        report.state(), org.pangrova.coordinator.query.task.TaskReportCompletion.failure(report)));
     }
 
     @AfterEach

@@ -3,12 +3,12 @@ package org.pangrova.persistence.catalog.postgresql.synchronization;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion;
-import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncOutcomeUnknownException;
+import org.pangrova.persistence.catalog.api.exception.MetadataSyncOutcomeUnknownException;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
@@ -113,11 +113,11 @@ class PostgresMetadataSyncFailureTest {
         var differentId = new MetadataSyncCompletion(UUID.randomUUID(), completion.scope(), completion.expectedCheckpoint(),
                 completion.nextCheckpoint(), completion.result());
         assertThat(catchThrowable(() -> restarted.complete(differentId)))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetadataSyncPendingException.class);
         var differentContent = new MetadataSyncCompletion(completion.runId(), completion.scope(), completion.expectedCheckpoint(),
                 Optional.of(completion.nextCheckpoint().orElseThrow().plusSeconds(1)), completion.result());
         assertThat(catchThrowable(() -> restarted.complete(differentContent)))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException.class);
         assertThat(restarted.findCompletion(differentId.runId())).isEmpty();
         assertThat(restarted.loadCheckpoint(completion.scope())).isEmpty();
         restarted.recoverPending(completion.scope());
@@ -131,21 +131,21 @@ class PostgresMetadataSyncFailureTest {
         assertThat(catchThrowable(() -> faulting.complete(completion)))
                 .isInstanceOf(MetadataSyncOutcomeUnknownException.class);
         var deployments = new PostgresCatalogDeploymentRepository(source);
-        deployments.deleteCatalogDescriptor("catalog");
+        deployments.deleteCatalogDescriptor(completion.scope());
         var replacement = new CatalogDescriptor("catalog", CatalogType.FEDERATION, "replacement", CatalogState.ACTIVE,
                 Map.of(), "", Set.of());
         deployments.saveCatalogDescriptor(replacement);
         var restarted = new PostgresMetadataSyncRepository(source);
         restarted.recoverPending(replacement.identity());
         assertThat(catchThrowable(() -> restarted.complete(completion)))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException.class);
         assertThat(restarted.findCompletion(completion.runId())).isEmpty();
         assertThat(restarted.loadCheckpoint(completion.scope())).isEmpty();
         assertThat(restarted.loadCheckpoint(replacement.identity())).isEmpty();
         var reuse = new MetadataSyncCompletion(completion.runId(), replacement.identity(), completion.expectedCheckpoint(),
                 completion.nextCheckpoint(), completion.result());
         assertThat(catchThrowable(() -> restarted.complete(reuse)))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException.class);
         var accepted = new MetadataSyncCompletion(UUID.randomUUID(), replacement.identity(), completion.expectedCheckpoint(),
                 completion.nextCheckpoint(), completion.result());
         restarted.complete(accepted);
@@ -159,9 +159,9 @@ class PostgresMetadataSyncFailureTest {
         }
         var restarted = new PostgresMetadataSyncRepository(source);
         assertThat(catchThrowable(() -> restarted.complete(completion)))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetadataSyncPendingException.class);
         assertThat(catchThrowable(() -> restarted.recoverPending(completion.scope())))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetadataSyncPendingException.class);
         assertThat(restarted.findCompletion(completion.runId())).isEmpty();
         assertThat(restarted.loadCheckpoint(completion.scope())).isEmpty();
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {

@@ -13,6 +13,8 @@
  */
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportConnectionException;
+
 import org.apache.arrow.flight.FlightProducer;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
@@ -24,8 +26,8 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.transport.api.result.ResultEndpoint;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.enums.ResultProtocol;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;

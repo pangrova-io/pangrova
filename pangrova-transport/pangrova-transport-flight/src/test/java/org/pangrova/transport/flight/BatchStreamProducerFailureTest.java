@@ -21,9 +21,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.protocol.transport.DataProducer;
-import org.pangrova.protocol.transport.DataProducerException;
+import org.pangrova.protocol.exception.DataProducerException;
 import org.pangrova.protocol.transport.DataTicket;
-import org.pangrova.protocol.transport.TransportStatus;
+import org.pangrova.protocol.enums.TransportStatus;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.channels.Channels;
@@ -146,9 +146,9 @@ class BatchStreamProducerFailureTest {
     }
 
     private void withStream(DataProducer producer, StreamAssertion assertion) throws Exception {
-        BatchStreamProducer adapter = new BatchStreamProducer(producer, allocator, null, filler, 300, 300);
+        BatchStreamProducer batchProducer = new BatchStreamProducer(producer, allocator, null, filler, 300, 300);
         try (FlightServer server = FlightServer.builder(allocator,
-                Location.forGrpcInsecure("127.0.0.1", 0), adapter).build()) {
+                Location.forGrpcInsecure("127.0.0.1", 0), batchProducer).build()) {
             server.start();
             try (FlightClient client = FlightClient.builder(allocator,
                     Location.forGrpcInsecure("127.0.0.1", server.getPort())).build();

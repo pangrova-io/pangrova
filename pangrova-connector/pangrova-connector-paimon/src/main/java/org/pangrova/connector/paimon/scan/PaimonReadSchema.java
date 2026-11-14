@@ -5,10 +5,10 @@ import org.pangrova.common.api.annotation.Internal;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.RowType;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.exception.ConnectorException;
 
 import java.util.Map;
 

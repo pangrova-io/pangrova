@@ -1,7 +1,7 @@
 package org.pangrova.persistence.coordination.postgresql.membership;
 
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
-import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,7 +11,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import org.pangrova.persistence.coordination.api.error.CoordinationStorageException;
+import org.pangrova.persistence.coordination.api.exception.CoordinationStorageException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -248,9 +248,8 @@ public final class JdbcCoordinatorRegistry implements CoordinatorRegistry {
             ps.setString(2, coordinatorId);
             ps.executeUpdate();
         } catch (SQLException e) {
-            LOG.debug("event=coordinator_update_invalidation_id_error coordinatorId={} error={}",
-                    coordinatorId, e.getMessage());
-            // Non-fatal: DDL propagation falls back to eventual consistency
+            throw new CoordinationStorageException(
+                    "Failed to update invalidation progress for coordinator: " + coordinatorId, e);
         }
     }
 }

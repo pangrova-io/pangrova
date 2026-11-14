@@ -1,9 +1,9 @@
 package org.pangrova.security.api.crypto;
 
 /**
- * Envelope-encrypted payload: ciphertext, IV, encrypted data key, master key reference, and key version.
+ * Envelope-encrypted payload: ciphertext, IV, encrypted data key, master key reference, and envelope format version.
  */
-public record EncryptedData(byte[] ciphertext, byte[] iv, byte[] encryptedKey, String masterKeyId, int keyVersion) {
+public record EncryptedData(byte[] ciphertext, byte[] iv, byte[] encryptedKey, String masterKeyId, int formatVersion) {
 
     /**
      * Defensive copies of byte arrays to ensure immutability.

@@ -1,11 +1,14 @@
 package org.pangrova.governance.api.quality;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 import java.util.List;
 import java.util.Optional;
 
 /**
  * SPI for persisting data quality rules and results.
  */
+@Experimental
 public interface QualityRuleStore {
     void saveRule(DataQualityRule rule);
     Optional<DataQualityRule> getRule(long ruleId);

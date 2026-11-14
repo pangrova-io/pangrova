@@ -1,11 +1,11 @@
 package org.pangrova.persistence.table.postgresql.maintenance;
 
-import org.pangrova.table.api.ownership.OwnershipMode;
-import org.pangrova.table.api.ownership.TableControlProvenance;
+import org.pangrova.table.api.enums.OwnershipMode;
+import org.pangrova.table.api.enums.TableControlProvenance;
 import org.pangrova.table.api.ownership.TableControlRecord;
-import org.pangrova.table.api.ownership.TableControlState;
-import org.pangrova.table.api.maintenance.MaintenanceOperation;
-import org.pangrova.table.api.maintenance.MaintenanceRunState;
+import org.pangrova.table.api.enums.TableControlState;
+import org.pangrova.table.api.enums.MaintenanceOperation;
+import org.pangrova.table.api.enums.MaintenanceRunState;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 

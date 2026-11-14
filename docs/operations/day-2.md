@@ -8,6 +8,28 @@ sidebar_label: "Day-2 Operations"
 > **Summary.** Epoch-fenced upgrades, online DDL, disaster recovery,
 > autoscaling, and failure-recovery SOPs.
 
+## Runtime coverage
+
+| Capability | Entry and authority in this distribution |
+| --- | --- |
+| Recovery | The Coordinator constructs `RecoveryPlaybook` when `operations.enabled` is true. Explicit incidents with no installed handler are counted as escalations. Worker loss, timeout and OOM have no installed automatic remediation. |
+| Scaling | `AutoScalingController` implements scaling decisions for an injected worker-count source, executor and shuffle residency policy. Unknown residency keeps the current worker pool on scale-in. `KubernetesScalingExecutor` requires a host-supplied deployment client. The server has no Kubernetes client, autoscaling loop or predictive model wired. |
+| Upgrade | The distribution ships `bin/pangrova-rolling-upgrade.sh`. The experimental Java controller requires a caller-supplied `NodeOperations` implementation. Verification must succeed before a node is reported upgraded. |
+| Asynchronous DDL | `AsyncDdlExecutor` requires a job store with atomic state transitions and a callback. There is no shipped production job store or SQL dispatcher for this executor. Cancelling fences completion and skips queued work. A callback already executing can finish its external side effects. |
+| JVM diagnostics | `JvmDiagnostics` uses the JDK for thread dumps, heap dumps and Flight Recorder. Trusted hosts supply caller identity for heap dumps and close the diagnostic service to release active recordings and the scavenger. The distribution does not register a diagnostics HTTP endpoint. |
+| DR and config | The replication target, failover executor and hot-reload callbacks require host integration. The running Coordinator does not wire them from the examples below. |
+
+The upgrade version parser and version ranges belong to the Java upgrade checker.
+They have no external callers and use that checker's version comparison rules.
+Shuffle drain decisions consume residency evidence, and JVM diagnostics own JDK
+recordings and heap files. These classes stay in their capability packages.
+Storage callbacks, node operations, deployment scaling and replication each have
+an explicit contract. This distribution has a single Kubernetes scaling delegate
+and no production host for it. There is no second installed backend requiring a
+factory or provider artifact in Operations.
+
+The examples of APIs, SQL syntax and infrastructure workflows below describe the design where the table identifies an outstanding integration. Connector maintenance procedures and durable Query recovery have separate execution paths.
+
 ## 1. Operations Architecture Overview
 
 ```

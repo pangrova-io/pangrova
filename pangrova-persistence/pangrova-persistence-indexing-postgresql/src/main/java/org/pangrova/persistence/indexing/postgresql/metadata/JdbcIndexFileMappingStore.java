@@ -1,9 +1,9 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileSelection;
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -25,17 +25,13 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         super(dataSource);
     }
 
-    void registerIndexFile(IndexFileMapping mapping) {
-        batchRegisterIndexFiles(List.of(mapping));
-    }
-
-    void batchRegisterIndexFiles(List<IndexFileMapping> mappings) {
+    void batchRegisterIndexFiles(String attemptOwner, List<IndexFileMapping> mappings) {
         List<IndexFileMapping> batch = List.copyOf(mappings);
         if (batch.isEmpty()) {
             return;
         }
         validateBatch(batch);
-        executeBatchInsert(batch);
+        executeBatchInsert(attemptOwner, batch);
     }
 
     long copyIndexGenerationMappings(
@@ -136,7 +132,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         }
     }
 
-    private void executeBatchInsert(List<IndexFileMapping> mappings) {
+    private void executeBatchInsert(String attemptOwner, List<IndexFileMapping> mappings) {
         String sql = "INSERT INTO index_file_mappings "
                 + "(index_id, data_file_path, index_file_path, row_count, index_size_bytes, "
                 + "checksum, generation, snapshot_token, sequence_num, last_verified_at, created_at) "
@@ -146,6 +142,8 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
             try {
                 IndexFileMapping first = mappings.get(0);
                 JdbcIndexMappingWriteFence.requireBuildable(connection, first.indexId(), first.generation());
+                JdbcIndexMappingWriteFence.requireCurrentAttempt(
+                        connection, first.indexId(), first.generation(), attemptOwner);
                 try (PreparedStatement statement = connection.prepareStatement(sql)) {
                     for (IndexFileMapping mapping : mappings) {
                         bindMapping(statement, mapping);
@@ -186,53 +184,59 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
     Map<String, Map<String, IndexFileMapping>> batchGetIndexArtifacts(
             Map<String, IndexFileSelection> selections,
             List<String> dataFilePaths) {
-        Map<String, Map<String, IndexFileMapping>> result = new HashMap<>();
         if (selections.isEmpty() || dataFilePaths.isEmpty()) {
-            return result;
+            return Map.of();
         }
-        List<String> indexIds = List.copyOf(selections.keySet());
-        for (int offset = 0; offset < dataFilePaths.size(); offset += BATCH_PARTITION_SIZE) {
-            List<String> batch = dataFilePaths.subList(
-                    offset, Math.min(offset + BATCH_PARTITION_SIZE, dataFilePaths.size()));
-            try (var connection = dataSource().getConnection();
-                    var ids = JdbcTextSelection.create(connection, indexIds);
-                    var paths = JdbcTextSelection.create(connection, batch);
-                    var statement = connection.prepareStatement(
-                            "SELECT * FROM index_file_mappings "
-                                    + "WHERE index_id = ANY (?) AND data_file_path = ANY (?)")) {
-                statement.setArray(1, ids.array());
-                statement.setArray(2, paths.array());
-                try (var rows = statement.executeQuery()) {
-                    collectArtifactResults(rows, selections, result);
+        Map<String, Map<String, IndexFileMapping>> result = new HashMap<>();
+        List<String> distinctPaths = dataFilePaths.stream().distinct().toList();
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+            connection.setAutoCommit(false);
+            try {
+                try (var ids = JdbcTextSelection.create(connection, List.copyOf(selections.keySet()));
+                        var statement = connection.prepareStatement("""
+                                SELECT m.*, g.source_snapshot
+                                FROM index_file_mappings m
+                                JOIN index_generation_manifests g USING (index_id, generation)
+                                WHERE g.state = 'ACTIVE' AND m.index_id = ANY (?)
+                                  AND m.data_file_path = ANY (?)
+                                """)) {
+                    statement.setArray(1, ids.array());
+                    for (int offset = 0; offset < distinctPaths.size(); offset += BATCH_PARTITION_SIZE) {
+                        int end = Math.min(offset + BATCH_PARTITION_SIZE, distinctPaths.size());
+                        try (var paths = JdbcTextSelection.create(connection, distinctPaths.subList(offset, end))) {
+                            statement.setArray(2, paths.array());
+                            try (var rows = statement.executeQuery()) {
+                                collectArtifactResults(rows, selections, result);
+                            }
+                        }
+                    }
                 }
-            } catch (SQLException failure) {
-                throw new MetastoreException("Index artifact selection failed", failure);
+                connection.commit();
+            } catch (SQLException | RuntimeException failure) {
+                rollback(connection, failure);
+                throw failure;
             }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Index artifact selection failed", failure);
         }
-        return result;
+        result.replaceAll((id, files) -> Map.copyOf(files));
+        return Map.copyOf(result);
     }
 
-    private static Void collectArtifactResults(
-            java.sql.ResultSet rs,
+    private static void collectArtifactResults(
+            java.sql.ResultSet rows,
             Map<String, IndexFileSelection> selections,
             Map<String, Map<String, IndexFileMapping>> result) throws SQLException {
-        while (rs.next()) {
-            IndexFileMapping mapping = IndexMetadataMapper.mapMapping(rs);
-            IndexFileSelection selection = selections.get(mapping.indexId());
-            if (selection == null || !selection.matches(mapping)) {
+        while (rows.next()) {
+            String indexId = rows.getString("index_id");
+            IndexFileSelection selection = selections.get(indexId);
+            if (!selection.matchesPublication(rows.getInt("generation"), rows.getString("source_snapshot"))) {
                 continue;
             }
-            IndexFileMapping previous = result
-                    .computeIfAbsent(mapping.indexId(), ignored -> new HashMap<>())
-                    .put(mapping.dataFilePath(), mapping);
-            if (previous != null) {
-                throw new MetastoreException(
-                        "Duplicate index artifact for generation: indexId="
-                                + mapping.indexId() + " dataFile="
-                                + mapping.dataFilePath());
-            }
+            IndexFileMapping mapping = IndexMetadataMapper.mapMapping(rows);
+            result.computeIfAbsent(indexId, ignored -> new HashMap<>()).put(mapping.dataFilePath(), mapping);
         }
-        return null;
     }
 
     Map<String, Map<String, String>> batchGetIndexFileMappings(

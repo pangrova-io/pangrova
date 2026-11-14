@@ -1,8 +1,8 @@
 package org.pangrova.shuffle.local.spool;
 
-import org.pangrova.shuffle.spi.spool.SpoolStore;
-import org.pangrova.shuffle.spi.spool.SpoolStoreContext;
-import org.pangrova.shuffle.spi.spool.SpoolStoreFactory;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolStoreContext;
+import org.pangrova.shuffle.api.spool.SpoolStoreFactory;
 
 import java.nio.file.Path;
 

@@ -26,7 +26,7 @@ sidebar_label: "Streaming & CDC"
 > **Code ownership.** `pangrova-streaming` owns
 > `api.{aggregation,cdc,checkpoint,commit,source,watermark}` and `core.*`
 > (including `store/memory` and `coordinator`). CDC format and writer providers
-> live under `org.pangrova.streaming.{cdcformat,writer}`. JDBC offset and
+> live under `org.pangrova.streaming.{format,writer}`. JDBC offset and
 > watermark persistence lives in
 > `pangrova-persistence/pangrova-persistence-streaming-postgresql`
 > (`org.pangrova.persistence.streaming.postgresql`). The Coordinator constructs

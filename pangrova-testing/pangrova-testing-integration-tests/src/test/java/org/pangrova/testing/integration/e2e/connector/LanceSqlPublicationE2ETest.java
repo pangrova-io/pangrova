@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.connector;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
@@ -160,7 +162,7 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
                 execution -> e2eCoordinationForTest().requireExecutionAnchor(execution),
                 new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
                 ModelAuthorityFixtures.models(),
-                                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+                                TableWriteAuthorityFixture.create()::requireCurrent);
         var key = new org.pangrova.connector.api.metadata.SourceTableKey(table.tenantId(), table.table());
         var actual = authority.load(key).orElseThrow();
         assertThat(actual.tableId()).isEqualTo(table.tableId());

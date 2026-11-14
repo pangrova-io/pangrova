@@ -13,6 +13,10 @@
  */
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportConnectionException;
+import org.pangrova.transport.client.exception.TransportException;
+import org.pangrova.transport.client.exception.TransportServerException;
+
 import org.apache.arrow.flight.CallOptions;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightRuntimeException;
@@ -24,8 +28,8 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
-import org.pangrova.transport.api.result.ResultEndpoint;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

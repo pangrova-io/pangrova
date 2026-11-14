@@ -1,5 +1,12 @@
 package org.pangrova.ai.control.embedding;
 
+import org.pangrova.ai.control.exception.DimensionMismatchException;
+import org.pangrova.ai.control.exception.EmbeddingRegistryAccessDeniedException;
+import org.pangrova.ai.control.exception.ModelAlreadyExistsException;
+import org.pangrova.ai.control.exception.ModelDropUnavailableException;
+import org.pangrova.ai.control.exception.ModelNotFoundException;
+import org.pangrova.ai.control.exception.VersionConflictException;
+
 import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
 import org.pangrova.security.api.identity.UserIdentity;
 

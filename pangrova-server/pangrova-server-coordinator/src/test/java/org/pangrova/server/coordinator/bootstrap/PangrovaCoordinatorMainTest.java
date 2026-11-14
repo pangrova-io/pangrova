@@ -7,6 +7,7 @@ import java.util.Map;
 
 import org.pangrova.config.PangrovaConfiguration;
 import org.junit.jupiter.api.Test;
+import org.pangrova.server.bootstrap.ServerConfigurationLoader;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,33 +19,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PangrovaCoordinatorMainTest {
 
     @Test
-    void parseConfigPath_returnsPathWhenPresent() {
-        String[] args = {"--config", "/tmp/coordinator.yml", "--other", "value"};
-        assertThat(PangrovaCoordinatorMain.parseConfigPath(args)).isEqualTo("/tmp/coordinator.yml");
-    }
-
-    @Test
-    void parseConfigPath_returnsNullWhenAbsent() {
-        String[] args = {"--other", "value"};
-        assertThat(PangrovaCoordinatorMain.parseConfigPath(args)).isNull();
-    }
-
-    @Test
-    void parseConfigPath_returnsNullForEmptyArgs() {
-        assertThat(PangrovaCoordinatorMain.parseConfigPath(new String[0])).isNull();
-    }
-
-    @Test
-    void parseConfigPath_returnsNullWhenConfigIsLastArg() {
-        String[] args = {"--config"};
-        assertThat(PangrovaCoordinatorMain.parseConfigPath(args)).isNull();
-    }
-
-    @Test
     void buildBootstrapConfig_defaultsDisableTenancyWithoutSecurity() {
         PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of());
         CoordinatorBootstrapConfig result = PangrovaCoordinatorMain.buildBootstrapConfig(config);
 
+        assertThat(result.query().placementProvider()).isEqualTo("load-balanced");
         assertThat(result.metadataEnabled()).isTrue();
         assertThat(result.governanceEnabled()).isTrue();
         assertThat(result.resilienceEnabled()).isTrue();
@@ -115,11 +94,13 @@ class PangrovaCoordinatorMainTest {
     @Test
     void buildBootstrapConfig_queryTimeoutFromDuration() {
         PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
-                "coordinator.query.timeout", "10m"
+                "coordinator.query.timeout", "10m",
+                "coordinator.query.placement-provider", "test-placement"
         ));
         CoordinatorBootstrapConfig result = PangrovaCoordinatorMain.buildBootstrapConfig(config);
 
         assertThat(result.queryTimeoutSeconds()).isEqualTo(600);
+        assertThat(result.query().placementProvider()).isEqualTo("test-placement");
     }
 
     @Test
@@ -195,7 +176,7 @@ class PangrovaCoordinatorMainTest {
     @Test
     void loadPangrovaConfiguration_loadsClasspathDefaultsWhenNoConfigArg(@TempDir Path tempDir)
             throws IOException {
-        PangrovaConfiguration config = PangrovaCoordinatorMain.loadPangrovaConfiguration(new String[0]);
+        PangrovaConfiguration config = ServerConfigurationLoader.load(new String[0], "coordinator.yml");
 
         assertThat(config).isNotNull();
         assertThat(config.toMap()).isNotEmpty();
@@ -206,8 +187,8 @@ class PangrovaCoordinatorMainTest {
         Path yamlFile = tempDir.resolve("custom.yml");
         Files.writeString(yamlFile, "coordinator:\n  port: 9999\n");
 
-        PangrovaConfiguration config = PangrovaCoordinatorMain.loadPangrovaConfiguration(
-                new String[]{"--config", yamlFile.toString()});
+        PangrovaConfiguration config = ServerConfigurationLoader.load(
+                new String[]{"--config", yamlFile.toString()}, "coordinator.yml");
 
         assertThat(config.toMap()).containsEntry("coordinator.port", "9999");
     }

@@ -2,7 +2,7 @@ package org.pangrova.connector.runtime.codec;
 
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.batch.api.page.NativePage;
-import org.pangrova.batch.api.page.BatchFormat;
+import org.pangrova.batch.api.enums.BatchFormat;
 
 import org.pangrova.common.api.annotation.Experimental;
 

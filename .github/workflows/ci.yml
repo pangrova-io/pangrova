@@ -138,7 +138,7 @@ jobs:
       # Stage and build classifier JAR for downstream java-build job
       - name: Stage native library for classifier JAR
         run: |
-          RESOURCE_DIR=pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
+          RESOURCE_DIR=pangrova-worker/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
           mkdir -p "${RESOURCE_DIR}"
           cp pangrova-worker-native/build/libpangrova_native.${{ matrix.platform.lib-ext }} "${RESOURCE_DIR}/"
 
@@ -153,10 +153,10 @@ jobs:
         run: |
           mvn -B install -pl pangrova-native-bundle \
             -Dnative.platform.classifier=${{ matrix.platform.classifier }} \
-            -Dnative.resource.dir=${{ github.workspace }}/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }} \
+            -Dnative.resource.dir=${{ github.workspace }}/pangrova-worker/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }} \
             -Dnative.resource.os=${{ matrix.platform.os }} \
             -Dnative.resource.arch=${{ matrix.platform.arch }} \
-            -Dnative.library.path=${{ github.workspace }}/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}/libpangrova_native.${{ matrix.platform.lib-ext }} \
+            -Dnative.library.path=${{ github.workspace }}/pangrova-worker/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}/libpangrova_native.${{ matrix.platform.lib-ext }} \
             -DskipTests
 
       - name: Upload native library

@@ -3,11 +3,11 @@ package org.pangrova.persistence.workflow.postgresql.projection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionOutcomeUnknownException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionOutcomeUnknownException;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
@@ -112,10 +112,10 @@ class PostgresMetadataProjectionFailureTest {
         var restarted = new PostgresMetadataProjectionTransactions(source);
         var differentId = new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), mutation.deployment(), mutation.table());
         assertThat(catchThrowable(() -> restarted.apply(differentId)))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         var differentPayload = new MetadataProjectionMutation.ObserveSchemas(mutation.operationId(), mutation.deployment(), List.of("other"));
         assertThat(catchThrowable(() -> restarted.apply(differentPayload)))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
         assertThat(restarted.findReceipt(mutation.operationId())).isEmpty();
         assertThat(restarted.findReceipt(differentId.operationId())).isEmpty();
         restarted.recoverPending(mutation.deployment());
@@ -129,17 +129,17 @@ class PostgresMetadataProjectionFailureTest {
         assertThat(catchThrowable(() -> faulting.apply(mutation)))
                 .isInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         var deployments = new PostgresCatalogDeploymentRepository(source);
-        deployments.deleteCatalogDescriptor("catalog");
+        deployments.deleteCatalogDescriptor(mutation.deployment());
         var replacement = new CatalogDescriptor("catalog", CatalogType.FEDERATION, "replacement", CatalogState.ACTIVE,
                 Map.of(), "", Set.of());
         deployments.saveCatalogDescriptor(replacement);
         var restarted = new PostgresMetadataProjectionTransactions(source);
         restarted.recoverPending(replacement.identity());
         assertThat(catchThrowable(() -> restarted.apply(mutation)))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
         assertThat(catchThrowable(() -> restarted.apply(new MetadataProjectionMutation.ObserveSchemas(
                 mutation.operationId(), replacement.identity(), List.of("reused-id")))))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
         restarted.apply(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), replacement.identity(), List.of("new")));
         assertThat(new PostgresSchemaProjectionRepository(source).loadSchemas("catalog")).containsExactly("new");
         assertThat(new PostgresTableProjectionRepository(source).loadTable("catalog", "sch", "tbl")).isEmpty();
@@ -178,12 +178,12 @@ class PostgresMetadataProjectionFailureTest {
         }
         var restarted = new PostgresMetadataProjectionTransactions(source);
         assertThat(catchThrowable(() -> restarted.apply(mutation)))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         assertThat(catchThrowable(() -> restarted.recoverPending(mutation.deployment())))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         assertThat(catchThrowable(() -> restarted.apply(new MetadataProjectionMutation.UpsertTable(
                 UUID.randomUUID(), mutation.deployment(), mutation.table()))))
-                .isInstanceOf(org.pangrova.persistence.workflow.api.projection.MetadataProjectionPendingException.class);
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         assertThat(restarted.findReceipt(mutation.operationId())).isEmpty();
         assertThat(new PostgresTableProjectionRepository(source).loadTable("catalog", "sch", "tbl")).isEmpty();
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {

@@ -126,3 +126,21 @@ Validation that needs a real catalog and native workers runs through the
 Docker-based end-to-end suite in CI; unit and JDBC integration tests cover the
 kernel state machine, repository, dependency graph, migrations, and planner
 rewrite in isolation.
+
+
+## Refresh strategy provider lifecycle
+
+The Coordinator installs materialization SQL handlers through `MaterializationDdlRegistration`.
+During registration its class loader discovers `org.pangrova.materialization.api.refresh.RefreshStrategyFactory`
+services. A provider JAR lists one public factory per algorithm in
+`META-INF/services/org.pangrova.materialization.api.refresh.RefreshStrategyFactory`.
+Each factory supplies its API version, persisted `RefreshKind` and a thread-safe, resource-free strategy.
+A registry validates versions and unique kinds before constructing strategies, checks each product against
+the declared kind and strategy ID, and shares it across its SQL handlers. FULL is required to create
+the initial generation. The bundled provider also implements APPEND_ONLY and PARTITION_REPLACE.
+AFFECTED_KEY and CDC currently have persisted kind identifiers only.
+
+A pinned incremental strategy must be installed and supported by the planned definition. For automatic
+incremental refresh the kernel tries partition replacement before append-only, independently of provider
+discovery order. Proof validation still runs against the selected generation and actual source interval.
+Only the kernel owns pins, attempt state and publication.

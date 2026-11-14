@@ -1,10 +1,10 @@
 package org.pangrova.client.cli;
 
-import org.pangrova.client.error.PangrovaClientException;
-import org.pangrova.transport.client.http.PangrovaRestClient;
+import org.pangrova.common.client.query.QueryClient;
+import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.client.protocol.SubmitQueryResponse;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,8 +27,6 @@ final class SqlShell {
 
     private static final Logger LOG = LoggerFactory.getLogger(SqlShell.class);
     private static final long POLL_INTERVAL_MS = 500;
-    /** Default query timeout in minutes for the convenience constructor. */
-    private static final long DEFAULT_QUERY_TIMEOUT_MINUTES = 30;
     private static final String PROMPT = "pangrova> ";
     private static final String CONTINUATION_PROMPT = "     -> ";
 
@@ -56,15 +54,6 @@ final class SqlShell {
         this.queryTimeout = queryTimeout;
         this.catalog = catalog;
         this.schema = schema;
-    }
-
-    /**
-     * Convenience constructor that wraps an {@link PangrovaRestClient} and uses
-     * the default 30-minute query timeout.
-     */
-    SqlShell(PangrovaRestClient client, BufferedReader reader, PrintStream out) {
-        this(QueryClient.wrap(client), reader, out,
-                Duration.ofMinutes(DEFAULT_QUERY_TIMEOUT_MINUTES));
     }
 
     /**

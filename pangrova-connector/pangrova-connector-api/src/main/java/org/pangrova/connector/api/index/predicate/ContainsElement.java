@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.index.predicate;
 
+import org.pangrova.connector.api.enums.ContainmentMode;
+
 import java.util.List;
 import java.util.Objects;
 

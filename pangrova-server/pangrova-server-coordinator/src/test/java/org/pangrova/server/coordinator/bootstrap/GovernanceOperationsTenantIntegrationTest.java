@@ -2,30 +2,30 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.governance.core.GovernanceDeps;
-import org.pangrova.governance.core.GovernanceContext;
+import org.pangrova.governance.runtime.GovernanceDeps;
+import org.pangrova.governance.runtime.GovernanceContext;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
-import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.governance.core.quality.AlertChannelRegistry;
-import org.pangrova.governance.core.quality.DataQualityAlerter;
-import org.pangrova.governance.core.quality.LogAlertChannel;
-import org.pangrova.governance.api.quality.Severity;
+import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
+import org.pangrova.governance.runtime.quality.AlertChannelRegistry;
+import org.pangrova.governance.runtime.quality.DataQualityAlerter;
+import org.pangrova.governance.runtime.quality.LogAlertChannel;
+import org.pangrova.governance.api.enums.Severity;
 import org.pangrova.governance.api.quality.DataQualityRule;
-import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor;
-import org.pangrova.governance.core.quality.GovernanceStatementHandler;
-import org.pangrova.governance.core.quality.InMemoryQualityRuleStore;
+import org.pangrova.governance.runtime.quality.UnconfiguredQualityRuleExecutor;
+import org.pangrova.governance.runtime.quality.GovernanceStatementHandler;
+import org.pangrova.governance.runtime.quality.InMemoryQualityRuleStore;
 import org.pangrova.governance.api.quality.QualityRuleStore;
-import org.pangrova.governance.core.quality.CronScheduler;
+import org.pangrova.governance.runtime.quality.CronScheduler;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.security.core.tenant.QuotaCheckResult;
-import org.pangrova.security.core.tenant.QuotaChecker;
-import org.pangrova.security.core.tenant.TenantUsage;
-import org.pangrova.security.core.tenant.TenantResolver;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
+import org.pangrova.security.tenant.QuotaCheckResult;
+import org.pangrova.security.tenant.QuotaChecker;
+import org.pangrova.security.tenant.TenantUsage;
+import org.pangrova.security.tenant.TenantResolver;
 import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -81,9 +81,9 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
     @Test
     void governanceModuleInitializesAndSchedulesEnabledRules() throws Exception {
         InMemoryQualityRuleStore ruleStore = new InMemoryQualityRuleStore();
-        ruleStore.saveRule(createRule(1, "null_check", true, "60"));
-        ruleStore.saveRule(createRule(2, "range_check", true, "120"));
-        ruleStore.saveRule(createRule(3, "disabled_rule", false, "60"));
+        ruleStore.saveRule(createRule(1, "null_check", true, "* * * * *"));
+        ruleStore.saveRule(createRule(2, "range_check", true, "*/2 * * * *"));
+        ruleStore.saveRule(createRule(3, "disabled_rule", false, "* * * * *"));
 
         governanceModule = buildGovernanceContext(ruleStore);
         governanceModule.initialize();
@@ -147,8 +147,9 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
     @Test
     void governanceWiredInModuleIntegrationBootstrap() throws Exception {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
-            wiring.startGovernance(buildAllModulesEnabled(),
-                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring")));
+            var source = org.pangrova.coordinator.testinfra.SharedPostgresContainer
+                    .migratedDataSource("governance_wiring");
+            wiring.startGovernance(buildAllModulesEnabled(), source, GovernanceBootstrapTestAuthority.bind(wiring, source));
 
             assertThat(wiring.getLineageEmitter()).isNotNull();
         }
@@ -337,7 +338,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
                 ruleStore, new UnconfiguredQualityRuleExecutor(), alerter);
         CronScheduler scheduler = new CronScheduler(handler);
         return new GovernanceContext(new GovernanceDeps(
-                emitter, handler, null, scheduler, ruleStore, new org.pangrova.governance.core.classification.ColumnTagService(
+                emitter, handler, null, scheduler, ruleStore, new org.pangrova.governance.runtime.classification.ColumnTagService(
                         table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()))));
     }
 
@@ -370,7 +371,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-gov-ops-tenant", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -421,9 +422,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.server.coor
         }
 
         @Override
-        public boolean isAvailable() {
-            return true;
-        }
+        public void close() {}
     }
 
     private record TestHealthConditions(

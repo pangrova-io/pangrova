@@ -3,7 +3,7 @@ package org.pangrova.observability.noop;
 import org.pangrova.common.api.annotation.Internal;
 
 import org.pangrova.observability.api.tracing.Span;
-import org.pangrova.observability.api.tracing.StatusCode;
+import org.pangrova.observability.api.enums.StatusCode;
 
 /**
  * No-operation {@link Span} implementation.

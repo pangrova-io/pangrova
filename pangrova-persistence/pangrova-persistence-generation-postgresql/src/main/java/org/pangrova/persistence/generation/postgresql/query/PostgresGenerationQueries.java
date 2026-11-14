@@ -1,6 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.query;
 
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs;
 import org.pangrova.generation.api.dependency.GenerationDependency;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;

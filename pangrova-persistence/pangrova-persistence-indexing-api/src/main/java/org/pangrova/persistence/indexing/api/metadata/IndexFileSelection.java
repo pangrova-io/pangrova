@@ -20,8 +20,12 @@ public record IndexFileSelection(int generation, String sourceSnapshot) {
 
     /** Returns whether an active manifest satisfies this query snapshot. */
     public boolean matches(IndexGenerationManifest manifest) {
-        return manifest.generation() == generation
-                && (sourceSnapshot.isBlank()
-                        || sourceSnapshot.equals(manifest.sourceSnapshot()));
+        return matchesPublication(manifest.generation(), manifest.sourceSnapshot());
+    }
+
+    public boolean matchesPublication(int publishedGeneration, String publishedSnapshot) {
+        return publishedGeneration == generation
+                && (sourceSnapshot.isEmpty()
+                        || sourceSnapshot.equals(publishedSnapshot));
     }
 }

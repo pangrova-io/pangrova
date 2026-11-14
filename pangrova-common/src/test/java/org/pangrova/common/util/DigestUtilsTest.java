@@ -39,6 +39,18 @@ class DigestUtilsTest {
     }
 
     @Test
+    void requireSha256AcceptsEitherCaseAndRejectsMalformedValues() {
+        DigestUtils.requireSha256("abcdef0123456789".repeat(4), "checksum");
+        DigestUtils.requireSha256("ABCDEF0123456789".repeat(4), "checksum");
+        for (String invalid : new String[]{null, "", "a".repeat(63), "a".repeat(65),
+                "a".repeat(63) + "g", "a".repeat(63) + "Ａ", "a".repeat(64) + "\n"}) {
+            assertThatThrownBy(() -> DigestUtils.requireSha256(invalid, "checksum"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("checksum must be a SHA-256 hex digest");
+        }
+    }
+
+    @Test
     void matchesSha256RequiresExactlyLowercaseAsciiHexWithoutNormalization() {
         byte[] data = "hello".getBytes(StandardCharsets.UTF_8);
         String expected = DigestUtils.sha256Hex(data);
@@ -78,7 +90,7 @@ class DigestUtilsTest {
     void sha256Hex_stringAndBytes_produceSameResult() {
         String input = "pangrova-common-digest-test";
         String fromString = DigestUtils.sha256Hex(input);
-        String fromBytes = DigestUtils.sha256Hex(input.getBytes(StandardCharsets.UTF_8));
+        String fromBytes = DigestUtils.sha256Hex(input);
         assertThat(fromString).isEqualTo(fromBytes);
     }
 

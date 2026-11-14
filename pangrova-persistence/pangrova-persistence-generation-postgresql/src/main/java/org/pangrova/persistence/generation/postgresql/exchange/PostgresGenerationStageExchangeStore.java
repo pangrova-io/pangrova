@@ -15,7 +15,7 @@ import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.persistence.generation.api.GenerationStorageException;
+import org.pangrova.persistence.generation.api.exception.GenerationStorageException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

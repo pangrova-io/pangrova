@@ -1,10 +1,11 @@
 package org.pangrova.connector.paimon.write;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.connector.paimon.schema.PaimonPhysicalSchemas;
 
 import java.io.IOException;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -135,11 +136,9 @@ public final class PaimonPhysicalWriteAllocations {
 
     private static byte[] fileSetDigest(List<DataFileMeta> files) {
         try {
-            return MessageDigest.getInstance("SHA-256").digest(new DataFileMetaSerializer().serializeList(files));
+            return DigestUtils.sha256().digest(new DataFileMetaSerializer().serializeList(files));
         } catch (IOException failure) {
             throw new IllegalStateException("SDK source file metadata serialization failed", failure);
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
 }

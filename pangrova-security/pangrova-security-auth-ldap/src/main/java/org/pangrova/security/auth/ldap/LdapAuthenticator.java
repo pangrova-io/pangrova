@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
-import org.pangrova.security.spi.authentication.Authenticator;
+import org.pangrova.security.api.authentication.Authenticator;
 
 /**
  * LDAP-based authenticator with real directory bind and group search.

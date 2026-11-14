@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import static org.pangrova.common.util.Preconditions.checkArgument;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -49,7 +51,7 @@ import io.grpc.ManagedChannelBuilder;
  * run outside any cache lock, so channel shutdown (I/O) never holds a lock.
  */
 @ThreadSafe
-public final class RemoteShuffleClientPool implements Closeable {
+public final class RemoteShuffleClientPool implements Closeable, org.pangrova.shuffle.nativewire.NativeShuffleReaders {
 
     private static final Logger LOG = LoggerFactory.getLogger(RemoteShuffleClientPool.class);
 
@@ -203,6 +205,36 @@ public final class RemoteShuffleClientPool implements Closeable {
             return;
         }
         LOG.info("event=remote_shuffle_client_evict key={} cause={}", key, cause);
+    }
+
+    /** Creates the reader only after validating the wire receipt and the exact consumer owner. */
+    @Override
+    public RemoteShuffleExchangeSource open(org.pangrova.protocol.v2.ExternalShuffleInput input,
+            org.pangrova.shuffle.api.identity.ExchangeTaskAttempt consumer) {
+        if (!org.pangrova.protocol.task.CanonicalTaskRequests.validExternalInput(input)
+                || !input.getExecutionOwner().equals(org.pangrova.shuffle.nativewire.NativeExchangeAttempts
+                        .encode(consumer).getExecutionOwner())) {
+            throw new IllegalArgumentException("Invalid external shuffle read binding or execution owner");
+        }
+        var checksum = input.getExpectedProducerSetChecksum();
+        if (checksum.getAlgorithm() != org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256) {
+            throw new IllegalArgumentException("Invalid external shuffle producer-set checksum");
+        }
+        var published = input.getPublication();
+        var context = new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
+                consumer, input.getOutputPartitionId(), input.getDeadlineEpochMs());
+        var read = new PangrovaPartitionRead(input.getShuffleId(), context, input.getPlanEpoch(),
+                input.getExpectedProducerPartitions(), checksum.getDigest().toByteArray(),
+                new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(published.getLastSequence(),
+                        published.getTotalBytes(), published.getTotalRows(),
+                        java.util.HexFormat.of().formatHex(published.getManifestSha256().toByteArray())));
+        var grant = input.getReadCapability();
+        var access = new org.pangrova.shuffle.api.ShuffleAccess(grant.getToken().toByteArray(), grant.getExpiresAtEpochMs());
+        var endpoint = input.getEndpointsList().stream().filter(candidate ->
+                candidate.getPartitionStart() <= input.getOutputPartitionId()
+                        && input.getOutputPartitionId() < candidate.getPartitionEnd()).findFirst().orElseThrow();
+        return new RemoteShuffleExchangeSource(read, access,
+                borrow(new ShuffleServiceAddress(endpoint.getHost(), endpoint.getPort(), endpoint.getTlsIdentity())));
     }
 
     /**
@@ -397,6 +429,11 @@ public final class RemoteShuffleClientPool implements Closeable {
             owners.remove(owner.client, owner);
             constructionOwners.remove(owner);
         }
+    }
+
+    /** Live and creating channels across every pool sharing this Worker admission budget. */
+    public int workerOwnedChannelCount() {
+        return channelAdmission.snapshot().ownedAndCreatingChannels();
     }
 
     /**

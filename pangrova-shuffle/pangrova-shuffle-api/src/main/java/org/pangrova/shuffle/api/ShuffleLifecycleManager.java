@@ -1,15 +1,19 @@
 package org.pangrova.shuffle.api;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.shuffle.api.capability.ShuffleCapabilityDescriptor;
 
 /**
- * Existing external-service registration, finalization and query cleanup contract.
- * This service-specific contract is not the final provider-neutral session API. Implementations
- * must reject absent or unsupported registration/publication; a local file finish or empty
- * statistics cannot prove stage visibility. The service owns its publication state and cleanup.
+ * Registration, publication and cleanup for externally stored exchanges. Publication identifies
+ * the exact generation and allocation and returns an immutable receipt. Implementations reject
+ * unsupported operations and stale generations. Current registration and routing still use
+ * external-service addresses; authorization is separate from the publication receipt.
  */
 @Experimental(reason = "Generic provider sessions and verifiable commit receipts are not yet consolidated")
 public interface ShuffleLifecycleManager {
+
+    /** Capabilities enabled by this installed lifecycle, before checking per-exchange publication. */
+    ShuffleCapabilityDescriptor capabilities();
 
     /**
      * Registers a shuffle for a stage before task dispatch.
@@ -25,12 +29,11 @@ public interface ShuffleLifecycleManager {
      * Collects per-partition statistics (row count, byte size) and returns them
      * for adaptive query execution decisions.
      *
-     * @param queryId the query identifier
-     * @param stageId the stage identifier
-     * @return verified committed partition statistics for the registered stage
-     * @throws IllegalStateException if the stage is not registered or publication is unavailable
+     * @param publication exact registered generation and allocation to publish
+     * @return validated publication evidence for every output partition
+     * @throws IllegalStateException if the allocation is absent, replaced or publication is unavailable
      */
-    ShuffleCommitResult commitShuffle(String queryId, int stageId);
+    ShuffleCommitReceipt commitShuffle(ShufflePublication publication);
 
     /**
      * Cleans up all shuffle data for a completed or failed query.

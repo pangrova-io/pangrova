@@ -15,16 +15,27 @@ coordinator `SecurityBootstrap`.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `security.enabled` | bool | `false` | Enable the security module. When `true`, `security.auth.type` must be configured or the coordinator fails startup |
-| `security.auth.type` | string | — | Authenticator type: `OAUTH2` or `LDAP` for production, `NOOP` for development only |
+| `security.auth.type` | string | — | ID of an installed authenticator factory. The distribution includes `OAUTH2`, `LDAP`, and the development-only `NOOP` |
 
 ### Startup behavior
 
 - `security.enabled=true` without `security.auth.type` → startup fails with
-  `CONFIG_MISSING_KEY`.
-- `security.auth.type=NOOP` → all requests are accepted; the coordinator logs
-  a `CRITICAL` security alarm. Development use only.
+  `CONFIG_INVALID_VALUE`.
+- `security.auth.type=NOOP` accepts anonymous client requests and logs a
+  `CRITICAL` security alarm. Tenant isolation and privilege administration require
+  an authenticated deployment. Internal control endpoints verify their own secret.
 - `security.enabled=false` → the startup banner prints a
   `SECURITY DISABLED` warning.
+
+The Coordinator resolves `security.auth.type` through Java service discovery on
+its process classpath. A provider registers its
+`org.pangrova.security.api.authentication.AuthenticatorFactory` in
+`META-INF/services`, declares a unique uppercase ID, API version and accepted
+YAML properties, and creates a fresh authenticator on startup. Duplicate IDs,
+incompatible factories, missing providers and unknown provider properties fail
+configuration. Only the reserved `NOOP` ID can enable authentication bypass.
+The Coordinator closes the selected authenticator on shutdown or initialization
+failure.
 
 ## Stable row-policy ownership
 

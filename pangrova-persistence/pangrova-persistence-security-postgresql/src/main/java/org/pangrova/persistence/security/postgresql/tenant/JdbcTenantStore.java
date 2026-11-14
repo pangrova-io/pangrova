@@ -4,11 +4,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.persistence.security.api.tenant.TenantPersistenceException;
+import org.pangrova.persistence.security.api.exception.TenantPersistenceException;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.pangrova.persistence.security.api.tenant.TenantStore;
 import org.slf4j.Logger;
@@ -157,7 +157,7 @@ public final class JdbcTenantStore implements TenantStore {
             statement.setString(2, principal);
             try (var result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw new org.pangrova.security.api.error.AuthorizationDeniedException(
+                    throw new org.pangrova.security.api.exception.AuthorizationDeniedException(
                             "Deferred subject no longer belongs to the exact active tenant");
                 }
                 Tenant tenant = mapTenant(result);
@@ -169,7 +169,7 @@ public final class JdbcTenantStore implements TenantStore {
                     if ((!tenant.allowedCatalogs().isEmpty() && !tenant.allowedCatalogs().contains(table.catalog()))
                             || (!tenant.allowedSchemas().isEmpty()
                             && !tenant.allowedSchemas().contains(table.schema()))) {
-                        throw new org.pangrova.security.api.error.AuthorizationDeniedException(
+                        throw new org.pangrova.security.api.exception.AuthorizationDeniedException(
                                 "Deferred resource is outside the current tenant namespace");
                     }
                 }
@@ -230,7 +230,7 @@ public final class JdbcTenantStore implements TenantStore {
             org.pangrova.security.api.tenant.TenantMembershipMutation mutation) {
         Objects.requireNonNull(mutation, "mutation");
         if (actor == null || actor.principal() == null || actor.principal().isBlank()) {
-            throw new org.pangrova.security.api.error.AuthorizationDeniedException(
+            throw new org.pangrova.security.api.exception.AuthorizationDeniedException(
                     "Authenticated tenant administrator is required");
         }
         boolean committing = false;
@@ -258,7 +258,7 @@ public final class JdbcTenantStore implements TenantStore {
                 throw failure;
             }
         } catch (SQLException failure) {
-            if (committing) throw new org.pangrova.security.api.tenant.TenantMembershipOutcomeUnknownException(failure);
+            if (committing) throw new org.pangrova.security.api.exception.TenantMembershipOutcomeUnknownException(failure);
             throw new TenantPersistenceException("Failed changing tenant membership", failure);
         }
     }
@@ -272,7 +272,7 @@ public final class JdbcTenantStore implements TenantStore {
             statement.setString(1, actor);
             statement.setString(2, tenant);
             try (var result = statement.executeQuery()) {
-                if (!result.next()) throw new org.pangrova.security.api.error.AuthorizationDeniedException(
+                if (!result.next()) throw new org.pangrova.security.api.exception.AuthorizationDeniedException(
                         "Current OWNER or ADMIN membership in the exact active tenant is required");
             }
         }
@@ -287,7 +287,7 @@ public final class JdbcTenantStore implements TenantStore {
             try (var result = statement.executeQuery()) {
                 if (result.next()) {
                     if (!result.getString("tenant_id").equals(mutation.tenantId())) {
-                        throw new org.pangrova.security.api.error.AuthorizationDeniedException(
+                        throw new org.pangrova.security.api.exception.AuthorizationDeniedException(
                                 "Cross-tenant membership transfer is not allowed");
                     }
                     role = result.getString("role");
@@ -305,7 +305,7 @@ public final class JdbcTenantStore implements TenantStore {
             }
         }
         if (role == null) return false;
-        if (!role.equals("MEMBER")) throw new org.pangrova.security.api.error.AuthorizationDeniedException(
+        if (!role.equals("MEMBER")) throw new org.pangrova.security.api.exception.AuthorizationDeniedException(
                 "Cannot revoke privileged tenant membership");
         try (var statement = connection.prepareStatement(SQL_DELETE_MEMBERSHIP)) {
             statement.setString(1, mutation.tenantId());

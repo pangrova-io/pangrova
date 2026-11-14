@@ -27,22 +27,22 @@ import static org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.emb
 import static org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.invokeEmbeddingProvider;
 
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
 import org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.EmbeddingInputKind;
 import org.pangrova.ai.worker.invocation.AiEmbeddingInvocationSupport.EmbeddingResult;
-import org.pangrova.ai.spi.embedding.EmbeddingProvider;
-import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.embedding.EmbeddingProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.api.invocation.InferenceResult;
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.ai.api.invocation.RerankingBatchResult;
-import org.pangrova.ai.spi.reranking.RerankingProvider;
+import org.pangrova.ai.api.reranking.RerankingProvider;
 import org.pangrova.ai.worker.context.AiExecutionContext;
-import org.pangrova.ai.spi.invocation.AiProviderCallContext;
+import org.pangrova.ai.api.invocation.AiProviderCallContext;
 
 import java.security.MessageDigest;
 import java.time.Instant;

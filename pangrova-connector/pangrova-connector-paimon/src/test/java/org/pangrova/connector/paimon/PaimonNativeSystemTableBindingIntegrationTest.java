@@ -53,15 +53,15 @@ class PaimonNativeSystemTableBindingIntegrationTest {
     void listingsUseTheNativePaimonMetadataSchemas() throws Exception {
         try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
             var metadata = new PaimonMetadata(catalog, "paimon", registry);
-            for (var kind : List.of(org.pangrova.connector.api.metadata.MetadataTableKind.TAGS,
-                    org.pangrova.connector.api.metadata.MetadataTableKind.BRANCHES,
-                    org.pangrova.connector.api.metadata.MetadataTableKind.FILES)) {
+            for (var kind : List.of(org.pangrova.connector.api.enums.MetadataTableKind.TAGS,
+                    org.pangrova.connector.api.enums.MetadataTableKind.BRANCHES,
+                    org.pangrova.connector.api.enums.MetadataTableKind.FILES)) {
                 var listing = metadata.getMetadataListing(SESSION, kind).orElseThrow();
                 assertThat(listing.source()).isEqualTo(kind);
                 assertThat(listing.equalityFilters()).isEmpty();
             }
             assertThat(metadata.getMetadataListing(SESSION,
-                    org.pangrova.connector.api.metadata.MetadataTableKind.ENTRIES)).isEmpty();
+                    org.pangrova.connector.api.enums.MetadataTableKind.ENTRIES)).isEmpty();
         }
     }
     @TempDir

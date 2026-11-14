@@ -1,18 +1,18 @@
 package org.pangrova.server.coordinator.sql.tenant;
-import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.exception.AccessDeniedException;
 
 import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
-import org.pangrova.query.core.dispatch.StatementExecutionContext;
-import org.pangrova.query.core.dispatch.StatementResult;
+import org.pangrova.query.dispatch.StatementExecutionContext;
+import org.pangrova.query.dispatch.StatementResult;
 import org.pangrova.parser.api.ast.Identifier;
-import org.pangrova.parser.api.ast.statement.GrantTenantStatement;
-import org.pangrova.parser.api.ast.statement.RevokeTenantStatement;
+import org.pangrova.parser.api.ast.statement.tenant.GrantTenantStatement;
+import org.pangrova.parser.api.ast.statement.tenant.RevokeTenantStatement;
 import org.pangrova.persistence.security.api.tenant.TenantStore;
-import org.pangrova.query.api.statement.StatementCategory;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.query.api.enums.StatementCategory;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.tenant.TenantMembershipMutation;
 import org.pangrova.types.value.TypedRow;
 

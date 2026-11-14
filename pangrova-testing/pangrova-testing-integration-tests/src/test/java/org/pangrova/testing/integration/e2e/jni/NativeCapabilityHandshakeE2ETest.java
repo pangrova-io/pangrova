@@ -10,8 +10,8 @@ import org.pangrova.protocol.v2.ExecutionPlacement;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.ai.SharedAiProvider;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.worker.nativebridge.jni.NativeCommandBuilder;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
+import org.pangrova.worker.jni.NativeCommandBuilder;
+import org.pangrova.worker.jni.NativeRuntime;
 
 import java.util.List;
 import java.nio.file.Files;

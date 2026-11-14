@@ -1,5 +1,9 @@
 package org.pangrova.testing.integration.control.ai;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
+import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -12,18 +16,18 @@ import org.pangrova.connector.iceberg.IcebergConnector;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.connector.api.commit.WriteDeclarationSnapshot;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.VectorType;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
-import org.pangrova.query.spi.write.WriteAuthorityResolver;
+import org.pangrova.query.api.write.WriteAuthorityResolver;
 import org.pangrova.query.api.write.WriteAuthorityRequest;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
@@ -34,15 +38,15 @@ import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
@@ -106,7 +110,7 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
         sdkCatalog = new HadoopCatalog(configuration, warehouse.toString());
         sdkCatalog.createNamespace(Namespace.of(TABLE.schema()));
         connector = new IcebergConnector(TABLE.catalog(), sdkCatalog);
-        catalogs = new CatalogRegistry(new PostgresCatalogDeploymentRepository(dataSource),
+        catalogs = new CatalogRegistry(memoryTableStores(), new PostgresCatalogDeploymentRepository(dataSource),
                 descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
         catalogs.register(new CatalogDescriptor(TABLE.catalog(), CatalogType.CONNECTOR, "iceberg",
                 CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "", Set.of(TENANT)));
@@ -114,7 +118,7 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
         authority = GeneratedValueMaterializationCoordinator.writeAuthoritySupplier(
                 catalogs, dataSource, null, ModelAuthorityFixtures.models(),
                 new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
-                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication, TableWriteAuthorityFixture.create());
     }
 
     @AfterEach

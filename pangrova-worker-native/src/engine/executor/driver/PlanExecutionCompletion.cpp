@@ -4,7 +4,7 @@
 
 #include "engine/executor/driver/PlanExecutionState.h"
 #include "engine/executor/driver/TaskExecutor.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "engine/shuffle/ShuffleEgressExecutor.h"
 #include "velox/exec/Task.h"
 #include "engine/velox/memory/VeloxMemoryGovernor.h"

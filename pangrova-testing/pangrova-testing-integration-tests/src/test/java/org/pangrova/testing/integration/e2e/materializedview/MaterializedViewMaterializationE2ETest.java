@@ -7,14 +7,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.materialization.domain.InternalNamespace;
-import org.pangrova.materialization.domain.MaterializationId;
-import org.pangrova.materialization.domain.MaterializationKind;
-import org.pangrova.materialization.domain.ObjectState;
-import org.pangrova.materialization.domain.QualifiedName;
-import org.pangrova.materialization.domain.TenantId;
-import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.materialization.api.domain.InternalNamespace;
+import org.pangrova.materialization.api.domain.MaterializationId;
+import org.pangrova.materialization.api.enums.MaterializationKind;
+import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.domain.QualifiedName;
+import org.pangrova.materialization.api.domain.TenantId;
+import org.pangrova.materialization.api.port.PublishedMaterialization;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
@@ -189,7 +189,7 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
         assertIds(logical, 2L, 3L);
         assertThat(authority.repository().findPublishedGeneration(id(logical))
                 .orElseThrow().refreshKind())
-                .isEqualTo(org.pangrova.materialization.domain.RefreshKind
+                .isEqualTo(org.pangrova.materialization.api.domain.RefreshKind
                         .IncrementalAppendOnly.INSTANCE);
 
         String headBeforeRename = published(logical).physicalTable().qualifiedName();

@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.connector.spi.metadata.TableProcedure;
+import org.pangrova.connector.api.metadata.TableProcedure;
 
 import java.util.List;
 

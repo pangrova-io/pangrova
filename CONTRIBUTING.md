@@ -62,7 +62,7 @@ Start with a focused check, then broaden according to the development rule:
 
 ```bash
 # Affected module and its prerequisites
-mvn -q -pl pangrova-coordination/pangrova-coordination-core -am test
+mvn -q -pl pangrova-coordination/pangrova-coordination-control -am test
 
 # Native tests after building and packaging the matching library
 python3 pangrova-worker-native/bin/run-native-tests.py

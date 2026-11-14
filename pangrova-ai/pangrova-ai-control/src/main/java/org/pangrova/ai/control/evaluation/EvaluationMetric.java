@@ -17,6 +17,9 @@
  */
 package org.pangrova.ai.control.evaluation;
 
+import static org.pangrova.common.util.Preconditions.requireOptionalText;
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Immutable metric evidence emitted by one completed evaluation run. */
 public record EvaluationMetric(
         String name,
@@ -26,11 +29,11 @@ public record EvaluationMetric(
         String evidenceReference) {
 
     public EvaluationMetric {
-        EvaluationValidation.requireText(name, "name");
+        requireText(name, "name");
         if (!Double.isFinite(value)) {
             throw new IllegalArgumentException("value must be finite");
         }
-        EvaluationValidation.requireText(unit, "unit");
-        EvaluationValidation.requireOptionalText(evidenceReference, "evidenceReference");
+        requireText(unit, "unit");
+        requireOptionalText(evidenceReference, "evidenceReference");
     }
 }

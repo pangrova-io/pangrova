@@ -1,6 +1,6 @@
 package org.pangrova.protocol.execution;
 
-import org.pangrova.query.api.identity.QueryId;
+import org.pangrova.execution.api.identity.QueryId;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

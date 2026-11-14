@@ -1,7 +1,7 @@
 package org.pangrova.persistence.table.memory.statistics;
 
 import org.pangrova.table.api.statistics.TableControlStatistics;
-import org.pangrova.persistence.table.api.statistics.TableControlStatisticsStore;
+import org.pangrova.table.api.statistics.TableControlStatisticsStore;
 
 import java.util.Map;
 import java.util.Optional;

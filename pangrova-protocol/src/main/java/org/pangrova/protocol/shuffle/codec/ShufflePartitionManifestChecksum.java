@@ -1,10 +1,11 @@
 package org.pangrova.protocol.shuffle.codec;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 /** Canonical digest for one ordered producer or finalized shuffle partition manifest. */
 public final class ShufflePartitionManifestChecksum {
@@ -17,15 +18,7 @@ public final class ShufflePartitionManifestChecksum {
 
     /** Creates a fresh accumulator whose first accepted batch sequence is zero. */
     public static Accumulator accumulator() {
-        return new Accumulator(sha256());
-    }
-
-    private static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException unavailable) {
-            throw new IllegalStateException("SHA-256 digest is unavailable", unavailable);
-        }
+        return new Accumulator(DigestUtils.sha256());
     }
 
     /** Mutable single-owner accumulator for fixed-width canonical manifest entries. */

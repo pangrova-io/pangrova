@@ -1,7 +1,10 @@
 package org.pangrova.persistence.file.api.profile;
 
+import org.pangrova.file.api.profile.StorageProfileRevision;
+
 import org.pangrova.filesystem.api.profile.StorageProfile;
 
+import org.pangrova.file.api.profile.CurrentStorageProfile;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;
@@ -14,7 +17,7 @@ import java.util.Optional;
  * <p>Thread-safe: implementations must support concurrent reads and writes.</p>
  */
 @Experimental
-public interface StorageProfileRegistry {
+public interface StorageProfileRegistry extends CurrentStorageProfile {
 
     /**
      * Legacy test/configuration registration. Durable authorities reject replacement;
@@ -41,8 +44,6 @@ public interface StorageProfileRegistry {
      */
     Optional<StorageProfile> get(String name);
 
-    /** Returns the exact current immutable definition and its durable identity. */
-    Optional<StorageProfileRevision> getCurrentRevision(String name);
 
     /** Returns an exact historical definition; missing revisions must never rebind to current. */
     Optional<StorageProfileRevision> findRevision(String name, String incarnationId, long revision);
@@ -59,7 +60,7 @@ public interface StorageProfileRegistry {
      * longer match. Selection must not depend on profile name or iteration order.
      * This lookup does not replace current authorization at the point of use.
      *
-     * @throws org.pangrova.file.api.error.FileStorageException when multiple profiles
+     * @throws org.pangrova.file.api.exception.FileStorageException when multiple profiles
      *         share the longest matching prefix; never choose an arbitrary profile
      * @param url the object storage URL (e.g. {@code s3://bucket/key})
      * @return the matching profile with the longest prefix match, or empty if none match

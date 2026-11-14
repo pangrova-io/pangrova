@@ -3,7 +3,7 @@ package org.pangrova.connector.paimon.type;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.pangrova.types.ArrayType;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.VectorType;
 import org.pangrova.types.primitive.BooleanType;
 import org.pangrova.types.primitive.IntegerType;

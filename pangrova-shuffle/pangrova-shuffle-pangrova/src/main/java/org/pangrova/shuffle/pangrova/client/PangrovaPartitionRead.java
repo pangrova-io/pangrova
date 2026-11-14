@@ -3,6 +3,7 @@ package org.pangrova.shuffle.pangrova.client;
 import java.util.Arrays;
 import java.util.Objects;
 
+import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.shuffle.api.identity.ExchangeChannelContext;
 
 /**
@@ -16,9 +17,11 @@ public record PangrovaPartitionRead(
         ExchangeChannelContext context,
         long planEpoch,
         int expectedProducerPartitions,
-        byte[] expectedProducerSetChecksum) {
+        byte[] expectedProducerSetChecksum,
+        ShuffleCommitReceipt.Partition publication) {
 
     public PangrovaPartitionRead {
+        Objects.requireNonNull(publication, "publication");
         Objects.requireNonNull(context, "context must not be null");
         if (shuffleId == null || shuffleId.isBlank()) {
             throw new IllegalArgumentException("shuffleId must not be blank");
@@ -43,12 +46,13 @@ public record PangrovaPartitionRead(
                 && shuffleId.equals(that.shuffleId) && context.equals(that.context)
                 && planEpoch == that.planEpoch
                 && expectedProducerPartitions == that.expectedProducerPartitions
+                && publication.equals(that.publication)
                 && Arrays.equals(expectedProducerSetChecksum, that.expectedProducerSetChecksum);
     }
 
     @Override
     public int hashCode() {
-        return 31 * Objects.hash(shuffleId, context, planEpoch, expectedProducerPartitions)
+        return 31 * Objects.hash(shuffleId, context, planEpoch, expectedProducerPartitions, publication)
                 + Arrays.hashCode(expectedProducerSetChecksum);
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.streaming.api.checkpoint;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 import java.util.Map;
 
 /**
@@ -12,6 +14,7 @@ import java.util.Map;
  *
  * <p>Implementations must be thread-safe.</p>
  */
+@Experimental
 public interface StreamOffsetStore {
 
     /**

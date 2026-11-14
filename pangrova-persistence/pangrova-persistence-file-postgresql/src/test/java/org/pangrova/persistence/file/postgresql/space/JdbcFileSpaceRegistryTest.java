@@ -1,12 +1,12 @@
 package org.pangrova.persistence.file.postgresql.space;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.file.api.space.FileSpace;
 import org.pangrova.file.api.space.FileSpaceDefinition;
 import org.pangrova.file.api.space.FileSpaceMutation;
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 
 import java.util.List;
 

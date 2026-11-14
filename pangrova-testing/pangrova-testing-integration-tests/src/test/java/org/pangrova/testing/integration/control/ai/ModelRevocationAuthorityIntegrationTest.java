@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.control.ai;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
+import org.pangrova.ai.control.exception.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.persistence.ai.postgresql.embedding.JdbcEmbeddingModelRegistry;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
@@ -44,7 +44,7 @@ class ModelRevocationAuthorityIntegrationTest extends ContainerTestBase {
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));
         roles.grantRoleToUser(UserRoleAssignment.of(USER.principal(), USAGE_GROUP));
         registry = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_GROUP, USAGE_GROUP);
-        registry.initSchema();
+        registry.validateSchema();
     }
 
     @Test
@@ -61,7 +61,7 @@ class ModelRevocationAuthorityIntegrationTest extends ContainerTestBase {
         assertTrue(registry.find("m", ADMIN).isPresent());
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            assertThrows(org.pangrova.security.api.error.AuthorizationDeniedException.class,
+            assertThrows(org.pangrova.security.api.exception.AuthorizationDeniedException.class,
                     () -> ModelAuthorityFixtures.models().requireCurrent(
                             connection, USER.principal(), observed));
         }

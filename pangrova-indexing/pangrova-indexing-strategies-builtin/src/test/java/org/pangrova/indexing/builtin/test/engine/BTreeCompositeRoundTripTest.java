@@ -1,7 +1,10 @@
 package org.pangrova.indexing.builtin.test.engine;
 
+import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import java.util.ServiceLoader;
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.connector.api.index.predicate.IsNull;
 import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.connector.api.index.predicate.InList;
@@ -10,7 +13,6 @@ import org.pangrova.indexing.api.data.CompositeIndexKey;
 import org.pangrova.indexing.api.data.BTreePage;
 import org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider;
 import org.pangrova.indexing.builtin.btree.serializer.BTreeSerializer;
-import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 import org.pangrova.indexing.codec.data.IndexSerializer;
 
 import java.util.Arrays;
@@ -29,7 +31,7 @@ class BTreeCompositeRoundTripTest {
         List<List<Comparable<?>>> rows = List.of(List.of(2L, "b"), List.of(1L, "a"), List.of(2L, "a"));
         var data = (BTreeIndexData) provider.build(rows.iterator(),
                 Map.of("btree.page_size", "2", "btree.store_positions", "true"));
-        var serializer = new IndexSerializer(BuiltinIndexSerializers.createRegistry());
+        var serializer = new IndexSerializer(TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class)));
         var restored = serializer.deserialize(serializer.serialize(data)).orElseThrow();
         assertThat(restored).isEqualTo(data);
         assertThat(data.leafPages().get(0).rowPositions()).containsExactly(List.of(1), List.of(2));

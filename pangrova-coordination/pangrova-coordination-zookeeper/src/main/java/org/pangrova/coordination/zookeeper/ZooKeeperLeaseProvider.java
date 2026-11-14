@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.persistence.coordination.spi.provider.CoordinationProvider;
+import org.pangrova.persistence.coordination.api.provider.CoordinationProvider;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.apache.curator.framework.CuratorFramework;

@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.OptionalLong;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

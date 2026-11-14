@@ -195,16 +195,16 @@ class RepeatQueryConsistencyTest extends SqlE2ETestBase {
 
     private void simulateHighMemoryPressure() {
         registerWorkerWithPressure(
-                org.pangrova.common.value.MemoryPressure.HIGH);
+                org.pangrova.common.enums.MemoryPressure.HIGH);
     }
 
     private void restoreNormalMemoryPressure() {
         registerWorkerWithPressure(
-                org.pangrova.common.value.MemoryPressure.NONE);
+                org.pangrova.common.enums.MemoryPressure.NONE);
     }
 
     private void registerWorkerWithPressure(
-            org.pangrova.common.value.MemoryPressure pressure) {
+            org.pangrova.common.enums.MemoryPressure pressure) {
         var worker = java.util.Objects.requireNonNull(
                 workerManager.getWorker(WORKER_ID), "E2E Worker must be registered");
         workerManager.onHeartbeat(new org.pangrova.coordination.api.membership.WorkerRegistrationIdentity(WORKER_ID, workerManager.getWorker(WORKER_ID).workerExecutionIdentity().admissionDomainId(), workerManager.getWorker(WORKER_ID).workerExecutionIdentity().incarnationId()),

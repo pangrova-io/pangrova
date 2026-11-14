@@ -15,10 +15,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SecurityApiClasspathTest {
     @Test
     void everyContractLinksOnItsMinimalClasspath() throws Exception {
-        URL types = org.pangrova.security.spi.authentication.Authenticator.class.getProtectionDomain().getCodeSource().getLocation();
+        URL types = org.pangrova.security.api.authentication.Authenticator.class.getProtectionDomain().getCodeSource().getLocation();
 
         Path classes = Path.of(types.toURI());
-        try (var loader = new URLClassLoader(new URL[]{types, org.pangrova.connector.spi.plugin.ConnectorFactory.class.getProtectionDomain().getCodeSource().getLocation(), org.pangrova.common.api.annotation.Experimental.class.getProtectionDomain().getCodeSource().getLocation(), org.pangrova.types.Type.class.getProtectionDomain().getCodeSource().getLocation(), org.pangrova.batch.api.page.Page.class.getProtectionDomain().getCodeSource().getLocation()}, ClassLoader.getPlatformClassLoader());
+        try (var loader = new URLClassLoader(new URL[]{types, org.pangrova.connector.api.plugin.ConnectorFactory.class.getProtectionDomain().getCodeSource().getLocation(), org.pangrova.common.api.annotation.Experimental.class.getProtectionDomain().getCodeSource().getLocation(), org.pangrova.types.Type.class.getProtectionDomain().getCodeSource().getLocation(), org.pangrova.batch.api.page.Page.class.getProtectionDomain().getCodeSource().getLocation()}, ClassLoader.getPlatformClassLoader());
              var files = Files.walk(classes.resolve("org/pangrova/security"))) {
             List<Path> classFiles = files.filter(path -> path.toString().endsWith(".class")).toList();
             assertThat(classFiles).isNotEmpty();
@@ -45,7 +45,7 @@ class SecurityApiClasspathTest {
                 }
             }
             for (String excluded : List.of("org.pangrova.connector.runtime.scan.FixedSplitSource",
-                    "org.pangrova.security.core.authentication.AuthenticationManager",
+                    "org.pangrova.security.authentication.AuthenticationManager",
                     "org.pangrova.security.auth.oauth2.OAuth2Authenticator",
                     "software.amazon.awssdk.services.kms.KmsClient", "io.jsonwebtoken.Jwts",
                     "org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore",

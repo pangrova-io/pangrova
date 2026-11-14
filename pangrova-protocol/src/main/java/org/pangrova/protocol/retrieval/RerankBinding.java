@@ -8,6 +8,8 @@ import org.pangrova.protocol.v2.CapabilityLimits;
 import org.pangrova.protocol.resource.ModelResourceEnvelopes;
 import org.pangrova.common.api.annotation.Internal;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Wire-neutral contract for a bounded, version-exact model rerank stage. */
 @Internal
 public record RerankBinding(
@@ -99,11 +101,5 @@ public record RerankBinding(
     @Override
     public byte[] candidateSchema() {
         return candidateSchema.clone();
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
     }
 }

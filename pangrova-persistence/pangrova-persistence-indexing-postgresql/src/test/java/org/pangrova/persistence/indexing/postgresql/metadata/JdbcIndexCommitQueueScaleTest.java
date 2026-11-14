@@ -1,5 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.CommitLogEntry;
@@ -15,7 +17,7 @@ class JdbcIndexCommitQueueScaleTest {
     void millionEventHotTableDoesNotRequireBacklogScanOrHideAnotherHead()
             throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("commit_scale");
-        var store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        var store = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
         Instant now = Instant.parse("2026-09-05T01:02:03Z");
         store.recordCommitEvent(new CommitEventRequest(
                 "tenant", "catalog", "schema", "hot", "hot-head",

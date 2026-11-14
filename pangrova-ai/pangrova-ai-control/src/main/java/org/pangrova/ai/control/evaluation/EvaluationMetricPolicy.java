@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Tenant-scoped, immutable metric rules selected by an evaluation run's policy version. */
 public record EvaluationMetricPolicy(
         String tenantId,
@@ -29,8 +31,8 @@ public record EvaluationMetricPolicy(
         List<EvaluationMetricRule> rules) {
 
     public EvaluationMetricPolicy {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(version, "version");
+        requireText(tenantId, "tenantId");
+        requireText(version, "version");
         Objects.requireNonNull(rules, "rules must not be null");
         rules = List.copyOf(rules);
         if (rules.isEmpty()) {

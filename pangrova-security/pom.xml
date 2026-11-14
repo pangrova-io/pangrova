@@ -12,7 +12,8 @@
     <modules>
         <module>pangrova-security-codec</module>
         <module>pangrova-security-api</module>
-        <module>pangrova-security-core</module>
+        <module>pangrova-security-access</module>
+        <module>pangrova-security-secrets</module>
         <module>pangrova-security-auth-builtin</module>
         <module>pangrova-security-auth-ldap</module>
         <module>pangrova-security-auth-oauth2</module>

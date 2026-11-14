@@ -1,5 +1,9 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
+
+import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
+
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
@@ -8,7 +12,7 @@ import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.lease.LeaseEntry;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,7 +67,7 @@ class IndexingBootstrapStartOrderingTest {
         try {
             assertThatCode(() -> bootstrap.start(
                     new NoOpIndexMetadataStore(), new UnusedBuildClaims(),
-                    new CatalogRegistry(new EmptyCatalogDeployments()),
+                    new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()),
                     null,
                     null))
                     .as("start() must not raise (and the NPE must not be silently swallowed)")
@@ -84,7 +88,7 @@ class IndexingBootstrapStartOrderingTest {
 
         wiring.startIndexing(
                 new NoOpIndexMetadataStore(), new UnusedBuildClaims(),
-                new CatalogRegistry(new EmptyCatalogDeployments()),
+                new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()),
                 null,
                 null,
                 indexDir.toString(),
@@ -143,7 +147,7 @@ class IndexingBootstrapStartOrderingTest {
         @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) {
             return Optional.empty();
         }
-        @Override public void deleteCatalogDescriptor(String n) {}
+        @Override public boolean deleteCatalogDescriptor(CatalogDeploymentIdentity expected) { throw new UnsupportedOperationException("Read-only catalog fixture"); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
 
     }
@@ -166,8 +170,7 @@ class IndexingBootstrapStartOrderingTest {
                 String tenantId, String c, String s, String t, List<String> cols, boolean b) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) {}
-        @Override public void registerIndexFile(IndexFileMapping m) {}
-        @Override public void batchRegisterIndexFiles(List<IndexFileMapping> m) {}
+        @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
         @Override public List<IndexFileMapping> getIndexFileMappings(String id) { return List.of(); }
         @Override public Map<String, Map<String, String>> batchGetIndexFileMappings(
                 List<String> ids, List<String> paths) { return Map.of(); }

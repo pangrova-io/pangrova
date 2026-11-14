@@ -1,5 +1,7 @@
 package org.pangrova.common.lifecycle;
 
+import org.pangrova.common.enums.BootstrapPhase;
+
 import org.pangrova.common.exception.PangrovaException;
 import org.junit.jupiter.api.Test;
 

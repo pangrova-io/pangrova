@@ -142,6 +142,36 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         assertThat(released.getError()).isEqualTo(report.getError());
     }
 
+    @Test void rejectsAuthenticPartitionStreamWhoseManifestDiffersFromCoordinatorReceipt() throws Exception {
+        var producer = service.registerProducer();
+        publish(producer, ActualExternalShuffleTask.arrowBatch(3), 3);
+        var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
+        var binding = service.delegateRead(producer, request);
+        var published = binding.publication();
+        String otherDigest = (published.manifestSha256().startsWith("0") ? "1" : "0")
+                + published.manifestSha256().substring(1);
+        var expected = new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(
+                published.lastSequence(), published.bytes(), published.rows(), otherDigest);
+        var mismatched = new org.pangrova.shuffle.exchange.ExternalShuffleTransport(
+                binding.shuffleId(), binding.endpoints(), binding.commitAddress(), binding.outputPartitionId(),
+                binding.partitionCount(), binding.planEpoch(), binding.executionOwner(), binding.consumerAttempt(),
+                binding.deadlineEpochMs(), binding.readAccess(), binding.expectedProducerPartitions(),
+                binding.expectedProducerSetChecksum(), expected);
+        long handle = nativeRuntime.createPending(request);
+        transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(mismatched)));
+        nativeRuntime.executor().startTask(handle);
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+            var report = TaskReport.parseFrom(nativeRuntime.executor().getTaskStatus(handle));
+            assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
+            assertThat(report.getAttempt()).isEqualTo(request.getAttempt());
+            assertThat(report.getError().getErrorClass()).isEqualTo(ErrorClass.ERROR_CLASS_DATA_CORRUPTION);
+            assertThat(report.getError().getRetryable()).isFalse();
+            assertThat(report.getError().getMessage()).contains("coordinator publication");
+        });
+        transport.releaseInputs(handle);
+        nativeRuntime.executor().releaseTask(handle).orElseThrow();
+    }
+
     @Test void releaseInputsCancelsTheActivePartitionRpc() throws Exception {
         var producer = service.registerProducer();
         publish(producer, ActualExternalShuffleTask.arrowBatch(3), 3);
@@ -175,7 +205,9 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
                     0, rows, ByteBuffer.wrap(payload));
             egress.onTaskCompleted(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId());
         }
-        service.finalizeProducer(producer);
+        var receipt = service.finalizeProducer(producer);
+        assertThat(receipt.partitions().get(0).bytes()).isEqualTo(payload.length);
+        assertThat(receipt.partitions().get(0).rows()).isEqualTo(rows);
     }
 
     private void assertReadAuthority(org.pangrova.protocol.v2.TaskAttemptId attempt, byte[] token) {

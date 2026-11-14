@@ -19,7 +19,7 @@ import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.NativePhysicalFileAllocation;
 import org.pangrova.connector.api.metadata.NativePhysicalFileReceipt;
 import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
-import org.pangrova.connector.spi.metadata.NativePhysicalWriteProvider;
+import org.pangrova.connector.api.metadata.NativePhysicalWriteProvider;
 
 import java.util.Arrays;
 import java.util.HashSet;

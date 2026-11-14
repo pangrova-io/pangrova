@@ -18,7 +18,7 @@
     <modules>
         <module>pangrova-coordination-api</module>
 
-        <module>pangrova-coordination-core</module>
+        <module>pangrova-coordination-control</module>
         <module>pangrova-coordination-zookeeper</module>
     </modules>
 </project>

@@ -2,7 +2,7 @@ package org.pangrova.ai.worker.provider;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 
 import java.util.List;
@@ -123,7 +123,7 @@ class ConfiguredAiProviderRegistryTest {
                 Map.entry("models.chat.max-response-bytes", "1048576"),
                 Map.entry("models.chat.max-provider-items-per-task", "1024"));
 
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(config))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(config))
                 .hasMessageContaining("Unsupported AI provider");
     }
 
@@ -215,22 +215,21 @@ class ConfiguredAiProviderRegistryTest {
                 Map.entry("models.rerank.max-request-bytes", "262144"),
                 Map.entry("models.rerank.max-response-bytes", "1048576"),
                 Map.entry("models.rerank.max-provider-items-per-task", "1024")));
-        var first = ConfiguredAiProviderRegistry.describeModels(base)
+        var first = new WorkerAiModelCatalog().describeModels(base)
                 .iterator().next();
         assertThat(first.capabilities().get(0).retryPolicy())
                 .isEqualTo(AiCapabilityDescriptor.RetryPolicy.noRetry());
         base.put("models.rerank.max-provider-items-per-task", "1025");
-        var invocationLimitChange = ConfiguredAiProviderRegistry
-                .describeModels(base).iterator().next();
+        var invocationLimitChange = new WorkerAiModelCatalog().describeModels(base).iterator().next();
         base.put("models.rerank.max-provider-items-per-task", "1024");
         base.put("models.rerank.secret-reference", "env://KEY_B");
-        var credentialRotation = ConfiguredAiProviderRegistry.describeModels(base)
+        var credentialRotation = new WorkerAiModelCatalog().describeModels(base)
                 .iterator().next();
         base.put("models.rerank.endpoint", "https://other.example/v1/rerank");
-        var routeChange = ConfiguredAiProviderRegistry.describeModels(base)
+        var routeChange = new WorkerAiModelCatalog().describeModels(base)
                 .iterator().next();
         base.put("models.rerank.provider-model", "rerank-deployment-v2");
-        var deploymentChange = ConfiguredAiProviderRegistry.describeModels(base)
+        var deploymentChange = new WorkerAiModelCatalog().describeModels(base)
                 .iterator().next();
 
         assertThat(org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(first))
@@ -268,7 +267,7 @@ class ConfiguredAiProviderRegistryTest {
                 Map.entry("models.rerank.version", "v1"),
                 Map.entry("models.rerank.endpoint", "https://models.example/v1/rerank"),
                 Map.entry("models.rerank.secret-reference", "env://OTHER_KEY"),
-                Map.entry("models.rerank.capabilities", " reranking "),
+                Map.entry("models.rerank.capabilities", " reranking, RERANKING "),
                 Map.entry("models.rerank.max-input-tokens", "8192"),
                 Map.entry("models.rerank.max-concurrency", "4"),
                 Map.entry("models.rerank.max-provider-attempts-per-task", "4096"),
@@ -280,9 +279,9 @@ class ConfiguredAiProviderRegistryTest {
                 Map.entry("models.rerank.timeout-seconds", "030"),
                 Map.entry("models.rerank.enabled", "true"));
 
-        var first = ConfiguredAiProviderRegistry.describeModels(implicit)
+        var first = new WorkerAiModelCatalog().describeModels(implicit)
                 .iterator().next();
-        var second = ConfiguredAiProviderRegistry.describeModels(explicit)
+        var second = new WorkerAiModelCatalog().describeModels(explicit)
                 .iterator().next();
 
         assertThat(org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(first))
@@ -306,7 +305,7 @@ class ConfiguredAiProviderRegistryTest {
                 Map.entry("models.embed.max-response-bytes", "1048576"),
                 Map.entry("models.embed.max-provider-items-per-task", "1024"));
 
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(config))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(config))
                 .hasMessageContaining("embedding-dimension");
     }
 
@@ -343,7 +342,7 @@ class ConfiguredAiProviderRegistryTest {
 
         var contradictory = new java.util.LinkedHashMap<>(config);
         contradictory.put("models.local.secret-reference", "env://UNUSED");
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(contradictory))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(contradictory))
                 .hasMessageContaining("must not configure a secret-reference");
     }
 
@@ -352,13 +351,13 @@ class ConfiguredAiProviderRegistryTest {
         var authenticated = new java.util.LinkedHashMap<>(inferenceModelConfig());
         authenticated.put(
                 "models.chat.endpoint", "http://models.example/v1/chat/completions");
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(authenticated))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(authenticated))
                 .hasMessageContaining("must use HTTPS");
 
         var anonymous = new java.util.LinkedHashMap<>(authenticated);
         anonymous.put("models.chat.authentication", "none");
         anonymous.remove("models.chat.secret-reference");
-        assertThatThrownBy(() -> ConfiguredAiProviderRegistry.describeModels(anonymous))
+        assertThatThrownBy(() -> new WorkerAiModelCatalog().describeModels(anonymous))
                 .hasMessageContaining("anonymous loopback");
     }
 

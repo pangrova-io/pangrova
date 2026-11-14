@@ -16,10 +16,10 @@ class LocalSpoolIsolationTest {
     void providerLinksWithoutWorkerNativePlannerOrCoordinatorImplementations() throws Exception {
         ClassLoader loader = LocalFsSpoolStore.class.getClassLoader();
         for (String excluded : List.of("org.pangrova.worker.execution.NativeTaskExecutor",
-                "org.pangrova.worker.nativebridge.jni.NativeRuntime",
+                "org.pangrova.worker.jni.NativeRuntime",
                 "org.pangrova.worker.bootstrap.WorkerBootstrap",
                 "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
-                "org.pangrova.planner.core.analysis.PlannerContext",
+                "org.pangrova.planner.analysis.PlannerContext",
                 "org.pangrova.shuffle.exchange.ExchangeChannelContext",
                 "org.pangrova.protocol.v2.TaskRequest",
                 "org.pangrova.shuffle.spool.localfs.LocalFsSpoolStore",

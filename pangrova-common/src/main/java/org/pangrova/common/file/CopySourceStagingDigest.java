@@ -1,12 +1,11 @@
 package org.pangrova.common.file;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Objects;
 
 /** Canonical, nonce-free identity of one admitted COPY source staging command. */
@@ -43,9 +42,8 @@ public final class CopySourceStagingDigest {
             out.writeLong(scope.ownerFencingToken());
             out.writeLong(scope.deadlineEpochMs());
             out.flush();
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(bytes.toByteArray()));
-        } catch (IOException | NoSuchAlgorithmException failure) {
+            return DigestUtils.sha256Hex(bytes.toByteArray());
+        } catch (IOException failure) {
             throw new IllegalStateException("COPY staging command cannot be encoded", failure);
         }
     }

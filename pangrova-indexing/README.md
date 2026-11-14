@@ -7,12 +7,16 @@
 | `pangrova-indexing-api` | 调用模型、策略及 payload serializer 扩展契约；生产依赖仅 Common、Connector API |
 | `pangrova-indexing-codec` | 谓词编码、公共索引文件封装、CRC、类型编码辅助和 serializer 注册表 |
 | `pangrova-indexing-strategies-builtin` | 九种现有 Java 策略及 payload serializer、值归一化、Bloom 预解析表示 |
-| `pangrova-indexing-core` | 构建、评估、缓存、生命周期；依赖独立 Persistence 端口；Calcite 向量识别与 Native retrieval 规划绑定位于其 `planner` 包 |
+| `pangrova-indexing-lifecycle` | 构建、评估、缓存、生命周期；依赖独立 Persistence 端口；Calcite 向量识别与 Native retrieval 规划绑定位于 `core.planner.vector` |
 
-Core 的生产依赖不包含 builtin 或 RoaringBitmap；Server Coordinator 选择 builtin
-serializer 集合，策略服务描述符由 builtin 制品拥有。注册表拒绝重复类型。
-后续仍需完成 Provider 的角色、配置、生命周期和能力模型，以及 Plugin Runtime
-发现与显式装配的统一。不能把本次制品分离等同于这些目标全部完成。
+Server 通过 `IndexEngineRegistry` 发现实际加载的策略，用这批实例填充
+`TypeSerializerRegistry`。每个策略提供与自身原始构建结果配对的 payload codec。
+空的生产注册表、重复类型及缺少 codec 都会导致初始化失败。服务描述符由 builtin
+制品发布，Server 将其作为运行时依赖。策略不持有线程或连接。
+
+构建编排、attempt 及映射转换归 `core.build`，断路器与评估指标归
+`core.evaluation`，文件 I/O 与缓存归 `core.storage`，Schema 变更处理归
+`core.evolution`。业务包只借用 Persistence 的持久化端口。
 
 `IndexStrategyProvider.prepareForEvaluation` 表达可选的只读预处理，默认返回原数据。
 Core 评估服务在首次读取时调用它，并使用同一结果进行首次评估和缓存；Cache 不再
@@ -64,5 +68,5 @@ PostgreSQL 批量选择使用固定 `ANY (?)`/`jsonb_exists_any` SQL 和 JDBC te
 
 Scalar 构建的取消意图归每次提交所有，CANCELLED 不能授权 generation 发布。
 新提交不会清除旧请求的取消状态；读取、行迭代、编码与新文件写入前检查取消。
-在途调用仍按协作式取消退出，持久化 claim fencing 和未发布文件完整回收仍待补齐。
+在途调用仍按协作式取消退出，PostgreSQL 用当前 claim 和 generation 隔离迟到映射写入。对象写入成功后、映射提交前崩溃的回收仍待验证。
 取消边界见当前提交与评估实现。

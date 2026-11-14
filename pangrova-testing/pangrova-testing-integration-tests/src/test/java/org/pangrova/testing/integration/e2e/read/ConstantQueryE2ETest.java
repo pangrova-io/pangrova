@@ -96,7 +96,7 @@ class ConstantQueryE2ETest extends SqlE2ETestBase {
             assertThat(((Number) firstColumnValue(rows.get(0))).longValue())
                     .isEqualTo(42L);
 
-            var terminal = org.pangrova.common.json.jackson.JsonMapperFactory.shared()
+            var terminal = org.pangrova.common.json.JsonMapperFactory.shared()
                     .readTree(pollUntilTerminal(queryId));
             assertThat(terminal.path("state").asText()).isEqualTo("FINISHED");
             finished = true;

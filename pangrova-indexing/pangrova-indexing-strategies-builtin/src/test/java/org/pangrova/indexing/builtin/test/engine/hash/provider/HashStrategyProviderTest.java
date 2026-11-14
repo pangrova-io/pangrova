@@ -2,8 +2,8 @@ package org.pangrova.indexing.builtin.test.engine.hash.provider;
 
 import org.pangrova.indexing.builtin.hash.provider.HashStrategyProvider;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.BloomFilterIndexData;
 import org.pangrova.indexing.api.data.HashIndexData;
 import org.pangrova.indexing.api.data.IndexData;

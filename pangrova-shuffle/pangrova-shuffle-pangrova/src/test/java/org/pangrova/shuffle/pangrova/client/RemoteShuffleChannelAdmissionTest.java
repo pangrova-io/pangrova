@@ -1,5 +1,6 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.nativewire.exception.ShuffleChannelAdmissionException;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -16,18 +17,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RemoteShuffleChannelAdmissionTest {
     @Test void rejectsInvalidLimits() {
         for (var values : new int[][]{{0, 1}, {1, 0}, {1, 2}}) {
-            assertThatThrownBy(() -> new RemoteShuffleChannelAdmission.Limits(values[0], values[1]))
+            assertThatThrownBy(() -> new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(values[0], values[1]))
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }
 
+    @Test void workerFactoryValidatesItsOwnConfigurationBeforeResourceCreation() {
+        var factory = new PangrovaShuffleWorkerFactory();
+        var limits = new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(2, 1);
+        for (var properties : java.util.List.of(java.util.Map.of("unexpected", "unused"),
+                java.util.Map.of("rpc-timeout-ms", "0"), java.util.Map.of("rpc-timeout-ms", "no-number"))) {
+            var config = new org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory.Configuration(limits, null, properties);
+            assertThatThrownBy(() -> factory.open(config)).isInstanceOf(IllegalArgumentException.class);
+        }
+        var session = factory.open(new org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory.Configuration(
+                limits, null, java.util.Map.of("rpc-timeout-ms", "7")));
+        assertThat(session.capabilities()).isEqualTo(factory.capabilities());
+        session.seal();
+        session.requireDrained();
+    }
+
     @Test void creatingCreditIsOccupiedUntilConstructionActuallyExits() {
-        var admission = new RemoteShuffleChannelAdmission(new RemoteShuffleChannelAdmission.Limits(1, 1));
+        var admission = new RemoteShuffleChannelAdmission(new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(1, 1));
         var first = admission.reserve(endpoint(9400));
         assertThat(admission.snapshot().ownedAndCreatingChannels()).isEqualTo(1);
         assertThatThrownBy(first::releaseTerminated).isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> admission.reserve(endpoint(9401))).isInstanceOf(RemoteShuffleAdmissionException.class)
-                .satisfies(failure -> assertThat(((RemoteShuffleAdmissionException) failure).scope()).isEqualTo("TOTAL"));
+        assertThatThrownBy(() -> admission.reserve(endpoint(9401))).isInstanceOf(ShuffleChannelAdmissionException.class)
+                .satisfies(failure -> assertThat(((ShuffleChannelAdmissionException) failure).scope()).isEqualTo("TOTAL"));
         first.constructionExited();
         first.releaseTerminated();
         first.releaseTerminated();
@@ -36,11 +52,11 @@ class RemoteShuffleChannelAdmissionTest {
     }
 
     @Test void endpointFailureRetainsExactClassificationAndExistingCredit() {
-        var admission = new RemoteShuffleChannelAdmission(new RemoteShuffleChannelAdmission.Limits(2, 1));
+        var admission = new RemoteShuffleChannelAdmission(new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(2, 1));
         var first = admission.reserve(endpoint(9400));
-        assertThatThrownBy(() -> admission.reserve(endpoint(9400))).isInstanceOf(RemoteShuffleAdmissionException.class)
+        assertThatThrownBy(() -> admission.reserve(endpoint(9400))).isInstanceOf(ShuffleChannelAdmissionException.class)
                 .satisfies(failure -> {
-                    var typed = (RemoteShuffleAdmissionException) failure;
+                    var typed = (ShuffleChannelAdmissionException) failure;
                     assertThat(typed.scope()).isEqualTo("ENDPOINT");
                     assertThat(typed.occupied()).isEqualTo(1);
                     assertThat(typed.limit()).isEqualTo(1);
@@ -56,7 +72,7 @@ class RemoteShuffleChannelAdmissionTest {
     }
 
     @Test void concurrentCreationReservationsCannotOversubscribeTotalOrEndpoint() throws Exception {
-        var admission = new RemoteShuffleChannelAdmission(new RemoteShuffleChannelAdmission.Limits(8, 8));
+        var admission = new RemoteShuffleChannelAdmission(new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(8, 8));
         var start = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(16, work -> new Thread(work, "channel-credit-boundary"));
         var futures = new ArrayList<Future<RemoteShuffleChannelAdmission.Reservation>>();
@@ -64,7 +80,7 @@ class RemoteShuffleChannelAdmissionTest {
             for (int index = 0; index < 16; index++) futures.add(executor.submit(() -> {
                 start.await();
                 try { return admission.reserve(endpoint(9400)); }
-                catch (RemoteShuffleAdmissionException rejected) { return null; }
+                catch (ShuffleChannelAdmissionException rejected) { return null; }
             }));
             start.countDown();
             var admitted = new ArrayList<RemoteShuffleChannelAdmission.Reservation>();

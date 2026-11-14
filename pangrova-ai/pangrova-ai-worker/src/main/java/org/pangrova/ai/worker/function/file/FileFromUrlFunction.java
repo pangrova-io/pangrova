@@ -17,7 +17,7 @@ import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
-import org.pangrova.function.spi.scalar.ScalarFunction;
+import org.pangrova.function.api.scalar.ScalarFunction;
 import org.pangrova.ai.worker.blob.HttpsBlobImporter;
 
 import java.time.LocalDateTime;
@@ -73,8 +73,6 @@ public final class FileFromUrlFunction implements ScalarFunction {
         String url = sv.value();
         BlobReference reference = importer.importUrl(url);
 
-        return FileStructHelper.createFileStruct(
-                reference.uri(), reference.mimeType(), reference.size(),
-                reference.checksum(), LocalDateTime.now());
+        return FileStruct.encode(reference, LocalDateTime.now());
     }
 }

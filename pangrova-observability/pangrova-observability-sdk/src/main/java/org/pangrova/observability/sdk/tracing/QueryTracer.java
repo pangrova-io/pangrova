@@ -2,8 +2,8 @@ package org.pangrova.observability.sdk.tracing;
 
 import org.pangrova.observability.api.tracing.Context;
 import org.pangrova.observability.api.tracing.Span;
-import org.pangrova.observability.api.tracing.SpanKind;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.observability.api.enums.SpanKind;
+import org.pangrova.observability.api.tracing.TracingProvider;
 
 /**
  * Creates query-scoped trace spans for each execution phase.

@@ -17,12 +17,12 @@ import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.connector.api.metadata.AcceptedSourceSnapshot;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.api.metadata.ManagedSourceCatalog;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.connector.api.metadata.PreparedSourcePublication;
 import org.pangrova.connector.api.metadata.SourcePublicationReservation;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 
 import javax.sql.DataSource;
@@ -713,7 +713,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         if (current == null || !current.key().equals(expected.key()) || !current.tableId().equals(expected.tableId())
             || !current.datasetUri().equals(expected.datasetUri()) || current.generation() != expected.generation()
             || !Arrays.equals(current.schemaSha256(), expected.schemaSha256())) {
-            throw new org.pangrova.connector.api.metadata.SourceTableUnavailableException(
+            throw new org.pangrova.connector.api.exception.SourceTableUnavailableException(
                     "Source table was dropped, replaced or changed generation");
         }
     }

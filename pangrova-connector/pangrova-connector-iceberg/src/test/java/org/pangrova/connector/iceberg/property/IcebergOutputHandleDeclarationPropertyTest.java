@@ -13,7 +13,7 @@ import org.apache.iceberg.types.Types;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;

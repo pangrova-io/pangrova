@@ -2,7 +2,7 @@
 // Extracted from TaskExecutor to enforce single-responsibility.
 #include "engine/executor/driver/TaskLifecycle.h"
 
-#include "bridge/NativeStackTrace.h"
+#include "jni/NativeStackTrace.h"
 
 #include <stdexcept>
 

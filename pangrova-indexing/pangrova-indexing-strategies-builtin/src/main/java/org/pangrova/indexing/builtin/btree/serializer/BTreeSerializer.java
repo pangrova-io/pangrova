@@ -6,7 +6,7 @@ import org.pangrova.indexing.api.data.BTreePage;
 import java.util.ArrayList;
 import java.util.List;
 import org.pangrova.indexing.codec.data.SerdeCodec;
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
 /**
  * Serializer for {@link BTreeIndexData}.

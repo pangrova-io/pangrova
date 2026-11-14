@@ -1,6 +1,6 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.transport.client.http.PangrovaRestClient;
+import org.pangrova.client.http.PangrovaRestClient;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;

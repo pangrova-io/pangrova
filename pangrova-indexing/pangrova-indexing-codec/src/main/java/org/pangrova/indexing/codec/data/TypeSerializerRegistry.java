@@ -1,8 +1,9 @@
 package org.pangrova.indexing.codec.data;
 
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -32,6 +33,15 @@ public final class TypeSerializerRegistry {
         return s;
     }
 
+    /** Binds storage codecs to the exact strategy instances selected for this process. */
+    public static TypeSerializerRegistry fromStrategies(Iterable<IndexStrategyProvider> strategies) {
+        var builder = builder();
+        for (IndexStrategyProvider strategy : strategies) {
+            builder.register(strategy.supportedType(), strategy.payloadSerializer());
+        }
+        return builder.build();
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -45,6 +55,7 @@ public final class TypeSerializerRegistry {
          * @throws IllegalStateException if the type is already registered
          */
         public Builder register(IndexType type, TypeSerializer<?> serializer) {
+            java.util.Objects.requireNonNull(serializer, "missing payload serializer for " + type);
             TypeSerializer<?> existing = map.putIfAbsent(type, serializer);
             if (existing != null) {
                 throw new IllegalStateException("Duplicate TypeSerializer for " + type);

@@ -1,13 +1,15 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.pangrova.connector.api.metadata.SourceCatalogDeployment;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog;
@@ -37,22 +39,22 @@ import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.protocol.v2.WritePreparationOutcome;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.connector.api.metadata.AcceptedSourceSnapshot;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.api.metadata.ManagedSourceCatalog;
 import org.pangrova.connector.api.metadata.NativeWriteAllocation;
 import org.pangrova.connector.api.metadata.SourceObjectPage;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.jdbc.api.query.ExecutionTransactionFence;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.connector.api.commit.WriteAuthorizationReceipt;
@@ -133,7 +135,7 @@ public final class LanceManagedSourceFixture {
                 descriptor.incarnationId(), descriptor.revision()), execution -> Optional.ofNullable(owned.get(execution))
                         .orElseThrow(() -> new IllegalStateException("Fixture does not own this real PG execution")),
                 executionFence, models,
-                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+                TableWriteAuthorityFixture.create()::requireCurrent);
         store = new LanceCatalogStore(authority);
         provisionSubject();
     }
@@ -378,7 +380,7 @@ public final class LanceManagedSourceFixture {
         }
     }
 
-    org.pangrova.connector.spi.plugin.Connector connector() {
+    org.pangrova.connector.api.plugin.Connector connector() {
         var descriptor = new PostgresCatalogDeploymentRepository(dataSource).getCatalogDescriptor(catalog.getCatalogName()).orElseThrow();
         return new LanceConnector(descriptor.name(), descriptor.properties().get("warehouse"), descriptor.properties(),
                 Optional.empty(), Optional.of(authority));

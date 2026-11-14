@@ -1,12 +1,15 @@
 #include "vector/ivfpq/IvfPqIndex.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <fstream>
+#include <future>
 #include <limits>
 #include <numeric>
 #include <queue>
 #include <stdexcept>
+#include <thread>
 
 #include "capabilities/artifact/ParsedArtifactCache.h"
 #include "vector/VectorDistance.h"
@@ -152,10 +155,39 @@ void IvfPqIndex::build(
       training, sample_count, dimension, config_.coarse_clusters);
 
   std::vector<int64_t> coarse_assignments(static_cast<size_t>(count));
-  for (int64_t row = 0; row < count; ++row) {
-    coarse_assignments[static_cast<size_t>(row)] = nearest(
-        vectors + row * dimension, coarse_centroids_.data(),
-        config_.coarse_clusters, dimension);
+  {
+    // O(count * clusters * dimension): the dominant build cost. Each row writes
+    // its own slot, so the work is disjoint. Bounded worker count keeps an
+    // untrusted row count from creating thousands of threads; small inputs stay
+    // serial to avoid paying thread startup.
+    const auto assign_range = [&](int64_t begin, int64_t end) {
+      for (int64_t row = begin; row < end; ++row) {
+        coarse_assignments[static_cast<size_t>(row)] = nearest(
+            vectors + row * dimension, coarse_centroids_.data(),
+            config_.coarse_clusters, dimension);
+      }
+    };
+    constexpr int64_t kParallelAssignThreshold = 1000;
+    if (count < kParallelAssignThreshold) {
+      assign_range(0, count);
+    } else {
+      const auto hardware = std::max(1U, std::thread::hardware_concurrency());
+      const int64_t worker_count = std::min<int64_t>(
+          count, std::min<uint32_t>(hardware, 32));
+      const int64_t chunk = (count + worker_count - 1) / worker_count;
+      std::vector<std::future<void>> futures;
+      futures.reserve(static_cast<size_t>(worker_count));
+      for (int64_t worker = 0; worker < worker_count; ++worker) {
+        const int64_t begin = worker * chunk;
+        const int64_t end = std::min(count, begin + chunk);
+        futures.push_back(std::async(std::launch::async, [&assign_range, begin, end] {
+          assign_range(begin, end);
+        }));
+      }
+      for (auto& future : futures) {
+        future.get();
+      }
+    }
   }
 
   pq_codebooks_.resize(static_cast<size_t>(

@@ -17,8 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
-import org.pangrova.security.spi.authentication.Authenticator;
-import org.pangrova.security.api.authentication.TokenValidationException;
+import org.pangrova.security.api.authentication.Authenticator;
+import org.pangrova.security.api.exception.TokenValidationException;
 
 /**
  * OAuth2/OIDC token-based authenticator with JJWT-backed JWT validation.

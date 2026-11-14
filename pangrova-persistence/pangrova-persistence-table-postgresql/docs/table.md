@@ -1,9 +1,9 @@
 # Table persistence
 
 Table identity, lifecycle, maintenance, statistics and policy values belong to
-`pangrova-table-api`. The four storage ports and `TableControlException` belong to
+`pangrova-table`. The four storage ports and `TableControlException` belong to
 `pangrova-persistence-table-api`, under `org.pangrova.persistence.table.api`.
-`pangrova-table-core` owns domain orchestration over these contracts.
+`pangrova-table` owns domain orchestration over these contracts.
 
 PostgreSQL implementations live in `pangrova-persistence-table-postgresql`, under
 `org.pangrova.persistence.table.postgresql`. They borrow an externally owned
@@ -37,5 +37,5 @@ canonical migration fixture. Backend tests accompany the providers, and domain/S
 integration tests remain with their consumers.
 
 ```sh
-mvn -B -pl :pangrova-persistence-table-api,:pangrova-persistence-table-postgresql,:pangrova-persistence-table-memory,:pangrova-table-core -am -Pfull-regression,static-analysis verify
+mvn -B -pl :pangrova-persistence-table-api,:pangrova-persistence-table-postgresql,:pangrova-persistence-table-memory,:pangrova-table -am -Pfull-regression,static-analysis verify
 ```

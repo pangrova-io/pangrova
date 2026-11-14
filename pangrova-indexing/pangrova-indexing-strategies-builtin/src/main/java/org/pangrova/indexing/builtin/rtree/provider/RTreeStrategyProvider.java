@@ -1,15 +1,18 @@
 package org.pangrova.indexing.builtin.rtree.provider;
 
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.rtree.serializer.RTreeSerializer;
+
 import org.pangrova.indexing.builtin.rtree.serializer.RTreeBuilder;
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.indexing.api.data.spatial.BoundingBox;
 import org.pangrova.indexing.api.data.spatial.RTreeIndexData;
 import org.pangrova.indexing.api.data.spatial.RTreeNode;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
-import org.pangrova.connector.api.index.predicate.SpatialOp;
+import org.pangrova.connector.api.enums.SpatialOp;
 import org.pangrova.connector.api.index.predicate.SpatialQuery;
 
 import java.util.ArrayList;
@@ -22,6 +25,11 @@ import java.util.Map;
  * and MBR traversal for evaluation.
  */
 public final class RTreeStrategyProvider implements IndexStrategyProvider {
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new RTreeSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

@@ -2,19 +2,20 @@ package org.pangrova.persistence.table.postgresql.control;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.table.api.identity.TableRef;
-import org.pangrova.persistence.table.api.control.TableControlException;
-import org.pangrova.table.api.ownership.OwnershipMode;
-import org.pangrova.table.api.ownership.TableControlProvenance;
+import org.pangrova.table.api.exception.TableControlException;
+import org.pangrova.table.api.enums.OwnershipMode;
+import org.pangrova.table.api.enums.TableControlProvenance;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.rename.TableControlRenameIntent;
-import org.pangrova.table.api.ownership.TableControlState;
-import org.pangrova.persistence.table.api.control.TableControlStore;
+import org.pangrova.table.api.enums.TableControlState;
+import org.pangrova.table.api.ownership.TableControlStore;
 import org.pangrova.table.api.observation.TableVersionObservation;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.time.Instant;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -42,9 +43,11 @@ public final class JdbcTableControlStore implements TableControlStore {
             + "version_observed_at, owner_principal, properties, source_signature, "
             + "created_at, updated_at, last_synced_at, last_maintained_at";
 
-    private static final String UPSERT = "INSERT INTO table_control_registry (" + COLUMNS + ") "
-            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-            + "ON CONFLICT (table_id) DO UPDATE SET "
+    private static final String INSERT = "INSERT INTO table_control_registry (" + COLUMNS + ") "
+            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+
+    private static final String UPSERT = INSERT
+            + " ON CONFLICT (table_id) DO UPDATE SET "
             + "catalog_name=EXCLUDED.catalog_name, schema_name=EXCLUDED.schema_name, "
             + "table_name=EXCLUDED.table_name, format=EXCLUDED.format, "
             + "format_table_uuid=EXCLUDED.format_table_uuid, "
@@ -149,34 +152,7 @@ public final class JdbcTableControlStore implements TableControlStore {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
-                int written = executeUpdate(conn, UPSERT, ps -> bind(ps, record));
-                if (written == 0) {
-                    throw TableControlException.staleWrite("Stale table control write for "
-                            + record.qualifiedName() + " at revision "
-                            + record.metadataRevision()
-                            + ": another coordinator advanced the record");
-                }
-                var names = reservedNames(conn, record.tableId());
-                var reserved = new java.util.LinkedHashSet<TableRef>();
-                if (record.state() != TableControlState.DROPPED) {
-                    reserved.add(record.tableRef());
-                    TableControlRenameIntent.source(record).ifPresent(reserved::add);
-                }
-                if (!names.equals(reserved)) {
-                    replaceReservations(conn, record.tableId(), reserved);
-                }
-                names.addAll(reserved);
-                names.add(record.tableRef());
-                for (var name : names) {
-                    executeUpdate(conn, INSERT_INVALIDATION, ps -> {
-                        ps.setString(1, name.catalog() + CACHE_KEY_SEPARATOR + name.schema()
-                                + CACHE_KEY_SEPARATOR + name.table());
-                        ps.setString(2, "TABLE");
-                    });
-                }
-                if (observation.isPresent()) {
-                    executeUpdate(conn, INSERT_OBSERVATION, ps -> bindObservation(ps, observation.get()));
-                }
+                writeRevision(conn, UPSERT, record, observation);
                 conn.commit();
             } catch (SQLException | RuntimeException | Error failure) {
                 rollback(conn, failure);
@@ -185,6 +161,66 @@ public final class JdbcTableControlStore implements TableControlStore {
         } catch (SQLException e) {
             throw new TableControlException(
                     "Failed to save table control record: " + record.qualifiedName(), e);
+        }
+    }
+
+    @Override
+    public void replaceRegistration(TableControlRecord expected, TableControlRecord replacement, Instant retiredAt) {
+        expected.requireReplacement(replacement);
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                TableControlRecord current;
+                try (var statement = connection.prepareStatement(FIND_BY_ID + " FOR UPDATE")) {
+                    statement.setObject(1, expected.tableId());
+                    try (var rows = statement.executeQuery()) {
+                        current = rows.next() ? map(rows) : null;
+                        if (!expected.matchesRegistration(current)) {
+                            throw TableControlException.staleWrite("Table registration changed for " + expected.qualifiedName());
+                        }
+                    }
+                }
+                writeRevision(connection, UPSERT, current.retiredAt(retiredAt), Optional.empty());
+                writeRevision(connection, INSERT, replacement, Optional.empty());
+                connection.commit();
+            } catch (SQLException | RuntimeException | Error failure) {
+                rollback(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new TableControlException("Failed to replace table registration: " + expected.qualifiedName(), failure);
+        }
+    }
+
+    private void writeRevision(Connection conn, String mutation, TableControlRecord record,
+            Optional<TableVersionObservation> observation) throws SQLException {
+        int written = executeUpdate(conn, mutation, ps -> bind(ps, record));
+        if (written == 0) {
+            throw TableControlException.staleWrite("Stale table control write for "
+                    + record.qualifiedName() + " at revision "
+                    + record.metadataRevision()
+                    + ": another coordinator advanced the record");
+        }
+        var names = reservedNames(conn, record.tableId());
+        var reserved = new java.util.LinkedHashSet<TableRef>();
+        if (record.state() != TableControlState.DROPPED) {
+            reserved.add(record.tableRef());
+            TableControlRenameIntent.source(record).ifPresent(reserved::add);
+        }
+        if (!names.equals(reserved)) {
+            replaceReservations(conn, record.tableId(), reserved);
+        }
+        names.addAll(reserved);
+        names.add(record.tableRef());
+        for (var name : names) {
+            executeUpdate(conn, INSERT_INVALIDATION, ps -> {
+                ps.setString(1, name.catalog() + CACHE_KEY_SEPARATOR + name.schema()
+                        + CACHE_KEY_SEPARATOR + name.table());
+                ps.setString(2, "TABLE");
+            });
+        }
+        if (observation.isPresent()) {
+            executeUpdate(conn, INSERT_OBSERVATION, ps -> bindObservation(ps, observation.get()));
         }
     }
 

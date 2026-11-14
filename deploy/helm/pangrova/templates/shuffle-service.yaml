@@ -1,0 +1,38 @@
+{{- if .Values.shuffle.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: pangrova-shuffle-headless
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: shuffle
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: pangrova
+    component: shuffle
+  ports:
+    - name: shuffle
+      port: {{ int .Values.shuffle.port }}
+      targetPort: shuffle
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pangrova-shuffle
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: shuffle
+spec:
+  type: {{ .Values.shuffle.service.type }}
+  selector:
+    app: pangrova
+    component: shuffle
+  ports:
+    - name: shuffle
+      port: {{ int .Values.shuffle.port }}
+      targetPort: shuffle
+{{- end }}

@@ -1,15 +1,24 @@
 package org.pangrova.security.secret.file;
 
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.security.spi.secret.SecretProvider;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.security.api.secret.SecretProvider;
 import org.pangrova.security.api.secret.SecretReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.channels.Channels;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
+import java.nio.file.StandardOpenOption;
+import java.util.Set;
 
 /**
  * Resolves secrets by reading the first line of a file.
@@ -42,14 +51,51 @@ public final class FileSecretProvider implements SecretProvider {
 
     @Override
     public String resolve(SecretReference reference) {
+        if (!prefix().equals(reference.prefix())) {
+            throw new IllegalArgumentException("Invalid file secret prefix");
+        }
         Path resolved = validatePath(reference.key());
         try {
-            return Files.readString(resolved).lines().findFirst().orElse("");
+            Path root = allowedDirectory.toRealPath();
+            Path target = resolved.toRealPath();
+            if (!target.startsWith(root) || target.equals(root)) {
+                throw new ConfigurationException(PangrovaErrorCode.CONFIG_MISSING_KEY,
+                        "Secret file path is outside allowed directory");
+            }
+            try (DirectoryStream<Path> directory = Files.newDirectoryStream(root)) {
+                if (directory instanceof SecureDirectoryStream<Path> secure) {
+                    return readRelative(secure, root.relativize(target));
+                }
+                // The secret mount and its directory entries must be controlled by the administrator.
+                try (var input = Files.newInputStream(target, LinkOption.NOFOLLOW_LINKS);
+                        var reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                    return firstLine(reader);
+                }
+            }
         } catch (IOException e) {
             throw new ConfigurationException(
                     PangrovaErrorCode.CONFIG_MISSING_KEY,
                     "Cannot read secret file: " + resolved);
         }
+    }
+
+    /** Open each canonical component relative to its parent descriptor, fencing symlink replacements. */
+    private static String readRelative(SecureDirectoryStream<Path> directory, Path relative) throws IOException {
+        Path name = relative.getName(0);
+        if (relative.getNameCount() > 1) {
+            try (var child = directory.newDirectoryStream(name, LinkOption.NOFOLLOW_LINKS)) {
+                return readRelative(child, relative.subpath(1, relative.getNameCount()));
+            }
+        }
+        try (var channel = directory.newByteChannel(name, Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS));
+                var reader = new BufferedReader(Channels.newReader(channel, StandardCharsets.UTF_8))) {
+            return firstLine(reader);
+        }
+    }
+
+    private static String firstLine(BufferedReader reader) throws IOException {
+        String value = reader.readLine();
+        return value == null ? "" : value;
     }
 
     /**

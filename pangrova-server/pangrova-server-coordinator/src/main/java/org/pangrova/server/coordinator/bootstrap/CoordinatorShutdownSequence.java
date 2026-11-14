@@ -1,24 +1,27 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.common.lifecycle.ResourceCloser;
+
 import org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator;
 import org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.query.core.lifecycle.QueryTimeoutScheduler;
+import org.pangrova.query.lifecycle.QueryTimeoutScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.observability.sdk.config.TelemetryInitializer;
 import org.pangrova.query.api.error.QueryFailure;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
-import static org.pangrova.server.coordinator.bootstrap.CoordinatorResourceRelease.present;
+import static org.pangrova.common.lifecycle.ResourceCloser.present;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.sql.DataSource;
@@ -38,7 +41,7 @@ final class CoordinatorShutdownSequence {
             PluginConnectorHandleFactory connectorHandleFactory,
             org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority,
             DataSource metadataDataSource, SecurityBootstrap security, ObservabilityBootstrap observability,
-            org.pangrova.persistence.coordination.spi.provider.CoordinationProvider zkLeaseProvider) {}
+            org.pangrova.persistence.coordination.api.provider.CoordinationProvider zkLeaseProvider) {}
 
     static void closeOwnedResources(CoordinatorLifecycleAdmission lifecycle,
             ShutdownOwners owners) {
@@ -59,7 +62,7 @@ final class CoordinatorShutdownSequence {
             CoordinatorLifecycleAdmission lifecycle, ShutdownOwners owners) {
         if (owners.query() != null) owners.query().sealAdmission();
         if (owners.ha() != null) owners.ha().stopQueryScheduling();
-        CoordinatorResourceRelease.close(null,
+        ResourceCloser.closeAll(null,
                 () -> lifecycle.step("maintenance",
                         present(owners.maintenanceLeadership(), MaintenanceLeadershipBootstrap::close)),
                 () -> lifecycle.step("branch",
@@ -93,12 +96,12 @@ final class CoordinatorShutdownSequence {
                 org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority::close));
         lifecycle.step("datasource",
                 present(owners.metadataDataSource(), CoordinatorShutdownSequence::closeDataSource));
-        CoordinatorResourceRelease.close(primary,
+        ResourceCloser.closeAll(primary,
                 () -> lifecycle.step("security", present(owners.security(), SecurityBootstrap::shutdown)),
                 () -> lifecycle.step("observability",
                         present(owners.observability(), ObservabilityBootstrap::shutdown)),
                 () -> lifecycle.step("quorum", present(owners.zkLeaseProvider(),
-                        org.pangrova.persistence.coordination.spi.provider.CoordinationProvider::close)));
+                        org.pangrova.persistence.coordination.api.provider.CoordinationProvider::close)));
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorShutdownSequence.class);
@@ -178,16 +181,6 @@ final class CoordinatorShutdownSequence {
         }
     }
 
-    static void closeQueryResultCache(org.pangrova.planner.core.cache.QueryResultCache cache) {
-        if (cache == null) return;
-        try {
-            cache.close();
-        } catch (RuntimeException | Error failure) {
-            throw failure;
-        } catch (Exception failure) {
-            throw new IllegalStateException("Query cache has not closed", failure);
-        }
-    }
 
     static void closeStreamingBootstrap(StreamingBootstrap streaming) {
         if (streaming == null) return;
@@ -235,13 +228,62 @@ final class CoordinatorShutdownSequence {
 
     // ── Dead worker handling ──
 
+    /** Admits and dispatches one replacement task after its worker was declared dead. */
+    @FunctionalInterface
+    public interface WorkerTaskRetrier {
+        /** @return true when a replacement was dispatched */
+        boolean retry(String queryId, String taskId, String deadWorkerId);
+    }
+
+    /**
+     * Handles a dead worker. Each task is first offered to task-level retry; only
+     * queries that still have an unrecoverable task fail. Retried tasks keep the
+     * Stage slot owned by their replacement, so a stale report from the dead
+     * attempt cannot complete or fail the Stage.
+     */
     static void onDeadWorker(String workerId,
                               CoordinatorTaskTracker taskTracker,
                               QueryManager queryManager) {
+        onDeadWorker(workerId, taskTracker, queryManager, null);
+    }
+
+    static void onDeadWorker(String workerId,
+                              CoordinatorTaskTracker taskTracker,
+                              QueryManager queryManager,
+                              WorkerTaskRetrier retrier) {
         Set<String> affectedQueries = drainDeadWorkerQueries(workerId, taskTracker);
+        Set<String> unrecoveredQueries = new LinkedHashSet<>();
+        int retried = retryOrFailDeadWorkerTasks(
+                workerId, taskTracker, retrier, unrecoveredQueries);
         markDeadWorkerTasksFailed(workerId, taskTracker);
-        failAffectedQueries(workerId, affectedQueries, queryManager);
-        logDeadWorkerDrain(workerId, affectedQueries);
+        failAffectedQueries(workerId, unrecoveredQueries, queryManager);
+        logDeadWorkerDrain(workerId, affectedQueries, retried, unrecoveredQueries);
+    }
+
+    private static int retryOrFailDeadWorkerTasks(String workerId,
+                                                   CoordinatorTaskTracker taskTracker,
+                                                   WorkerTaskRetrier retrier,
+                                                   Set<String> unrecoveredQueries) {
+        if (taskTracker == null) return 0;
+        int retried = 0;
+        for (Map.Entry<String, Set<String>> entry
+                : taskTracker.getActiveTasksByQueryForWorker(workerId).entrySet()) {
+            String queryId = entry.getKey();
+            boolean recovered = true;
+            for (String taskId : entry.getValue()) {
+                boolean replacement = retrier != null
+                        && retrier.retry(queryId, taskId, workerId);
+                if (replacement) {
+                    retried++;
+                } else {
+                    recovered = false;
+                }
+            }
+            if (!recovered) {
+                unrecoveredQueries.add(queryId);
+            }
+        }
+        return retried;
     }
 
     /**
@@ -276,23 +318,32 @@ final class CoordinatorShutdownSequence {
                                               Set<String> queryIds,
                                               QueryManager queryManager) {
         if (queryManager == null || queryIds.isEmpty()) return;
+        // The first argument is what RetryStageHandler classifies on, and it
+        // compares against PangrovaErrorCode.getCode() ("WORKER-0002"), not the
+        // enum name. A bare "WORKER_LOST" string here was silently unclassifiable,
+        // so the retry whitelist was never reached.
         QueryFailure error = new QueryFailure(
-                "WORKER_LOST", "WORKER_LOST",
+                org.pangrova.common.enums.PangrovaErrorCode.WORKER_LOST.getCode(), "WORKER_LOST",
                 "Worker " + workerId + " declared dead — failing query");
         for (String queryId : queryIds) {
             queryManager.onTaskFailed(queryId, error);
         }
     }
 
-    private static void logDeadWorkerDrain(String workerId, Set<String> queryIds) {
-        int count = queryIds.size();
-        if (count == 0) {
-            LOG.warn("Dead worker detected: {} — no in-flight queries affected", workerId);
+    private static void logDeadWorkerDrain(String workerId, Set<String> affectedQueries,
+                                            int retriedTasks, Set<String> failedQueries) {
+        if (failedQueries.isEmpty()) {
+            LOG.warn("Dead worker detected: {} — {} tasks retried, no query failed",
+                    workerId, retriedTasks);
+            LOG.info("METRIC coordinator.worker.dead_removal_queries_failed count=0");
+            LOG.info("METRIC coordinator.worker.dead_removal_tasks_retried count={}", retriedTasks);
             return;
         }
-        LOG.error("Dead worker {} — failing {} affected queries: {}",
-                workerId, count, queryIds);
-        LOG.info("METRIC coordinator.worker.dead_removal_queries_failed count={}", count);
+        LOG.error("Dead worker {} — failing {} affected queries (retried tasks={}): {}",
+                workerId, failedQueries.size(), retriedTasks, failedQueries);
+        LOG.info("METRIC coordinator.worker.dead_removal_queries_failed count={}",
+                failedQueries.size());
+        LOG.info("METRIC coordinator.worker.dead_removal_tasks_retried count={}", retriedTasks);
     }
 
     // ── Task timeout handling ──

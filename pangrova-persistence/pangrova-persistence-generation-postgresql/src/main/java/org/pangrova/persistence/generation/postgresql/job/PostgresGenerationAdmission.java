@@ -3,9 +3,9 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.page.GenerationPage;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 
 import java.util.Comparator;
 import java.util.HashSet;
@@ -32,7 +32,7 @@ final class PostgresGenerationAdmission {
         if (!job.jobId().equals(dispatchSpec.jobId())) {
             throw new IllegalArgumentException("dispatch spec belongs to a different job");
         }
-        if (job.artifactType().equals(org.pangrova.generation.api.output.GenerationOutputTypeIds.TABULAR_EXPORT)
+        if (job.artifactType().equals(org.pangrova.generation.api.constants.GenerationOutputTypeIds.TABULAR_EXPORT)
                 && (dispatchSpec.stageGraph().purpose()
                         != org.pangrova.generation.api.graph.GenerationStageGraph.Purpose.RELATIONAL_EXPORT
                         || pages.isEmpty())) {
@@ -40,7 +40,7 @@ final class PostgresGenerationAdmission {
         }
         if (job.expectedPages() == 0
                 && (job.emptyPartitionPolicy()
-                        != org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy
+                        != org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy
                                 .ALLOW_ZERO_ROWS
                         || !org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats.require(
                                 job.formatId(), job.artifactType())

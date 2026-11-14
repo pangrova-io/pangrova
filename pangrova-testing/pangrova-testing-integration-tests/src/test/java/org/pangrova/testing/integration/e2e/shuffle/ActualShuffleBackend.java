@@ -180,7 +180,7 @@ final class ActualShuffleBackend implements AutoCloseable {
         private static final GenericContainer<?> MINIO = start();
 
         private static GenericContainer<?> start() {
-            var container = new GenericContainer<>("minio/minio:RELEASE.2024-12-18T13-15-44Z")
+            var container = org.pangrova.testing.testkit.MinioContainer.create()
                     .withNetwork(SharedTestContainers.NETWORK).withExposedPorts(9000)
                     .withEnv("MINIO_ROOT_USER", ACCESS_KEY).withEnv("MINIO_ROOT_PASSWORD", SECRET_KEY)
                     .withCommand("server", "/data")

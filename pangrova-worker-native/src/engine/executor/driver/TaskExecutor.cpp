@@ -9,7 +9,7 @@
 #include <stdexcept>
 
 #include "engine/cache/SemanticResultCache.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "pangrova/protocol/v2/result.pb.h"
 #include "engine/velox/memory/VeloxMemoryGovernor.h"
 #include "engine/velox/runner/VeloxTaskRunner.h"
@@ -285,6 +285,11 @@ int64_t TaskExecutor::nativeMemoryLimitBytes() const {
 
 int32_t TaskExecutor::shufflePartitionCount() const {
   return config_.num_shuffle_partitions;
+}
+
+bool TaskExecutor::usesLocalDiskShuffle() const {
+  return config_.shuffle_persistence_mode ==
+      pangrova::protocol::v2::SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_DISK;
 }
 
 bool TaskExecutor::usesExternalShuffle() const {

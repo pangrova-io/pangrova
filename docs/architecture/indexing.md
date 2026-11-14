@@ -13,8 +13,8 @@ description: "Index contracts, build and maintenance paths, and pruning boundari
 
 Pangrova has two deliberately separate index families:
 
-- JVM file-pruning indexes (`BTREE`, bloom, bitmap, sparse, R-tree, GIN and
-  inverted metadata) implement `IndexStrategyProvider`. They produce small
+- JVM file-pruning indexes (B-tree, Bloom, prefix, N-gram Bloom, bitmap, hash,
+  sparse, R-tree and GIN) implement `IndexStrategyProvider`. They produce small
   per-file metadata used to decide whether a split can be skipped.
 - Retrieval indexes (HNSW, IVF-PQ, DiskANN and BM25) are immutable durable
   artifacts. Their build and query data plane runs only in the C++ Native
@@ -40,7 +40,7 @@ Index state and index orchestration have separate owners:
   PostgreSQL production artifact does not depend on Metadata or Indexing Core.
   Narrower persistence ports and removal of permissive optional defaults remain
   separate work; moving the existing broad port does not complete that redesign.
-- `pangrova-coordination/pangrova-coordination-core` owns only the control-plane adapter under
+- `pangrova-coordination/pangrova-coordination-control` owns only the control-plane adapter under
   `org.pangrova.coordinator.indexing` (DDL, filter, lifecycle/GC and the
   AI retrieval-index lifecycle). It depends on indexing contracts and store
   ports; it never owns a second index metadata store.
@@ -121,6 +121,16 @@ The built-in catalog currently defines these independent contracts:
 Capability signatures and format schema hashes are compatibility boundaries;
 matching a human-readable algorithm name is insufficient.
 
+## Scalar build attempts
+
+Each scalar build submission owns a UUID. The claim owner and the physical file
+path both carry that identity. A writer uses
+`v3/{catalog}/{schema}/{table}/{indexId}/g{generation}/{attemptId}/{dataFileHash}.idx`
+relative to the index root. Reads and mapped-file cleanup use the stored path.
+A delayed write by an expired owner can finish in its own directory after takeover
+without changing the replacement’s bytes. Collecting files left by an attempt
+that lost ownership before recording its mapping requires separate orphan tracking.
+
 ## JVM encoded-data ownership
 
 Indexing API owns encoded index data and pruning hints. Bloom and N-gram arrays,
@@ -152,17 +162,13 @@ publication and correct SQL results do not prove BTree split pruning.
 
 ## JVM indexing SPI
 
-`IndexStrategyProvider` is intentionally limited to build/evaluate operations
-for JVM file-pruning metadata. It has no vector-search method. The default
-registry assembled by `BuiltinIndexSerializers.createRegistry()`
-likewise has no `VECTOR` serializer because Native retrieval artifacts are not
-embedded in the JVM index-file envelope. `TypeSerializerRegistry` in Indexing Codec
-only owns registration and lookup; it does not import concrete engine serializers.
-Duplicate registration fails without replacing the existing serializer.
-
-This boundary prevents accidental ServiceLoader registration from creating a
-second ANN implementation with different distance, row-identity, filtering or
-failure semantics.
+`IndexEngineRegistry` discovers the nine scalar strategies with ServiceLoader. Each
+`IndexStrategyProvider` supplies the serializer for the raw data returned by its
+builder. Server constructs the file codec from the same provider instances used
+for building and evaluation. A duplicate type, a missing payload codec or an empty
+production registry fails initialization. The common artifact envelope, checksum
+and stable type IDs belong to Indexing Codec. The native VECTOR and INVERTED/BM25
+paths use their own durable artifact formats.
 
 ## Scalar file-pruning query path
 
@@ -170,11 +176,15 @@ The Coordinator evaluates connector file statistics and native connector
 capabilities, then attaches snapshot-bound `IndexEvalHintDetail` values to
 surviving canonical v2 file splits. It does not load scalar index artifacts.
 The Native Worker validates the hint's data-file identity, reads the mapped
-artifact through its configured filesystem, checks the versioned index envelope
-and CRC, and tests Bloom membership **before** enqueuing the split for scan.
+artifact through its configured filesystem, and verifies its exact byte length and
+SHA-256 against the published mapping. It checks the envelope version and CRC
+on those same bytes and tests Bloom membership before enqueuing the split for scan.
 Only a proven negative result skips a split; missing, corrupt, incompatible or
 unsupported indexes retain it. Equality and `IN` on canonical string,
 integer and boolean keys currently participate in this Native Bloom path.
+Bitmap has a JVM strategy and a typed key-to-Roaring payload. Worker scalar
+file pruning recognizes Bloom. BSI has no registered scalar strategy. Paimon
+deletion vectors use their connector-owned row-deletion path.
 Calcite's [string literal wrapper](https://calcite.apache.org/javadocAggregate/org/apache/calcite/util/NlsString.html)
 literals are unwrapped with `getValue()` before creating a hint: its
 `toString()` returns quoted SQL with charset notation, not the stored value. Native

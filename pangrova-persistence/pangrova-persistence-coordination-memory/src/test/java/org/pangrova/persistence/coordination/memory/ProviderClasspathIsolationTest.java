@@ -59,9 +59,9 @@ class ProviderClasspathIsolationTest {
     private static void assertUnavailable(ClassLoader loader) {
         for (String name : List.of("org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
                 "org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository", "org.postgresql.Driver",
-                "org.pangrova.query.core.audit.QueryAuditService",
+                "org.pangrova.query.audit.QueryAuditService",
                 "org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal",
-                "org.pangrova.security.core.authorization.deferred.DeferredAuthorization",
+                "org.pangrova.security.authorization.deferred.DeferredAuthorization",
                 "org.pangrova.protocol.v2.TaskRequest",
                 "org.apache.curator.framework.CuratorFramework", "org.apache.zookeeper.ZooKeeper")) {
             assertThatThrownBy(() -> loader.loadClass(name)).isInstanceOf(ClassNotFoundException.class);

@@ -2,9 +2,7 @@ package org.pangrova.persistence.streaming.postgresql;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
-import org.pangrova.streaming.api.checkpoint.StreamingStoreException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.pangrova.streaming.api.exception.StreamingStoreException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -18,7 +16,7 @@ import java.util.Optional;
 
 /**
  * JDBC-backed {@link WatermarkStore} persisting watermark positions
- * to the {@code watermark_positions} table (migration V12).
+ * to the {@code watermark_positions} table.
  *
  * <p>Uses PostgreSQL ON CONFLICT upsert for atomic persistence.
  * No in-process mutable state — relies on database row-level locking.</p>
@@ -26,12 +24,12 @@ import java.util.Optional;
 @ThreadSafe
 public final class JdbcWatermarkPositionStore implements WatermarkStore {
 
-    private static final Logger LOG = LoggerFactory.getLogger(JdbcWatermarkPositionStore.class);
-
     private static final String UPSERT_SQL =
             "INSERT INTO watermark_positions (source_id, position, updated_at) "
                     + "VALUES (?, ?, ?) ON CONFLICT (source_id) DO UPDATE SET "
-                    + "position=EXCLUDED.position, updated_at=EXCLUDED.updated_at";
+                    + "position=GREATEST(watermark_positions.position, EXCLUDED.position), "
+                    + "updated_at=CASE WHEN EXCLUDED.position > watermark_positions.position "
+                    + "THEN EXCLUDED.updated_at ELSE watermark_positions.updated_at END RETURNING position";
 
     private static final String SELECT_SQL =
             "SELECT position FROM watermark_positions WHERE source_id = ?";
@@ -43,19 +41,21 @@ public final class JdbcWatermarkPositionStore implements WatermarkStore {
     }
 
     @Override
-    public void save(String tableName, Instant watermark) {
+    public Instant advance(String tableName, Instant watermark) {
         Timestamp now = Timestamp.from(Instant.now());
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(UPSERT_SQL)) {
             ps.setString(1, tableName);
             ps.setTimestamp(2, Timestamp.from(watermark));
             ps.setTimestamp(3, now);
-            ps.executeUpdate();
+            try (ResultSet result = ps.executeQuery()) {
+                if (!result.next()) throw new SQLException("Advancing a watermark returned no position");
+                return result.getTimestamp("position").toInstant();
+            }
         } catch (SQLException e) {
             throw new StreamingStoreException(
                     "Failed to save watermark for source=" + tableName, e);
         }
-        LOG.debug("action=watermark_save source={} position={}", tableName, watermark);
     }
 
     @Override

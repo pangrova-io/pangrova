@@ -1,8 +1,10 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.exception.CommitTimeoutException;
+
 import org.apache.hadoop.conf.Configuration;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.index.CommitEventType;
+import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.metadata.DeleteFilter;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.iceberg.DataFile;
@@ -168,7 +170,7 @@ class IcebergDeleteByFilterCommitPathTest {
         assertThatThrownBy(() -> restCommitter.deleteByFilter(
                 table, (org.pangrova.connector.iceberg.handle.IcebergTableHandle) handle,
                 new DeleteFilter.All(), "test-tenant"))
-                .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasMessageContaining("whole-metadata CAS has not been verified");
         table.refresh();
         assertThat(table.currentSnapshot().snapshotId()).isEqualTo(snapshotBefore);

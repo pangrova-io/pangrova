@@ -19,6 +19,10 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secret-env</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secrets</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-http</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-qwen</artifactId><scope>test</scope></dependency>
   <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
 
         <dependency>
@@ -29,7 +33,7 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-ai-api</artifactId>
         </dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-provider-openai</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-openai</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-function-api</artifactId>
@@ -55,18 +59,21 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-filesystem-s3</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-filesystem-local</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-filesystem-oss</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-worker-native-bridge</artifactId>
+            <artifactId>pangrova-worker</artifactId>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

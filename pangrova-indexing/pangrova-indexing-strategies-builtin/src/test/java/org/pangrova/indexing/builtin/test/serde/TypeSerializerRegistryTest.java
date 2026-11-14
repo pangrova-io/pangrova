@@ -1,10 +1,10 @@
 package org.pangrova.indexing.builtin.test.serde;
 
 import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.builtin.bloom.serializer.BloomFilterSerializer;
 
 import static org.assertj.core.api.Assertions.assertThat;

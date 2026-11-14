@@ -13,14 +13,14 @@
  */
 package org.pangrova.persistence.ai.postgresql.embedding;
 
-import org.pangrova.ai.control.embedding.DimensionMismatchException;
+import org.pangrova.ai.control.exception.DimensionMismatchException;
 import org.pangrova.ai.control.embedding.EmbeddingModelAlterTarget;
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
 import org.pangrova.ai.control.embedding.EmbeddingModelRevision;
-import org.pangrova.ai.control.embedding.ModelAlreadyExistsException;
-import org.pangrova.ai.control.embedding.ModelDropUnavailableException;
-import org.pangrova.ai.control.embedding.ModelNotFoundException;
-import org.pangrova.ai.control.embedding.VersionConflictException;
+import org.pangrova.ai.control.exception.ModelAlreadyExistsException;
+import org.pangrova.ai.control.exception.ModelDropUnavailableException;
+import org.pangrova.ai.control.exception.ModelNotFoundException;
+import org.pangrova.ai.control.exception.VersionConflictException;
 import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
@@ -50,7 +50,7 @@ import java.util.Optional;
  * <p>Access requires current direct PostgreSQL roles. Each model stores its
  * administrative and invocation role policy; transient identity groups are not authority.</p>
  *
- * <p>Call {@link #initSchema()} after the canonical metadata migrations to validate the backing table.</p>
+ * <p>Call {@link #validateSchema()} after the canonical metadata migrations to validate the backing table.</p>
  */
 @ThreadSafe
 public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry {
@@ -113,7 +113,7 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
      * Validates the canonical migrated schema without creating or upgrading any table.
      * Missing columns fail closed; only the metadata Flyway migration chain may change this schema.
      */
-    public void initSchema() {
+    public void validateSchema() {
         try (Connection conn = dataSource.getConnection();
              var stmt = conn.createStatement()) {
             try (var schema = stmt.executeQuery("SELECT model_name,provider,endpoint,dimension,api_key_secret,"

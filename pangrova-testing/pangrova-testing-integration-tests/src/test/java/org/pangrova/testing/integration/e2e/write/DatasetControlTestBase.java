@@ -15,7 +15,7 @@ import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
 import java.time.Instant;

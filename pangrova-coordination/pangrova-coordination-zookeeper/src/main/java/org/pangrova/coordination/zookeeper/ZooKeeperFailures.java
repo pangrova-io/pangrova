@@ -1,6 +1,6 @@
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.persistence.coordination.api.error.CoordinationStorageException;
+import org.pangrova.persistence.coordination.api.exception.CoordinationStorageException;
 
 /** Preserves interruption and the original failure at the quorum boundary. */
 final class ZooKeeperFailures {

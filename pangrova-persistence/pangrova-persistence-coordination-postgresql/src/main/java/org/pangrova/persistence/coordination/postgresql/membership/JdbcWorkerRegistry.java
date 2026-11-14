@@ -50,8 +50,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                     + "rack_id, data_locality, memory_pressure, cpu_utilization, "
                     + "running_task_count, available_memory_bytes, last_heartbeat_ms, registered_at_ms, "
                     + "result_server_port, capability_inventory_proto, copy_task_tls_port, "
-                    + "admission_domain_id, incarnation_id) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "admission_domain_id, incarnation_id, shuffle_mode, shuffle_provider) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SQL_UPDATE_REGISTRATION =
             "UPDATE worker_registry SET host=?, http_port=?, transport_port=?, "
@@ -59,7 +59,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                     + "memory_pressure=?, cpu_utilization=?, running_task_count=?, "
                     + "available_memory_bytes=?, last_heartbeat_ms=?, result_server_port=?, "
                     + "capability_inventory_proto=?, copy_task_tls_port=?, "
-                    + "admission_domain_id=?, incarnation_id=? WHERE worker_id=?";
+                    + "admission_domain_id=?, incarnation_id=?, shuffle_mode=?, shuffle_provider=? WHERE worker_id=?";
 
     private static final String SQL_HEARTBEAT =
             "UPDATE worker_registry SET memory_pressure=?, cpu_utilization=?, "
@@ -81,7 +81,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             + "last_heartbeat_ms=EXCLUDED.last_heartbeat_ms,"
             + "result_server_port=EXCLUDED.result_server_port,"
             + "capability_inventory_proto=EXCLUDED.capability_inventory_proto,"
-            + "copy_task_tls_port=EXCLUDED.copy_task_tls_port "
+            + "copy_task_tls_port=EXCLUDED.copy_task_tls_port, shuffle_mode=EXCLUDED.shuffle_mode, "
+            + "shuffle_provider=EXCLUDED.shuffle_provider "
             + "WHERE worker_registry.admission_domain_id=EXCLUDED.admission_domain_id "
             + "AND worker_registry.incarnation_id=EXCLUDED.incarnation_id";
 
@@ -118,6 +119,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
     private static final int PARAM_COPY_TASK_TLS_PORT = 16;
     private static final int PARAM_ADMISSION_DOMAIN = 17;
     private static final int PARAM_INCARNATION = 18;
+    private static final int PARAM_SHUFFLE_MODE = 19;
+    private static final int PARAM_SHUFFLE_PROVIDER = 20;
 
     private static final int MAX_REGISTER_ATTEMPTS = 3;
 
@@ -198,6 +201,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             ps.setInt(parameter++, w.copyTaskTlsPort());
             ps.setString(parameter++, w.admissionDomainId());
             ps.setString(parameter++, w.incarnationId());
+            ps.setString(parameter++, w.shuffleDeployment() == null ? null : w.shuffleDeployment().mode());
+            ps.setString(parameter++, w.shuffleDeployment() == null ? null : w.shuffleDeployment().provider());
             ps.setString(parameter, w.workerId());
             return ps.executeUpdate();
         }
@@ -222,6 +227,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
         ps.setInt(PARAM_COPY_TASK_TLS_PORT, w.copyTaskTlsPort());
         ps.setString(PARAM_ADMISSION_DOMAIN, w.admissionDomainId());
         ps.setString(PARAM_INCARNATION, w.incarnationId());
+        ps.setString(PARAM_SHUFFLE_MODE, w.shuffleDeployment() == null ? null : w.shuffleDeployment().mode());
+        ps.setString(PARAM_SHUFFLE_PROVIDER, w.shuffleDeployment() == null ? null : w.shuffleDeployment().provider());
     }
 
     private static boolean isUniqueViolation(SQLException failure) {
@@ -360,7 +367,9 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 null,
                 rs.getString("capability_inventory_proto"),
                 rs.getInt("copy_task_tls_port"),
-                rs.getString("admission_domain_id"), rs.getString("incarnation_id")
+                rs.getString("admission_domain_id"), rs.getString("incarnation_id"),
+                rs.getString("shuffle_mode") == null ? null : new org.pangrova.coordination.api.membership.WorkerShuffleDeployment(
+                        rs.getString("shuffle_mode"), rs.getString("shuffle_provider"))
         );
     }
 

@@ -3,10 +3,10 @@ package org.pangrova.persistence.streaming.postgresql;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.StaleEpochException;
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
-import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
-import org.pangrova.streaming.api.checkpoint.StreamingStoreException;
+import org.pangrova.streaming.api.exception.StreamingStoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,11 +53,11 @@ public final class JdbcStreamStateStore implements StreamStateStore {
     public boolean createState(StreamState state) {
         String sql = "INSERT INTO ingestion_stream_state ("
                 + "stream_name, tenant_id, checkpoint_id, lifecycle_state, target_table, "
-                + "source_properties, source_format, stream_properties, "
+                + "source_provider, source_properties, source_format, stream_properties, "
                 + "creator_identity, coordinator_id, epoch, schema_version, "
                 + "error_message, records_consumed, records_written, "
                 + "records_dead_lettered, last_offset_commit_time, created_at, updated_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 + "ON CONFLICT (stream_name) DO NOTHING";
         return executeUpdateReturning(sql, ps -> bindState(ps, state)) == 1;
     }
@@ -114,7 +114,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
     public void saveStateIfEpoch(StreamState state, long expectedEpoch) {
         String sql = "UPDATE ingestion_stream_state SET "
                 + "tenant_id = ?, lifecycle_state = ?, target_table = ?, "
-                + "source_properties = ?, source_format = ?, stream_properties = ?, "
+                + "source_provider = ?, source_properties = ?, source_format = ?, stream_properties = ?, "
                 + "creator_identity = ?, coordinator_id = ?, epoch = ?, "
                 + "schema_version = ?, error_message = ?, "
                 + "records_consumed = ?, records_written = ?, "
@@ -136,6 +136,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
         ps.setString(i++, state.tenantId());
         ps.setString(i++, state.lifecycleState().name());
         ps.setString(i++, state.targetTable());
+        ps.setString(i++, state.sourceProvider());
         ps.setString(i++, serializeMap(state.sourceProperties()));
         ps.setString(i++, state.sourceFormat());
         setNullableString(ps, i++, serializeMap(state.streamProperties()));
@@ -165,6 +166,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
                 rs.getString("checkpoint_id"),
                 StreamLifecycleState.valueOf(rs.getString("lifecycle_state")),
                 rs.getString("target_table"),
+                rs.getString("source_provider"),
                 deserializeMap(rs.getString("source_properties")),
                 rs.getString("source_format"),
                 deserializeMap(rs.getString("stream_properties")),
@@ -196,6 +198,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
         ps.setString(i++, s.checkpointId());
         ps.setString(i++, s.lifecycleState().name());
         ps.setString(i++, s.targetTable());
+        ps.setString(i++, s.sourceProvider());
         ps.setString(i++, serializeMap(s.sourceProperties()));
         ps.setString(i++, s.sourceFormat());
         setNullableString(ps, i++, serializeMap(s.streamProperties()));

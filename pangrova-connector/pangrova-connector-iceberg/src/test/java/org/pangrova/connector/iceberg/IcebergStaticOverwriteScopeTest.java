@@ -1,10 +1,10 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;

@@ -15,10 +15,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.filesystem.api.object.FileStat;
 import org.pangrova.filesystem.api.object.ObjectLocation;
@@ -48,8 +48,7 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
     private static final String SECRET_KEY = "file-plane-test-secret";
     private static final int FIVE_MIB = 5 * 1024 * 1024;
 
-    static final GenericContainer<?> MINIO = new GenericContainer<>(
-            "minio/minio:RELEASE.2024-12-18T13-15-44Z")
+    static final GenericContainer<?> MINIO = org.pangrova.testing.testkit.MinioContainer.create()
             .withExposedPorts(9000)
             .withEnv("MINIO_ROOT_USER", ACCESS_KEY)
             .withEnv("MINIO_ROOT_PASSWORD", SECRET_KEY)

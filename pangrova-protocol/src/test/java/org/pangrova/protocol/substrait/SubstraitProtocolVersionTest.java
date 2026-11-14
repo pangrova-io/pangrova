@@ -1,9 +1,11 @@
 package org.pangrova.protocol.substrait;
 
+import org.pangrova.protocol.exception.SubstraitVersionMismatchException;
+
 import io.substrait.proto.Plan;
 import io.substrait.proto.Version;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 
 import static org.assertj.core.api.Assertions.assertThat;

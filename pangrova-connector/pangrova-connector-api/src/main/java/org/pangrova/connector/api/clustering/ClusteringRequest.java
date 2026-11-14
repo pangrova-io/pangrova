@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.clustering;
 
+import org.pangrova.connector.api.enums.ClusteringMode;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;

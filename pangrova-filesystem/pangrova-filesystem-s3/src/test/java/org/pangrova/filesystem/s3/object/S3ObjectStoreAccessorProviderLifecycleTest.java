@@ -2,7 +2,7 @@ package org.pangrova.filesystem.s3.object;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;

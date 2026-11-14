@@ -156,6 +156,8 @@ TEST(FlightShuffleResourceBoundTest, ExhaustedDiskFailsFlightAndPreservesOtherHa
   SerializedShuffleQueue first(2), second(4);
   auto config = spillingConfig(directory);
   config.buffer_limits.spill_bytes = 4096;
+  // Fail-fast mode: this asserts an exhausted disk fails only its own handle.
+  config.buffer_limits.retention_wait_ms = 0;
   FlightShuffleServer server(config);
   ASSERT_TRUE(first.push(taggedBatch(0, 7), 1s));
   ASSERT_TRUE(first.commit());

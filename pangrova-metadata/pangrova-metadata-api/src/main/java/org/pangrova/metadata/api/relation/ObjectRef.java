@@ -1,5 +1,7 @@
 package org.pangrova.metadata.api.relation;
 
+import org.pangrova.metadata.api.enums.ObjectKind;
+
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 
 import java.util.Objects;

@@ -12,7 +12,7 @@
 
 #include "engine/executor/driver/TaskExecutor.h"
 #include "engine/executor/driver/TaskLifecycle.h"
-#include "bridge/command/StatusSerializer.h"
+#include "command/StatusSerializer.h"
 #include "engine/velox/exchange/ExternalShuffleIngress.h"
 
 namespace pangrova::executor {

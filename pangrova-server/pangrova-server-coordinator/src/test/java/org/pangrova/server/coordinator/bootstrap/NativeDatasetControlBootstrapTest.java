@@ -30,9 +30,9 @@ import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandResponse;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import org.pangrova.connector.api.metadata.NativeWritePreparation;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
@@ -241,7 +241,7 @@ class NativeDatasetControlBootstrapTest extends ContainerTestBase {
             return Any.pack(execution.cleanupPage(command.getPayload().unpack(org.pangrova.protocol.v2.CleanupSourceObjectsRequest.class)));
         }
         var request = command.getPayload().unpack(DatasetSchemaFingerprintRequest.class);
-        var actualSchema = org.pangrova.planner.core.substrait.NativeDatasetSchemaCompiler.compile(COLUMNS);
+        var actualSchema = org.pangrova.planner.substrait.NativeDatasetSchemaCompiler.compile(COLUMNS);
         assertThat(request.getSchema()).isEqualTo(actualSchema.schema());
         assertThat(request.getColumnTypesList()).isEqualTo(actualSchema.columnTypes());
         assertThat(request.getCatalog()).isEqualTo(execution.catalog());

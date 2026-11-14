@@ -2,17 +2,17 @@ package org.pangrova.persistence.indexing.postgresql.metadata;
 
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentTableAuthorization;
 
-import org.pangrova.indexing.api.error.IndexAlreadyExistsException;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.indexing.api.exception.IndexAlreadyExistsException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.exception.AccessDeniedException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

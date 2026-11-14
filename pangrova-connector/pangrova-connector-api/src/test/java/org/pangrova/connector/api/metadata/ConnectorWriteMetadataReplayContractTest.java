@@ -1,12 +1,12 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.spi.metadata.ConnectorWriteMetadata;
+import org.pangrova.connector.api.metadata.ConnectorWriteMetadata;
 
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.exception.ConnectorException;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;

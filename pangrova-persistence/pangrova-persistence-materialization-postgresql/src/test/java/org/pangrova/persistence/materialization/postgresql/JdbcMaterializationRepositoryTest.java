@@ -24,50 +24,50 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import java.util.stream.Stream;
 import org.pangrova.testing.testkit.postgres.JdbcMutationFault;
-import org.pangrova.materialization.domain.QueryId;
-import org.pangrova.materialization.domain.ReaderPin;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.materialization.domain.AttemptId;
-import org.pangrova.materialization.domain.Binding;
-import org.pangrova.materialization.domain.ColumnDefinition;
-import org.pangrova.materialization.domain.CommandId;
-import org.pangrova.materialization.domain.DefinitionRevision;
-import org.pangrova.materialization.domain.Dependency;
-import org.pangrova.materialization.domain.ExecutionFence;
-import org.pangrova.materialization.domain.GcLedgerEntry;
-import org.pangrova.materialization.domain.Generation;
-import org.pangrova.materialization.domain.GenerationId;
-import org.pangrova.materialization.domain.GenerationState;
-import org.pangrova.materialization.domain.IncarnationId;
-import org.pangrova.materialization.domain.MaterializationException;
-import org.pangrova.materialization.domain.MaterializationId;
-import org.pangrova.materialization.domain.MaterializationKind;
-import org.pangrova.materialization.domain.MaterializationObject;
-import org.pangrova.materialization.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.domain.ObjectState;
-import org.pangrova.materialization.domain.OutputSchema;
-import org.pangrova.materialization.domain.PhysicalTableRef;
-import org.pangrova.materialization.domain.PolicySnapshot;
-import org.pangrova.materialization.domain.Principal;
-import org.pangrova.materialization.domain.QualifiedName;
-import org.pangrova.materialization.domain.RefreshAttempt;
-import org.pangrova.materialization.domain.RefreshKind;
-import org.pangrova.materialization.domain.RefreshMode;
-import org.pangrova.materialization.domain.Schedule;
-import org.pangrova.materialization.domain.SecurityMode;
-import org.pangrova.materialization.domain.SourcePin;
-import org.pangrova.materialization.domain.SourceVector;
-import org.pangrova.materialization.domain.TargetLag;
-import org.pangrova.materialization.domain.TenantId;
-import org.pangrova.materialization.domain.TriggerKind;
-import org.pangrova.materialization.port.CommandRecord;
-import org.pangrova.materialization.port.MaterializationCatalog;
-import org.pangrova.materialization.port.MaterializationEvent;
-import org.pangrova.materialization.port.MaterializationEventType;
-import org.pangrova.materialization.port.MaterializationRepository;
-import org.pangrova.materialization.port.PublicationResult;
-import org.pangrova.materialization.port.PublishCommand;
-import org.pangrova.materialization.port.PublishedMaterialization;
+import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderPin;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.materialization.api.domain.AttemptId;
+import org.pangrova.materialization.api.domain.Binding;
+import org.pangrova.materialization.api.domain.ColumnDefinition;
+import org.pangrova.materialization.api.domain.CommandId;
+import org.pangrova.materialization.api.domain.DefinitionRevision;
+import org.pangrova.materialization.api.domain.Dependency;
+import org.pangrova.materialization.api.domain.ExecutionFence;
+import org.pangrova.materialization.api.domain.GcLedgerEntry;
+import org.pangrova.materialization.api.domain.Generation;
+import org.pangrova.materialization.api.domain.GenerationId;
+import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.domain.IncarnationId;
+import org.pangrova.materialization.api.exception.MaterializationException;
+import org.pangrova.materialization.api.domain.MaterializationId;
+import org.pangrova.materialization.api.enums.MaterializationKind;
+import org.pangrova.materialization.api.domain.MaterializationObject;
+import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
+import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.domain.OutputSchema;
+import org.pangrova.materialization.api.domain.PhysicalTableRef;
+import org.pangrova.materialization.api.domain.PolicySnapshot;
+import org.pangrova.materialization.api.domain.Principal;
+import org.pangrova.materialization.api.domain.QualifiedName;
+import org.pangrova.materialization.api.domain.RefreshAttempt;
+import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.enums.RefreshMode;
+import org.pangrova.materialization.api.domain.Schedule;
+import org.pangrova.materialization.api.enums.SecurityMode;
+import org.pangrova.materialization.api.domain.SourcePin;
+import org.pangrova.materialization.api.domain.SourceVector;
+import org.pangrova.materialization.api.domain.TargetLag;
+import org.pangrova.materialization.api.domain.TenantId;
+import org.pangrova.materialization.api.enums.TriggerKind;
+import org.pangrova.materialization.api.port.CommandRecord;
+import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.materialization.api.port.MaterializationEvent;
+import org.pangrova.materialization.api.enums.MaterializationEventType;
+import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
+import org.pangrova.materialization.api.port.PublicationResult;
+import org.pangrova.materialization.api.port.PublishCommand;
+import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
 import org.pangrova.connector.api.materialization.CommitEvidence;
@@ -201,7 +201,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 .satisfies(found -> {
                     assertThat(found.evidence()).contains(evidence);
                     assertThat(found.state()).isEqualTo(
-                            org.pangrova.materialization.domain.AttemptState.Committed.INSTANCE);
+                            org.pangrova.materialization.api.domain.AttemptState.Committed.INSTANCE);
                 });
         assertThat(repository.findGeneration(generationId)).get()
                 .satisfies(found -> assertThat(found.state())
@@ -232,7 +232,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 });
         assertThat(repository.findAttempt(attemptId)).get()
                 .satisfies(found -> assertThat(found.state())
-                        .isEqualTo(org.pangrova.materialization.domain.AttemptState.Published.INSTANCE));
+                        .isEqualTo(org.pangrova.materialization.api.domain.AttemptState.Published.INSTANCE));
 
         PublishedMaterialization projection = catalog.findPublished(object).orElseThrow();
         assertThat(projection.generation()).isEqualTo(generationId);
@@ -379,7 +379,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                         new ColumnDefinition("order_id", "BIGINT", false, 0))),
                 Set.of(source),
                 Set.of(new Dependency(upstream, downstream, 1,
-                        org.pangrova.materialization.domain.DependencyKind.DIRECT)),
+                        org.pangrova.materialization.api.enums.DependencyKind.DIRECT)),
                 new PolicySnapshot(Map.of(source, "f".repeat(64))),
                 SecurityMode.DEFINER, definer, Map.of(), now);
         repository.createObject(MaterializationObject.creating(downstream,
@@ -541,7 +541,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                         new ColumnDefinition("order_id", "BIGINT", false, 0))),
                 Set.of(source),
                 Set.of(new Dependency(upstream, downstream, 1,
-                        org.pangrova.materialization.domain.DependencyKind.DIRECT)),
+                        org.pangrova.materialization.api.enums.DependencyKind.DIRECT)),
                 new PolicySnapshot(Map.of(source, "c".repeat(64))),
                 SecurityMode.DEFINER, definer, Map.of(), now);
         Instant downstreamDue = now.plus(Duration.ofHours(1));

@@ -5,7 +5,8 @@ import org.pangrova.ai.api.model.AiModelDescriptor;
 import org.pangrova.common.api.annotation.Experimental;
 
 import org.pangrova.ai.api.capability.AiRequestConstraints;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import java.net.URI;
 import java.util.EnumSet;
@@ -33,7 +34,8 @@ public final class AiModelConfigParser {
             "timeout-seconds", "max-input-tokens", "max-output-tokens", "max-media-bytes",
             "max-concurrency", "max-provider-items-per-task", "max-provider-attempts-per-task",
             "max-request-bytes", "max-response-bytes", "embedding-dimension",
-            "query-prefix", "document-prefix", "authentication", "enabled");
+            "query-prefix", "document-prefix", "authentication", "enabled",
+            "authorization.egress-hosts");
 
     private AiModelConfigParser() {}
 
@@ -47,10 +49,16 @@ public final class AiModelConfigParser {
     public static Map<String, AiModelDescriptor> parse(
             Map<String, String> config,
             boolean governedBlobLoaderAvailable) {
+        return parse(config, governedBlobLoaderAvailable, AiProviderFactories.discover());
+    }
+
+    /** Uses the same factory instances that will create the model clients. */
+    public static Map<String, AiModelDescriptor> parse(Map<String, String> config,
+            boolean governedBlobLoaderAvailable, AiProviderFactories factories) {
         Map<String, AiModelDescriptor> result = new LinkedHashMap<>();
         for (Map.Entry<String, Map<String, String>> entry : group(config).entrySet()) {
             AiModelDescriptor descriptor = parseModel(
-                    entry.getKey(), Map.copyOf(entry.getValue()), governedBlobLoaderAvailable);
+                    entry.getKey(), Map.copyOf(entry.getValue()), governedBlobLoaderAvailable, factories);
             if (descriptor == null) {
                 continue;
             }
@@ -101,12 +109,12 @@ public final class AiModelConfigParser {
     private static AiModelDescriptor parseModel(
             String configId,
             Map<String, String> properties,
-            boolean governedBlobLoaderAvailable) {
+            boolean governedBlobLoaderAvailable, AiProviderFactories factories) {
         if (!Boolean.parseBoolean(properties.getOrDefault("enabled", "true"))) {
             return null;
         }
         ModelSettings settings = settings(
-                configId, properties, governedBlobLoaderAvailable);
+                configId, properties, governedBlobLoaderAvailable, factories);
         return new AiModelDescriptor(
                 settings.modelName(),
                 settings.version(),
@@ -121,7 +129,7 @@ public final class AiModelConfigParser {
     private static ModelSettings settings(
             String configId,
             Map<String, String> properties,
-            boolean governedBlobLoaderAvailable) {
+            boolean governedBlobLoaderAvailable, AiProviderFactories factories) {
         String modelName = properties.getOrDefault("name", configId).trim();
         if (modelName.isEmpty()) {
             throw configurationFailure("AI model config '" + configId + "' has a blank name");
@@ -135,15 +143,18 @@ public final class AiModelConfigParser {
         int maxBatchSize = positiveInt(properties, "max-batch-size", 16, modelName);
         Set<Modality> modalities = parseModalities(properties.get("modalities"), modelName);
         String rawCapabilities = required(properties, "capabilities", modelName);
-        Set<String> capabilityNames = capabilityNames(rawCapabilities);
+        Set<Operation> operations = AiCapabilityConfigParser.operations(rawCapabilities, modelName);
         AiCapabilityDescriptor.ResourceLimits limits = resourceLimits(
-                properties, modelName, capabilityNames);
-        boolean embedding = capabilityNames.contains("embedding");
-        AiProviderDialectValidator.validate(
-                provider, endpoint, capabilityNames, modalities, maxBatchSize, modelName);
+                properties, modelName, operations);
+        boolean embedding = operations.contains(Operation.EMBEDDING);
+        factories.require(provider, modelName).validate(
+                provider, URI.create(endpoint), operations, modalities, maxBatchSize, modelName);
         List<AiCapabilityDescriptor> capabilities = AiCapabilityConfigParser.parse(
-                rawCapabilities, modelName, version, maxBatchSize, modalities, limits,
+                operations, modelName, version, maxBatchSize, modalities, limits,
                 governedBlobLoaderAvailable);
+        // Egress consent is checked after capability validation so an unsupported
+        // dialect or a missing governed loader reports its own specific error first.
+        requireEgressHostAllowed(properties, endpoint, modalities, modelName);
         return new ModelSettings(
                 modelName, version, provider, providerModel, endpoint,
                 authentication.secretReference(), authentication.type(), maxBatchSize,
@@ -167,6 +178,58 @@ public final class AiModelConfigParser {
                             + "' endpoint must use HTTPS; HTTP is allowed only for an "
                             + "anonymous loopback deployment");
         }
+    }
+
+    /**
+     * Blob-capable models may only reach explicitly consented hosts. A blank or
+     * absent list denies every remote endpoint; loopback traffic is not egress.
+     */
+    private static void requireEgressHostAllowed(Map<String, String> properties,
+            String endpoint, Set<Modality> modalities, String modelName) {
+        if (modalities.stream().noneMatch(modality -> modality != Modality.TEXT)) {
+            return;
+        }
+        URI uri = parseEndpoint(endpoint, modelName);
+        String host = uri.getHost();
+        if (host == null || isLoopbackHost(host)) {
+            return;
+        }
+        Set<String> allowed = csvHosts(properties.get("authorization.egress-hosts"));
+        if (allowed.stream().noneMatch(pattern -> matchesHost(pattern, host))) {
+            throw configurationFailure(
+                    "AI model '" + modelName + "' is blob-capable but host '" + host
+                            + "' is not listed in authorization.egress-hosts");
+        }
+    }
+
+    private static Set<String> csvHosts(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Set.of();
+        }
+        var hosts = new java.util.LinkedHashSet<String>();
+        for (String token : raw.split(",")) {
+            String value = token.trim();
+            if (!value.isEmpty()) {
+                hosts.add(value);
+            }
+        }
+        return Set.copyOf(hosts);
+    }
+
+    private static boolean matchesHost(String pattern, String host) {
+        String expected = pattern.toLowerCase(Locale.ROOT);
+        String actual = host.toLowerCase(Locale.ROOT);
+        if (expected.startsWith("*.")) {
+            String suffix = expected.substring(1);
+            return actual.length() > suffix.length() && actual.endsWith(suffix);
+        }
+        return actual.equals(expected);
+    }
+
+    private static boolean isLoopbackHost(String host) {
+        String value = host.toLowerCase(Locale.ROOT);
+        return "localhost".equals(value) || "127.0.0.1".equals(value)
+                || "::1".equals(value) || "[::1]".equals(value);
     }
 
     private static URI parseEndpoint(String endpoint, String modelName) {
@@ -195,13 +258,6 @@ public final class AiModelConfigParser {
                 && isLoopbackHost(uri.getHost());
     }
 
-    private static boolean isLoopbackHost(String host) {
-        return "localhost".equalsIgnoreCase(host)
-                || "127.0.0.1".equals(host)
-                || "::1".equals(host)
-                || "[::1]".equals(host);
-    }
-
     private static Authentication authentication(
             Map<String, String> properties, String modelName) {
         String type = properties.getOrDefault(
@@ -221,26 +277,20 @@ public final class AiModelConfigParser {
         return new Authentication(type, secretReference);
     }
 
-    private static Set<String> capabilityNames(String rawCapabilities) {
-        return AiCapabilityConfigParser.csv(rawCapabilities).stream()
-                .map(value -> value.toLowerCase(Locale.ROOT))
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
-    }
-
     private static AiCapabilityDescriptor.ResourceLimits resourceLimits(
-            Map<String, String> properties, String modelName, Set<String> capabilityNames) {
+            Map<String, String> properties, String modelName, Set<Operation> operations) {
         long maxInputTokens = positiveLong(properties, "max-input-tokens", modelName);
         int maxConcurrency = positiveInt(properties, "max-concurrency", -1, modelName);
         long maxItems = positiveLong(properties, "max-provider-items-per-task", modelName);
         long maxAttempts = positiveLong(properties, "max-provider-attempts-per-task", modelName);
         long maxRequestBytes = positiveLong(properties, "max-request-bytes", modelName);
         long maxResponseBytes = positiveLong(properties, "max-response-bytes", modelName);
-        boolean generates = capabilityNames.contains("inference")
-                || capabilityNames.contains("multimodal");
+        boolean generates = operations.contains(Operation.TEXT_GENERATION)
+                || operations.contains(Operation.MULTIMODAL_GENERATION);
         long maxOutputTokens = generates
                 ? positiveLong(properties, "max-output-tokens", modelName)
                 : optionalNonNegativeLong(properties, "max-output-tokens", modelName);
-        long maxMediaBytes = capabilityNames.contains("multimodal")
+        long maxMediaBytes = operations.contains(Operation.MULTIMODAL_GENERATION)
                 ? positiveLong(properties, "max-media-bytes", modelName)
                 : optionalNonNegativeLong(properties, "max-media-bytes", modelName);
         return new AiCapabilityDescriptor.ResourceLimits(

@@ -15,10 +15,10 @@ package org.pangrova.ai.worker.governance;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.enums.Modality;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -169,7 +169,7 @@ class ConfigurableAiInvocationAuthorizerTest {
                 operation,
                 AiCapabilityDescriptor.ExecutionMode.SCALAR,
                 operation == AiCapabilityDescriptor.Operation.EMBEDDING
-                        ? java.util.Optional.of(org.pangrova.ai.api.embedding.EmbeddingPurpose.DOCUMENT)
+                        ? java.util.Optional.of(org.pangrova.ai.api.enums.EmbeddingPurpose.DOCUMENT)
                         : java.util.Optional.empty(),
                 inputs,
                 GenerationParameters.DEFAULTS,

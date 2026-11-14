@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import java.io.Closeable;
 import java.util.List;
 import java.util.concurrent.TimeUnit;

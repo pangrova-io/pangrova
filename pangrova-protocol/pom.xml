@@ -19,10 +19,14 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-function-api</artifactId>
@@ -90,10 +94,6 @@
 
         <!-- Public client-owned wire values (error envelope, result endpoint, query DTOs).
              client-core is framework-free: common + Jackson annotations only. -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-client-core</artifactId>
-        </dependency>
 
         <!-- Jackson for REST DTOs (optional: modules needing JSON declare their own dependency) -->
         <dependency>

@@ -2,13 +2,13 @@ package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
-import org.pangrova.scheduler.api.placement.HealthState;
+import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry;
 import org.pangrova.persistence.jdbc.support.DriverManagerDataSource;
-import org.pangrova.common.value.MemoryPressure;
+import org.pangrova.common.enums.MemoryPressure;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.membership.WorkerSnapshot;

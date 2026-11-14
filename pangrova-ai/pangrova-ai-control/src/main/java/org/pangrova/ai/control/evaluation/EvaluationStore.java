@@ -17,6 +17,8 @@
  */
 package org.pangrova.ai.control.evaluation;
 
+import org.pangrova.ai.control.enums.EvaluationRunState;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;

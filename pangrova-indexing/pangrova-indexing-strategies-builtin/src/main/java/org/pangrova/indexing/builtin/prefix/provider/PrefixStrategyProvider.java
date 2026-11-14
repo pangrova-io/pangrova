@@ -1,8 +1,11 @@
 package org.pangrova.indexing.builtin.prefix.provider;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.prefix.serializer.PrefixSerializer;
+
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.indexing.api.data.text.PrefixEntry;
 import org.pangrova.indexing.api.data.text.PrefixIndexData;
@@ -28,6 +31,11 @@ public final class PrefixStrategyProvider implements IndexStrategyProvider {
 
     private static final String PROP_PREFIX_LENGTH = "prefix.length";
     private static final int DEFAULT_PREFIX_LENGTH = 8;
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new PrefixSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

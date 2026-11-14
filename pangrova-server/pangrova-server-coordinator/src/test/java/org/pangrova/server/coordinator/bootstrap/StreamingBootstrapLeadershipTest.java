@@ -1,6 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.streaming.coordinator.CdcSourceRegistry;
 import org.pangrova.streaming.coordinator.StreamConfig;
 import org.pangrova.streaming.coordinator.StreamDdlContext;
 import org.pangrova.streaming.coordinator.StreamDdlExecutor;
@@ -9,14 +10,14 @@ import org.pangrova.streaming.coordinator.StreamSchedulerContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamStateStore;
-import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.statement.stream.AlterStreamAction;
 import org.pangrova.parser.api.ast.statement.stream.AlterStreamStatement;
 import org.pangrova.parser.api.ast.statement.stream.CreateStreamStatement;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
-import org.pangrova.streaming.api.cdc.CdcSourceReader;
+import org.pangrova.streaming.api.source.CdcSourceReader;
 import org.pangrova.streaming.api.cdc.CdcWriteResult;
 import org.pangrova.streaming.api.cdc.CdcWriteSink;
 import org.pangrova.streaming.api.source.SourceRecord;
@@ -24,10 +25,9 @@ import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
 import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
 import org.pangrova.streaming.commit.TwoPhaseCommitCoordinator;
-import org.pangrova.streaming.cdcformat.debezium.DebeziumJsonConverter;
 import org.pangrova.streaming.maintenance.MaintenanceConfig;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
-import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
+import org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -47,7 +47,7 @@ class StreamingBootstrapLeadershipTest extends ContainerTestBase {
         var dataSource = SharedPostgresContainer.migratedDataSource("stream_leadership");
         var states = new JdbcStreamStateStore(dataSource);
         var offsets = new JdbcStreamOffsetStore(dataSource);
-        var state = StreamState.builder().streamName("orders").tenantId("tenant")
+        var state = StreamState.builder().sourceProvider("kafka").streamName("orders").tenantId("tenant")
                 .targetTable("catalog.db.orders").sourceFormat("debezium-json")
                 .sourceProperties(Map.of())
                 .lifecycleState(StreamLifecycleState.RUNNING)
@@ -59,17 +59,19 @@ class StreamingBootstrapLeadershipTest extends ContainerTestBase {
         try (var maintenance = new MaintenanceScheduler(AbsentTableMaintenance.instance(), MaintenanceConfig.defaults())) {
             var scheduler = new StreamScheduler(new StreamSchedulerContext(states, offsets,
                     new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)),
-                    new CdcRecordConverterRegistry(List.of(new DebeziumJsonConverter())),
+                    CdcRecordConverterRegistry.discover(getClass().getClassLoader()),
                     new WatermarkTracker(new InMemoryWatermarkStore()), maintenance, config,
                     s -> readers.get(created.getAndIncrement()), s -> new UnusedSink()), "coordinator-a");
-            var ddl = new StreamDdlExecutor(new StreamDdlContext(states, offsets, scheduler, config));
+            var ddl = new StreamDdlExecutor(new StreamDdlContext(states, offsets, scheduler, config,
+                    CdcSourceRegistry.discover(getClass().getClassLoader())));
             var followerScheduler = new StreamScheduler(new StreamSchedulerContext(states, offsets,
                     new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)),
-                    new CdcRecordConverterRegistry(List.of(new DebeziumJsonConverter())),
+                    CdcRecordConverterRegistry.discover(getClass().getClassLoader()),
                     new WatermarkTracker(new InMemoryWatermarkStore()), maintenance, config,
                     s -> { throw new AssertionError("follower must not create a source"); },
                     s -> { throw new AssertionError("follower must not create a sink"); }), "coordinator-b");
-            var followerDdl = new StreamDdlExecutor(new StreamDdlContext(states, offsets, followerScheduler, config));
+            var followerDdl = new StreamDdlExecutor(new StreamDdlContext(states, offsets, followerScheduler, config,
+                    CdcSourceRegistry.discover(getClass().getClassLoader())));
             try (var bootstrap = new StreamingBootstrap(ddl, scheduler);
                     var follower = new StreamingBootstrap(followerDdl, followerScheduler)) {
                 scheduler.start(state);
@@ -103,7 +105,7 @@ class StreamingBootstrapLeadershipTest extends ContainerTestBase {
                 assertThat(states.loadState("orders").orElseThrow().coordinatorId()).isEqualTo("coordinator-a");
                 assertThat(created.get()).isEqualTo(3);
                 assertThat(followerScheduler.activeCount()).isZero();
-                follower.getDdlExecutor().create(new CreateStreamStatement(Identifier.of("new-orders"), false,
+                follower.getDdlExecutor().create(new CreateStreamStatement(Identifier.of("new-orders"), false, "kafka",
                         Map.of("bootstrap.servers", "unused:9092", "topic", "orders"), "debezium-json",
                         Identifier.of("catalog", "db", "orders"), Map.of()), "tenant", "creator");
                 assertThat(readers.get(3).polled.await(10, TimeUnit.SECONDS)).isTrue();

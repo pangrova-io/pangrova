@@ -1,5 +1,7 @@
 package org.pangrova.persistence.catalog.postgresql.source;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.connector.api.metadata.SourceCatalogDeployment;
 
 import org.pangrova.connector.api.metadata.PreparedSourcePublication;
@@ -163,11 +165,7 @@ final class JdbcSourceObjectRegistration {
         PreparedSourcePublication header)
         throws SQLException {
         java.security.MessageDigest digest;
-        try {
-            digest = java.security.MessageDigest.getInstance("SHA-256");
-        } catch (java.security.NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException(impossible);
-        }
+        digest = DigestUtils.sha256();
         long count = 0;
         boolean manifest = false;
         try (var statement = connection

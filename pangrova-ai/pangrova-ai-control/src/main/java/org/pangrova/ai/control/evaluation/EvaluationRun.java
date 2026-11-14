@@ -17,8 +17,14 @@
  */
 package org.pangrova.ai.control.evaluation;
 
+import org.pangrova.ai.control.enums.EvaluationRunState;
+import org.pangrova.ai.control.enums.EvaluationSubjectType;
+
 import java.time.Instant;
 import java.util.Objects;
+
+import static org.pangrova.common.util.Preconditions.requireOptionalText;
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Version-pinned evaluation execution and its single terminal outcome. */
 public record EvaluationRun(
@@ -38,24 +44,24 @@ public record EvaluationRun(
         String failureClass) {
 
     public EvaluationRun {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(runId, "runId");
-        EvaluationValidation.requireText(datasetId, "datasetId");
+        requireText(tenantId, "tenantId");
+        requireText(runId, "runId");
+        requireText(datasetId, "datasetId");
         if (datasetVersion <= 0) {
             throw new IllegalArgumentException("datasetVersion must be positive");
         }
         Objects.requireNonNull(subjectType, "subjectType must not be null");
-        EvaluationValidation.requireText(subjectId, "subjectId");
-        EvaluationValidation.requireText(subjectVersion, "subjectVersion");
-        EvaluationValidation.requireOptionalText(baselineRunId, "baselineRunId");
+        requireText(subjectId, "subjectId");
+        requireText(subjectVersion, "subjectVersion");
+        requireOptionalText(baselineRunId, "baselineRunId");
         if (runId.equals(baselineRunId)) {
             throw new IllegalArgumentException("a run cannot use itself as its baseline");
         }
-        EvaluationValidation.requireText(policyVersion, "policyVersion");
+        requireText(policyVersion, "policyVersion");
         Objects.requireNonNull(state, "state must not be null");
         Objects.requireNonNull(startedAt, "startedAt must not be null");
-        EvaluationValidation.requireOptionalText(traceReference, "traceReference");
-        EvaluationValidation.requireOptionalText(failureClass, "failureClass");
+        requireOptionalText(traceReference, "traceReference");
+        requireOptionalText(failureClass, "failureClass");
         if (!state.isTerminal()) {
             if (completedAt != null || failureClass != null) {
                 throw new IllegalArgumentException(

@@ -1,17 +1,7 @@
-// FileIndexFilter: file-level index membership evaluation.
-//
-// The caller passes a validated, unwrapped index payload. Supported payloads:
-//   - Bloom filter: Split Block Bloom Filter (SBBF) — Parquet-compatible
-//   - Bitmap: value-to-bit mapping for low-cardinality columns
-//   - BSI: bit-sliced representation of numeric column min/max bounds
-//
-// For Bloom evaluation, index_data is the SBBF byte array written by Java's
-// SplitBlockBloomFilter. The caller must bind it to the exact data file.
-
 #include "indexing/index/FileIndexFilter.h"
 
 #include <cstring>
-#include <functional>
+#include <cstdint>
 
 namespace pangrova::index {
 
@@ -238,85 +228,6 @@ bool evaluateBloomFilter(
   return true; // May be present — must read file.
 }
 
-/// Paimon bitmap index binary layout:
-///   [0..3]   uint32_t num_values (big-endian)
-///   [4..]    For each value: int32_t value (big-endian) + 1-byte presence flag
-///
-/// The bitmap tracks which distinct values exist in the file.
-/// Returns false (skip file) when the queried value is not in the bitmap.
-bool evaluateBitmap(const std::string& index_data, int32_t value) {
-  if (index_data.size() < 4) {
-    return true;
-  }
-
-  const auto* raw = reinterpret_cast<const uint8_t*>(index_data.data());
-
-  uint32_t num_values =
-      (static_cast<uint32_t>(raw[0]) << 24) |
-      (static_cast<uint32_t>(raw[1]) << 16) |
-      (static_cast<uint32_t>(raw[2]) << 8) |
-      static_cast<uint32_t>(raw[3]);
-
-  // Each entry: 4 bytes (int32 value) + 1 byte (presence flag).
-  size_t entry_size = 5;
-  size_t expected_size = 4 + static_cast<size_t>(num_values) * entry_size;
-  if (index_data.size() < expected_size) {
-    return true;
-  }
-
-  const uint8_t* entries = raw + 4;
-  for (uint32_t i = 0; i < num_values; ++i) {
-    const uint8_t* entry = entries + i * entry_size;
-    int32_t entry_value =
-        (static_cast<int32_t>(entry[0]) << 24) |
-        (static_cast<int32_t>(entry[1]) << 16) |
-        (static_cast<int32_t>(entry[2]) << 8) |
-        static_cast<int32_t>(entry[3]);
-    if (entry_value == value) {
-      return entry[4] != 0;  // Presence flag: 1 = present, 0 = absent.
-    }
-  }
-  // Value not found in bitmap — file does not contain this value.
-  return false;
-}
-
-/// Paimon BSI (Bit-Sliced Index) binary layout:
-///   [0..7]   int64_t file_min_value (big-endian)
-///   [8..15]  int64_t file_max_value (big-endian)
-///
-/// BSI stores the min/max bounds of the numeric column in the file.
-/// Range query [min_value, max_value] can skip the file if the file's
-/// value range does not overlap with the query range.
-bool evaluateBsi(const std::string& index_data, int64_t min_value, int64_t max_value) {
-  if (index_data.size() < 16) {
-    return true;
-  }
-
-  const auto* raw = reinterpret_cast<const uint8_t*>(index_data.data());
-
-  auto readInt64BE = [](const uint8_t* p) -> int64_t {
-    uint64_t v =
-        (static_cast<uint64_t>(p[0]) << 56) |
-        (static_cast<uint64_t>(p[1]) << 48) |
-        (static_cast<uint64_t>(p[2]) << 40) |
-        (static_cast<uint64_t>(p[3]) << 32) |
-        (static_cast<uint64_t>(p[4]) << 24) |
-        (static_cast<uint64_t>(p[5]) << 16) |
-        (static_cast<uint64_t>(p[6]) << 8) |
-        static_cast<uint64_t>(p[7]);
-    return static_cast<int64_t>(v);
-  };
-
-  int64_t file_min = readInt64BE(raw);
-  int64_t file_max = readInt64BE(raw + 8);
-
-  // No overlap: file range is entirely below or above query range.
-  if (file_max < min_value || file_min > max_value) {
-    return false;  // No overlap — skip file.
-  }
-  return true;  // Ranges overlap — must read file.
-}
-
 }  // namespace
 
 bool FileIndexFilter::mayContainValue(
@@ -324,21 +235,6 @@ bool FileIndexFilter::mayContainValue(
     const std::string& /*column_name*/,
     const std::string& value) {
   return evaluateBloomFilter(index_data, value);
-}
-
-bool FileIndexFilter::bitmapContains(
-    const std::string& index_data,
-    const std::string& /*column_name*/,
-    int32_t value) {
-  return evaluateBitmap(index_data, value);
-}
-
-bool FileIndexFilter::bsiInRange(
-    const std::string& index_data,
-    const std::string& /*column_name*/,
-    int64_t min_value,
-    int64_t max_value) {
-  return evaluateBsi(index_data, min_value, max_value);
 }
 
 }  // namespace pangrova::index

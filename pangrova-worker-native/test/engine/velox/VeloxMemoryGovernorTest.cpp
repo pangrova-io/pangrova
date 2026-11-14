@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "engine/executor/driver/PlanExecutionDriver.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "velox/common/base/Exceptions.h"
 #include "engine/velox/memory/VeloxMemoryGovernor.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
@@ -294,7 +294,7 @@ TEST_F(VeloxMemoryGovernorTest, MemorySnapshotProtoFieldsNonZeroAfterTaskWithSpi
   int64_t spillBytes = 8192;
   governor->reportSpillBytes(spillBytes);
 
-  // Collect snapshot and serialize to proto (same path as JniBridge).
+  // Collect snapshot and serialize to proto (same path as JniEntryPoints).
   auto snapshot = governor->getMemorySnapshot();
   pangrova::protocol::v2::MemorySnapshot proto;
   proto.set_current_used_bytes(snapshot.current_used_bytes);
@@ -551,6 +551,137 @@ TEST_F(VeloxMemoryGovernorTest, ConcurrentSnapshotsObserveActualCreateAndDropOwn
   for (const auto& failure : failures) {
     if (failure) std::rethrow_exception(failure);
   }
+}
+
+// Stands in for a spillable operator: the stock MemoryReclaimer only aggregates
+// children, so a leaf using it reports nothing. Real operators override this to
+// advertise the bytes they can spill.
+class TestLeafReclaimer : public facebook::velox::memory::MemoryReclaimer {
+ public:
+  TestLeafReclaimer() : MemoryReclaimer(0) {}
+
+  bool reclaimableBytes(
+      const facebook::velox::memory::MemoryPool& pool,
+      uint64_t& bytes) const override {
+    bytes = pool.usedBytes();
+    return true;
+  }
+};
+
+// Stands in for an operator that spills: reclaim() releases its reservation and
+// reports the bytes freed, which is what the arbitrator's spill pass relies on.
+class SpillingLeafReclaimer : public facebook::velox::memory::MemoryReclaimer {
+ public:
+  SpillingLeafReclaimer() : MemoryReclaimer(0) {}
+
+  bool reclaimableBytes(
+      const facebook::velox::memory::MemoryPool& pool,
+      uint64_t& bytes) const override {
+    bytes = pool.usedBytes();
+    return true;
+  }
+
+  uint64_t reclaim(
+      facebook::velox::memory::MemoryPool* pool,
+      uint64_t targetBytes,
+      uint64_t /*maxWaitMs*/,
+      Stats& stats) override {
+    if (buffer_ == nullptr) {
+      return 0;
+    }
+    const uint64_t freed = held_;
+    pool->free(buffer_, held_);
+    buffer_ = nullptr;
+    held_ = 0;
+    stats.reclaimedBytes += freed;
+    return freed;
+  }
+
+  void hold(void* buffer, uint64_t bytes) {
+    buffer_ = buffer;
+    held_ = bytes;
+  }
+
+ private:
+  void* buffer_{nullptr};
+  uint64_t held_{0};
+};
+
+// The arbitrator's spill pass calls pool->reclaim() to release USED bytes, not
+// just unused capacity. Without a root reclaimer this returns 0 and arbitration
+// can never relieve real pressure.
+TEST_F(VeloxMemoryGovernorTest, ReclaimReleasesUsedBytesNotJustUnusedCapacity) {
+  auto governor = createGovernor();
+  auto rootPool = governor->createTaskPool("q-spill", "t-spill", 64L * 1024 * 1024);
+  ASSERT_NE(rootPool->reclaimer(), nullptr);
+
+  auto reclaimer = std::make_unique<SpillingLeafReclaimer>();
+  auto* reclaimPtr = reclaimer.get();
+  auto leaf = rootPool->addLeafChild(
+      "spilling-leaf", /*threadSafe=*/true, std::move(reclaimer));
+  constexpr uint64_t kBytes = 64L * 1024;
+  void* buf = leaf->allocate(kBytes);
+  ASSERT_NE(buf, nullptr);
+  reclaimPtr->hold(buf, kBytes);
+
+  const uint64_t usedBefore = rootPool->usedBytes();
+  ASSERT_GE(usedBefore, kBytes);
+
+  facebook::velox::memory::MemoryReclaimer::Stats stats;
+  const uint64_t freed = rootPool->reclaim(kBytes, /*maxWaitMs=*/1000, stats);
+  EXPECT_GE(freed, kBytes);
+  EXPECT_GE(stats.reclaimedBytes, kBytes);
+  EXPECT_LT(rootPool->usedBytes(), usedBefore);
+}
+
+// Velox Task::createTaskReclaimer() returns nullptr when the query root pool has
+// no reclaimer, which kills the whole task/node/operator reclaim chain and makes
+// arbitration-driven spill unable to release anything. Installing a root
+// reclaimer is therefore the prerequisite for all reclaim work.
+TEST_F(VeloxMemoryGovernorTest, TaskPoolHasRootReclaimer) {
+  auto governor = createGovernor();
+  auto rootPool = governor->createTaskPool("q-reclaim", "t-reclaim", 64L * 1024 * 1024);
+  EXPECT_NE(rootPool->reclaimer(), nullptr);
+
+  // A raw leaf allocation is genuinely not reclaimable, so the root reports no
+  // value until a child registers a reclaimer — exactly what Task/operators do.
+  EXPECT_FALSE(rootPool->reclaimableBytes().has_value());
+
+  auto reclaimableChild = rootPool->addAggregateChild(
+      "reclaimable-child",
+      facebook::velox::memory::MemoryReclaimer::create());
+  ASSERT_NE(reclaimableChild->reclaimer(), nullptr);
+  auto leaf = reclaimableChild->addLeafChild(
+      "leaf-reclaim",
+      /*threadSafe=*/true,
+      std::make_unique<TestLeafReclaimer>());
+  void* buf = leaf->allocate(4096);
+  ASSERT_NE(buf, nullptr);
+
+  // Reclaimability must propagate up to the root, or the arbitrator's traversal
+  // treats the entire subtree as unreclaimable.
+  const auto rootReclaimable = rootPool->reclaimableBytes();
+  ASSERT_TRUE(rootReclaimable.has_value());
+  EXPECT_GE(rootReclaimable.value(), 4096);
+  leaf->free(buf, 4096);
+}
+
+// A destroyed pool must not be dereferenced by a later reclaim pass: the
+// arbitrator snapshots weak references and locks them after releasing its
+// registry mutex.
+TEST_F(VeloxMemoryGovernorTest, ReclaimSkipsDestroyedPools) {
+  auto governor = createGovernor();
+  {
+    auto transient = governor->createTaskPool("q-gone", "t-gone", 32L * 1024 * 1024);
+    ASSERT_NE(transient->reclaimer(), nullptr);
+    auto leaf = transient->addLeafChild("leaf-gone");
+    void* buf = leaf->allocate(4096);
+    ASSERT_NE(buf, nullptr);
+    leaf->free(buf, 4096);
+  }
+  auto survivor = governor->createTaskPool("q-live", "t-live", 32L * 1024 * 1024);
+  EXPECT_NE(survivor->reclaimer(), nullptr);
+  EXPECT_GE(governor->getMemorySnapshot().active_pool_count, 1);
 }
 
 }  // namespace

@@ -19,9 +19,9 @@ import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.LanceWriteBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.worker.dataset.ControlDeadlineExceededException;
+import org.pangrova.worker.exception.ControlDeadlineExceededException;
 import org.pangrova.worker.dataset.NativeDatasetControlService;
-import org.pangrova.worker.task.ControlEpochFenceException;
+import org.pangrova.worker.exception.ControlEpochFenceException;
 import java.io.ByteArrayInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -171,7 +171,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
                         .setSha256(ProtocolChecksums.sha256(metadata))).build();
     }
 
-    private static ExecutionOwnerIdentity owner(org.pangrova.query.api.ownership.ExecutionAnchor anchor) {
+    private static ExecutionOwnerIdentity owner(org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
         return ExecutionOwnerIdentity.newBuilder().setOwnerId(anchor.ownerId()).setOwnerIncarnation(anchor.ownerIncarnation())
                 .setFencingToken(anchor.fencingToken()).build();
     }

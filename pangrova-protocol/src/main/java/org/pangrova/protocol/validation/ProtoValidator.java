@@ -1,5 +1,7 @@
 package org.pangrova.protocol.validation;
 
+import org.pangrova.protocol.exception.ProtoValidationException;
+
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
 

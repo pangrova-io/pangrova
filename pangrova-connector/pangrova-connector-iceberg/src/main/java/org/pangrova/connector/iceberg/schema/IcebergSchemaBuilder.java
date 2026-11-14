@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.mapping.PangrovaTypeMapping;
 import org.pangrova.types.ArrayType;
 import org.pangrova.types.MapType;

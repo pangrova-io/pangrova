@@ -5,6 +5,8 @@ import org.pangrova.ai.api.capability.AiRequestConstraints;
 
 import java.util.Arrays;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Exact control-plane binding for one AI expression invocation. */
 public record BoundAiInvocation(
         String invocationId,
@@ -123,17 +125,10 @@ public record BoundAiInvocation(
                 || actualSignature == null
                 || !Arrays.equals(modelSignatureSha256, actualSignature)
                 || operation != actualOperation) {
-            throw new org.pangrova.ai.api.error.AiInvocationException(
-                    org.pangrova.ai.api.error.AiInvocationException.Category.CAPABILITY_MISMATCH,
+            throw new org.pangrova.ai.api.exception.AiInvocationException(
+                    org.pangrova.ai.api.exception.AiInvocationException.Category.CAPABILITY_MISMATCH,
                     false,
                     "Provider execution identity differs from the exact OperatorBinding");
         }
-    }
-
-    private static String requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
-        return value;
     }
 }

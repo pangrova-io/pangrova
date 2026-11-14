@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 

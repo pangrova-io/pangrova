@@ -14,7 +14,7 @@
 package org.pangrova.coordination.zookeeper;
 
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
-import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.zookeeper.KeeperException;
@@ -67,19 +67,27 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
         Objects.requireNonNull(coordinator, "coordinator must not be null");
         String path = coordinatorPath(coordinator.coordinatorId());
         byte[] data = serialize(coordinator);
-        try {
+        for (int attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
             try {
-                client.create().creatingParentsIfNeeded().forPath(path, data);
-            } catch (KeeperException.NodeExistsException exists) {
-                client.setData().forPath(path, data); // upsert: latest snapshot wins
+                try {
+                    client.create().creatingParentsIfNeeded().forPath(path, data);
+                } catch (KeeperException.NodeExistsException exists) {
+                    Stat stat = new Stat();
+                    CoordinatorSnapshot current = parse(client.getData().storingStatIn(stat).forPath(path));
+                    byte[] registration = serialize(coordinator.withInvalidationProgress(current.lastProcessedInvalidationId()));
+                    client.setData().withVersion(stat.getVersion()).forPath(path, registration);
+                }
+                LOG.info("event=coordinator_registered coordinatorId={} role={} epoch={}",
+                        coordinator.coordinatorId(), coordinator.role(), coordinator.epoch());
+                return;
+            } catch (KeeperException.BadVersionException | KeeperException.NoNodeException concurrent) {
+                // Another process updated the watermark or removed the registration. Read the new version.
+            } catch (Exception e) {
+                throw ZooKeeperFailures.storageFailure("register", coordinator.coordinatorId(), e);
             }
-            LOG.info("event=coordinator_registered coordinatorId={} role={} epoch={}",
-                    coordinator.coordinatorId(), coordinator.role(), coordinator.epoch());
-        } catch (Exception e) {
-            LOG.error("event=coordinator_register_error coordinatorId={} error={}",
-                    coordinator.coordinatorId(), e.toString(), e);
-            throw ZooKeeperFailures.storageFailure("register", coordinator.coordinatorId(), e);
         }
+        throw ZooKeeperFailures.storageFailure("register contention exhausted", coordinator.coordinatorId(),
+                new java.util.ConcurrentModificationException("CAS attempts=" + MAX_CAS_RETRIES));
     }
 
     @Override
@@ -100,8 +108,7 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
 
     @Override
     public void updateLastProcessedInvalidationId(String coordinatorId, long lastProcessedId) {
-        mutate(coordinatorId, s -> new CoordinatorSnapshot(s.coordinatorId(), s.host(), s.httpPort(),
-                s.role(), s.epoch(), s.lastHeartbeatMs(), s.registeredAtMs(), lastProcessedId));
+        mutate(coordinatorId, snapshot -> snapshot.withInvalidationProgress(lastProcessedId));
     }
 
     @Override

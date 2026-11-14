@@ -12,7 +12,12 @@ import org.pangrova.protocol.v2.ShufflePersistenceMode;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleResponse;
-import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
+import org.pangrova.shuffle.pangrova.client.coordinator.PangrovaShuffleCoordinator;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt;
+import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.ShufflePublication;
+import org.pangrova.shuffle.api.ShuffleRegistration;
+import org.pangrova.shuffle.api.ShuffleServiceAddress;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
@@ -38,6 +43,7 @@ final class ActualShuffleService implements AutoCloseable {
     private final List<ShuffleWireRelay> relays = new ArrayList<>();
     private final List<ShuffleServiceConfig.Endpoint> endpoints;
     private final int partitions;
+    private final java.util.Map<String, ShuffleCommitReceipt> receipts = new java.util.HashMap<>();
     private org.pangrova.common.lifecycle.ProcessIncarnationStore workerIncarnation;
 
     static org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead partitionRead(
@@ -45,7 +51,7 @@ final class ActualShuffleService implements AutoCloseable {
         return new org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead(
                 input.shuffleId(), new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
                         input.consumerAttempt(), input.outputPartitionId(), input.deadlineEpochMs()),
-                input.planEpoch(), input.expectedProducerPartitions(), input.expectedProducerSetChecksum());
+                input.planEpoch(), input.expectedProducerPartitions(), input.expectedProducerSetChecksum(), input.publication());
     }
 
     ActualShuffleService(Path directory, int partitions, int serviceCount) throws Exception {
@@ -103,9 +109,19 @@ final class ActualShuffleService implements AutoCloseable {
         return ShuffleServiceGrpc.newBlockingStub(channels.get(0)).withDeadlineAfter(30, TimeUnit.SECONDS);
     }
 
+    org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory.Session workerShuffle() {
+        var factory = java.util.ServiceLoader.load(org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory.class)
+                .stream().map(java.util.ServiceLoader.Provider::get).filter(f -> f.providerId().equals("pangrova"))
+                .findFirst().orElseThrow();
+        return factory.open(new org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory.Configuration(
+                new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(100, 8),
+                new org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory.Tls(
+                        backend.workerCertificate(), backend.workerPrivateKey(), backend.certificate()), java.util.Map.of()));
+    }
+
     RemoteShuffleClientPool clientPool() {
         return clientPool(new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission(
-                new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(100, 8)));
+                new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(100, 8)));
     }
 
     RemoteShuffleClientPool clientPool(org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission admission) {
@@ -117,7 +133,7 @@ final class ActualShuffleService implements AutoCloseable {
 
     RemoteShuffleClientPool shortIdleClientPool() {
         return shortIdleClientPool(new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission(
-                new org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission.Limits(100, 8)));
+                new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(100, 8)));
     }
 
     RemoteShuffleClientPool shortIdleClientPool(org.pangrova.shuffle.pangrova.client.RemoteShuffleChannelAdmission admission) {
@@ -251,14 +267,25 @@ final class ActualShuffleService implements AutoCloseable {
     record AdmittedProducer(TaskRequest request, RegisterShuffleResponse registration,
                            org.pangrova.protocol.v2.Checksum producerSetChecksum) {}
 
-    void finalizeProducer(AdmittedProducer producer) {
-        control().finalizeShuffle(FinalizeShuffleRequest.newBuilder()
-                .setShuffleId(producer.registration().getShuffleId())
-                .setPlanEpoch(producer.request().getAttempt().getPlanEpoch())
-                .setExecutionOwner(producer.request().getAttempt().getExecutionOwner())
-                .setExpectedProducerPartitions(1)
-                .setExpectedProducerSetChecksum(producer.producerSetChecksum())
-                .setAccessCapability(producer.registration().getFinalizeCapability()).build());
+    ShuffleCommitReceipt finalizeProducer(AdmittedProducer producer) {
+        var attempt = producer.request().getAttempt();
+        var tls = new RemoteShuffleClientPool.PemTlsConfig(backend.certificate(), backend.privateKey(), backend.certificate());
+        var controlEndpoints = List.of(new ShuffleServiceAddress("localhost", endpoints.get(0).port(), "localhost"));
+        try (var lifecycle = new PangrovaShuffleCoordinator(controlEndpoints, queryId -> {
+            var current = backend.anchors().current(queryId).orElseThrow();
+            return new ShuffleExecutionOwner(current.ownerId(), current.ownerIncarnation(), current.fencingToken());
+        }, tls)) {
+            var handle = lifecycle.registerShuffle(new ShuffleRegistration(attempt.getQueryOrJobId(),
+                    attempt.getStageId(), partitions, 0, false, attempt.getPlanEpoch(), 1,
+                    producer.producerSetChecksum().getDigest().toByteArray()));
+            if (!handle.shuffleId().equals(producer.registration().getShuffleId())) {
+                throw new IllegalStateException("Coordinator registration changed the producer allocation");
+            }
+            var receipt = lifecycle.commitShuffle(new ShufflePublication(attempt.getQueryOrJobId(), attempt.getStageId(),
+                    attempt.getPlanEpoch(), handle.shuffleId()));
+            receipts.put(handle.shuffleId(), receipt);
+            return receipt;
+        }
     }
 
     org.pangrova.shuffle.exchange.ExternalShuffleTransport delegateRead(
@@ -288,6 +315,7 @@ final class ActualShuffleService implements AutoCloseable {
                         commit.getTlsIdentity()), 0, partitions, attempt.getPlanEpoch(), exchangeOwner,
                 exchangeAttempt, consumer.getDeadlineEpochMs(),
                 new org.pangrova.shuffle.api.ShuffleAccess(capability.getToken().toByteArray(),
-                        capability.getExpiresAtEpochMs()), 1, producer.producerSetChecksum().getDigest().toByteArray());
+                        capability.getExpiresAtEpochMs()), 1, producer.producerSetChecksum().getDigest().toByteArray(),
+                receipts.get(binding.getShuffleId()).partitions().get(0));
     }
 }

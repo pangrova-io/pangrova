@@ -1,9 +1,14 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.server.coordinator.enums.CoordinatorRole;
+
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
-import org.pangrova.config.ShuffleMode;
+import org.pangrova.security.api.authentication.AuthenticatorFactory;
+import org.pangrova.config.enums.ShuffleMode;
+import org.pangrova.config.CoordinatorOptions;
 import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 
@@ -73,8 +78,7 @@ public record CoordinatorBootstrapConfig(
     void requireAuthenticatedTenancy() {
         if (tenantEnabled()
                 && (!securityEnabled() || securityConfig == null
-                    || securityConfig.authenticatorType()
-                        == SecurityConfig.AuthenticatorType.NOOP)) {
+                    || !securityConfig.authenticatesClients())) {
             throw new IllegalStateException(
                     "Tenant isolation requires an enabled, non-NOOP authenticator");
         }
@@ -183,12 +187,24 @@ public record CoordinatorBootstrapConfig(
             boolean speculation, boolean pullModeSplitAssignment,
             boolean cacheWriteback, boolean indexing,
             boolean embedding, boolean ddlLeaderRouting,
-            ShuffleMode shuffleMode, List<String> shuffleEndpoints) {
+            ShuffleMode shuffleMode, List<String> shuffleEndpoints, String shuffleProvider,
+            java.util.Map<String, String> shuffleProviderSettings) {
 
         public FeatureFlags {
+            if (shuffleProvider == null || shuffleProvider.isBlank()) throw new IllegalArgumentException("Blank shuffle provider");
+            shuffleProviderSettings = java.util.Map.copyOf(shuffleProviderSettings);
             if (shuffleMode == null) shuffleMode = ShuffleMode.NATIVE;
             if (shuffleEndpoints == null) shuffleEndpoints = List.of();
             else shuffleEndpoints = List.copyOf(shuffleEndpoints);
+        }
+
+        public FeatureFlags(boolean observability, boolean security, boolean metadata, boolean streaming,
+                boolean governance, boolean resilience, boolean tenant, boolean operations, boolean speculation,
+                boolean pullModeSplitAssignment, boolean cacheWriteback, boolean indexing, boolean embedding,
+                boolean ddlLeaderRouting, ShuffleMode shuffleMode, List<String> shuffleEndpoints) {
+            this(observability, security, metadata, streaming, governance, resilience, tenant, operations, speculation,
+                    pullModeSplitAssignment, cacheWriteback, indexing, embedding, ddlLeaderRouting, shuffleMode,
+                    shuffleEndpoints, CoordinatorOptions.SHUFFLE_PROVIDER.defaultValue(), java.util.Map.of());
         }
 
         // Existing positional config adapter preserves the declared feature ordering.
@@ -211,6 +227,18 @@ public record CoordinatorBootstrapConfig(
                     false, false, ShuffleMode.NATIVE, List.of());
         }
 
+        @Override
+        public String toString() {
+            return "FeatureFlags[observability=" + observability + ", security=" + security + ", metadata=" + metadata
+                    + ", streaming=" + streaming + ", governance=" + governance + ", resilience=" + resilience
+                    + ", tenant=" + tenant + ", operations=" + operations + ", speculation=" + speculation
+                    + ", pullModeSplitAssignment=" + pullModeSplitAssignment + ", cacheWriteback=" + cacheWriteback
+                    + ", indexing=" + indexing + ", embedding=" + embedding + ", ddlLeaderRouting=" + ddlLeaderRouting
+                    + ", shuffleMode=" + shuffleMode + ", shuffleProvider=" + shuffleProvider
+                    + ", shuffleEndpointCount=" + shuffleEndpoints.size()
+                    + ", configuredShuffleProperties=" + shuffleProviderSettings.keySet() + "]";
+        }
+
         public static FeatureFlags allDisabled() {
             return new FeatureFlags(false, false, false, false, false, false, false, false,
                     false, false, false, false, false, false, ShuffleMode.NATIVE, List.of());
@@ -221,7 +249,7 @@ public record CoordinatorBootstrapConfig(
     public record QueryConfig(
             long queryTimeoutSeconds, long timeoutCheckIntervalSeconds, long taskTimeoutSeconds,
             long queryRetentionSeconds, long queryCleanupIntervalSeconds,
-            SpillBudget spillBudget) {
+            SpillBudget spillBudget, int workerMaxRetry, String placementProvider) {
 
         public static final long DEFAULT_QUERY_TIMEOUT_SECONDS = 300;
         public static final long DEFAULT_TIMEOUT_CHECK_INTERVAL_SECONDS = 10;
@@ -229,9 +257,16 @@ public record CoordinatorBootstrapConfig(
         public static final long DEFAULT_TASK_TIMEOUT_SECONDS = 0;
         public static final long DEFAULT_QUERY_RETENTION_SECONDS = 600;
         public static final long DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS = 60;
+        public static final int DEFAULT_WORKER_MAX_RETRY = 3;
 
         public QueryConfig {
+            if (placementProvider == null || placementProvider.isBlank()) {
+                throw new IllegalArgumentException("coordinator.query.placement-provider must not be blank");
+            }
             if (spillBudget == null) spillBudget = SpillBudget.DISABLED;
+            if (workerMaxRetry < 0) {
+                throw new IllegalArgumentException("workerMaxRetry must not be negative");
+            }
         }
 
         /** Uses default retention, cleanup, and disabled task spilling. */
@@ -239,7 +274,7 @@ public record CoordinatorBootstrapConfig(
                            long taskTimeoutSeconds) {
             this(queryTimeoutSeconds, timeoutCheckIntervalSeconds, taskTimeoutSeconds,
                     DEFAULT_QUERY_RETENTION_SECONDS, DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS,
-                    SpillBudget.DISABLED);
+                    SpillBudget.DISABLED, DEFAULT_WORKER_MAX_RETRY, CoordinatorOptions.PLACEMENT_PROVIDER.defaultValue());
         }
 
         /** Uses disabled task spilling. */
@@ -247,7 +282,8 @@ public record CoordinatorBootstrapConfig(
                            long taskTimeoutSeconds, long queryRetentionSeconds,
                            long queryCleanupIntervalSeconds) {
             this(queryTimeoutSeconds, timeoutCheckIntervalSeconds, taskTimeoutSeconds,
-                    queryRetentionSeconds, queryCleanupIntervalSeconds, SpillBudget.DISABLED);
+                    queryRetentionSeconds, queryCleanupIntervalSeconds, SpillBudget.DISABLED,
+                    DEFAULT_WORKER_MAX_RETRY, CoordinatorOptions.PLACEMENT_PROVIDER.defaultValue());
         }
 
         /** Returns the default query execution configuration. */
@@ -258,7 +294,8 @@ public record CoordinatorBootstrapConfig(
                     DEFAULT_TASK_TIMEOUT_SECONDS,
                     DEFAULT_QUERY_RETENTION_SECONDS,
                     DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS,
-                    SpillBudget.DISABLED);
+                    SpillBudget.DISABLED,
+                    DEFAULT_WORKER_MAX_RETRY, CoordinatorOptions.PLACEMENT_PROVIDER.defaultValue());
         }
     }
 
@@ -336,39 +373,60 @@ public record CoordinatorBootstrapConfig(
         }
     }
 
-    /** Security subsystem configuration: authenticator type and backend-specific properties. */
-    public record SecurityConfig(AuthenticatorType authenticatorType,
+    /** The selected factory owns the configuration schema and creates the process authenticator. */
+    public record SecurityConfig(Optional<AuthenticatorFactory> clientAuthenticator,
                                  String internalAuthSecret, java.util.Map<String, String> authenticatorProperties) {
-        public enum AuthenticatorType { NOOP, OAUTH2, LDAP }
+        public SecurityConfig(String providerId, String internalAuthSecret,
+                java.util.Map<String, String> authenticatorProperties) {
+            this(CoordinatorAuthenticatorFactories.select(providerId), internalAuthSecret, authenticatorProperties);
+        }
+
+        public SecurityConfig(AuthenticatorFactory factory, String internalAuthSecret,
+                java.util.Map<String, String> authenticatorProperties) {
+            this(Optional.of(factory), internalAuthSecret, authenticatorProperties);
+        }
 
         public SecurityConfig {
-            if (authenticatorType == null) {
-                throw new IllegalArgumentException("authenticatorType must not be null");
-            }
+            java.util.Objects.requireNonNull(clientAuthenticator, "clientAuthenticator");
             authenticatorProperties = java.util.Map.copyOf(authenticatorProperties);
-            if (authenticatorType == AuthenticatorType.OAUTH2
-                    && authenticatorProperties.getOrDefault("issuerUri", "").isBlank()) {
-                throw new IllegalArgumentException("OAuth2 requires security.auth.properties.issuer-uri");
-            }
             if (authenticatorProperties.containsKey("requireSignatureVerification")) {
                 throw new IllegalArgumentException("Authentication signature bypass settings are not supported");
             }
-            if (authenticatorType == AuthenticatorType.LDAP
-                    && authenticatorProperties.getOrDefault("ldapUrl", "").isBlank()) {
-                throw new IllegalArgumentException("LDAP requires security.auth.properties.ldap-url");
+            if (authenticatorProperties.containsKey("bypass.enabled")) {
+                throw new IllegalArgumentException("Authentication bypass requires selecting the NOOP provider");
+            }
+            if (clientAuthenticator.isPresent()) {
+                clientAuthenticator.orElseThrow().validate(authenticatorProperties);
+            } else if (!authenticatorProperties.isEmpty()) {
+                throw new IllegalArgumentException("Client authentication properties require a provider");
             }
         }
 
+        static SecurityConfig internalRequestsOnly(String secret) {
+            return new SecurityConfig(Optional.empty(), secret, java.util.Map.of());
+        }
+
+        public AuthenticatorFactory requireAuthenticator() {
+            return clientAuthenticator.orElseThrow(() -> new IllegalStateException("Client authenticator is missing"));
+        }
+
+        boolean authenticatesClients() {
+            return clientAuthenticator.isPresent() && !bypassesAuthentication();
+        }
+
+        boolean bypassesAuthentication() {
+            return clientAuthenticator.isPresent() && "NOOP".equals(requireAuthenticator().providerId());
+        }
+
         public static SecurityConfig noop() {
-            return new SecurityConfig(AuthenticatorType.NOOP, null, java.util.Map.of());
+            return new SecurityConfig("NOOP", null, java.util.Map.of());
         }
 
         @Override
         public String toString() {
-            return "SecurityConfig[type=" + authenticatorType
+            return "SecurityConfig[type=" + clientAuthenticator.map(AuthenticatorFactory::providerId).orElse("disabled")
                     + ", configuredAuthProperties=" + authenticatorProperties.keySet() + "]";
         }
-
     }
 
     /** OTel bootstrap parameters for observability initialization. */
@@ -388,44 +446,7 @@ public record CoordinatorBootstrapConfig(
      * When {@code redisUrl} is non-null, Redis is used as the L2 cache backend.
      * Otherwise, an in-memory L2 cache is used.
      */
-    public record CacheConfig(String redisUrl, long ttlSeconds, long maxEntryBytes) {
-        public static final CacheConfig IN_MEMORY = new CacheConfig(null, 3600, 10_485_760);
 
-        public CacheConfig {
-            if (ttlSeconds < 0) {
-                throw new IllegalArgumentException("ttlSeconds must be >= 0, got " + ttlSeconds);
-            }
-            if (maxEntryBytes < 0) {
-                throw new IllegalArgumentException("maxEntryBytes must be >= 0, got " + maxEntryBytes);
-            }
-        }
-
-        /** Returns true if Redis is configured as the L2 cache backend. */
-        public boolean isRedisEnabled() {
-            return redisUrl != null && !redisUrl.isBlank();
-        }
-    }
-
-    /**
-     * Returns the L2 cache configuration.
-     * Reads from system properties once at construction time and caches the result.
-     * Defaults to in-memory cache when Redis URL is not set.
-     */
-    private static final CacheConfig RESOLVED_CACHE_CONFIG = resolveCacheConfig();
-
-    public CacheConfig cacheConfig() {
-        return RESOLVED_CACHE_CONFIG;
-    }
-
-    private static CacheConfig resolveCacheConfig() {
-        String redisUrl = System.getProperty("pangrova.cache.result.redis-url");
-        if (redisUrl != null && !redisUrl.isBlank()) {
-            long ttl = Long.parseLong(System.getProperty("pangrova.cache.result.ttl-seconds", "3600"));
-            long max = Long.parseLong(System.getProperty("pangrova.cache.result.max-entry-bytes", "10485760"));
-            return new CacheConfig(redisUrl, ttl, max);
-        }
-        return CacheConfig.IN_MEMORY;
-    }
 
     /** Returns the spill budget derived from query config, defaulting to disabled. */
     public SpillBudget spillBudget() {

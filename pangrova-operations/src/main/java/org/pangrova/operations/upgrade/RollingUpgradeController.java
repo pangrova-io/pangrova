@@ -1,7 +1,7 @@
 package org.pangrova.operations.upgrade;
 
 import org.pangrova.common.annotation.Experimental;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,9 +15,8 @@ import java.util.Objects;
  * Orchestrates rolling upgrades across cluster nodes.
  * Workers are upgraded first, then coordinators.
  *
- * <p>This controller has real orchestration logic but only a logging-based
- * {@link NodeOperations} backend. No production infrastructure executor
- * (Kubernetes, SSH, etc.) is wired.</p>
+ * <p>The host supplies a {@link NodeOperations} backend that completes each
+ * infrastructure operation or throws. No infrastructure backend ships with this controller.</p>
  */
 @Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-rolling-upgrade")
 public final class RollingUpgradeController {
@@ -39,16 +38,6 @@ public final class RollingUpgradeController {
         this.nodeOps = Objects.requireNonNull(nodeOps);
         this.rollbackOnFailure = rollbackOnFailure;
         this.drainTimeout = Objects.requireNonNull(drainTimeout);
-    }
-
-    /** Creates a controller with {@link LoggingNodeOperations} as default backend. */
-    public static RollingUpgradeController withLoggingBackend(
-            VersionCompatibilityChecker compatibilityChecker,
-            boolean rollbackOnFailure,
-            Duration drainTimeout) {
-        return new RollingUpgradeController(
-                compatibilityChecker, new LoggingNodeOperations(),
-                rollbackOnFailure, drainTimeout);
     }
 
     /** Upgrades all workers first, then coordinators, returning per-node results. */

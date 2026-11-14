@@ -8,11 +8,11 @@ import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationPage;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats;
@@ -235,7 +235,7 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
             GenerationOutputFormat contract, GenerationOutput output) {
         if (output.rowCount() == 0
                 && (job.emptyPartitionPolicy()
-                        != org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
+                        != org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
                         || !contract.supportsEmptyPartitions())) {
             throw new IllegalArgumentException("zero-row artifact output is forbidden by job or format policy");
         }

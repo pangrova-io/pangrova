@@ -7,12 +7,12 @@ import org.pangrova.ai.api.model.AiModelIdentity;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.spi.embedding.EmbeddingProvider;
-import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.embedding.EmbeddingProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 import org.pangrova.ai.worker.provider.ConfiguredAiProviderRegistry;
-import org.pangrova.ai.worker.provider.env.EnvironmentSecretProvider;
+import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -37,7 +37,7 @@ final class GovernedAiTestModels implements AutoCloseable {
         config.put("models.embed.embedding-dimension", "384");
         config.put("models.embed.query-prefix", "query: ");
         config.put("models.embed.document-prefix", "doc: ");
-        registry = new ConfiguredAiProviderRegistry(config, new EnvironmentSecretProvider());
+        registry = new ConfiguredAiProviderRegistry(config, SecretResolverRegistry.discover(GovernedAiTestModels.class.getClassLoader()));
     }
 
     private static void addModel(Map<String, String> config, String name,
@@ -161,7 +161,7 @@ final class GovernedAiTestModels implements AutoCloseable {
                 context.queryId(), context.traceId(), binding.modelId(), binding.modelVersion(),
                 binding.modelSignatureSha256(), binding.modelVersion(), operation, mode,
                 operation == AiCapabilityDescriptor.Operation.EMBEDDING
-                        ? Optional.of(org.pangrova.ai.api.embedding.EmbeddingPurpose.DOCUMENT) : Optional.empty(),
+                        ? Optional.of(org.pangrova.ai.api.enums.EmbeddingPurpose.DOCUMENT) : Optional.empty(),
                 inputs, GenerationParameters.DEFAULTS, context.deadline().orElseThrow(),
                 binding.idempotencyBase() + ":" + "0".repeat(64), Map.of("task_id", taskId,
                         "task_attempt_base64", java.util.Base64.getEncoder().encodeToString(context.taskAttempt().toByteArray())));

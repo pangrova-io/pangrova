@@ -42,7 +42,7 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-streaming-core</artifactId>
+            <artifactId>pangrova-streaming-pipeline</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

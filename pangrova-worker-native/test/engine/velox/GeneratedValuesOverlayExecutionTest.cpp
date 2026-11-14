@@ -21,7 +21,7 @@
 #include "engine/resource/TaskObjectReadBudget.h"
 #include "engine/velox/plan/ArtifactBuildOperator.h"
 #include "capabilities/capability/NativeCapabilityCatalog.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "pangrova/protocol/v2/plan_extension.pb.h"
 #include "engine/split/SplitConfig.h"
 #include "substrait/algebra.pb.h"

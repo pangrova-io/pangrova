@@ -9,7 +9,7 @@ import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
-import org.pangrova.common.lifecycle.BootstrapPhase;
+import org.pangrova.common.enums.BootstrapPhase;
 import org.pangrova.common.lifecycle.SystemBootstrapSequence;
 import org.pangrova.operations.scaling.AutoScalingController;
 import org.pangrova.operations.scaling.EmergencyThreshold;

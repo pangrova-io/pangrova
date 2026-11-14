@@ -3,7 +3,7 @@ package org.pangrova.protocol.task;
 import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskKind;

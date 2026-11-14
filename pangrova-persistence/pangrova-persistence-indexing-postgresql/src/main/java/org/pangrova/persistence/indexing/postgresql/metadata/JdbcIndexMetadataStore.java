@@ -12,7 +12,7 @@ import org.pangrova.persistence.indexing.api.metadata.IndexFileSelection;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 
@@ -271,13 +271,8 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     // --- IndexFileMapping CRUD (delegate to fileMappingStore) ---
 
     @Override
-    public void registerIndexFile(IndexFileMapping mapping) {
-        fileMappingStore.registerIndexFile(mapping);
-    }
-
-    @Override
-    public void batchRegisterIndexFiles(List<IndexFileMapping> mappings) {
-        fileMappingStore.batchRegisterIndexFiles(mappings);
+    public void batchRegisterIndexFiles(String attemptOwner, List<IndexFileMapping> mappings) {
+        fileMappingStore.batchRegisterIndexFiles(attemptOwner, mappings);
     }
 
     @Override
@@ -311,16 +306,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     public Map<String, Map<String, IndexFileMapping>> batchGetIndexArtifacts(
             Map<String, IndexFileSelection> selections,
             List<String> dataFilePaths) {
-        Map<String, IndexFileSelection> activeSelections = new java.util.HashMap<>();
-        for (var selection : selections.entrySet()) {
-            Optional<IndexGenerationManifest> active =
-                    publicationStore.findActive(selection.getKey());
-            if (active.isPresent() && selection.getValue().matches(active.get())) {
-                activeSelections.put(selection.getKey(), selection.getValue());
-            }
-        }
-        return fileMappingStore.batchGetIndexArtifacts(
-                Map.copyOf(activeSelections), dataFilePaths);
+        return fileMappingStore.batchGetIndexArtifacts(selections, dataFilePaths);
     }
 
     @Override

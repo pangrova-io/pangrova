@@ -4,9 +4,9 @@ import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.provider.governed.GovernedEmbeddingProvider;

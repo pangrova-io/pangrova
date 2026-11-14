@@ -3,8 +3,6 @@ package org.pangrova.connector.paimon;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -13,10 +11,10 @@ import java.util.OptionalLong;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
@@ -168,7 +166,7 @@ final class PaimonSystemReadBindings {
             throw new IOException("Paimon snapshot metadata object exceeds Native reader limit");
         }
         try (var input = table.fileIO().newInputStream(path)) {
-            var digest = MessageDigest.getInstance("SHA-256");
+            var digest = DigestUtils.sha256();
             byte[] buffer = new byte[64 * 1024];
             long bytes = 0;
             for (int count; (count = input.read(buffer)) != -1;) {
@@ -185,8 +183,6 @@ final class PaimonSystemReadBindings {
                 throw new IOException("Paimon snapshot metadata object shrank during pinning");
             }
             return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
 }

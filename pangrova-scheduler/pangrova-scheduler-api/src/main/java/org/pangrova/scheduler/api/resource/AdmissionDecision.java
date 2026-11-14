@@ -1,11 +1,13 @@
 package org.pangrova.scheduler.api.resource;
 
+import org.pangrova.scheduler.api.enums.AdmissionVerdict;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Objects;
 
 /**
- * The outcome of a {@link org.pangrova.scheduler.spi.admission.ClusterAdmissionController#admit} call.
+ * The outcome of a {@link org.pangrova.scheduler.api.admission.ClusterAdmissionController#admit} call.
  *
  * <p>Contains a verdict (ADMIT / QUEUE / REJECT) and a human-readable reason
  * for observability and client feedback.</p>

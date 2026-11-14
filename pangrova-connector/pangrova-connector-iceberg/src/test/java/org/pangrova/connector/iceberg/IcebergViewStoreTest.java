@@ -2,9 +2,9 @@ package org.pangrova.connector.iceberg;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
-import org.pangrova.connector.api.metadata.view.ViewCreateMode;
+import org.pangrova.connector.api.enums.ViewCreateMode;
 
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;

@@ -37,9 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Facts are recomputed from POMs and sources on every run; the committed
  * {@code .pangrova/module-baseline.yaml} must stay identical to them, so an
  * unreviewed structural change fails instead of silently expanding the
- * architecture. Dependency checking is default-deny: an artifact edge or an
- * imported package that is neither allowed nor recorded as owned debt is a
- * violation.</p>
+ * architecture. Each production artifact edge and imported package must be explicitly allowed.</p>
  */
 class ModuleDependencyPropertyTest {
 
@@ -51,57 +49,20 @@ class ModuleDependencyPropertyTest {
 
     @Test
     void coordinatorProductionClosureExcludesWorkerRuntime() {
-        Set<String> forbidden = Set.of("pangrova-worker-core", "pangrova-worker-native-bridge");
-        for (String root : List.of("pangrova-coordination-core", "pangrova-server-coordinator")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("Coordinator production dependency path: %s", path)
-                        .doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+        Set<String> forbidden = Set.of("pangrova-worker", "pangrova-server-worker", "pangrova-native-bundle");
+        for (String root : List.of("pangrova-coordination-control", "pangrova-server-coordinator")) {
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
     @Test
     void shuffleProvidersAndServiceProductionClosuresExcludeEngineCoreAndProcessAssembly() {
-        Set<String> forbidden = Set.of("pangrova-shuffle-core", "pangrova-worker-core",
-                "pangrova-worker-native-bridge",
-                "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-testing-kit",
-                "pangrova-planner-core");
+        Set<String> forbidden = Set.of("pangrova-shuffle-exchange", "pangrova-worker",
+                "pangrova-coordination-control", "pangrova-server-coordinator", "pangrova-testing-kit",
+                "pangrova-planner");
         for (String root : List.of("pangrova-shuffle-api", "pangrova-shuffle-local",
                 "pangrova-shuffle-pangrova", "pangrova-shuffle-service")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("Shuffle production dependency path: %s", path)
-                        .doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
@@ -110,27 +71,9 @@ class ModuleDependencyPropertyTest {
         Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
                 "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
                 "pangrova-persistence-file-postgresql",
-                "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-worker-core",
-                "pangrova-worker-native-bridge", "pangrova-planner-core");
-        for (String root : List.of("pangrova-query-api", "pangrova-query-core")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("Query production dependency path: %s", path).doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+                "pangrova-coordination-control", "pangrova-server-coordinator", "pangrova-worker", "pangrova-planner");
+        for (String root : List.of("pangrova-query")) {
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
@@ -140,28 +83,11 @@ class ModuleDependencyPropertyTest {
                 "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
                 "pangrova-persistence-file-postgresql",
                 "pangrova-persistence-security-postgresql", "pangrova-persistence-security-memory",
-                "pangrova-testing-kit", "pangrova-coordination-core", "pangrova-server-coordinator",
-                "pangrova-worker-core", "pangrova-worker-native-bridge", "pangrova-metadata-core",
-                "pangrova-planner-core");
-        for (String root : List.of("pangrova-table-api", "pangrova-table-core")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("Table production dependency path: %s", path).doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+                "pangrova-testing-kit", "pangrova-coordination-control", "pangrova-server-coordinator",
+                "pangrova-worker", "pangrova-metadata-catalog",
+                "pangrova-planner");
+        for (String root : List.of("pangrova-table")) {
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
@@ -170,58 +96,23 @@ class ModuleDependencyPropertyTest {
         Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
                 "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
                 "pangrova-persistence-file-postgresql",
-                "pangrova-coordination-core", "pangrova-server-coordinator", "pangrova-worker-core",
-                "pangrova-worker-native-bridge", "pangrova-planner-core", "pangrova-indexing-core", "pangrova-indexing-codec",
-                "pangrova-metadata-core", "pangrova-protocol", "pangrova-persistence-generation-api");
+                "pangrova-coordination-control", "pangrova-server-coordinator", "pangrova-worker", "pangrova-planner", "pangrova-indexing-lifecycle", "pangrova-indexing-codec",
+                "pangrova-metadata-catalog", "pangrova-protocol", "pangrova-persistence-generation-api");
         for (String root : List.of("pangrova-indexing-api")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("Indexing API production dependency path: %s", path).doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
     @Test
     void indexingImplementationBoundariesExcludeReverseDependencies() {
         Map<String, Set<String>> boundaries = Map.of(
-                "pangrova-indexing-core", Set.of("pangrova-indexing-strategies-builtin"),
-                "pangrova-indexing-codec", Set.of("pangrova-indexing-core", "pangrova-indexing-strategies-builtin"),
-                "pangrova-indexing-strategies-builtin", Set.of("pangrova-indexing-core",
-                        "pangrova-planner-core", "pangrova-coordination-core", "pangrova-worker-core"));
+                "pangrova-indexing-lifecycle", Set.of("pangrova-indexing-strategies-builtin"),
+                "pangrova-indexing-codec", Set.of("pangrova-indexing-lifecycle", "pangrova-indexing-strategies-builtin"),
+                "pangrova-indexing-strategies-builtin", Set.of("pangrova-indexing-lifecycle",
+                        "pangrova-planner", "pangrova-coordination-control", "pangrova-worker"));
         for (String root : boundaries.keySet()) {
             Set<String> forbidden = boundaries.get(root);
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("Indexing implementation dependency path: %s", path).doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
@@ -238,31 +129,12 @@ class ModuleDependencyPropertyTest {
 
     @Test
     void filePersistenceBackendIsSelectedOnlyByAssembly() {
-        for (String root : List.of("pangrova-persistence-file-api", "pangrova-file-core",
-                "pangrova-coordination-core", "pangrova-worker-core")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(artifact).as("File authority production dependency path: %s", path)
-                        .isNotEqualTo("pangrova-persistence-file-postgresql");
-                if (root.equals("pangrova-worker-core")) {
-                    assertThat(artifact).as("Worker file bytes use signed descriptors, not registry authority: %s", path)
-                            .isNotEqualTo("pangrova-persistence-file-api");
-                }
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+        for (String root : List.of("pangrova-persistence-file-api", "pangrova-file",
+                "pangrova-coordination-control", "pangrova-worker")) {
+            Set<String> forbidden = root.equals("pangrova-worker")
+                    ? Set.of("pangrova-persistence-file-api", "pangrova-persistence-file-postgresql")
+                    : Set.of("pangrova-persistence-file-postgresql");
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
@@ -272,28 +144,11 @@ class ModuleDependencyPropertyTest {
                 "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
                 "pangrova-persistence-file-postgresql",
                 "pangrova-persistence-security-postgresql", "pangrova-persistence-security-memory",
-                "pangrova-testing-kit", "pangrova-coordination-core", "pangrova-server-coordinator",
-                "pangrova-worker-core", "pangrova-worker-native-bridge", "pangrova-metadata-core",
-                "pangrova-planner-core");
-        for (String root : List.of("pangrova-file-api", "pangrova-file-core")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("File production dependency path: %s", path).doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
-            }
+                "pangrova-testing-kit", "pangrova-coordination-control", "pangrova-server-coordinator",
+                "pangrova-worker", "pangrova-metadata-catalog",
+                "pangrova-planner");
+        for (String root : List.of("pangrova-file")) {
+            assertProductionClosureExcludes(root, forbidden);
         }
     }
 
@@ -303,27 +158,40 @@ class ModuleDependencyPropertyTest {
                 "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
                 "pangrova-persistence-file-postgresql",
                 "pangrova-persistence-security-postgresql", "pangrova-persistence-security-memory",
-                "pangrova-testing-kit", "pangrova-coordination-core", "pangrova-server-coordinator",
-                "pangrova-worker-core", "pangrova-worker-native-bridge");
-        for (String root : List.of("pangrova-security-api", "pangrova-security-core")) {
-            var pending = new ArrayDeque<List<String>>();
-            var visited = new HashSet<String>();
-            pending.add(List.of(root));
-            while (!pending.isEmpty()) {
-                List<String> path = pending.removeFirst();
-                String artifact = path.get(path.size() - 1);
-                if (!visited.add(artifact)) continue;
-                assertThat(forbidden).as("Security production dependency path: %s", path).doesNotContain(artifact);
-                Policy policy = MODEL.policies().get(artifact);
-                assertThat(policy).as("production artifact %s has an owner", artifact).isNotNull();
-                scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml"))
-                        .forEach((target, scope) -> {
-                            if (!Set.of("compile", "runtime").contains(scope)) return;
-                            var next = new ArrayList<>(path);
-                            next.add(target);
-                            pending.addLast(next);
-                        });
+                "pangrova-testing-kit", "pangrova-coordination-control", "pangrova-server-coordinator",
+                "pangrova-worker");
+        for (String root : List.of("pangrova-security-api", "pangrova-security-access")) {
+            assertProductionClosureExcludes(root, forbidden);
+        }
+    }
+
+    @Test
+    void workerProductionClosureExcludesCoordinatorAndPlanner() {
+        Set<String> forbidden = Set.of("pangrova-server-coordinator", "pangrova-coordination-control", "pangrova-planner");
+        assertProductionClosureExcludes("pangrova-worker", forbidden);
+        assertProductionClosureExcludes("pangrova-server-worker", forbidden);
+    }
+
+    private static void assertProductionClosureExcludes(String root, Set<String> forbidden) {
+        var pending = new ArrayDeque<List<String>>();
+        var visited = new HashSet<String>();
+        pending.add(List.of(root));
+        while (!pending.isEmpty()) {
+            List<String> path = pending.removeFirst();
+            String artifact = path.get(path.size() - 1);
+            if (!visited.add(artifact)) {
+                continue;
             }
+            assertThat(forbidden).as("Production dependency path: %s", path).doesNotContain(artifact);
+            Policy policy = MODEL.policies().get(artifact);
+            assertThat(policy).as("Production artifact %s has an owner", artifact).isNotNull();
+            scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml")).forEach((target, scope) -> {
+                if (scope.equals("compile") || scope.equals("runtime")) {
+                    var next = new ArrayList<>(path);
+                    next.add(target);
+                    pending.addLast(next);
+                }
+            });
         }
     }
 
@@ -335,6 +203,7 @@ class ModuleDependencyPropertyTest {
                 .isEqualTo(MODEL.declaredPoms());
 
         MODEL.declaredPoms().forEach((artifactId, path) -> {
+            assertThat(artifactId).as("name the implementation's responsibility").doesNotEndWith("-core");
             Path pom = ROOT.resolve(path).resolve("pom.xml");
             assertThat(pom).as("declared pom for %s", artifactId).exists();
             assertThat(pomArtifactId(pom)).as("artifactId in %s", path).isEqualTo(artifactId);
@@ -391,19 +260,6 @@ class ModuleDependencyPropertyTest {
                                 policy.artifactId(), friend.getKey())
                         .contains(friend.getKey());
             }
-            for (Violation violation : policy.baselineViolations()) {
-                assertThat(policy.allowedImports())
-                        .as("%s records %s as debt but also allows it", policy.artifactId(), violation.target())
-                        .doesNotContain(violation.target());
-                assertThat(policy.forbiddenImports())
-                        .as("%s records %s as debt but also forbids it", policy.artifactId(), violation.target())
-                        .doesNotContain(violation.target());
-                assertThat(violation.milestone())
-                        .as("%s -> %s must name the milestone that removes the debt",
-                                policy.artifactId(), violation.target())
-                        .matches("M\\d+");
-            }
-
             for (String root : concat(policy.packageRoots(), policy.testPackageRoots())) {
                 rootOwners.computeIfAbsent(root, ignored -> new ArrayList<>()).add(policy.artifactId());
             }
@@ -427,6 +283,9 @@ class ModuleDependencyPropertyTest {
                     .allMatch(root -> declaredPackages.stream().anyMatch(packageName -> isUnder(packageName, root)));
 
             for (String packageName : MODEL.mainPackages(policy.artifactId())) {
+                assertThat(List.of(packageName.split("\\.")))
+                        .as("capability packages in %s", packageName)
+                        .doesNotContain("core", "adapter", "bridge", "nativebridge", "spi");
                 assertThat(MODEL.ownerOf(packageName))
                         .as("%s declares main package %s outside its packageRoots",
                                 policy.artifactId(), packageName)
@@ -445,6 +304,21 @@ class ModuleDependencyPropertyTest {
         assertThat(splitPackages)
                 .as("split packages are illegal on a single classpath")
                 .isEmpty();
+    }
+
+    @Test
+    void singleImplementationDomainsPublishFromTheirFamilyRoot() {
+        for (String domain : List.of("parser", "batch", "file", "planner", "query", "semantic", "table", "worker")) {
+            String artifact = "pangrova-" + domain;
+            assertThat(MODEL.declaredPoms()).containsEntry(artifact, artifact);
+            assertThat(MODEL.mainPackages(artifact)).as("%s owns production code", artifact).isNotEmpty();
+            Element project = parseXml(ROOT.resolve(artifact).resolve("pom.xml")).getDocumentElement();
+            String packaging = childText(project, "packaging");
+            assertThat(packaging == null ? "jar" : packaging).as("%s packaging", artifact).isEqualTo("jar");
+            assertThat(project.getElementsByTagName("module").getLength())
+                    .as("%s does not aggregate another implementation", artifact).isZero();
+            assertThat(MODEL.declaredPoms().values()).noneMatch(path -> path.startsWith(artifact + "/"));
+        }
     }
 
     @Test
@@ -510,24 +384,17 @@ class ModuleDependencyPropertyTest {
                 .as("imports resolve to no declared package root")
                 .isEmpty();
 
-        Map<String, Set<String>> violations = new TreeMap<>();
         for (Policy policy : MODEL.policies().values()) {
             Set<String> edges = MODEL.imports(policy.artifactId()).getOrDefault("main", Set.of());
             if (!policy.testSurface()) {
-                Set<String> allowed = new HashSet<>(policy.allowedImports());
-                policy.baselineViolations().forEach(violation -> allowed.add(violation.target()));
-
                 for (String target : edges) {
                     assertThat(policy.forbiddenImports())
                             .as("%s imports forbidden artifact %s", policy.artifactId(), target)
                             .doesNotContain(target);
-                    assertThat(allowed)
-                            .as("%s -> %s is not allowed and is not recorded in baselineViolations",
+                    assertThat(policy.allowedImports())
+                            .as("%s -> %s is not allowed",
                                     policy.artifactId(), target)
                             .contains(target);
-                    if (!policy.allowedImports().contains(target)) {
-                        violations.computeIfAbsent(policy.artifactId(), ignored -> new TreeSet<>()).add(target);
-                    }
                     assertFriendExport(MODEL, policy, target);
                     assertExportedPackages(MODEL, policy, target);
                 }
@@ -539,16 +406,6 @@ class ModuleDependencyPropertyTest {
                     .isEmpty();
         }
 
-        Map<String, Set<String>> declared = new TreeMap<>();
-        MODEL.policies().values().forEach(policy -> {
-            if (!policy.baselineViolations().isEmpty()) {
-                declared.put(policy.artifactId(), new TreeSet<>(
-                        policy.baselineViolations().stream().map(Violation::target).toList()));
-            }
-        });
-        assertThat(violations)
-                .as("baselineViolations must describe exactly the current debt")
-                .isEqualTo(declared);
     }
 
     @Test
@@ -705,8 +562,6 @@ class ModuleDependencyPropertyTest {
     // Model
     // ------------------------------------------------------------------
 
-    record Violation(String target, String milestone, String reason) {}
-
     record Policy(
             String artifactId,
             String path,
@@ -720,8 +575,7 @@ class ModuleDependencyPropertyTest {
             Set<String> allowedImports,
             Set<String> forbiddenImports,
             Map<String, List<String>> friendExports,
-            Map<String, List<String>> providers,
-            List<Violation> baselineViolations) {}
+            Map<String, List<String>> providers) {}
 
     record Facts(
             String path,
@@ -927,14 +781,6 @@ class ModuleDependencyPropertyTest {
             Map<String, List<String>> friends = new TreeMap<>();
             map(node.getOrDefault("friendExports", Map.of())).forEach(
                     (target, packages) -> friends.put(target, strings(packages).stream().toList()));
-            List<Violation> violations = new ArrayList<>();
-            for (Object entry : list(node.getOrDefault("baselineViolations", List.of()))) {
-                Map<String, Object> violation = map(entry);
-                violations.add(new Violation(
-                        string(violation.get("target")),
-                        string(violation.get("milestone")),
-                        string(violation.get("reason"))));
-            }
             policies.put(artifactId, new Policy(
                     artifactId,
                     string(node.get("path")),
@@ -948,8 +794,7 @@ class ModuleDependencyPropertyTest {
                     strings(node.get("allowedImports")),
                     strings(node.get("forbiddenImports")),
                     friends,
-                    stringLists(node.getOrDefault("providers", Map.of())),
-                    violations));
+                    stringLists(node.getOrDefault("providers", Map.of()))));
         });
         return policies;
     }

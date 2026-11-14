@@ -7,11 +7,11 @@
     <name>Pangrova File Persistence postgresql</name>
     <properties><module.name>org.pangrova.persistence.file.postgresql</module.name></properties>
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-filesystem-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId></dependency>

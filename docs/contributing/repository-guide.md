@@ -32,7 +32,7 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-execution` | Task stage/purpose/deadline values and canonical execution binding |
 | `pangrova-parser` / `pangrova-planner` | Parser API/Core and Planner API/Core; SDK-free contracts with implementation-owned ANTLR/Calcite |
 | `pangrova-protocol` | Canonical wire contracts and build-time function-contract generators |
-| `pangrova-query/pangrova-query-api` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
+| `pangrova-query` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
 | `pangrova-generation` | Durable generation jobs: core contracts/codecs/routing; PostgreSQL job/stage/exchange storage lives in `pangrova-persistence/pangrova-persistence-generation-postgresql` |
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migrations; runtime bootstrap and owner test fixtures consume the same version sequence |
 | `pangrova-query` | Query runtime services and profiling/audit orchestration; JDBC/in-memory durable state lives in `pangrova-persistence/pangrova-persistence-query-*` |
@@ -45,7 +45,7 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-metadata` | Metadata API/Core, catalog resolution, projection and synchronization |
 | `pangrova-table` | Table API/Core family: ownership, observation, maintenance, statistics and governance binding |
 | `pangrova-file` | File API/Core/Worker Adapter family: Volume/Stage contracts, authorization, URL issuance, directory refresh and delegated Worker HTTP operations |
-| `pangrova-semantic` | Semantic View identity, immutable versions, definition validation, publication fencing and JDBC storage |
+| `pangrova-semantic` | Semantic View identity, authorized creation, immutable definition validation, version listing and fenced publication. The PostgreSQL provider owns the active-version CAS and uses the Server-supplied data source |
 | `pangrova-ai` | Shared AI descriptors, governed control plane, and optional Worker-side AI runtime |
 | `pangrova-filesystem` | SDK-free Filesystem API and independent LOCAL/S3/OSS providers; backend capability limits are documented in the File architecture |
 | `pangrova-materialization` | Dynamic-table/materialized-view domain kernel; relational state stores live in `pangrova-persistence/pangrova-persistence-materialization-postgresql` |

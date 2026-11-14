@@ -12,7 +12,7 @@
 
     <artifactId>pangrova-materialization-api</artifactId>
     <name>Pangrova Materialization API</name>
-    <description>Materialization domain values and replaceable ports</description>
+    <description>Materialization domain values, service ports and provider extension contracts</description>
 
     <properties>
         <module.name>org.pangrova.materialization.api</module.name>

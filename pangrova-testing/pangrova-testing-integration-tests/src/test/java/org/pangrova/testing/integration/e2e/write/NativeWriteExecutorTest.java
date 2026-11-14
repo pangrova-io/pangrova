@@ -1,8 +1,8 @@
 package org.pangrova.testing.integration.e2e.write;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.worker.nativebridge.jni.NativeRuntimeException;
-import org.pangrova.worker.nativebridge.jni.write.WriteDescriptor;
+import org.pangrova.worker.exception.NativeRuntimeException;
+import org.pangrova.worker.write.WriteDescriptor;
 
 import java.util.List;
 import java.util.Map;

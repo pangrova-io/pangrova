@@ -81,58 +81,100 @@ ShuffleBufferStore::Reservation::~Reservation() {
 }
 
 arrow::Result<ShuffleBufferStore::StorageReservation>
-ShuffleBufferStore::reserve(uint64_t payload_bytes, uint64_t resident_bytes) {
+ShuffleBufferStore::reserve(
+    uint64_t payload_bytes, uint64_t resident_bytes, HandleScope& scope,
+    const CancellationToken& cancellation) {
   StorageReservation result;
   result.entry = std::make_shared<Reservation>(shared_from_this());
   // Allocate the possible next segment before taking the accounting lock.
   // A failed allocation must never destroy a Reservation under that lock.
   auto next_file_credit = std::make_shared<Reservation>(shared_from_this());
   auto next_segment = std::make_shared<SpillSegment>(next_file_credit);
+  const auto deadline = std::chrono::steady_clock::now() +
+      std::chrono::milliseconds(limits_.retention_wait_ms);
+
+  // Declared outside the loop so the previous iteration's segment is destroyed
+  // with no lock held: ~Reservation re-enters release() and takes mutex_.
   std::shared_ptr<SpillSegment> retired_segment;
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (usage_.buffered_batches >= limits_.buffered_batches) {
-    return arrow::Status::CapacityError("shuffle buffered record budget exhausted");
-  }
-  if (resident_bytes <= limits_.max_payload_bytes + sizeof(folly::IOBuf) &&
-      resident_bytes <= limits_.memory_bytes - usage_.memory_bytes) {
-    result.entry->charge.memory_bytes = resident_bytes;
-    usage_.memory_bytes += resident_bytes;
-  } else {
-    // Account allocation granularity as well as logical bytes for tiny spills.
-    const uint64_t disk_bytes = (payload_bytes + 4095) / 4096 * 4096;
-    if (disk_bytes > limits_.spill_bytes - usage_.spill_bytes) {
-      return arrow::Status::CapacityError("shuffle spill byte budget exhausted: used=",
-          usage_.spill_bytes, " limit=", limits_.spill_bytes, " requested=", disk_bytes);
+  while (true) {
+    retired_segment.reset();
+    if (cancellation.stopRequested()) {
+      return arrow::Status::Cancelled("shuffle buffering cancelled");
     }
-    result.segment = active_segment_.lock();
-    if (!result.segment ||
-        disk_bytes > limits_.spill_segment_bytes - result.segment->next_offset) {
-      if (usage_.spill_files >= limits_.spill_files) {
-        return arrow::Status::CapacityError("shuffle spill file budget exhausted: used=",
-            usage_.spill_files, " limit=", limits_.spill_files);
+    std::unique_lock<std::mutex> lock(mutex_);
+    // Retention credit is refillable, so wait for a reader instead of failing
+    // the query. Payload/accounting errors above are terminal and never wait.
+    bool retention_exhausted = false;
+    const char* blocked = "shuffle buffered record budget exhausted";
+    if (usage_.buffered_batches >= limits_.buffered_batches) {
+      retention_exhausted = true;
+    } else if (!scope.disk_only_ && resident_bytes <= limits_.max_payload_bytes + sizeof(folly::IOBuf) &&
+               resident_bytes <= limits_.memory_bytes - usage_.memory_bytes) {
+      result.entry->charge.memory_bytes = resident_bytes;
+      usage_.memory_bytes += resident_bytes;
+    } else {
+      // Account allocation granularity as well as logical bytes for tiny spills.
+      const uint64_t disk_bytes = (payload_bytes + 4095) / 4096 * 4096;
+      if (disk_bytes > limits_.spill_bytes) {
+        return arrow::Status::CapacityError("shuffle spill payload exceeds byte grant: limit=",
+            limits_.spill_bytes, " requested=", disk_bytes);
       }
-      // The old segment may be losing its final entry concurrently. Keep its
-      // last reference alive until after the accounting lock is released.
-      retired_segment = std::move(result.segment);
-      result.segment = std::move(next_segment);
-      result.segment->file_credit->charge.spill_files = 1;
-      ++usage_.spill_files;
-      active_segment_ = result.segment;
+      if (disk_bytes > limits_.spill_bytes - usage_.spill_bytes) {
+        retention_exhausted = true;
+        blocked = "shuffle spill byte budget exhausted";
+      } else {
+        result.segment = scope.active_segment_.lock();
+        if (!result.segment ||
+            disk_bytes > limits_.spill_segment_bytes - result.segment->next_offset) {
+          if (usage_.spill_files >= limits_.spill_files) {
+            retention_exhausted = true;
+            blocked = "shuffle spill file budget exhausted";
+          } else {
+            // The old segment may be losing its final entry concurrently. Keep
+            // its last reference alive until after the lock is released.
+            retired_segment = std::move(result.segment);
+            result.segment = next_segment;
+            result.segment->file_credit->charge.spill_files = 1;
+            ++usage_.spill_files;
+            scope.active_segment_ = result.segment;
+          }
+        }
+        if (!retention_exhausted) {
+          result.spill_offset = result.segment->next_offset;
+          result.segment->next_offset += disk_bytes;
+          // Releasing one entry cannot reclaim its blocks while another entry
+          // keeps the same anonymous file alive. Charge physical space to the
+          // segment; per-entry accounting would under-report real disk usage.
+          result.segment->file_credit->charge.spill_bytes += disk_bytes;
+          usage_.spill_bytes += disk_bytes;
+        }
+      }
     }
-    result.spill_offset = result.segment->next_offset;
-    result.segment->next_offset += disk_bytes;
-    // Releasing one entry cannot reclaim its blocks while another entry keeps
-    // the same anonymous file alive. Charge physical space to the segment.
-    result.segment->file_credit->charge.spill_bytes += disk_bytes;
-    usage_.spill_bytes += disk_bytes;
+
+    if (!retention_exhausted) {
+      result.entry->charge.buffered_batches = 1;
+      ++usage_.buffered_batches;
+      return result;
+    }
+
+    // Reset partial state before waiting so a retry starts clean.
+    result.segment.reset();
+    result.spill_offset = 0;
+    if (std::chrono::steady_clock::now() >= deadline) {
+      return arrow::Status::CapacityError(blocked,
+          ": waited_ms=", limits_.retention_wait_ms,
+          " spill_bytes_used=", usage_.spill_bytes, " spill_limit=", limits_.spill_bytes,
+          " batches_used=", usage_.buffered_batches, " batch_limit=", limits_.buffered_batches,
+          " files_used=", usage_.spill_files, " file_limit=", limits_.spill_files);
+    }
+    storage_available_.wait_for(lock, std::chrono::milliseconds(20));
+    lock.unlock();
   }
-  result.entry->charge.buffered_batches = 1;
-  ++usage_.buffered_batches;
-  return result;
 }
 
 arrow::Result<std::unique_ptr<ShuffleBufferStore::Entry>>
-ShuffleBufferStore::store(ShuffleBatch batch, CancellationToken cancellation) {
+ShuffleBufferStore::store(
+    ShuffleBatch batch, HandleScope& scope, CancellationToken cancellation) {
   if (cancellation.stopRequested()) return arrow::Status::Cancelled("shuffle buffering cancelled");
   if (!batch.data || batch.row_count < 0) {
     return arrow::Status::Invalid("shuffle batch requires data and nonnegative row count");
@@ -154,7 +196,7 @@ ShuffleBufferStore::store(ShuffleBatch batch, CancellationToken cancellation) {
     node = node->next();
   } while (node != batch.data.get());
   if (payload_bytes == 0) return arrow::Status::Invalid("shuffle payload is empty");
-  ARROW_ASSIGN_OR_RAISE(auto storage, reserve(payload_bytes, resident_bytes));
+  ARROW_ASSIGN_OR_RAISE(auto storage, reserve(payload_bytes, resident_bytes, scope, cancellation));
   auto entry = std::make_unique<Entry>();
   entry->reservation = std::move(storage.entry);
   entry->payload_bytes = payload_bytes;
@@ -261,6 +303,10 @@ void ShuffleBufferStore::release(const ShuffleBufferUsage& charge) {
   usage_.handles -= charge.handles;
   usage_.streams -= charge.streams;
   if (charge.transit_bytes != 0) transit_available_.notify_all();
+  if (charge.memory_bytes != 0 || charge.spill_bytes != 0 ||
+      charge.buffered_batches != 0 || charge.spill_files != 0) {
+    storage_available_.notify_all();
+  }
 }
 
 }  // namespace pangrova::shuffle

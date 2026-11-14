@@ -1,7 +1,7 @@
 package org.pangrova.persistence.query.memory.coordination;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.time.Clock;
 import java.time.Duration;

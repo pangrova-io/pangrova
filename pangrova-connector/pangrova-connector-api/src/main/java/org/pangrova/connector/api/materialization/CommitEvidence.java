@@ -3,6 +3,8 @@ package org.pangrova.connector.api.materialization;
 import java.time.Instant;
 import org.pangrova.common.api.annotation.Stable;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Exact, connector-typed evidence that a physical materialization was committed.
  *
@@ -34,12 +36,5 @@ public record CommitEvidence(
         if (committedAt == null) {
             throw new IllegalArgumentException("committedAt must not be null");
         }
-    }
-
-    private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-        return value;
     }
 }

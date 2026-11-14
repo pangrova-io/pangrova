@@ -11,7 +11,7 @@
 #include <arrow/ipc/reader.h>
 #include "engine/columnar/ColumnarImportLayout.h"
 #include "engine/executor/driver/TaskExecutor.h"
-#include "bridge/command/StatusSerializer.h"
+#include "command/StatusSerializer.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 #include "engine/velox/connector/PangrovaVeloxConnector.h"
 #include "substrait/plan.pb.h"

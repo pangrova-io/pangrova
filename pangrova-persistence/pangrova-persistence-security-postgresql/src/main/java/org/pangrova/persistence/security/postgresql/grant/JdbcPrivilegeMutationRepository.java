@@ -2,12 +2,12 @@ package org.pangrova.persistence.security.postgresql.grant;
 
 import org.pangrova.persistence.security.api.grant.PrivilegeMutationRepository;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.grant.PrivilegeMutation;
-import org.pangrova.security.api.grant.PrivilegeMutationOutcomeUnknownException;
+import org.pangrova.security.api.exception.PrivilegeMutationOutcomeUnknownException;
 import org.pangrova.security.api.grant.PrivilegeMutationReceipt;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 
 import javax.sql.DataSource;

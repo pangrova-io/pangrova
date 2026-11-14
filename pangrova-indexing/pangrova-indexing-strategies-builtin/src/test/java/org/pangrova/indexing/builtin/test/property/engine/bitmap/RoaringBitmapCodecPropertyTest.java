@@ -5,7 +5,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.indexing.builtin.bitmap.provider.BitmapStrategyProvider;
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.api.data.bitmap.BitmapIndexData;
 import org.pangrova.connector.api.index.predicate.EqualTo;
 

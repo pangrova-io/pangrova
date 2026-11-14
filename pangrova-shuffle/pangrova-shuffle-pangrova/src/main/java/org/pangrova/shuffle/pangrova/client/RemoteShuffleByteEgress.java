@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import static java.util.Objects.requireNonNull;
 
 import java.nio.ByteBuffer;
@@ -18,16 +20,13 @@ import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.ShuffleExecutionBinding;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
-import org.pangrova.shuffle.api.ShuffleExecutionOwner;
-import org.pangrova.shuffle.spi.worker.ShuffleByteEgress;
+import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
-import org.pangrova.shuffle.api.identity.ExchangeAttemptFence;
-import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
 
 /** Task-scoped JNI egress for coordinator-allocated external shuffle. */
 @ThreadSafe
-public final class RemoteShuffleByteEgress implements ShuffleByteEgress, AutoCloseable {
+public final class RemoteShuffleByteEgress implements ShuffleProducerSession<TaskRequest> {
 
     private final RemoteShuffleClientPool clientPool;
     private final ConcurrentMap<String, RemoteShuffleTaskEgress> tasks = new ConcurrentHashMap<>();
@@ -253,21 +252,7 @@ public final class RemoteShuffleByteEgress implements ShuffleByteEgress, AutoClo
         var shuffle = request.getExecutionOptions().getShuffle();
         ShuffleExecutionBinding binding = shuffle.getExecutionBinding();
         validateBinding(attempt, shuffle.getPartitionCount(), binding);
-        ShuffleExecutionOwner owner = toOwner(binding);
-        ExchangeTaskAttempt taskAttempt =
-                new ExchangeTaskAttempt(
-                        attempt.getQueryOrJobId(),
-                        attempt.getStageId(),
-                        attempt.getPartitionId(),
-                        attempt.getTaskId(),
-                        attempt.getControlEpoch(),
-                        new ExchangeAttemptFence(
-                                attempt.getPlanEpoch(),
-                                attempt.getAttemptId(),
-                                attempt.getFencingToken()),
-                        owner,
-                        attempt.getWorkerExecutionIdentity().getAdmissionDomainId(),
-                        attempt.getWorkerExecutionIdentity().getIncarnationId());
+        var taskAttempt = org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(attempt);
         List<ShuffleServerEndpoint> endpoints =
                 binding.getEndpointsList().stream()
                         .map(
@@ -338,12 +323,6 @@ public final class RemoteShuffleByteEgress implements ShuffleByteEgress, AutoClo
             throw new IllegalArgumentException(
                     "External shuffle write capability is missing or expired");
         }
-    }
-
-    private static ShuffleExecutionOwner toOwner(ShuffleExecutionBinding binding) {
-        var owner = binding.getExecutionOwner();
-        return new ShuffleExecutionOwner(
-                owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken());
     }
 
     private static CompressionCodec parseCodec(String codec) {

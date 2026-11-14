@@ -9,7 +9,7 @@ import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
-import org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader;
+import org.pangrova.worker.jni.NativeCapabilityLoader;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 
 import java.security.MessageDigest;

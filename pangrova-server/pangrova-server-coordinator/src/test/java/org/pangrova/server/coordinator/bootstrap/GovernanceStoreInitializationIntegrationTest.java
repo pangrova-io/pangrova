@@ -1,10 +1,12 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
+
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.governance.api.quality.QualityRuleStoreException;
+import org.pangrova.governance.api.exception.QualityRuleStoreException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 
@@ -30,12 +32,12 @@ class GovernanceStoreInitializationIntegrationTest extends ContainerTestBase {
                 defaults.query(), defaults.transport(), defaults.workerHealth(), null, null, null);
 
         try (var modules = new ModuleIntegrationBootstrap()) {
-            modules.setCatalogRegistry(new org.pangrova.metadata.catalog.registry.CatalogRegistry(
+            var registry = new org.pangrova.metadata.catalog.registry.CatalogRegistry(memoryTableStores(),
                     new org.pangrova.persistence.catalog.postgresql.catalog
-                            .PostgresCatalogDeploymentRepository(source)));
-            assertThatThrownBy(() -> modules.startGovernance(config, source))
+                            .PostgresCatalogDeploymentRepository(source));
+            assertThatThrownBy(() -> modules.startGovernance(config, source, GovernanceBootstrapTestAuthority.bind(modules, registry)))
                     .isInstanceOf(QualityRuleStoreException.class)
-                    .hasMessageContaining("Failed to list enabled quality rules")
+                    .hasMessageContaining("Cannot open canonical quality-rule schema")
                     .satisfies(failure -> {
                         assertThat(((PangrovaException) failure).getErrorCode())
                                 .isEqualTo(PangrovaErrorCode.METADATA_METASTORE_ERROR);

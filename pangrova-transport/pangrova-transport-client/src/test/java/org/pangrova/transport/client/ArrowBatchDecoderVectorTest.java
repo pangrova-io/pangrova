@@ -1,5 +1,7 @@
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportException;
+
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;

@@ -13,8 +13,8 @@ import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 import org.pangrova.connector.runtime.scan.FixedSplitSource;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.Constraint;
@@ -47,7 +47,12 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSplitManager.class);
     private static final Duration DEFAULT_MANIFEST_CACHE_TTL = Duration.ofMinutes(5);
-    private static final int DEFAULT_MANIFEST_CACHE_MAX_SIZE = 1000;
+    // Each entry is a whole table's split list, so bounding entry COUNT left heap
+    // unbounded: one entry can hold millions of splits. Bound estimated bytes.
+    private static final long DEFAULT_MANIFEST_CACHE_MAX_WEIGHT = 64L * 1024 * 1024;
+    // Conservative per-split heap estimate (path, partition values, delete files,
+    // object overhead). Column mappings are shared per scan and excluded.
+    private static final int ESTIMATED_BYTES_PER_SPLIT = 1024;
 
     private final String catalogName;
     private final Catalog catalog;
@@ -82,7 +87,10 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         this.taskToSplit = new IcebergTaskToSplit(expressionConverter);
         this.manifestCache = Caffeine.newBuilder()
                 .expireAfterWrite(DEFAULT_MANIFEST_CACHE_TTL)
-                .maximumSize(DEFAULT_MANIFEST_CACHE_MAX_SIZE)
+                .maximumWeight(DEFAULT_MANIFEST_CACHE_MAX_WEIGHT)
+                .weigher((String key, List<ConnectorSplit> splits) -> (int) Math.min(
+                        Integer.MAX_VALUE,
+                        Math.max(1L, (long) splits.size() * ESTIMATED_BYTES_PER_SPLIT)))
                 .build();
     }
 

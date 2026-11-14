@@ -1,9 +1,8 @@
 package org.pangrova.generation.api.page;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import org.pangrova.common.util.DigestUtils;
+
 import java.util.Base64;
-import java.util.HexFormat;
 
 /** Exact canonical DataSplit bytes assigned to one durable artifact work page. */
 public record GenerationSplit(
@@ -14,7 +13,7 @@ public record GenerationSplit(
     public GenerationSplit {
         requireIdentity(dataObjectId, canonicalSplitBase64, splitSha256);
         byte[] bytes = decode(canonicalSplitBase64);
-        if (bytes.length == 0 || !sha256(bytes).equalsIgnoreCase(splitSha256)) {
+        if (bytes.length == 0 || !DigestUtils.sha256Hex(bytes).equalsIgnoreCase(splitSha256)) {
             throw new IllegalArgumentException("artifact split is empty or its SHA-256 differs");
         }
     }
@@ -39,18 +38,10 @@ public record GenerationSplit(
     public static GenerationSplit of(String dataObjectId, byte[] canonicalSplit) {
         return new GenerationSplit(
                 dataObjectId, Base64.getEncoder().encodeToString(canonicalSplit),
-                sha256(canonicalSplit));
+                DigestUtils.sha256Hex(canonicalSplit));
     }
 
     public byte[] canonicalSplitBytes() {
         return Base64.getDecoder().decode(canonicalSplitBase64);
-    }
-
-    private static String sha256(byte[] value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 unavailable", impossible);
-        }
     }
 }

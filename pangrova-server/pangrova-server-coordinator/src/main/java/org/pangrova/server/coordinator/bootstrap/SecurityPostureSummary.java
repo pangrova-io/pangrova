@@ -47,7 +47,8 @@ final class SecurityPostureSummary {
         lines.add("======== Pangrova Coordinator — Effective Security Posture ========");
         if (securityEnabled) {
             String type = (authType == null || authType.isBlank()) ? "UNSPECIFIED" : authType;
-            lines.add("  Authentication            : ENABLED (type=" + type + ")");
+            String authentication = "NOOP".equalsIgnoreCase(type) ? "BYPASSED" : "ENABLED";
+            lines.add("  Authentication            : " + authentication + " (type=" + type + ")");
             lines.add("  Row-level security (RLS)  : ENFORCED (applied per session after planning)");
             lines.add("  Column masking            : ENFORCED (applied per session after planning)");
         } else {

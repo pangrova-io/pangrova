@@ -2,14 +2,14 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
-import org.pangrova.common.lifecycle.BootstrapFailedException;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.common.exception.BootstrapFailedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.policy.GroupRoleMapping;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
@@ -17,9 +17,9 @@ import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.parser.api.ast.statement.ShowStorageProfilesStatement;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.time.Instant;
@@ -211,7 +211,7 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
 
     private static CoordinatorBootstrapConfig config() {
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("secured", 0, 30_000, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("secured", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),

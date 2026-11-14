@@ -7,7 +7,7 @@ and publication values. It does not own Dynamic Table or Materialized View lifec
 | --- | --- |
 | `pangrova-generation-api` | Immutable dependency, execution, identity, job, page, graph, exchange, output and publication contracts; value validation and defensive copies |
 | `pangrova-generation-codec` | Bounded canonical graph/exchange encoding, source split decoding and the supported wire-format role layouts |
-| `pangrova-generation-core` | Submission construction, frozen bindings, exact partition/resource preparation, published-input validation and publication routing |
+| `pangrova-generation-workflow` | Submission construction, frozen bindings, exact partition/resource preparation, published-input validation and publication routing |
 
 API depends directly on Common, Query API (the existing execution anchor) and Security API
 (the existing immutable authorization observation). It does not load Protocol, Core, Codec,

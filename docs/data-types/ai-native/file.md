@@ -15,6 +15,12 @@ payload in every table row.
 | URI | Opaque `pangrova-blob://` reference returned by governed storage |
 | Use case | Input to a configured model capability that supports the file's modality |
 
+The Worker publishes the object and receives a governed `BlobReference` before
+encoding the SQL row. Model functions decode its URI, MIME type, size, and
+checksum when constructing a file prompt. The host validates access to the blob
+on read. The Worker enforces its MIME allowlist before publication. Table-scoped
+MIME properties currently have no enforcement in SQL writes.
+
 ## Declaration and Construction
 
 ```sql

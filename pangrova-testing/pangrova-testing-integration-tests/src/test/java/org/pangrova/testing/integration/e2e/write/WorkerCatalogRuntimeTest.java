@@ -3,13 +3,13 @@ package org.pangrova.testing.integration.e2e.write;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
 import java.time.Instant;
@@ -104,6 +104,26 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
             assertThat(fixture.runtime().cachedCatalogRevisionCount()).isZero();
         } finally {
             metadataBootstrap.catalogRegistry().unregister(catalog);
+        }
+    }
+
+    @Test
+    void cachedControlLeaseRejectsWrongAlgorithmAndForeignOutputBeforeSharingCredentials() {
+        var current = metadataBootstrap.catalogRegistry().getCatalog(DATASET).getDescriptor();
+        var other = metadataBootstrap.catalogRegistry().getCatalog(PLAIN).getDescriptor();
+        var binding = CatalogExecutionBindings.from(current);
+        var security = authenticatedRequest().getSecurity();
+        try (var fixture = runtimeFixture(coordinatorUrl());
+             var lease = fixture.runtime().leaseControl(binding, security, Optional.empty())) {
+            assertThat(lease.storageBinding()).isNotNull();
+            var malformed = binding.toBuilder().setConfigurationFingerprint(
+                    binding.getConfigurationFingerprint().toBuilder().clearAlgorithm()).build();
+            assertThatThrownBy(() -> fixture.runtime().leaseControl(malformed, security, Optional.empty()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("fingerprint");
+            var foreign = org.pangrova.protocol.v2.WriteOutputBinding.newBuilder();
+            foreign.getLanceBuilder().setCatalog(CatalogExecutionBindings.from(other));
+            assertThatThrownBy(() -> fixture.runtime().leaseControl(binding, security, Optional.of(foreign.build())))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different catalog");
         }
     }
 

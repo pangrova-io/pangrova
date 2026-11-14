@@ -1,7 +1,7 @@
 package org.pangrova.observability.sdk.tracing;
 
-import org.pangrova.observability.core.logging.LogContext;
-import org.pangrova.observability.core.logging.MdcContextPropagator;
+import org.pangrova.observability.logging.LogContext;
+import org.pangrova.observability.logging.MdcContextPropagator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,7 +13,7 @@ import java.util.Map;
 import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.observability.api.tracing.TextMapGetter;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -4,7 +4,7 @@ import org.pangrova.common.api.annotation.Internal;
 
 import org.pangrova.observability.api.tracing.Context;
 import org.pangrova.observability.api.logging.Logger;
-import org.pangrova.observability.spi.logging.LoggingProvider;
+import org.pangrova.observability.api.logging.LoggingProvider;
 
 /**
  * No-operation {@link LoggingProvider} implementation.

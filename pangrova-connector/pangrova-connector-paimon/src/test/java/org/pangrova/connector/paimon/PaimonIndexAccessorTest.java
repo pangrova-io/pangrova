@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.index.ColumnValueReader;
+import org.pangrova.connector.api.index.ColumnValueReader;
 import org.pangrova.connector.api.index.SnapshotDataFile;
 
 import java.io.IOException;

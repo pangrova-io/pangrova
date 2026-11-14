@@ -1,5 +1,7 @@
 package org.pangrova.protocol.function.catalog;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.Message;
@@ -9,8 +11,6 @@ import org.pangrova.protocol.v2.RegisteredFunctionContract;
 import org.pangrova.protocol.v2.SubstraitFunctionDefinition;
 
 import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -29,8 +29,8 @@ public final class FunctionContractHashes {
         try {
             message.writeTo(output);
             output.checkNoSpaceLeft();
-            return ByteString.copyFrom(MessageDigest.getInstance("SHA-256").digest(bytes));
-        } catch (IOException | NoSuchAlgorithmException failure) {
+            return ByteString.copyFrom(DigestUtils.sha256().digest(bytes));
+        } catch (IOException failure) {
             throw new IllegalStateException("Canonical function contract digest failed", failure);
         }
     }

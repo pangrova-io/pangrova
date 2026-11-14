@@ -1,6 +1,6 @@
 package org.pangrova.persistence.coordination.postgresql.lease;
 
-import org.pangrova.persistence.coordination.api.error.CoordinationStorageException;
+import org.pangrova.persistence.coordination.api.exception.CoordinationStorageException;
 
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.lease.LeaseEntry;

@@ -6,17 +6,17 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.UUID;
-import org.pangrova.materialization.domain.DefinitionRevision;
-import org.pangrova.materialization.domain.Dependency;
-import org.pangrova.materialization.domain.MaterializationException;
-import org.pangrova.materialization.domain.MaterializationId;
-import org.pangrova.materialization.domain.MaterializationObject;
-import org.pangrova.materialization.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.domain.Schedule;
-import org.pangrova.materialization.domain.SourcePin;
-import org.pangrova.materialization.domain.TenantId;
-import org.pangrova.materialization.port.CommandRecord;
-import org.pangrova.materialization.port.MaterializationEvent;
+import org.pangrova.materialization.api.domain.DefinitionRevision;
+import org.pangrova.materialization.api.domain.Dependency;
+import org.pangrova.materialization.api.exception.MaterializationException;
+import org.pangrova.materialization.api.domain.MaterializationId;
+import org.pangrova.materialization.api.domain.MaterializationObject;
+import org.pangrova.materialization.api.domain.MaterializationWriteCapability;
+import org.pangrova.materialization.api.domain.Schedule;
+import org.pangrova.materialization.api.domain.SourcePin;
+import org.pangrova.materialization.api.domain.TenantId;
+import org.pangrova.materialization.api.port.CommandRecord;
+import org.pangrova.materialization.api.port.MaterializationEvent;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
@@ -304,7 +304,7 @@ final class JdbcMaterializationWrites {
             JdbcMaterializationRows.bindObjectId(statement, 1, object);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw MaterializationException.notFound(object);
+                    throw MaterializationException.notFound(object.canonicalName());
                 }
                 return result.getLong("definition_revision");
             }

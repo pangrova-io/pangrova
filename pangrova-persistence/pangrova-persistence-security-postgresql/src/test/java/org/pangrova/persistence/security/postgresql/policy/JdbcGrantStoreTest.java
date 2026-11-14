@@ -1,6 +1,6 @@
 package org.pangrova.persistence.security.postgresql.policy;
 
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

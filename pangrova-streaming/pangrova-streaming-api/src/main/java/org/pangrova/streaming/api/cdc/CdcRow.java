@@ -1,9 +1,10 @@
 package org.pangrova.streaming.api.cdc;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.pangrova.common.util.NumberConversions;
+import org.pangrova.common.util.OrderedMaps;
 
 /**
  * Strong-typed immutable row model for CDC events.
@@ -19,7 +20,7 @@ public final class CdcRow {
     private final Map<String, Object> columns;
 
     private CdcRow(Map<String, Object> columns) {
-        this.columns = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(columns));
+        this.columns = OrderedMaps.immutableCopy(columns);
     }
 
     /**
@@ -46,16 +47,12 @@ public final class CdcRow {
 
     /** Returns the value as a long, or defaultValue if absent or not numeric. */
     public long getLong(String column, long defaultValue) {
-        Object val = columns.get(column);
-        if (val instanceof Number n) return n.longValue();
-        return defaultValue;
+        return NumberConversions.toLong(columns.get(column), defaultValue);
     }
 
     /** Returns the value as a double, or defaultValue if absent or not numeric. */
     public double getDouble(String column, double defaultValue) {
-        Object val = columns.get(column);
-        if (val instanceof Number n) return n.doubleValue();
-        return defaultValue;
+        return NumberConversions.toDouble(columns.get(column), defaultValue);
     }
 
     /** Returns the value as a boolean, or defaultValue if absent or not boolean. */

@@ -1,7 +1,8 @@
 package org.pangrova.indexing.builtin.test.property.serde;
 
-import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import java.util.ServiceLoader;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -27,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class IndexSerializerRoundTripPropertyTest {
 
-    private static final TypeSerializerRegistry REGISTRY = BuiltinIndexSerializers.createRegistry();
+    private static final TypeSerializerRegistry REGISTRY = TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class));
 
     @Property(tries = 200)
     void roundTripWithChecksumEnabled(@ForAll("bloomFilters") BloomFilterIndexData original) {

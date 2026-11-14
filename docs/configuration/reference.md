@@ -20,6 +20,7 @@ descriptions live in the per-component pages.
 | `coordinator.ha.enabled` | `false` | Declared in `CoordinatorOptions`; not read by the current bootstrap |
 | `coordinator.ha.ddl-leader-routing` | `false` | Route DDL only to the leader |
 | `coordinator.query.timeout` | `"5m"` | Query execution timeout |
+| `coordinator.query.placement-provider` | `load-balanced` | Installed worker placement strategy ID |
 | `coordinator.query.max-concurrent` | `100` | Max concurrent queries |
 | `coordinator.task.spill.max-bytes` | `8589934592` | Per-task spill byte ceiling; requires `worker.spill.directory`; zero disables task spilling |
 | `coordinator.shuffle.mode` | `NATIVE` | `REMOTE` uses the external shuffle service |

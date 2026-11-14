@@ -1,5 +1,8 @@
 package org.pangrova.observability.sdk.alerting;
 
+import org.pangrova.observability.sdk.enums.AlertCondition;
+import org.pangrova.observability.sdk.enums.AlertSeverity;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;

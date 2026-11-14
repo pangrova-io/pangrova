@@ -6,7 +6,7 @@ import net.jqwik.api.Tag;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.testing.integration.e2e.write.NativeWriteLifecycleFixture;
 import org.pangrova.testing.integration.e2e.write.NativeWriteLifecycleTestBase;
-import org.pangrova.worker.nativebridge.jni.NativeRuntimeException;
+import org.pangrova.worker.exception.NativeRuntimeException;
 
 import java.nio.file.Path;
 import java.util.ArrayList;

@@ -1,8 +1,10 @@
 package org.pangrova.ai.worker.blob;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.filesystem.api.blob.BlobObjectId;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.worker.context.AiExecutionContext;
@@ -21,7 +23,6 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -33,6 +34,8 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.pangrova.filesystem.api.blob.BlobStorage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Immutable, tenant-scoped content-addressed FILE store.
@@ -45,6 +48,8 @@ import org.pangrova.filesystem.api.blob.BlobStorage;
  * durable storage contract; a failed write never publishes a reference.</p>
  */
 public final class GovernedBlobStore implements AutoCloseable {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GovernedBlobStore.class);
 
     private static final int BUFFER_BYTES = 64 * 1024;
     private static final int MAX_ARRAY_BYTES = Integer.MAX_VALUE - 8;
@@ -130,6 +135,11 @@ public final class GovernedBlobStore implements AutoCloseable {
         Objects.requireNonNull(reference, "reference must not be null");
         AccessScope scope = currentScope();
         requireScope(reference, scope);
+        LOG.info("event=ai_blob_read tenant={} principal={} queryId={} taskId={} "
+                        + "checksum={} size={} mimeType={}",
+                scope.context().tenantId(), scope.context().principal(),
+                scope.context().queryId(), scope.context().taskId(),
+                reference.checksum(), reference.size(), reference.mimeType());
         long effectiveLimit = effectiveLimit(scope.context(), reference.size());
         try {
             return new VerifyingInputStream(
@@ -181,7 +191,7 @@ public final class GovernedBlobStore implements AutoCloseable {
 
     private Draft writeDraft(InputStream input, Path staging, long limit,
                              long deadlineEpochMs) {
-        MessageDigest digest = sha256();
+        MessageDigest digest = DigestUtils.sha256();
         long size = 0;
         try {
             Path parent = staging.getParent();
@@ -294,17 +304,9 @@ public final class GovernedBlobStore implements AutoCloseable {
     }
 
     private static String scopeToken(AiExecutionContext context) {
-        MessageDigest digest = sha256();
+        MessageDigest digest = DigestUtils.sha256();
         digest.update(context.tenantId().getBytes(StandardCharsets.UTF_8));
         return HexFormat.of().formatHex(digest.digest());
-    }
-
-    private static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
     }
 
     private static void transfer(
@@ -395,7 +397,7 @@ public final class GovernedBlobStore implements AutoCloseable {
     private static final class VerifyingInputStream extends FilterInputStream {
         private final BlobReference reference;
         private final long limit;
-        private final MessageDigest digest = sha256();
+        private final MessageDigest digest = DigestUtils.sha256();
         private long count;
         private boolean verified;
 

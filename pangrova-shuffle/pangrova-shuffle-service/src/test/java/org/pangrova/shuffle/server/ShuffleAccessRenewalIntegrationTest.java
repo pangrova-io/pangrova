@@ -58,16 +58,9 @@ class ShuffleAccessRenewalIntegrationTest extends ContainerTestBase {
         POSTGRES.start();
         passwordFile = Files.createTempFile("shuffle-renewal-postgres", ".password");
         Files.writeString(passwordFile, POSTGRES.getPassword());
-        try (var connection = connection(); var statement = connection.createStatement()) {
-            statement.execute("CREATE TABLE public.execution_anchor ("
-                    + "execution_id VARCHAR(128) PRIMARY KEY, "
-                    + "owner_id VARCHAR(128) NOT NULL, "
-                    + "owner_incarnation VARCHAR(64) NOT NULL, "
-                    + "fencing_token BIGINT NOT NULL CHECK (fencing_token > 0), "
-                    + "acquired_at TIMESTAMPTZ(6) NOT NULL, "
-                    + "expires_at TIMESTAMPTZ(6) NOT NULL, "
-                    + "version BIGINT NOT NULL DEFAULT 1)");
-        }
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration").load().migrate();
     }
 
     @AfterAll

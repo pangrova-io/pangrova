@@ -1,6 +1,7 @@
 package org.pangrova.persistence.query.api.state;
 
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.QueryStateJournalReader;
 import org.pangrova.query.api.journal.TaskStateEvent;
 
 import org.pangrova.common.api.annotation.Stable;

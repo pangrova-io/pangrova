@@ -19,9 +19,14 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-filesystem-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-file-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-coordination-api</artifactId></dependency>
@@ -33,8 +38,7 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-noop</artifactId></dependency>
 
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-types</artifactId>
@@ -64,10 +68,6 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-protocol</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-client-core</artifactId>
-        </dependency>
         <!-- Optional SDK implementation behind the framework-free result test fixture API. -->
         <dependency>
             <groupId>org.apache.arrow</groupId>
@@ -87,7 +87,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-core</artifactId>
+            <artifactId>pangrova-shuffle-exchange</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

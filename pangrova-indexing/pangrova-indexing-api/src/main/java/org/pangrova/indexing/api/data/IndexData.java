@@ -1,7 +1,7 @@
 package org.pangrova.indexing.api.data;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 
 /**
  * Opaque container for loaded index data. Each {@link IndexType} has its own

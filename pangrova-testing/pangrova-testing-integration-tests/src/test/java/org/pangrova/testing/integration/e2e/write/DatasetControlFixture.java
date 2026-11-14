@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.write;
 
 import org.pangrova.worker.dataset.NativeDatasetControlService;
-import org.pangrova.worker.nativebridge.jni.write.catalog.WorkerCatalogRuntime;
+import org.pangrova.worker.catalog.WorkerCatalogRuntime;
 import org.pangrova.worker.task.TaskManager;
 
 /** Real deployment transport and catalog authority; the task manager only enforces control fences. */

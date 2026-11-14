@@ -1,9 +1,9 @@
 package org.pangrova.persistence.table.postgresql.statistics;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
-import org.pangrova.persistence.table.api.control.TableControlException;
+import org.pangrova.table.api.exception.TableControlException;
 import org.pangrova.table.api.statistics.TableControlStatistics;
-import org.pangrova.persistence.table.api.statistics.TableControlStatisticsStore;
+import org.pangrova.table.api.statistics.TableControlStatisticsStore;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.pangrova.common.concurrent.ThreadSafe;

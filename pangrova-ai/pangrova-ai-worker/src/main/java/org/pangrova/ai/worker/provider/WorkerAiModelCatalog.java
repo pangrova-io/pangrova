@@ -13,8 +13,9 @@
  */
 package org.pangrova.ai.worker.provider;
 
+import org.pangrova.ai.api.model.AiModelCatalog;
 import org.pangrova.ai.api.model.AiModelDescriptor;
-import org.pangrova.ai.spi.model.AiModelCatalog;
+import org.pangrova.ai.control.config.AiModelConfigParser;
 import org.pangrova.ai.worker.config.AiFunctionActivation;
 
 import java.util.List;
@@ -25,7 +26,7 @@ public final class WorkerAiModelCatalog implements AiModelCatalog {
 
     @Override
     public List<AiModelDescriptor> describeModels(Map<String, String> pluginConfig) {
-        return List.copyOf(ConfiguredAiProviderRegistry.describeModels(
-                pluginConfig, AiFunctionActivation.hasFileStorage(pluginConfig)));
+        Map<String, String> config = pluginConfig == null ? Map.of() : pluginConfig;
+        return List.copyOf(AiModelConfigParser.parse(config, AiFunctionActivation.hasFileStorage(config)).values());
     }
 }

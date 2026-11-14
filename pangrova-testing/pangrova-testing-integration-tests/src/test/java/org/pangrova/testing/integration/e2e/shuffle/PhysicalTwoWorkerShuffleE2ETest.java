@@ -5,7 +5,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.scheduler.api.placement.HealthState;
+import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -79,10 +79,13 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 coordinatorHttpPort(),
                 E2E_INTERNAL_AUTH_SECRET, workerSpillDirectory.toAbsolutePath()));
         Path java = Path.of(System.getProperty("java.home"), "bin", "java");
-        // Surefire may expose only its booter JAR as java.class.path. The
-        // forked Worker needs the resolved test/dependency classpath instead.
-        String childClasspath = System.getProperty(
-                "surefire.test.class.path", System.getProperty("java.class.path"));
+        // Distribution verification supplies the ordered Worker-only runtime. Reactor tests
+        // run before packaging and use Surefire's resolved classpath for the child JVM.
+        String childClasspath = System.getProperty("pangrova.e2e.worker.classpath",
+                System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")));
+        if (childClasspath.isBlank()) {
+            throw new IllegalArgumentException("The physical Worker classpath is empty");
+        }
         secondWorker = new ProcessBuilder(
                 java.toString(),
                 "-Xmx768m", "-XX:MaxDirectMemorySize=768m",
@@ -93,7 +96,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
                 "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
                 "-cp", childClasspath,
-                "org.pangrova.worker.bootstrap.PangrovaWorkerMain",
+                "org.pangrova.server.worker.bootstrap.PangrovaWorkerMain",
                 "--config", workerConfig.toString())
                 .redirectErrorStream(true)
                 .redirectOutput(workerLog.toFile())

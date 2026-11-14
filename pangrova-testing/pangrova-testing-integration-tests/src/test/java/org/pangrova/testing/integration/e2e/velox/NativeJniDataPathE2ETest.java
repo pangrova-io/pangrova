@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * End-to-end tests verifying the JNI data path through Arrow C Data Interface
- * and JniBridge zero-legacy-dependency guarantees.
+ * and JniEntryPoints zero-legacy-dependency guarantees.
  *
  * <p>Validates the primary data transfer path: Velox RowVector →
  * Arrow C Data Interface (ArrowArray/ArrowSchema pointer passing) →
@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * via SQL expressions, and dictionary-encoded columns.
  *
  * <p>Also verifies that the primary data output path uses C++-side
- * result delivery via native FlightResultServer, and that JniBridge
+ * result delivery via native FlightResultServer, and that JniEntryPoints
  * operates without self-built subsystem dependencies
  * (globalVeloxMemoryBridge and globalAsyncDataCache function correctly).
  *
@@ -236,7 +236,7 @@ class NativeJniDataPathE2ETest extends SqlE2ETestBase {
                                 + "ROW(l_quantity, l_extendedprice) AS qty_price "
                                 + "FROM lineitem "
                                 + "ORDER BY l_orderkey LIMIT 10");
-            } catch (org.pangrova.testing.integration.e2e.runner.SqlExecutionException e) {
+            } catch (org.pangrova.testing.integration.exception.SqlExecutionException e) {
                 assertThat(e.getMessage()).contains("Velox");
             }
         }
@@ -341,13 +341,13 @@ class NativeJniDataPathE2ETest extends SqlE2ETestBase {
     }
 
     // -----------------------------------------------------------------------
-    // JniBridge Zero Legacy Dependency Verification
+    // JniEntryPoints Zero Legacy Dependency Verification
     // Validates: Requirements 14.2, 15.1, 15.2, 15.7
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("JniBridge Zero Legacy Dependency Verification")
-    class JniBridgeZeroLegacyDependency {
+    @DisplayName("JniEntryPoints Zero Legacy Dependency Verification")
+    class JniEntryPointsZeroLegacyDependency {
 
         @Test
         @DisplayName("Query execution validates globalVeloxMemoryBridge() is functional")
@@ -385,7 +385,7 @@ class NativeJniDataPathE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Single-table aggregation validates full JniBridge pipeline without legacy deps")
+        @DisplayName("Single-table aggregation validates full JniEntryPoints pipeline without legacy deps")
         void singleTableAggregationValidatesFullPipeline() {
             // Note: JOIN replaced with single-table query to avoid
             // multi-stage DAG crash in single-worker E2E mode.

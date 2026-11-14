@@ -29,7 +29,8 @@ class HnswIndex final {
 
   /** Conservative peak estimate, including retained input and graph scratch. */
   static uint64_t estimatePeakBuildBytes(
-      int64_t count, int64_t dimension, int64_t max_connections);
+      int64_t count, int64_t dimension, int64_t max_connections,
+      int64_t ef_construction);
   void build(
       const float* vectors, int64_t count, int64_t dimension,
       uint64_t memory_grant_bytes = std::numeric_limits<uint64_t>::max(),

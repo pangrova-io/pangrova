@@ -1,9 +1,10 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.server.coordinator.bootstrap.query.audit.QueryAuditServices;
 import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.security.api.enums.AuditEventType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
@@ -47,7 +48,7 @@ class QueryBootstrapAuditWriterWiringTest extends ContainerTestBase {
     private static String emitAndVerifyLog(DataSource source) {
         var wiring = new QueryRuntimeWiring(new QueryRuntimeWiring.Dependencies(
                 CoordinatorBootstrapConfig.withDefaults("audit-test", 0), new NoOpTracingProvider(),
-                null, new ModuleIntegrationBootstrap(), source, new QueryAuditServices().auditService()));
+                null, new ModuleIntegrationBootstrap(), source, new QueryAuditServices(new InMemoryQueryAuditStore()).auditService()));
         var emitter = wiring.createAuditEmitter();
         String id = UUID.randomUUID().toString();
         var logger = (Logger) LoggerFactory.getLogger("pangrova.audit");

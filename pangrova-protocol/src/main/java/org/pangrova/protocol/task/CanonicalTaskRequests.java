@@ -15,6 +15,7 @@ import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.ExecutionCallbackContext;
 import org.pangrova.protocol.v2.SecurityContext;
+import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.TaskAttemptId;
 
 /** Canonical v2 task construction and Worker-admission validation. */
@@ -367,13 +368,26 @@ public final class CanonicalTaskRequests {
                 : input.getExpectedSourcePartitions() == 1;
     }
 
-    private static boolean validExternalInput(
+    /** Checks the complete external input wire envelope including its exact endpoint coverage and publication. */
+    public static boolean validExternalInput(
             org.pangrova.protocol.v2.ExternalShuffleInput external) {
         return validExternalIdentity(external)
+                && validPartitionPublication(external.getPublication())
                 && validExternalReadCapability(external)
                 && validExternalAddress(external)
                 && exactPartitionCoverage(
                         external.getEndpointsList(), external.getPartitionCount());
+    }
+
+    /** Checks coordinator-attested partition bounds before a Worker opens any external read. */
+    public static boolean validPartitionPublication(ShufflePartitionPublication evidence) {
+        return evidence.hasLastSequence() && evidence.getLastSequence() >= -1
+                && evidence.hasTotalBytes() && evidence.getTotalBytes() >= 0
+                && evidence.hasTotalRows() && evidence.getTotalRows() >= 0
+                && evidence.getManifestSha256().size() == SHA256_BYTES
+                && (evidence.getLastSequence() == -1
+                        ? evidence.getTotalBytes() == 0 && evidence.getTotalRows() == 0
+                        : evidence.getLastSequence() < Math.min(evidence.getTotalBytes(), evidence.getTotalRows()));
     }
 
     private static boolean validExternalIdentity(

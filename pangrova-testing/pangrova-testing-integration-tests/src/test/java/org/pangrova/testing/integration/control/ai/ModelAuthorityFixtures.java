@@ -1,7 +1,9 @@
 package org.pangrova.testing.integration.control.ai;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.pangrova.persistence.ai.postgresql.embedding.JdbcCurrentModelAuthority;
-import org.pangrova.metadata.assembly.generation.GenerationStores;
+import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 
@@ -9,7 +11,7 @@ import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRole
 public final class ModelAuthorityFixtures {
     private static final CurrentModelAuthority MODELS =
             new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
-    private static final GenerationStores ARTIFACTS = new GenerationStores(MODELS);
+    private static final PostgresGenerationStores ARTIFACTS = new PostgresGenerationStores(MODELS, TableWriteAuthorityFixture.create());
 
     private ModelAuthorityFixtures() {}
 
@@ -17,7 +19,7 @@ public final class ModelAuthorityFixtures {
         return MODELS;
     }
 
-    public static GenerationStores artifacts() {
+    public static PostgresGenerationStores artifacts() {
         return ARTIFACTS;
     }
 }

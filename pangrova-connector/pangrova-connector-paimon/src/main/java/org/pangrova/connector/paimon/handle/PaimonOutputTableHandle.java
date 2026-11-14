@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Immutable handle for Paimon table write operations.
  *
@@ -40,12 +42,12 @@ public record PaimonOutputTableHandle(
      * Compact constructor with defensive copies and null safety.
      */
     public PaimonOutputTableHandle {
-        requireNonBlank(schemaName, "schemaName");
-        requireNonBlank(tableName, "tableName");
-        requireNonBlank(tableLocation, "tableLocation");
-        requireNonBlank(tableUuid, "tableUuid");
-        requireNonBlank(schemaFingerprint, "schemaFingerprint");
-        requireNonBlank(rowTypeJson, "rowTypeJson");
+        requireText(schemaName, "schemaName");
+        requireText(tableName, "tableName");
+        requireText(tableLocation, "tableLocation");
+        requireText(tableUuid, "tableUuid");
+        requireText(schemaFingerprint, "schemaFingerprint");
+        requireText(rowTypeJson, "rowTypeJson");
         java.util.Objects.requireNonNull(layout, "layout");
         java.util.Objects.requireNonNull(write, "write");
         if (write.physicalAllocation().isPresent()) {
@@ -80,12 +82,6 @@ public record PaimonOutputTableHandle(
     public Map<String, String> overwritePartition() { return write.overwritePartition(); }
     public String mode() { return write.mode(); }
     public long baseSnapshotId() { return write.baseSnapshotId(); }
-
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
-    }
 
     @Override
     public Optional<SchemaTableName> targetTable() {

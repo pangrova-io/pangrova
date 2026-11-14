@@ -15,6 +15,6 @@
     <modules>
         <module>pangrova-generation-api</module>
         <module>pangrova-generation-codec</module>
-        <module>pangrova-generation-core</module>
+        <module>pangrova-generation-workflow</module>
     </modules>
 </project>

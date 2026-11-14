@@ -9,8 +9,8 @@ import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.phase.NativeRuntimeBootstrap;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
-import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
+import org.pangrova.worker.function.NativeFunctionConfig;
+import org.pangrova.worker.jni.NativeRuntime;
 
 import java.util.Map;
 
@@ -50,7 +50,7 @@ class NativeAiFailureProjectionRegistrationTest {
                     Map.entry("models.chat.max-response-bytes", "1048576"),
                     Map.entry("models.chat.max-provider-items-per-task", "100"))));
             NativeFunctionBootstrap.initialize(refs, config);
-            assertThat(refs.nativeFunctionBridge().scalarCount()).isEqualTo(14);
+            assertThat(refs.nativeFunctionCallbacks().scalarCount()).isEqualTo(14);
             assertThat(NativeRuntime.isInitialized()).isTrue();
         } finally {
             try {

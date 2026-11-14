@@ -1,21 +1,20 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 
-import org.pangrova.metadata.assembly.generation.GenerationStores;
+import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
 import org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.query.core.recovery.JournalRecoveryService;
+import org.pangrova.query.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.slf4j.Logger;
@@ -60,14 +59,15 @@ final class HighAvailabilityBootstrap {
     private final CoordinatorTaskTracker taskTracker;
     private final ScheduledExecutorService schedulerExecutor;
     private final DistributedLease distributedLease;
-    private final GenerationStores artifactStores;
+    private final PostgresGenerationStores artifactStores;
+    private final CoordinatorShutdownSequence.WorkerTaskRetrier workerTaskRetrier;
 
     private DataSource dataSource;
     private PangrovaCoordinator coordinator;
     private HighAvailabilityCoordinationService haService;
     private WorkerHealthScheduler healthScheduler;
     private CatalogRegistry catalogRegistry;
-    private CoordinatorRegistry quorumRegistry;
+    private final CoordinatorRegistry coordinatorRegistry;
     private boolean durableExecutionAnchors;
     private org.pangrova.persistence.generation.api.job.GenerationJobStore artifactExecutions;
     private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
@@ -84,37 +84,26 @@ final class HighAvailabilityBootstrap {
                 WorkerManager workerManager,
                 CoordinatorTaskTracker taskTracker,
                 ScheduledExecutorService schedulerExecutor,
-                DistributedLease distributedLease, CurrentModelAuthority modelAuthority) {
+                DistributedLease distributedLease, CoordinatorRegistry coordinatorRegistry, CurrentModelAuthority modelAuthority,
+                CoordinatorShutdownSequence.WorkerTaskRetrier workerTaskRetrier) {
         this.config = config;
         this.queryManager = queryManager;
         this.workerManager = workerManager;
         this.taskTracker = taskTracker;
         this.schedulerExecutor = schedulerExecutor;
         this.distributedLease = distributedLease;
-        artifactStores = new GenerationStores(modelAuthority);
+        this.coordinatorRegistry = coordinatorRegistry;
+        artifactStores = new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create());
+        this.workerTaskRetrier = workerTaskRetrier;
     }
 
-    /**
-     * Sets an optional {@link DataSource} for JDBC-backed coordinator registry.
-     * When set, {@link #startHA()} constructs a {@link JdbcCoordinatorRegistry}
-     * and registers it with the HA service for coordinator self-registration.
-     * When not set, the HA service uses no coordinator registry (in-memory default).
-     */
+    /** Supplies the durable execution backend for HA recovery. */
     void setDataSource(DataSource dataSource) {
         this.dataSource = dataSource;
     }
 
     void setExecutionAuthority(org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority authority) {
         executionAuthority = java.util.Objects.requireNonNull(authority, "executionAuthority");
-    }
-
-    /**
-     * Sets a pre-built quorum-backed {@link CoordinatorRegistry} (ZooKeeper). When set it takes
-     * precedence over the JDBC registry, so coordinator membership/discovery runs on the ZK quorum
-     * (A-HA-01) rather than the single HA database.
-     */
-    void setQuorumCoordinatorRegistry(CoordinatorRegistry registry) {
-        this.quorumRegistry = registry;
     }
 
     /**
@@ -181,17 +170,8 @@ final class HighAvailabilityBootstrap {
             durableExecutionAnchors = true;
             artifactExecutions = artifactStores.builds(dataSource);
         }
-        if (quorumRegistry != null) {
-            haService.setCoordinatorRegistry(quorumRegistry,
-                    config.coordinatorTransportAdvertisedHost(), config.httpPort());
-            LOG.info("event=coordinator_registry_configured backend=zookeeper host={} httpPort={}",
-                    config.coordinatorTransportAdvertisedHost(), config.httpPort());
-        } else if (dataSource != null) {
-            haService.setCoordinatorRegistry(
-                    new JdbcCoordinatorRegistry(dataSource),
-                    config.coordinatorTransportAdvertisedHost(),
-                    config.httpPort());
-            LOG.info("event=coordinator_registry_configured backend=jdbc host={} httpPort={}",
+        if (coordinatorRegistry != null) {
+            haService.setCoordinatorRegistry(coordinatorRegistry,
                     config.coordinatorTransportAdvertisedHost(), config.httpPort());
         }
         coordinator = new PangrovaCoordinator(
@@ -304,9 +284,9 @@ final class HighAvailabilityBootstrap {
                 var key = artifact.orElseThrow();
                 var job = artifactExecutions.findJob(key.tenantId(), key.jobId()).orElseThrow(() ->
                         new IllegalStateException("artifact recovery association lost its exact job"));
-                if (job.state() == org.pangrova.generation.api.job.GenerationJobState.PUBLISHED
-                        || job.state() == org.pangrova.generation.api.job.GenerationJobState.FAILED
-                        || job.state() == org.pangrova.generation.api.job.GenerationJobState.CANCELLED) {
+                if (job.state() == org.pangrova.generation.api.enums.GenerationJobState.PUBLISHED
+                        || job.state() == org.pangrova.generation.api.enums.GenerationJobState.FAILED
+                        || job.state() == org.pangrova.generation.api.enums.GenerationJobState.CANCELLED) {
                     haService.releaseQueryOwnership(anchor.executionId(), config.coordinatorId());
                 }
                 continue;
@@ -359,17 +339,12 @@ final class HighAvailabilityBootstrap {
     }
 
     private void onDeadWorker(String workerId) {
-        CoordinatorShutdownSequence.onDeadWorker(workerId, taskTracker, queryManager);
+        CoordinatorShutdownSequence.onDeadWorker(
+                workerId, taskTracker, queryManager, workerTaskRetrier);
     }
 
     /** Returns the HA service for post-construction wiring into other components. */
     HighAvailabilityCoordinationService haService() {
         return haService;
     }
-
-    /** Returns the coordinator registry, or null if not configured (no DataSource). */
-    org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry coordinatorRegistry() {
-        return haService != null ? haService.coordinatorRegistry() : null;
-    }
-
 }

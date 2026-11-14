@@ -159,7 +159,10 @@ COPY deploy/docker/build-static-libunwind.sh /workspace/build-static-libunwind.s
 RUN bash /workspace/build-static-libunwind.sh
 ENV PKG_CONFIG_PATH=/opt/pangrova-production/native-deps/lib/pkgconfig
 COPY pangrova-worker-native/ /workspace/pangrova-worker-native/
-COPY pangrova-protocol/ /workspace/pangrova-protocol/
+# The Rust stage already supplied both proto trees. Native CMake also reads
+# the function contracts and their generators, independently of Java wire DTOs.
+COPY pangrova-protocol/src/main/resources/function-contracts/ /workspace/pangrova-protocol/src/main/resources/function-contracts/
+COPY pangrova-protocol/tools/function-contracts/ /workspace/pangrova-protocol/tools/function-contracts/
 RUN --mount=type=cache,id=pangrova-native-ccache-${TARGETARCH},target=/root/.cache/ccache,sharing=locked \
     CCACHE_MAXSIZE=3G bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \

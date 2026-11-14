@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "engine/delete/io/DeleteFileReader.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 
 namespace pangrova::delete_filter::test {
 namespace {

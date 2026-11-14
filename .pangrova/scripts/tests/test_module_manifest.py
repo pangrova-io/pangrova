@@ -48,6 +48,19 @@ class ModuleManifestTest(unittest.TestCase):
         self.assertTrue(facts["leaf"])
         self.assertEqual("jar", facts["packaging"])
 
+    def test_graphs_include_resource_modules_and_keep_pom_scopes_separate_from_package_ownership(self):
+        leaves = {"app": {"dependencies": {"runtime": "runtime", "fixtures": "test"}},
+                  "runtime": {"dependencies": {}}, "fixtures": {"dependencies": {}}}
+        packages = {"app": {"org.example.app"}, "runtime": set(), "fixtures": set()}
+        BASELINE.export_graphs(self.root, leaves, packages)
+        dependencies = (self.root / "module-dependencies.dot").read_text()
+        self.assertIn('"app" -> "runtime" [label="runtime"];', dependencies)
+        self.assertIn('"app" -> "fixtures" [label="test"];', dependencies)
+        ownership = (self.root / "package-ownership.dot").read_text()
+        self.assertIn('"runtime" [shape=box];', ownership)
+        self.assertIn('"app" -> "org.example.app";', ownership)
+        self.assertNotIn('"app" -> "fixtures"', ownership)
+
     def test_merging_leaf_artifacts_reports_external_path_back_to_another_selected_leaf(self):
         deps = {"core": ["api", "provider"], "provider": ["port"], "port": ["api"], "api": []}
         artifacts = {name: {"leaf": True, "dependencies": dict.fromkeys(edges, "compile")}
@@ -58,6 +71,37 @@ class ModuleManifestTest(unittest.TestCase):
         self.assertEqual([], BASELINE.merge_witness(artifacts, set(deps)))
         with self.assertRaisesRegex(ValueError, "Unknown or non-leaf"):
             BASELINE.merge_witness(artifacts, {"api", "missing"})
+
+    def test_duplicate_artifact_cannot_hide_a_module_from_the_graph(self):
+        for directory in ("first", "second"):
+            module = self.root / directory
+            module.mkdir()
+            (module / "pom.xml").write_text(
+                '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+                '<artifactId>same-owner</artifactId></project>')
+        with self.assertRaisesRegex(ValueError, "same-owner: first/pom.xml and second/pom.xml"):
+            BASELINE.pom_artifacts()
+
+    def test_ambiguous_package_cannot_redirect_an_import_to_the_last_module(self):
+        for name in ("first", "second"):
+            module = self.root / name
+            source = module / "src/main/java/org/pangrova/fixture"
+            source.mkdir(parents=True)
+            (module / "pom.xml").write_text(
+                f'<project xmlns="http://maven.apache.org/POM/4.0.0"><artifactId>{name}</artifactId></project>')
+            (source / f"{name.title()}.java").write_text(
+                f"package org.pangrova.fixture; public class {name.title()} {{}}")
+        with self.assertRaisesRegex(ValueError, "Split package org.pangrova.fixture: first and second"):
+            BASELINE.main()
+
+    def test_single_child_family_must_be_flattened(self):
+        family = self.root / "family"
+        family.mkdir()
+        (family / "pom.xml").write_text(
+            '<project xmlns="http://maven.apache.org/POM/4.0.0"><artifactId>family</artifactId>'
+            '<packaging>pom</packaging><modules><module>only-child</module></modules></project>')
+        with self.assertRaisesRegex(ValueError, "family/pom.xml aggregates only only-child"):
+            BASELINE.pom_artifacts()
 
     def test_invalid_source_pom_is_not_ignored(self):
         (self.root / "pom.xml").write_text("not valid XML")
@@ -92,16 +136,16 @@ class ModuleManifestTest(unittest.TestCase):
     def test_source_launcher_collects_the_same_ast_facts_for_main_and_test(self):
         main = self.root / "owner with spaces" / "src/main/java"
         test = self.root / "owner with spaces" / "src/test/java"
-        main.mkdir(parents=True)
-        test.mkdir(parents=True)
-        (main / "Use.java").write_text(
+        (main / "org/pangrova/owner").mkdir(parents=True)
+        (test / "org/pangrova/owner").mkdir(parents=True)
+        (main / "org/pangrova/owner/Use.java").write_text(
             "/* package org.pangrova.fake; */\npackage org.pangrova.owner;\n"
             + r"imp\u006frt org.pangrova.producer.*;" + "\n"
             + "import static org.pangrova.other.Host.*;\n"
             + "public class Use { Object value = new org.pangrova.internal.Hidden();\n"
             + 'String example = """\nimport org.pangrova.fake.Fake;\n"""; }'
         )
-        (test / "UseTest.java").write_text(
+        (test / "org/pangrova/owner/UseTest.java").write_text(
             "package org.pangrova.owner;\npublic class UseTest {"
             "Object value = org.pangrova.fixture.Factory.create().toString(); }"
         )
@@ -115,7 +159,8 @@ class ModuleManifestTest(unittest.TestCase):
     def test_invalid_java_fails_with_source_diagnostics(self):
         source = self.root / "source"
         source.mkdir()
-        (source / "Broken.java").write_text("package org.pangrova.broken; class Broken { invalid ! }")
+        (source / "org/pangrova/broken").mkdir(parents=True)
+        (source / "org/pangrova/broken/Broken.java").write_text("package org.pangrova.broken; class Broken { invalid ! }")
         with self.assertRaisesRegex(RuntimeError, "Java source scan failed") as failure:
             BASELINE.source_facts([source])
         self.assertIn("Cannot parse architecture sources", str(failure.exception))

@@ -1,9 +1,9 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.batch.arrow.ColumnarBatch;
-import org.pangrova.connector.spi.data.ColumnarPageSink;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.data.ColumnarPageSink;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;

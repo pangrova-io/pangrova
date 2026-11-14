@@ -1,12 +1,12 @@
 package org.pangrova.persistence.table.memory.control;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.persistence.table.api.control.TableControlException;
-import org.pangrova.table.api.ownership.OwnershipMode;
-import org.pangrova.table.api.ownership.TableControlProvenance;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.table.api.exception.TableControlException;
+import org.pangrova.table.api.enums.OwnershipMode;
+import org.pangrova.table.api.enums.TableControlProvenance;
 import org.pangrova.table.api.ownership.TableControlRecord;
-import org.pangrova.table.api.ownership.TableControlState;
+import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.observation.TableVersionObservation;
 
 import java.time.Instant;

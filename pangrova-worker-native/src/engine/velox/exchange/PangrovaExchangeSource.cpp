@@ -18,7 +18,7 @@
 #include <folly/io/IOBuf.h>
 #include <glog/logging.h>
 
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "engine/observability/PangrovaLog.h"
 #include "engine/velox/exchange/PendingEndpointRegistry.h"
 #include "velox/exec/ExchangeQueue.h"

@@ -1,5 +1,6 @@
 package org.pangrova.common.util;
 
+import java.time.Duration;
 import java.util.Collection;
 
 /**
@@ -65,6 +66,37 @@ public final class Preconditions {
     public static String checkNotBlank(String value, String message) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(message);
+        }
+        return value;
+    }
+
+    /** Returns the untrimmed field value, or names the missing or blank field in an argument error. */
+    public static String requireText(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+        return value;
+    }
+
+    /** Accepts absent text and rejects blank values with a field-specific argument error. */
+    public static void requireOptionalText(String value, String field) {
+        if (value != null && value.isBlank()) {
+            throw new IllegalArgumentException(field + " must be null or non-blank");
+        }
+    }
+
+    /** Returns a strictly positive duration without losing sub-millisecond precision. */
+    public static Duration requirePositiveDuration(Duration value, String field) {
+        if (value == null || value.isZero() || value.isNegative()) {
+            throw new IllegalArgumentException(field + " must be positive");
+        }
+        return value;
+    }
+
+    /** Returns the field value, or names the missing field in an argument error. */
+    public static <T> T requireNonNullField(T value, String field) {
+        if (value == null) {
+            throw new IllegalArgumentException(field + " must not be null");
         }
         return value;
     }

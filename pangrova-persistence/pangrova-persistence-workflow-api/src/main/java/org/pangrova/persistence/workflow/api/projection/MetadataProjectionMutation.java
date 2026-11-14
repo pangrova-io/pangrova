@@ -1,5 +1,7 @@
 package org.pangrova.persistence.workflow.api.projection;
 
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionScopeException;
+
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.metadata.api.object.QualifiedTableRef;

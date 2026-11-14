@@ -12,6 +12,7 @@
     <name>Pangrova Persistence</name>
     <description>Domain persistence contracts and independently selected backend implementations</description>
     <modules>
+        <module>pangrova-persistence-materialization-api</module>
         <module>pangrova-persistence-indexing-api</module>
         <module>pangrova-persistence-indexing-postgresql</module>
         <module>pangrova-persistence-catalog-api</module>
@@ -37,6 +38,7 @@
         <module>pangrova-persistence-governance-postgresql</module>
         <module>pangrova-persistence-semantic-postgresql</module>
         <module>pangrova-persistence-streaming-postgresql</module>
+        <module>pangrova-persistence-streaming-memory</module>
         <module>pangrova-persistence-materialization-postgresql</module>
         <module>pangrova-persistence-ai-postgresql</module>
         <module>pangrova-persistence-workflow-api</module>

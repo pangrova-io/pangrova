@@ -3,7 +3,7 @@ package org.pangrova.shuffle.local.spool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.shuffle.api.spool.SpoolReadSelection;
-import org.pangrova.shuffle.spi.spool.SpoolStoreContext;
+import org.pangrova.shuffle.api.spool.SpoolStoreContext;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;

@@ -15,8 +15,8 @@ import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.protocol.shuffle.codec.CanonicalBatchChunks;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
-import org.pangrova.shuffle.spi.worker.ShuffleByteEgress;
-import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+import org.pangrova.shuffle.api.worker.ShuffleByteEgress;
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -219,8 +219,8 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
         var executor = new org.pangrova.worker.execution.NativeTaskExecutor(egress);
         try {
             assertThatThrownBy(() -> executor.createTask(conflict.toByteArray()))
-                    .isInstanceOf(org.pangrova.worker.execution.NativeTaskCreationFailure.class)
-                    .satisfies(failure -> assertThat(((org.pangrova.worker.execution.NativeTaskCreationFailure) failure)
+                    .isInstanceOf(org.pangrova.worker.exception.NativeTaskCreationFailure.class)
+                    .satisfies(failure -> assertThat(((org.pangrova.worker.exception.NativeTaskCreationFailure) failure)
                             .withoutNativeOwner()).isTrue());
             write(0, 3, buffer("after-creation-rollback"));
             complete();

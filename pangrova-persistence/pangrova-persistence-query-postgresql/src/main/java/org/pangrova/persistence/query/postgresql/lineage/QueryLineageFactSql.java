@@ -3,7 +3,7 @@ package org.pangrova.persistence.query.postgresql.lineage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.query.api.lineage.QueryLineageFact;
 
 import java.sql.Connection;

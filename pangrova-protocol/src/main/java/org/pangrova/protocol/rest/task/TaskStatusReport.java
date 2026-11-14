@@ -1,7 +1,7 @@
 package org.pangrova.protocol.rest.task;
 
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.common.client.error.ErrorDetail;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

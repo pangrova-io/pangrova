@@ -12,7 +12,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryCoordinatorRegistry;
 

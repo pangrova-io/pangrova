@@ -1,5 +1,7 @@
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportException;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;

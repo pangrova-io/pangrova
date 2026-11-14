@@ -3,7 +3,7 @@ package org.pangrova.connector.paimon;
 import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSink;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
@@ -57,7 +57,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
 
         assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, fragments, context,
                 (schema, name, added, removed, snapshot, event, fingerprint) -> notifications.incrementAndGet()))
-                .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasStackTraceContaining("Exception occurs when committing snapshot");
         assertThat(publications).hasValue(1);
         assertThat(notifications).hasValue(0);

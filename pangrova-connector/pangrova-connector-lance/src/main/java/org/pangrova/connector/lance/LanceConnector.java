@@ -1,15 +1,15 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.error.ConnectorException;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.api.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -20,15 +20,15 @@ import org.pangrova.common.concurrent.ThreadSafe;
 /** Lance plugin: durable catalog metadata in Java and all dataset rows in Native. */
 @ThreadSafe
 public final class LanceConnector implements Connector {
-    private final Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog> authority;
-    private final Optional<org.pangrova.connector.spi.materialization.SourceProvider> materializationSourceProvider;
+    private final Optional<org.pangrova.connector.api.metadata.ManagedSourceCatalog> authority;
+    private final Optional<org.pangrova.connector.api.materialization.SourceProvider> materializationSourceProvider;
     private final LanceMetadata metadata;
     private final LanceSplitManager splits;
     private final AtomicReference<CompletableFuture<LanceCatalogStore>> catalogStore = new AtomicReference<>();
 
     LanceConnector(String catalog, String warehouse, Map<String, String> config,
             Optional<NativeDatasetControlPlane> controlPlane,
-            Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog> authority) {
+            Optional<org.pangrova.connector.api.metadata.ManagedSourceCatalog> authority) {
         this.authority = java.util.Objects.requireNonNull(authority);
         this.materializationSourceProvider = authority.map(sourceAuthority ->
                 new LanceMaterializationSourceProvider(catalog, sourceAuthority));
@@ -37,7 +37,7 @@ public final class LanceConnector implements Connector {
     }
 
     @Override
-    public Optional<org.pangrova.connector.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
+    public Optional<org.pangrova.connector.api.materialization.SourceProvider> getMaterializationSourceProvider() {
         return materializationSourceProvider;
     }
 
@@ -69,7 +69,7 @@ public final class LanceConnector implements Connector {
     @Override public ConnectorOutputHandleCodec getOutputHandleCodec() {
         return new LanceOutputHandleCodec();
     }
-    @Override public void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
+    @Override public void registerCommitListener(org.pangrova.connector.api.index.CommitListener listener) {
         metadata.registerCommitListener(listener);
     }
     @Override public ConnectorPageSourceProvider getPageSourceProvider() {

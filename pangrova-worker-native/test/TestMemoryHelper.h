@@ -18,7 +18,7 @@
 #include <mutex>
 #include <string>
 
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "velox/common/memory/Memory.h"
 
 namespace pangrova::test {

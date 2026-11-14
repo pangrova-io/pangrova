@@ -2,6 +2,8 @@ package org.pangrova.persistence.generation.api.generated;
 
 import java.time.Instant;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Durable identity of one generated-column sidecar independent of its generations. */
 public record GeneratedValueBuildDescriptor(
         String tenantId,
@@ -31,12 +33,6 @@ public record GeneratedValueBuildDescriptor(
         requireText(targetSourceSnapshot, "targetSourceSnapshot");
         if (updatedAt == null) {
             throw new IllegalArgumentException("updatedAt must not be null");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 }

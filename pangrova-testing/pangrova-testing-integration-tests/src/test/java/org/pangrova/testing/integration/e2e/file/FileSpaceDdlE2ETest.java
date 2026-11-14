@@ -11,17 +11,17 @@ import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -160,7 +160,7 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
         var profiles = new org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
         String profile = name + "_profile";
         assertThat(profiles.createIfAbsent(new org.pangrova.filesystem.api.profile.StorageProfile(profile,
-                org.pangrova.common.storage.StorageType.LOCAL, files.toString(), "", "", "",
+                org.pangrova.common.enums.StorageType.LOCAL, files.toString(), "", "", "",
                 java.util.Map.of(), java.util.Map.of()))).isTrue();
         try {
             executeDdl("CREATE STAGE " + PREFIX + name + " STORAGE_PROFILE = '" + profile
@@ -209,7 +209,7 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
         var profiles = new org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
         String profile = name + "_profile";
         assertThat(profiles.createIfAbsent(new org.pangrova.filesystem.api.profile.StorageProfile(profile,
-                org.pangrova.common.storage.StorageType.LOCAL, files.toString(), "", "", "",
+                org.pangrova.common.enums.StorageType.LOCAL, files.toString(), "", "", "",
                 java.util.Map.of(), java.util.Map.of()))).isTrue();
         String original = PREFIX + name;
         String renamed = original + "_renamed";

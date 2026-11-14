@@ -22,7 +22,7 @@
 #include <vector>
 
 #include "TestMemoryHelper.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "engine/memory/ColumnarMemoryPool.h"
 #include "engine/velox/serde/ArrowBatchVectorSerde.h"
 #include "engine/velox/serde/CanonicalSerdeOptionsFactory.h"

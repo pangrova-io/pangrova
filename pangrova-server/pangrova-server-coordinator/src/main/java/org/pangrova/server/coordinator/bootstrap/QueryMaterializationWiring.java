@@ -4,7 +4,7 @@ import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFact
 
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 
-import org.pangrova.metadata.assembly.generation.GenerationStores;
+import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
 import javax.sql.DataSource;
@@ -17,12 +17,12 @@ import org.pangrova.coordinator.feature.FeatureViewStatementService;
 import org.pangrova.coordinator.feature.FeatureSourceCompiler;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,11 +34,11 @@ final class QueryMaterializationWiring {
     private static final Logger LOG = LoggerFactory.getLogger(QueryMaterializationWiring.class);
 
     private final Dependencies dependencies;
-    private final GenerationStores artifactStores;
+    private final PostgresGenerationStores artifactStores;
 
     QueryMaterializationWiring(Dependencies dependencies) {
         this.dependencies = dependencies;
-        artifactStores = new GenerationStores(dependencies.modelAuthority());
+        artifactStores = new PostgresGenerationStores(dependencies.modelAuthority(), CoordinatorTableWriteAuthority.create());
     }
 
     GeneratedValueMaterializationCoordinator createGeneratedValue(CatalogRegistry catalog) {
@@ -59,7 +59,7 @@ final class QueryMaterializationWiring {
                 dependencies.metadataDataSource(), new JdbcWriteCommitJournal(
                         dependencies.metadataDataSource()), dependencies.modelAuthority(),
                 new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
-                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication, CoordinatorTableWriteAuthority.create());
         var registeredCatalogs = indexing.registerDurableCommitProcessor(coordinator);
         coordinator.activateCatalogs(registeredCatalogs);
         LOG.info("event=generated_value_materialization_wired catalogs={}", registeredCatalogs);

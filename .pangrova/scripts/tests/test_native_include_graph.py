@@ -32,7 +32,16 @@ class NativeIncludeGraphTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("a -> b:", result.stdout)
         self.assertIn("b -> a:", result.stdout)
+        self.assertIn("Cyclic source-component groups: 1\n  a, b\n", result.stdout)
         self.assertIn("2 local edges, 0 cycles", result.stdout)
+
+    def test_reports_separate_groups_even_when_one_reaches_another(self):
+        files = {name + "/api.h": "" for name in "abcdef"}
+        for origin, targets in {"a": "b", "b": "c", "c": "ad", "d": "e", "e": "df"}.items():
+            files[origin + "/impl.cpp"] = "".join(f'#include "{t}/api.h"\n' for t in targets)
+        result = self.scan(files)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Cyclic source-component groups: 2\n  a, b, c\n  d, e\n", result.stdout)
 
     def test_paths_in_comments_and_raw_strings_are_not_edges(self):
         result = self.scan({"engine/a.cpp": '/*\n#include "a.cpp"\n*/\n'

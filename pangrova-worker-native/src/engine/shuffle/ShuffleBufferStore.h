@@ -30,6 +30,9 @@ struct ShuffleBufferLimits {
   // descriptor limit independent of the number of buffered batches.
   uint64_t spill_segment_bytes = 16ULL * 1024 * 1024;
   uint64_t max_payload_bytes = 4ULL * 1024 * 1024;
+  // Retention credit is refillable: a slow reader should stall its own producer
+  // rather than fail the query. Bound the wait so a stuck reader still fails.
+  uint64_t retention_wait_ms = 30'000;
   uint64_t handles = 128;
   uint64_t streams = 128;
   int32_t partitions_per_handle = 4096;
@@ -49,8 +52,12 @@ struct ShuffleBufferUsage {
 };
 
 // Thread-safe budget and storage shared by all demuxers on one server. Never
-// performs filesystem I/O under its accounting mutex. Lack of disk/descriptor/
-// metadata credit is a terminal resource error, never a wait on another partition.
+// performs filesystem I/O under its accounting mutex. Retention credit (resident
+// bytes, spill bytes, descriptors, records) is refillable, so an exhausted
+// retention budget waits for a reader up to retention_wait_ms instead of failing
+// the query. Oversized payloads, accounting overflow and handle/stream admission
+// remain terminal. Each demuxer drains on its own thread and the wait releases
+// the mutex, so a stalled producer does not block other handles.
 class ShuffleBufferStore : public std::enable_shared_from_this<ShuffleBufferStore> {
  public:
   explicit ShuffleBufferStore(ShuffleBufferLimits limits = {});
@@ -85,9 +92,30 @@ class ShuffleBufferStore : public std::enable_shared_from_this<ShuffleBufferStor
     uint64_t spill_offset = 0;
   };
 
+  // Segments are scoped to one handle so that handle's reader can fully drain
+  // them. A store-wide segment mixes entries from unrelated handles, so no
+  // single reader can ever release its physical blocks — the slowest handle
+  // would pin everyone's disk credit. Physical accounting stays on the store
+  // because an anonymous file's blocks are only reclaimed when its LAST entry
+  // is released; per-entry accounting would under-report real disk usage.
+  class HandleScope {
+   public:
+    explicit HandleScope(std::shared_ptr<ShuffleBufferStore> store, bool disk_only = false)
+        : store_(std::move(store)), disk_only_(disk_only) {}
+    const std::shared_ptr<ShuffleBufferStore>& store() const { return store_; }
+
+   private:
+    friend class ShuffleBufferStore;
+    std::shared_ptr<ShuffleBufferStore> store_;
+    bool disk_only_;
+    // Guarded by store_->mutex_.
+    std::weak_ptr<SpillSegment> active_segment_;
+  };
+
   // Reserves before retaining a batch. Oversized/empty/null data is an error.
   arrow::Result<std::unique_ptr<Entry>> store(
-      ShuffleBatch batch, CancellationToken cancellation = {});
+      ShuffleBatch batch, HandleScope& scope,
+      CancellationToken cancellation = {});
   // Reconstructs exactly one record. Short reads are errors, not partial data.
   static arrow::Result<ShuffleBatch> replay(
       Entry& entry, CancellationToken cancellation = {});
@@ -110,13 +138,14 @@ class ShuffleBufferStore : public std::enable_shared_from_this<ShuffleBufferStor
     uint64_t spill_offset = 0;
   };
   arrow::Result<StorageReservation> reserve(
-      uint64_t payload_bytes, uint64_t resident_bytes);
+      uint64_t payload_bytes, uint64_t resident_bytes, HandleScope& scope,
+      const CancellationToken& cancellation);
   void release(const ShuffleBufferUsage& charge);
   const ShuffleBufferLimits limits_;
   mutable std::mutex mutex_;
   std::condition_variable transit_available_;
+  std::condition_variable storage_available_;
   ShuffleBufferUsage usage_;
-  std::weak_ptr<SpillSegment> active_segment_;
 };
 
 }  // namespace pangrova::shuffle

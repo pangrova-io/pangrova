@@ -1,13 +1,13 @@
 package org.pangrova.persistence.file.postgresql.space;
 
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.spi.authority.FileSpaceAuthority;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.file.api.authority.FileSpaceAuthority;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.persistence.security.api.tenant.TenantStore;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
-import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
 
 import javax.sql.DataSource;

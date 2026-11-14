@@ -1,12 +1,14 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.exception.CommitTimeoutException;
+
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.pangrova.common.concurrent.RetryingCommitWrapper;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

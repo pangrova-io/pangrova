@@ -1,0 +1,16 @@
+package org.pangrova.worker.exception;
+
+/**
+ * Exception thrown from the native (C++) side across the JNI boundary.
+ * The native code locates this class via {@code FindClass} and constructs
+ * instances with the single-arg {@code (String)} constructor.
+ *
+ * <p>Extends {@link NativeRuntimeException} so that callers catching
+ * {@code NativeRuntimeException} also catch JNI bridge errors.
+ */
+public class JniCallException extends NativeRuntimeException {
+
+    public JniCallException(String message) {
+        super(message);
+    }
+}

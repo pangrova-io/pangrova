@@ -72,45 +72,45 @@ class StateEnumUniquenessPropertyTest {
      * than the SPI enums and have proper mapping layers.
      */
     private static final Set<String> KNOWN_INTERNAL_STATE_ENUMS = Set.of(
-            "pangrova-streaming-core:ConnectorPageSinkCdcWriter.PublicationState",
-            "pangrova-coordination-core:TaskStateMachine.State",
+            "pangrova-streaming-pipeline:ConnectorPageSinkCdcWriter.PublicationState",
+            "pangrova-coordination-control:TaskStateMachine.State",
             "pangrova-scheduler-api:HealthState",
-            "pangrova-worker-core:TaskState",
+            "pangrova-worker:TaskState",
             // One-shot local assembly admission/cleanup phases, not distributed Worker health or task state.
-            "pangrova-worker-core:WorkerBootstrapLifecycle.State",
-            "pangrova-worker-core:ExchangeClient.State",
+            "pangrova-worker:WorkerBootstrapLifecycle.State",
+            "pangrova-worker:ExchangeClient.State",
             "pangrova-shuffle-pangrova:RemoteShuffleProducerStream.State",
             "pangrova-operations:DdlJob.DdlJobState",
             "pangrova-metadata-api:CatalogState",
-            "pangrova-streaming-core:CdcStreamState",
-            "pangrova-streaming-core:WatermarkState",
+            "pangrova-streaming-pipeline:CdcStreamState",
+            "pangrova-streaming-pipeline:WatermarkState",
             "pangrova-security-api:TenantStatus",
-            "pangrova-coordination-core:CircuitBreaker.State",
-            "pangrova-coordination-core:SplitRetryManager.SplitState",
+            "pangrova-coordination-control:CircuitBreaker.State",
+            "pangrova-coordination-control:SplitRetryManager.SplitState",
             "pangrova-connector-api:HealthCheckResult.HealthStatus",
             "pangrova-protocol:TaskStatus.TaskState",
             "pangrova-observability-api:StatusCode",  // trace outcome, not query/task lifecycle
-            "pangrova-planner-core:ValidationStatus",
-            "pangrova-coordination-core:SchedulerCancelResult.Status",
+            "pangrova-planner:ValidationStatus",
+            "pangrova-coordination-control:SchedulerCancelResult.Status",
             "pangrova-security-api:AuthenticatorHealthStatus",
-            "pangrova-worker-core:TaskCancelResult.Status",
-            "pangrova-shuffle-core:SpoolBackedExchangeManager.Status",
+            "pangrova-worker:TaskCancelResult.Status",
+            "pangrova-shuffle-exchange:SpoolBackedExchangeManager.Status",
             "pangrova-streaming-api:StreamLifecycleState",
-            "pangrova-semantic-api:SemanticViewValidationState",
+            "pangrova-semantic:SemanticViewValidationState",
             "pangrova-ai-control:EvaluationRunState",
             "pangrova-connector-api:ClusteringState",
             "pangrova-common:StateStoreType",  // moved from pangrova-config in cbe99e06 module merge
             "pangrova-config:StateStoreType",  // legacy copy retained for StateStoreFactory/CoordinatorOptions
             "pangrova-streaming-api:CdcRegistration.CdcStreamState",
-            "pangrova-coordination-core:ReclusterJob.State",  // data recluster lifecycle
-            "pangrova-parser-api:StatementType",  // false positive — discriminator enum, "StatementType" contains "State" substring
+            "pangrova-coordination-control:ReclusterJob.State",  // data recluster lifecycle
+            "pangrova-parser:StatementType",  // false positive — discriminator enum, "StatementType" contains "State" substring
             "pangrova-streaming-api:CdcCommitState",  // CDC two-phase commit coordinator (Req 10.6)
             "pangrova-operations:JfrState",  // JFR profiling lifecycle
-            "pangrova-coordination-core:SettableDynamicFilter.State",  // adaptive dynamic filter state
-            "pangrova-indexing-core:IndexFileReadResult.Status",  // index file read result status
+            "pangrova-coordination-control:SettableDynamicFilter.State",  // adaptive dynamic filter state
+            "pangrova-indexing-lifecycle:IndexFileReadResult.Status",  // index file read result status
             "pangrova-persistence-query-api:WriteCommitEntry.State",  // distributed write commit lifecycle
-            "pangrova-metadata-core:SemanticViewValidationState",
-            "pangrova-metadata-core:EvaluationRunState",
+            "pangrova-metadata-catalog:SemanticViewValidationState",
+            "pangrova-metadata-catalog:EvaluationRunState",
             // Unified materialization kernel lifecycle enums.
             "pangrova-materialization-api:GcLedgerEntry.GcState",
             "pangrova-materialization-api:PinState",
@@ -214,10 +214,11 @@ class StateEnumUniquenessPropertyTest {
             Map<?, ?> manifest = new Yaml().load(input);
             Map<?, ?> artifacts = (Map<?, ?>) manifest.get("artifacts");
             var modules = new java.util.HashSet<String>();
-            modules.add("pangrova-protocol");
+            modules.addAll(Set.of("pangrova-protocol", "pangrova-parser", "pangrova-batch", "pangrova-file",
+                    "pangrova-planner", "pangrova-query", "pangrova-table", "pangrova-semantic"));
             for (Object key : artifacts.keySet()) {
                 String name = (String) key;
-                if (name.endsWith("-api") || name.endsWith("-spi")) {
+                if (name.endsWith("-api")) {
                     modules.add(name);
                 }
             }

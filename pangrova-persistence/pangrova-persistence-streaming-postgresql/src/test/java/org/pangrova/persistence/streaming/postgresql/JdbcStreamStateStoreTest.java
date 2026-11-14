@@ -1,16 +1,16 @@
 package org.pangrova.persistence.streaming.postgresql;
 
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
+
 import org.pangrova.common.exception.StaleEpochException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -27,9 +27,17 @@ class JdbcStreamStateStoreTest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        dataSource = SharedPostgresContainer.dataSource();
-        initSchema(dataSource);
+        dataSource = SharedPostgresContainer.migratedDataSource("stream_state");
         store = new JdbcStreamStateStore(dataSource);
+    }
+
+    @Test
+    void storesTheSelectedSourceAcrossLifecycleUpdates() {
+        StreamState source = newState("source-id", "tenant-1").toBuilder()
+                .sourceProvider("audit_feed").sourceProperties(Map.of("channel", "changes")).build();
+        assertThat(store.createState(source)).isTrue();
+        store.saveState(source.withLifecycleState(StreamLifecycleState.RUNNING));
+        assertThat(store.loadState(source.streamName()).orElseThrow().sourceProvider()).isEqualTo("audit_feed");
     }
 
     @Test
@@ -189,7 +197,7 @@ class JdbcStreamStateStoreTest extends ContainerTestBase {
 
     @Test
     void nullableFieldsRoundTrip() {
-        StreamState state = StreamState.builder()
+        StreamState state = StreamState.builder().sourceProvider("kafka")
                 .streamName("s-nulls")
                 .tenantId("t")
                 .lifecycleState(StreamLifecycleState.CREATING)
@@ -263,7 +271,7 @@ class JdbcStreamStateStoreTest extends ContainerTestBase {
         return new StreamState(
                 name, tenantId, "stream:" + java.util.UUID.randomUUID(),
                 StreamLifecycleState.CREATING,
-                "catalog.schema.orders",
+                "catalog.schema.orders", "kafka",
                 Map.of("bootstrap.servers", "broker:9092", "topic", "orders-cdc"),
                 "debezium-json",
                 Map.of("batch_size", "1000"),
@@ -271,36 +279,5 @@ class JdbcStreamStateStoreTest extends ContainerTestBase {
                 0, 1, null,
                 0L, 0L, 0L, null,
                 now, now);
-    }
-
-    private static void initSchema(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS ingestion_stream_offsets");
-            stmt.execute("DROP TABLE IF EXISTS ingestion_stream_state");
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS ingestion_stream_state (
-                        stream_name       VARCHAR(255) NOT NULL PRIMARY KEY,
-                        tenant_id         VARCHAR(255) NOT NULL,
-                        checkpoint_id     VARCHAR(255) NOT NULL UNIQUE,
-                        lifecycle_state   VARCHAR(32)  NOT NULL,
-                        target_table      VARCHAR(512) NOT NULL,
-                        source_properties TEXT         NOT NULL,
-                        source_format     VARCHAR(64)  NOT NULL,
-                        stream_properties TEXT,
-                        creator_identity  VARCHAR(255),
-                        coordinator_id    VARCHAR(255),
-                        epoch             BIGINT       NOT NULL DEFAULT 0,
-                        schema_version    INT          NOT NULL DEFAULT 0,
-                        error_message     TEXT,
-                        records_consumed  BIGINT       NOT NULL DEFAULT 0,
-                        records_written   BIGINT       NOT NULL DEFAULT 0,
-                        records_dead_lettered BIGINT   NOT NULL DEFAULT 0,
-                        last_offset_commit_time TIMESTAMP,
-                        created_at        TIMESTAMP    NOT NULL,
-                        updated_at        TIMESTAMP    NOT NULL
-                    )
-                    """);
-        }
     }
 }

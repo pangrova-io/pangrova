@@ -23,13 +23,19 @@ Class, package, and proto names must not leak framework names into modules that 
 - **C10**: Banned package segments: `jaxrs/`, `rss/`, `dpp/`, `aqe/`, `sop/`, `rls/`, `dt/`.
 
 ### P1 — Naming precision
+
+Prefer nouns or noun phrases for packages and types. Use verbs for methods.
+An SQL AST type may identify its statement by SQL keyword, such as
+`GrantPrivilegeStatement`; the type represents the statement as a value.
+Use the established protocol or SDK spelling at a required interoperability boundary.
 - **C3 abbreviation ban**: `Rss`, `Dpp`, `Aqe`, `MV`/`Mv` (prefix), `Dt` (prefix/pkg), `HA`/`ha` (prefix/pkg), `Sop`, `Repl`, `rls` (pkg), `Ipc` (class/method/field — use `Batch`/`Page`/`Stream`). Allowed: `DAG`, `CTE`, `RBAC`, `CDC`, `SQL`, `HTTP`, `gRPC`, `IPC` (comments only), `JNI`, `UDF`, `TLS`, `JDBC`, `LDAP`, `OAuth2`, `DTO`, `SPI`, `API`, `REST`, `ACL`.
 - **C4**: No `Impl` suffix — use descriptive names.
 - **C5**: Implementation class must not reuse the SPI interface's simple name.
-- **C11**: Established pattern suffixes (`Adapter`, `Bridge`, `Proxy`, `Decorator`,
+- **C11**: Established pattern suffixes (`Bridge`, `Proxy`, `Decorator`,
   `Facade`, `Mediator`, `Visitor`, `Observer`, `Strategy`) are allowed when they
   accurately describe the class's responsibility. Prefer a domain-specific name
-  when a pattern label adds no information.
+  when a pattern label adds no information. Remove pure forwarding adapters by giving
+  the contract to its semantic owner and injecting the implementation at the composition root.
 - **C12**: Functional interface names must not contain multiple verbs joined by `And`/`Or`/`Then`.
 - **C13**: Names must not expose internal delegation targets to callers (`PageSink*` in a class whose callers don't know about PageSink).
 - **C14**: `*Lookup` = key→single-value; `*Fetcher` = remote I/O; `*Resolver` = key→complex-result; `*Provider` = lazy/factory. Use the suffix matching actual behavior.
@@ -58,8 +64,8 @@ ownership map is defined in `docs/architecture/domain-modularization-adr.md`.
   `org.pangrova.testing`) MUST NOT be claimed by more than one leaf. Sibling
   leaves use non-overlapping roots such as `.runtime`, `.service`, or
   `.testkit`.
-- Each domain has one `pangrova-<domain>-api` contract artifact owning its `.api`
-  and actual `.spi` capability packages. Keep `core` for domain implementation;
+- Each independently published contract uses `pangrova-<domain>-api`. Calls, extension interfaces
+  and typed plugin factories share the domain’s `.api` packages. Single-JAR domains keep these packages locally. Name implementation artifacts after their responsibilities.
   Providers implement contracts and Server assembles processes. Persistence
   owns backend implementations and domain storage ports. The central `pangrova-spi`
   artifact has been removed; do not recreate a cross-domain contract owner.
@@ -79,8 +85,7 @@ ownership map is defined in `docs/architecture/domain-modularization-adr.md`.
   `.pangrova/modules.yaml`.
 - Cross-bounded-context code may depend only on a registered shared primitive
   library, API, SPI, protocol, or producer-owned event package. Importing
-  another context's `.core`,
-  `.internal`, `.store`, `.bootstrap`, `.endpoint`, or `.server` package is
+  another context's `.internal`, `.store`, `.bootstrap`, `.endpoint`, or `.server` package is
   forbidden. The same dependency direction must be enforced between packages
   inside a merged owner artifact. A separate adapter may use only its
   explicitly listed friend port.
@@ -88,7 +93,7 @@ ownership map is defined in `docs/architecture/domain-modularization-adr.md`.
   contain only the stable envelope, identity, timestamp, schema/version, and
   minimal publication primitives; event payloads remain in the producing
   owner's exported capability package.
-- `pangrova-metadata-core` owns technical object identity, schema, version, binding,
+- `pangrova-metadata-catalog` owns technical object identity, schema, version, binding,
   and statistics references only. Business concepts, terms, metrics,
   relationships, semantic views, ontologies, and their publication state MUST
   be owned by `pangrova-semantic`; AI grounding/evaluation state MUST be owned
@@ -110,7 +115,7 @@ ownership map is defined in `docs/architecture/domain-modularization-adr.md`.
 - A capability/runtime leaf MUST NOT depend on a process artifact's assembly,
   server, resource, or bootstrap packages. A same-family host port may be used
   only as a `provided` dependency through a declared friend export; promote it
-  to a dedicated SPI artifact when it gains external compatibility or a second
+  to a domain API artifact when it gains external compatibility or a second
   independent provider family.
 - Split packages are forbidden across main, test fixture, generated, shaded,
   and plugin runtime artifacts. Every code-bearing JAR must have a stable,
@@ -123,13 +128,13 @@ ownership map is defined in `docs/architecture/domain-modularization-adr.md`.
   Preserve meaningful contract/backend namespaces such as Persistence `api/jdbc`
   and Filesystem `api/local/s3/oss`, and keep sibling artifact roots disjoint.
 
-- Under API and Core roots, organize by business capability first and technical
+- Within each domain, organize by business capability first and technical
   role second, for example `metadata.api.catalog`,
-  `query.core.lifecycle.policy`, and `metadata.store.jdbc.catalog`.
+  `query.lifecycle.policy`, and `persistence.catalog.postgresql.dependency`.
 - Do not create horizontal catch-all packages named `service`, `manager`,
   `util`, `impl`, `model`, or `store`. `model` may only be a local subgroup
-  below a named capability; `store.jdbc` is allowed only as a registered
-  adapter root.
+  below a named capability. Place shared, dependency-free utilities in
+  `common.util` and utilities for one domain in `common.<domain>`.
 - Framework or technology names belong only at an adapter boundary, such as
   `connector.iceberg`, `coordination.zookeeper`, `store.jdbc`, or
   `planner.substrait`; they must not appear in domain or public API packages.
@@ -146,10 +151,13 @@ ownership map is defined in `docs/architecture/domain-modularization-adr.md`.
   package-private behavior. Reusable test utilities belong under an exclusive
   testing root such as `org.pangrova.testing.testkit`; they must not create a
   split package with production code.
-- `pangrova-common` must remain dependency-minimal: no Jetty/Jersey, Jackson,
+- `pangrova-common` must remain dependency-minimal: no Jetty/Jersey,
   YAML parser, JDBC/Flyway, Curator, cloud SDK, table-format SDK, or provider
   SDK. Such dependencies belong to Config, wire/serde adapters, owner stores,
-  plugins, or process assembly.
+  plugins, or process assembly. Shared client wire DTOs may use Jackson
+  annotations. The `org.pangrova.common.json` helpers use optional Jackson databind
+  and JSR-310 dependencies. Modules that call these mappers must declare both in
+  the scope needed for those calls.
 
 ## Quality gates
 

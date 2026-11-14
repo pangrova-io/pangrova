@@ -32,14 +32,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.transport.http.EmbeddedHttpServerFactory;
-import org.pangrova.common.http.PemMutualTls;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.transport.http.tls.PemMutualTls;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
-import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
-import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
-import org.pangrova.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
+import org.pangrova.server.coordinator.http.endpoint.AuthenticationFilter;
+import org.pangrova.server.coordinator.http.endpoint.CoordinatorExceptionMapper;
+import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceReadResource;
+import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
 import org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions;
@@ -55,26 +55,26 @@ import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.security.auth.oauth2.OAuth2Authenticator;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.filesystem.s3.blob.S3BlobStorage;
 import org.pangrova.worker.copy.CopySourceReadClient;
@@ -144,7 +144,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
     @org.junit.jupiter.api.Tag("native-runtime-owner")
     @org.junit.jupiter.api.parallel.ResourceLock("pangrova-packaged-native-runtime")
     void privateTicketStagesExactVersionAndRestartsFromManagedBytes() throws Exception {
-        try (var minio = new GenericContainer<>("minio/minio:RELEASE.2024-12-18T13-15-44Z")
+        try (var minio = org.pangrova.testing.testkit.MinioContainer.create()
                     .withExposedPorts(9000)
                     .withEnv("MINIO_ROOT_USER", ACCESS_KEY)
                     .withEnv("MINIO_ROOT_PASSWORD", SECRET_KEY)
@@ -196,7 +196,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                             var redirected = CopySourceStagingCommand.forLoopbackTest(
                                     client, credentials(), otherBackend, stagingRoot, 1024 * 1024);
                             assertThatThrownBy(() -> redirected.execute(ticket.nonce(), wireScope, preparationBudget(wireScope)))
-                                    .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class)
+                                    .isInstanceOf(org.pangrova.security.api.exception.AccessDeniedException.class)
                                     .hasMessageContaining("admitted backend");
                         }
 
@@ -334,7 +334,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                     "s3://copy-source-secret/data/part.parquet", "s3://managed/copy-managed");
             assertThatThrownBy(() -> fixture.admissions.issue(
                     scope, fixture.identity, fixture.anchor))
-                    .isInstanceOf(org.pangrova.security.api.error.AccessDeniedException.class)
+                    .isInstanceOf(org.pangrova.security.api.exception.AccessDeniedException.class)
                     .hasMessageNotContaining(secret);
         }
     }
@@ -554,7 +554,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
         private final OAuth2Authenticator oauth;
         private final AuthenticationManager authentication;
         private final Server server;
-        private final org.pangrova.query.api.ownership.ExecutionAnchor anchor;
+        private final org.pangrova.execution.api.ownership.ExecutionAnchor anchor;
 
         Fixture(BootstrapSecurityAuthority authority) throws Exception {
             var config = authority.config("coordinator-one");

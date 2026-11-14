@@ -35,7 +35,7 @@ import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.copy.CopySourceStagingCommand;
 import org.pangrova.worker.copy.CopyStageLeases;
-import org.pangrova.worker.execution.NativeTaskCreationFailure;
+import org.pangrova.worker.exception.NativeTaskCreationFailure;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -140,7 +140,7 @@ final class CopyNativeInputAssertions {
         var rejected = SubmitTaskRequest.from(changed.build(), mismatched.copySourceRead());
         String rejectedId = submit(manager, rejected);
         var reported = awaitReleasedReport(reports, rejected.taskRequest(), TaskState.TASK_STATE_FAILED);
-        assertThat(manager.getTaskState(rejectedId)).contains(org.pangrova.worker.task.state.TaskState.FAILED);
+        assertThat(manager.getTaskState(rejectedId)).contains(org.pangrova.worker.enums.TaskState.FAILED);
         assertThat(reported.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
         assertThat(reported.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
                 .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
@@ -152,8 +152,8 @@ final class CopyNativeInputAssertions {
                 .until(() -> {
                     assertThat(manager.getTaskState(id).orElseThrow())
                             .as("COPY must create a Native owner without entering a failed terminal state")
-                            .isNotIn(org.pangrova.worker.task.state.TaskState.FAILED,
-                                    org.pangrova.worker.task.state.TaskState.CANCELLED);
+                            .isNotIn(org.pangrova.worker.enums.TaskState.FAILED,
+                                    org.pangrova.worker.enums.TaskState.CANCELLED);
                     return manager.getExecutorHandle(id).orElse(0) > 0;
                 });
         assertThat(localInputs(stagingRoot)).hasSize(1);
@@ -161,7 +161,7 @@ final class CopyNativeInputAssertions {
         readExactValues(runtime, accepted.taskRequest());
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> manager.getTaskState(id).orElseThrow()
-                        == org.pangrova.worker.task.state.TaskState.FINISHED);
+                        == org.pangrova.worker.enums.TaskState.FINISHED);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> runtime.drainEvidence(handle, accepted.taskRequest()).getDrained());
         assertThat(localInputs(stagingRoot)).hasSize(1);

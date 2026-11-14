@@ -11,7 +11,9 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cerrno>
 #include <cstring>
+#include <fcntl.h>
 #include <fstream>
 #include <future>
 #include <limits>
@@ -20,6 +22,7 @@
 #include <random>
 #include <unordered_set>
 #include <thread>
+#include <unistd.h>
 
 #include "vector/VectorDistance.h"
 
@@ -115,7 +118,12 @@ uint64_t saturatingMultiply(uint64_t left, uint64_t right) {
 VamanaIndex::VamanaIndex(VamanaConfig config, std::string indexPath)
     : config_(config), indexPath_(std::move(indexPath)) {}
 
-VamanaIndex::~VamanaIndex() = default;
+VamanaIndex::~VamanaIndex() {
+  const int fd = vecsFd_.exchange(-1, std::memory_order_acq_rel);
+  if (fd >= 0) {
+    ::close(fd);
+  }
+}
 
 uint64_t VamanaIndex::memoryBytes() const {
   uint64_t bytes = saturatingAdd(sizeof(VamanaIndex), indexPath_.capacity());
@@ -423,8 +431,8 @@ std::vector<SearchResult> VamanaIndex::search(
   std::vector<SearchResult> results;
   results.reserve(static_cast<size_t>(std::min(topK, rerankCount)));
 
-  // Return PQ-distance results (full-precision rerank requires SSD I/O,
-  // which is handled by DiskAnnSearcher with async I/O).
+  // Returns PQ-distance results. Full-precision rerank is performed by the
+  // caller (ArtifactVectorSearch) via its own batched vector reads.
   for (int64_t i = 0; i < std::min(topK, rerankCount); ++i) {
     results.push_back(
         {resultCandidates[static_cast<size_t>(i)].nodeId,
@@ -656,19 +664,55 @@ bool VamanaIndex::readVector(
   if (nodeId < 0 || nodeId >= numVectors_ || dimension != config_.dimension) {
     return false;
   }
-  // Read from companion .vecs file (flat float array stored during build).
-  std::string vecsPath = indexPath_ + ".vecs";
-  std::ifstream in(vecsPath, std::ios::binary);
-  if (!in) return false;
-  auto offset = static_cast<std::streamoff>(
-      static_cast<size_t>(nodeId) * static_cast<size_t>(dimension) *
-      sizeof(float));
-  in.seekg(offset);
-  if (!in) return false;
-  for (int64_t index = 0; index < dimension; ++index) {
-    if (!readFloat32(in, buffer[index])) {
+  // Read from the companion .vecs file (flat float array stored during build)
+  // through one cached descriptor: the old path opened a fresh std::ifstream per
+  // candidate. pread() keeps this thread-safe without a mutex or seek.
+  int fd = vecsFd_.load(std::memory_order_acquire);
+  if (fd < 0) {
+    const std::string vecsPath = indexPath_ + ".vecs";
+    const int opened = ::open(vecsPath.c_str(), O_RDONLY);
+    if (opened < 0) {
       return false;
     }
+    int expected = -1;
+    if (vecsFd_.compare_exchange_strong(
+            expected, opened, std::memory_order_acq_rel)) {
+      fd = opened;
+    } else {
+      ::close(opened);
+      fd = expected;
+    }
+  }
+  const auto offset = static_cast<off_t>(
+      static_cast<size_t>(nodeId) * static_cast<size_t>(dimension) *
+      sizeof(float));
+  // One bulk read per vector instead of one per dimension: at dimension 1536 the
+  // old loop cost ~1500 stream reads per candidate. The on-disk layout is
+  // little-endian floats (see readFloat32), so decode explicitly rather than
+  // memcpy, and keep the finiteness validation the per-float path performed.
+  const size_t bytes = static_cast<size_t>(dimension) * sizeof(float);
+  std::vector<unsigned char> raw(bytes);
+  size_t done = 0;
+  while (done < bytes) {
+    const auto count = ::pread(
+        fd, raw.data() + done, bytes - done, offset + static_cast<off_t>(done));
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) {
+      return false;
+    }
+    done += static_cast<size_t>(count);
+  }
+  for (int64_t index = 0; index < dimension; ++index) {
+    const auto* word = raw.data() + static_cast<size_t>(index) * 4;
+    const uint32_t bits = static_cast<uint32_t>(word[0]) |
+        (static_cast<uint32_t>(word[1]) << 8) |
+        (static_cast<uint32_t>(word[2]) << 16) |
+        (static_cast<uint32_t>(word[3]) << 24);
+    const float value = std::bit_cast<float>(bits);
+    if (!std::isfinite(value)) {
+      return false;
+    }
+    buffer[index] = value;
   }
   return true;
 }

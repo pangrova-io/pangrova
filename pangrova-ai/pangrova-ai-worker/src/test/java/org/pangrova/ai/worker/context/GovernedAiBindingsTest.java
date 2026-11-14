@@ -12,7 +12,7 @@ import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 
 import static org.assertj.core.api.Assertions.assertThat;

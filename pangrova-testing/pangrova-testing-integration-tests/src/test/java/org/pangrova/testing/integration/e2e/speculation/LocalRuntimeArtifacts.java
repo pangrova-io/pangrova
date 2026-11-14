@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.zip.ZipFile;
 
 /** Owns the frozen production classpath, canonical JNI identity and source provenance. */
-record LocalRuntimeArtifacts(String classpath, Path cliJar, Path manifestPath,
+record LocalRuntimeArtifacts(String coordinatorClasspath, String workerClasspath, Path cliJar, Path manifestPath,
                              String manifestSha256, String nativeSha256) {
     private static final String IMAGE_ID = "pangrova.e2e.image-id";
     private static final String IMAGE_PROVENANCE = "pangrova.e2e.local.image-provenance";
@@ -47,6 +47,8 @@ record LocalRuntimeArtifacts(String classpath, Path cliJar, Path manifestPath,
         String manifestHash = hash(manifestPath);
         var inventory = new ArrayList<>(cliJars);
         inventory.addAll(jars);
+        var coordinatorJars = roleJars(lib.resolve("coordinator"), inventory);
+        var workerJars = roleJars(lib.resolve("worker"), inventory);
         verifyManifest(inventory, manifestPath);
         Path bundle = unique(jars, "pangrova-native-bundle-",
                 "-" + platform.classifier() + ".jar");
@@ -55,14 +57,34 @@ record LocalRuntimeArtifacts(String classpath, Path cliJar, Path manifestPath,
         verifyOrigin(lib, nativeLibrary, manifestPath, bundle, platform.classifier(),
                 nativeEntry, nativeHash, manifestHash);
         verifyNativeEntries(jars, bundle, nativeEntry, expected);
-        var ordered = new ArrayList<Path>();
-        ordered.add(bundle);
-        // The shaded CLI artifact runs only as a separate -jar process.
-        jars.stream().filter(jar -> !jar.equals(bundle))
-                .forEach(ordered::add);
-        String classpath = String.join(java.io.File.pathSeparator,
-                ordered.stream().map(Path::toString).toList());
-        return new LocalRuntimeArtifacts(classpath, cli, manifestPath, manifestHash, nativeHash);
+        Path workerBundle = unique(workerJars, "pangrova-native-bundle-",
+                "-" + platform.classifier() + ".jar");
+        verifyNativeEntries(workerJars, workerBundle, nativeEntry, expected);
+        return new LocalRuntimeArtifacts(classpath(coordinatorJars), classpath(workerJars),
+                cli, manifestPath, manifestHash, nativeHash);
+    }
+
+    private static String classpath(List<Path> jars) {
+        return String.join(java.io.File.pathSeparator, jars.stream().map(Path::toString).toList());
+    }
+
+    private static List<Path> roleJars(Path directory, List<Path> inventory) throws Exception {
+        Path list = directory.resolve("classpath.list");
+        var jars = jarInventory(directory);
+        var ordered = new java.util.LinkedHashSet<Path>();
+        for (String name : Files.readAllLines(list)) {
+            Path jar = directory.resolve(name);
+            if (!name.endsWith(".jar") || name.contains("/") || name.contains(":")
+                    || !jars.contains(jar) || !ordered.add(jar)) {
+                throw new IllegalStateException("Invalid ordered role classpath entry in " + list + ": " + name);
+            }
+        }
+        if (ordered.size() != jars.size()) {
+            throw new IllegalStateException("Ordered role classpath differs from JAR inventory: " + directory);
+        }
+        inventory.add(list);
+        inventory.addAll(jars);
+        return List.copyOf(ordered);
     }
 
     private static List<Path> jarInventory(Path lib) throws Exception {

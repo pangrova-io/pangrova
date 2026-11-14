@@ -173,18 +173,20 @@ void HnswIndex::connect(int64_t node, int64_t neighbor, int32_t level) {
 }
 
 uint64_t HnswIndex::estimatePeakBuildBytes(
-    int64_t count, int64_t dimension, int64_t max_connections) {
+    int64_t count, int64_t dimension, int64_t max_connections,
+    int64_t ef_construction) {
   if (count < 0 || dimension <= 0 || max_connections < 2 ||
       static_cast<uint64_t>(count) > kMaximumNodes ||
       static_cast<uint64_t>(dimension) > kMaximumDimension ||
-      max_connections > 512) {
+      max_connections > 512 || ef_construction < max_connections ||
+      ef_construction > 100000) {
     throw std::invalid_argument("HNSW build estimate is outside safe bounds");
   }
   // Four vector copies cover the incoming Velox batch, the accumulated source
   // vectors (including capacity growth), and the graph's resident copy. The
-  // per-node allowance covers links at both levels, locator/hash storage,
-  // search-layer queues/visited state, and allocator capacity slack. This is
-  // deliberately an admission bound, not an after-the-fact usage counter.
+  // per-node allowance covers links at both levels, locator/hash storage, and
+  // allocator capacity slack. This is deliberately an admission bound, not an
+  // after-the-fact usage counter.
   const uint64_t vector_bytes = checkedMultiply(
       checkedMultiply(static_cast<uint64_t>(count),
                       static_cast<uint64_t>(dimension)), 16);
@@ -192,7 +194,15 @@ uint64_t HnswIndex::estimatePeakBuildBytes(
       static_cast<uint64_t>(count),
       checkedAdd(256, checkedMultiply(
           static_cast<uint64_t>(max_connections), 64)));
-  return checkedAdd(checkedAdd(vector_bytes, graph_bytes), 1 << 20);
+  // searchLayer holds two priority queues bounded by ef_construction plus a
+  // visited set that can reach the same size, all per inserting thread. Leaving
+  // this out made admission under-estimate, so a build could pass admission and
+  // then fail mid-way against the real pool.
+  const uint64_t search_scratch_bytes = checkedMultiply(
+      static_cast<uint64_t>(ef_construction), 96);
+  return checkedAdd(
+      checkedAdd(checkedAdd(vector_bytes, graph_bytes), search_scratch_bytes),
+      1 << 20);
 }
 
 void HnswIndex::build(
@@ -212,7 +222,9 @@ void HnswIndex::build(
   const uint64_t values = checkedMultiply(
       static_cast<uint64_t>(count), static_cast<uint64_t>(dimension));
   if (memory_grant_bytes != std::numeric_limits<uint64_t>::max() &&
-      estimatePeakBuildBytes(count, dimension, config_.max_connections) >
+      estimatePeakBuildBytes(
+              count, dimension, config_.max_connections,
+              config_.ef_construction) >
           memory_grant_bytes) {
     throw std::runtime_error(
         "RESOURCE_EXHAUSTED: HNSW estimated peak exceeds memory grant");

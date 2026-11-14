@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.control.connector;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
 
 import java.util.ServiceLoader;
 
@@ -16,6 +16,6 @@ class ConnectorProviderDiscoveryTest {
         assertThat(providers).extracting(ConnectorFactory::getName)
                 .containsExactlyInAnyOrder("iceberg", "paimon", "lance");
         assertThat(providers).extracting(value -> value.getClass().getName()).doesNotHaveDuplicates();
-        assertThat(ConnectorFactory.class.getName()).isEqualTo("org.pangrova.connector.spi.plugin.ConnectorFactory");
+        assertThat(ConnectorFactory.class.getName()).isEqualTo("org.pangrova.connector.api.plugin.ConnectorFactory");
     }
 }

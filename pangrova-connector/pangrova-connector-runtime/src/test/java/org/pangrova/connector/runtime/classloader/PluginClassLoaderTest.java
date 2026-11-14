@@ -18,22 +18,23 @@ class PluginClassLoaderTest {
     void domainApiAndSpiPackagesKeepHostIdentityWhenBundledByPlugin() throws Exception {
         var contracts = java.util.List.of(
                 org.pangrova.indexing.api.descriptor.IndexDescriptor.class,
-                org.pangrova.indexing.spi.strategy.IndexStrategyProvider.class,
+                org.pangrova.indexing.api.strategy.IndexStrategyProvider.class,
                 org.pangrova.security.api.identity.UserIdentity.class,
-                org.pangrova.security.spi.authorization.AccessControl.class,
-                org.pangrova.connector.spi.plugin.ConnectorFactory.class,
+                org.pangrova.security.api.authorization.AccessControl.class,
+                org.pangrova.connector.api.plugin.ConnectorFactory.class,
                 org.pangrova.connector.api.metadata.table.QualifiedTableName.class,
-                org.pangrova.query.api.lifecycle.QueryState.class,
+                org.pangrova.query.api.enums.QueryState.class,
                 org.pangrova.query.api.lineage.QueryLineageFact.class,
-                org.pangrova.query.spi.audit.QueryAuditSink.class,
-                org.pangrova.query.spi.stage.StageStateListener.class,
+                org.pangrova.governance.api.enums.ColumnDerivationKind.class,
+                org.pangrova.query.api.audit.QueryAuditSink.class,
+                org.pangrova.query.api.stage.StageStateListener.class,
                 org.pangrova.ai.api.model.AiModelDescriptor.class,
-                org.pangrova.ai.spi.inference.InferenceProvider.class,
+                org.pangrova.ai.api.inference.InferenceProvider.class,
                 org.pangrova.function.api.metadata.FunctionMetadata.class,
-                org.pangrova.function.spi.registry.FunctionFactory.class,
-                org.pangrova.function.spi.runtime.FunctionCallbackScope.class,
+                org.pangrova.function.api.registry.FunctionFactory.class,
+                org.pangrova.function.api.runtime.FunctionCallbackScope.class,
                 org.pangrova.coordination.api.membership.WorkerSnapshot.class,
-                org.pangrova.coordination.spi.leadership.MaintenanceLeaderAware.class);
+                org.pangrova.coordination.api.leadership.MaintenanceLeaderAware.class);
         URL[] urls = contracts.stream().map(type -> type.getProtectionDomain().getCodeSource().getLocation())
                 .distinct().toArray(URL[]::new);
         try (var loader = new PluginClassLoader("bundled-domain-contracts", urls,
@@ -41,6 +42,18 @@ class PluginClassLoaderTest {
             for (Class<?> contract : contracts) {
                 assertThat(loader.loadClass(contract.getName())).isSameAs(contract);
             }
+        }
+    }
+
+    @Test
+    void onlyTheRequiredGovernanceEnumIsPinnedToTheHost() throws Exception {
+        var shared = org.pangrova.governance.api.enums.ColumnDerivationKind.class;
+        var privateType = org.pangrova.governance.api.enums.Severity.class;
+        URL[] bundle = {shared.getProtectionDomain().getCodeSource().getLocation()};
+        try (var loader = new PluginClassLoader("bundled-governance", bundle, getClass().getClassLoader(),
+                java.util.Set.of())) {
+            assertThat(loader.loadClass(shared.getName())).isSameAs(shared);
+            assertThat(loader.loadClass(privateType.getName()).getClassLoader()).isSameAs(loader);
         }
     }
 
@@ -61,13 +74,13 @@ class PluginClassLoaderTest {
 
     @Test
     void spiClassesDelegateToSpiClassLoader() throws ClassNotFoundException {
-        // org.pangrova.connector.spi.plugin.Connector is an SPI class — must always
+        // org.pangrova.connector.api.plugin.Connector is an SPI class — must always
         // be loaded from the SPI classloader regardless of policy.
         PluginClassLoader cl = new PluginClassLoader(
                 "test", EMPTY_URLS, getClass().getClassLoader());
 
-        Class<?> loaded = cl.loadClass("org.pangrova.connector.spi.plugin.Connector");
-        assertThat(loaded).isSameAs(org.pangrova.connector.spi.plugin.Connector.class);
+        Class<?> loaded = cl.loadClass("org.pangrova.connector.api.plugin.Connector");
+        assertThat(loaded).isSameAs(org.pangrova.connector.api.plugin.Connector.class);
     }
 
     @Test
@@ -101,13 +114,28 @@ class PluginClassLoaderTest {
     }
 
     @Test
-    void commonModuleClassesDelegateToSpiClassLoader() throws ClassNotFoundException {
-        // org.pangrova.common classes are SPI packages — must delegate
-        PluginClassLoader cl = new PluginClassLoader(
-                "test-common", EMPTY_URLS, getClass().getClassLoader());
-
-        // Load any class from org.pangrova.common package
-        Class<?> loaded = cl.loadClass("org.pangrova.common.util.Preconditions");
-        assertThat(loaded).isNotNull();
+    void sharesThePublicSignatureClosureAndKeepsUnrelatedImplementationsPluginLocal() throws Exception {
+        var contracts = java.util.List.of(
+                org.pangrova.common.exception.PangrovaException.class,
+                org.pangrova.common.enums.PangrovaErrorCode.class,
+                org.pangrova.common.file.CopyFileCommitBinding.class,
+                org.pangrova.common.session.SessionContext.class,
+                org.pangrova.execution.api.identity.QueryId.class,
+                org.pangrova.observability.api.tracing.ExecutionTraceContext.class,
+                org.pangrova.protocol.execution.AiTaskLifecycle.class,
+                org.pangrova.protocol.v2.TaskRequest.Builder.class,
+                com.google.protobuf.ByteString.class,
+                org.pangrova.streaming.api.format.CdcFormatFactory.class,
+                org.pangrova.streaming.api.source.SourceRecord.class);
+        var privateTypes = java.util.List.of(
+                org.pangrova.common.util.Preconditions.class,
+                org.pangrova.protocol.rest.data.DataFile.class);
+        URL[] bundle = java.util.stream.Stream.concat(contracts.stream(), privateTypes.stream())
+                .map(type -> type.getProtectionDomain().getCodeSource().getLocation()).distinct().toArray(URL[]::new);
+        try (var loader = new PluginClassLoader("bundled-contracts", bundle, getClass().getClassLoader(),
+                java.util.Set.of())) {
+            for (var type : contracts) assertThat(loader.loadClass(type.getName())).isSameAs(type);
+            for (var type : privateTypes) assertThat(loader.loadClass(type.getName()).getClassLoader()).isSameAs(loader);
+        }
     }
 }

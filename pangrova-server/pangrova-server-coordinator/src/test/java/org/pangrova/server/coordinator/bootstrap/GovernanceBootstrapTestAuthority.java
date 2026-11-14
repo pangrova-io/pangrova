@@ -1,9 +1,12 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
-import org.pangrova.table.core.ownership.TableControlService;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
+
+import org.pangrova.table.ownership.TableControlService;
+
+import org.pangrova.governance.runtime.classification.ColumnTagBindings;
+import org.pangrova.governance.runtime.classification.ColumnTagService;
 
 import javax.sql.DataSource;
 
@@ -11,20 +14,23 @@ import javax.sql.DataSource;
 final class GovernanceBootstrapTestAuthority {
     private GovernanceBootstrapTestAuthority() {}
 
-    static DataSource bind(ModuleIntegrationBootstrap modules, DataSource source) {
-        modules.setMetadataSyncDeps(null, registry(source));
-        return source;
+    static ColumnTagService bind(ModuleIntegrationBootstrap modules, DataSource source) {
+        return bind(modules, registry(source));
+    }
+
+    static ColumnTagService bind(ModuleIntegrationBootstrap modules, CatalogRegistry registry) {
+        modules.setCatalogRegistry(registry);
+        return new ColumnTagBindings(registry.tableGovernance()).events();
     }
 
     private static CatalogRegistry registry(DataSource source) {
         var metadata = new PostgresCatalogDeploymentRepository(source);
-        var registry = new CatalogRegistry(metadata);
-        registry.setTableControlService(new TableControlService(
-                new JdbcTableControlStore(source), registry::requireCurrentCatalogIdentity));
+        var stores = CoordinatorBootstrap.loadTableStores(GovernanceBootstrapTestAuthority.class.getClassLoader(), source);
+        var registry = new CatalogRegistry(stores, metadata);
         registry.register(metadata.getCatalogDescriptor("quality_catalog").orElseGet(() ->
                 new org.pangrova.metadata.api.catalog.CatalogDescriptor("quality_catalog",
-                        org.pangrova.metadata.api.catalog.CatalogType.INTERNAL, "internal",
-                        org.pangrova.metadata.api.catalog.CatalogState.ACTIVE,
+                        org.pangrova.metadata.api.enums.CatalogType.INTERNAL, "internal",
+                        org.pangrova.metadata.api.enums.CatalogState.ACTIVE,
                         java.util.Map.of(), "", java.util.Set.of())));
         return registry;
     }
@@ -34,10 +40,11 @@ final class GovernanceBootstrapTestAuthority {
             DataSource source) throws Exception {
         var metadata = new PostgresCatalogDeploymentRepository(source);
         var descriptor = metadata.getCatalogDescriptor("quality_catalog").orElseThrow();
-        var control = new TableControlService(new JdbcTableControlStore(source),
+        var stores = CoordinatorBootstrap.loadTableStores(GovernanceBootstrapTestAuthority.class.getClassLoader(), source);
+        var control = new TableControlService(stores.control(),
                 name -> new org.pangrova.table.api.identity.CatalogDeploymentIdentity(
                         descriptor.incarnationId(), descriptor.revision()));
-        var owner = control.registerCreated("quality_catalog", "default", "quality_source", "quality-owner",
+        var owner = control.registrations().registerCreated("quality_catalog", "default", "quality_source", "quality-owner",
                 java.util.Optional.of(new org.pangrova.connector.api.metadata.table.TableIdentity(
                         "ICEBERG", "quality-bootstrap-owner", "s3://test/quality-source", "schema")),
                 java.util.Optional.empty()).orElseThrow();
@@ -45,7 +52,7 @@ final class GovernanceBootstrapTestAuthority {
         var now = java.time.Instant.now();
         store.saveRule(new org.pangrova.governance.api.quality.DataQualityRule(1, "required_positive",
                 "quality_catalog", "default", "quality_source", "id > 0",
-                org.pangrova.governance.api.quality.Severity.ERROR, "msg", true, null, now, now,
+                org.pangrova.governance.api.enums.Severity.ERROR, "msg", true, null, now, now,
                 new org.pangrova.governance.api.quality.QualityExecutionIdentity("quality-owner", "quality-tenant"),
                 owner.tableId()));
 

@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg.handle;
 
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
+
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Schema;

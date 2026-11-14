@@ -7,7 +7,7 @@ import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.PrepareDistributedWriteResult;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.SourcePublicationReservation;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 
 import java.nio.file.Files;
@@ -43,7 +43,7 @@ public final class LanceManagedSourceTestExecution {
     }
 
     /** Production connector and exact codec over this same actual PG authority; no simulated provider. */
-    public org.pangrova.connector.spi.plugin.Connector connector() { return fixture.connector(); }
+    public org.pangrova.connector.api.plugin.Connector connector() { return fixture.connector(); }
     public CatalogExecutionBinding catalog() { return fixture.catalog(); }
     public ConnectorOutputTableHandle output() { return prepared.allocation().output(); }
     public WriteCommitEntry intent() { return fixture.journal().getEntry(prepared.allocation().executionId()).orElseThrow(); }

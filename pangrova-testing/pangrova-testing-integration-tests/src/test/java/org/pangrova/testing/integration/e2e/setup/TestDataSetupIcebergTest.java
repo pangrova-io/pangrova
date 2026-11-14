@@ -1,9 +1,9 @@
 package org.pangrova.testing.integration.e2e.setup;
 
 import org.pangrova.connector.iceberg.IcebergConnector;
-import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.testkit.TestDataGenerator;

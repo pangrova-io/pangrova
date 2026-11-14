@@ -66,7 +66,7 @@
         ANTLR4-generated lexer/parser/visitor/listener classes.
     -->
     <Match>
-        <Class name="~org\.pangrova\.parser\.core\.build\.antlr\..*"/>
+        <Class name="~org\.pangrova\.parser\.build\.antlr\..*"/>
     </Match>
 
     <!-- ANTLR sources generated in org.pangrova.parser retain grammar-owned code patterns. -->
@@ -141,16 +141,6 @@
          §3 PROTOCOL / DTO PATTERNS
          ================================================================ -->
 
-    <!-- PaimonMetadata borrows the live SDK Catalog from PaimonConnector. The connector
-         owns and closes that same instance; copying it would create a different catalog
-         lifetime and break metadata/split/write consistency. The public constructor is
-         also used by connector integration tests with their own catalog owner. -->
-    <Match>
-        <Class name="org.pangrova.connector.paimon.PaimonMetadata"/>
-        <Method name="&lt;init&gt;"/>
-        <Bug pattern="EI_EXPOSE_REP2"/>
-    </Match>
-
     <!-- ByteString.copyFrom owns immutable bytes. FunctionBindingDeclarationsTest proves the
          canonical digest, defensive byte-array exports and read-only buffer contract. SpotBugs
          4.8.3 MutableClasses treats ByteString.writeTo(...):void as a mutable write-prefix setter.
@@ -176,7 +166,7 @@
         the caller receives the reference and owns it — no defensive copy needed.
     -->
     <Match>
-        <Package name="~org\.pangrova\.connector\.(api|spi)\..*"/>
+        <Package name="~org\.pangrova\.connector\.api\..*"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 
@@ -218,27 +208,27 @@
     <!-- Invocation-local ANTLR views intentionally borrow mutable objects. Portable AST/result
          values are detached; ErrorRecoveryParserTest and SourceLocationTest verify the boundary. -->
     <Match>
-        <Class name="org.pangrova.parser.core.diagnostic.RecoveryParseDetails"/>
+        <Class name="org.pangrova.parser.diagnostic.RecoveryParseDetails"/>
         <Method name="partialTree" params="" returns="org.antlr.v4.runtime.tree.ParseTree"/>
         <Field name="partialTree" type="org.antlr.v4.runtime.tree.ParseTree"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.parser.core.diagnostic.RecoveryParseDetails"/>
+        <Class name="org.pangrova.parser.diagnostic.RecoveryParseDetails"/>
         <Method name="&lt;init&gt;" params="org.pangrova.parser.api.parse.ParseResult,org.antlr.v4.runtime.tree.ParseTree" returns="void"/>
         <Field name="partialTree" type="org.antlr.v4.runtime.tree.ParseTree"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.parser.core.build.AstBuilder"/>
-        <Method name="&lt;init&gt;" params="org.antlr.v4.runtime.CommonTokenStream,org.pangrova.parser.api.parse.SqlDialect" returns="void"/>
+        <Class name="org.pangrova.parser.build.AstBuilder"/>
+        <Method name="&lt;init&gt;" params="org.antlr.v4.runtime.CommonTokenStream,org.pangrova.parser.api.enums.SqlDialect" returns="void"/>
         <Field name="tokenStream" type="org.antlr.v4.runtime.CommonTokenStream"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
     <!-- Public parser constructors validate limits but the API remains extensible and has no finalizer. -->
     <Match>
-        <Class name="org.pangrova.parser.core.parse.AntlrSqlParser"/>
+        <Class name="org.pangrova.parser.parse.AntlrSqlParser"/>
         <Bug pattern="CT_CONSTRUCTOR_THROW"/>
     </Match>
 
@@ -372,7 +362,7 @@
     -->
     <Match>
         <Bug pattern="SF_SWITCH_FALLTHROUGH,SF_SWITCH_NO_DEFAULT"/>
-        <Package name="~org\.pangrova\.connector\.(api|spi)\..*"/>
+        <Package name="~org\.pangrova\.connector\.api\..*"/>
     </Match>
 
     <!--
@@ -423,7 +413,7 @@
          retry load. It never produces a credential, token, identifier or nonce.
          Retain security checks for every other method and random-number use. -->
     <Match>
-        <Class name="org.pangrova.client.session.RetryPolicy"/>
+        <Class name="org.pangrova.common.client.session.RetryPolicy"/>
         <Method name="delayForAttemptWithJitter" params="int" returns="java.time.Duration"/>
         <Bug pattern="PREDICTABLE_RANDOM"/>
     </Match>
@@ -638,7 +628,7 @@
 
     <!-- QueryAuditStore is an injected live persistence collaborator; QueryAuditServiceTest verifies shared writes and reads. -->
     <Match>
-        <Class name="org.pangrova.query.core.audit.QueryAuditService"/>
+        <Class name="org.pangrova.query.audit.QueryAuditService"/>
         <Method name="&lt;init&gt;"/>
         <Field name="auditStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -807,7 +797,7 @@
 
     <!-- Canonical record constructor uses List.copyOf; QueryProfileServiceTest verifies source and accessor isolation. -->
     <Match>
-        <Class name="org.pangrova.query.core.profiling.QueryProfileService$QueryProfile"/>
+        <Class name="org.pangrova.query.profiling.QueryProfileService$QueryProfile"/>
         <Method name="operatorTree"/>
         <Field name="operatorTree"/>
         <Bug pattern="EI_EXPOSE_REP"/>
@@ -815,7 +805,7 @@
 
     <!-- Canonical record constructor uses List.copyOf; QueryProfileServiceTest verifies source and accessor isolation. -->
     <Match>
-        <Class name="org.pangrova.query.core.profiling.QueryProfileService$QueryProfile"/>
+        <Class name="org.pangrova.query.profiling.QueryProfileService$QueryProfile"/>
         <Method name="flameGraph"/>
         <Field name="flameGraph"/>
         <Bug pattern="EI_EXPOSE_REP"/>
@@ -823,7 +813,7 @@
 
     <!-- Canonical record constructor uses List.copyOf; QueryProfileServiceTest verifies source and accessor isolation. -->
     <Match>
-        <Class name="org.pangrova.query.core.profiling.QueryProfileService$OperatorNode"/>
+        <Class name="org.pangrova.query.profiling.QueryProfileService$OperatorNode"/>
         <Method name="children"/>
         <Field name="children"/>
         <Bug pattern="EI_EXPOSE_REP"/>
@@ -863,7 +853,7 @@
          traits and child-node identities. Copying them breaks Calcite registration. Correlation
          sets are separately frozen and are deliberately not matched by this exclusion. -->
     <Match>
-        <Class name="~org\.pangrova\.planner\.core\.cost\.join\.(HashJoinConfig|BroadcastJoinConfig|NestedLoopJoinConfig|SortMergeJoinConfig)"/>
+        <Class name="~org\.pangrova\.planner\.cost\.join\.(HashJoinConfig|BroadcastJoinConfig|NestedLoopJoinConfig|SortMergeJoinConfig)"/>
         <Method name="~(&lt;init&gt;|cluster|traitSet|left|right)"/>
         <Field name="~(cluster|traitSet|left|right)"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
@@ -872,31 +862,31 @@
     <!-- PlannerServiceOwnershipTest proves these are owner-managed live services, not DTO state.
          Copies would disconnect statistics, cache invalidation, runtime-filter and DT registrations. -->
     <Match>
-        <Class name="org.pangrova.planner.core.analysis.PlannerContext"/>
+        <Class name="org.pangrova.planner.analysis.PlannerContext"/>
         <Method name="~(&lt;init&gt;|statisticsCollector|queryResultCache|runtimeFilterRegistry|dynamicTableRewriter)"/>
         <Field name="~(statisticsCollector|queryResultCache|runtimeFilterRegistry|dynamicTableRewriter)"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.analysis.PangrovaPlanner"/>
+        <Class name="org.pangrova.planner.analysis.PangrovaPlanner"/>
         <Method name="getQueryResultCache"/>
         <Field name="queryResultCache"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.analysis.SqlCompiler"/>
+        <Class name="org.pangrova.planner.analysis.SqlCompiler"/>
         <Method name="queryResultCache"/>
         <Field name="queryResultCache"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.optimization.MaterializedViewRewritePass"/>
+        <Class name="org.pangrova.planner.optimization.MaterializedViewRewritePass"/>
         <Method name="getRuntimeFilterRegistry"/>
         <Field name="runtimeFilterRegistry"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.rewrite.DynamicTableSqlRewriter"/>
+        <Class name="org.pangrova.planner.rewrite.DynamicTableSqlRewriter"/>
         <Method name="~(&lt;init&gt;|getDynamicTableRewriter)"/>
         <Field name="dynamicTableRewriter"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
@@ -905,13 +895,13 @@
     <!-- CanonicalPlanOwnershipTest and VectorQueryOwnershipTest prove protoc messages retain
          immutable contract identity; toBuilder creates independent state. Arrays are not matched. -->
     <Match>
-        <Class name="org.pangrova.planner.core.generation.GenerationPlan"/>
+        <Class name="org.pangrova.planner.generation.GenerationPlan"/>
         <Method name="~(capability|format|rowLocator)"/>
         <Field name="~(capability|format|rowLocator)"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.substrait.NativeDatasetSchemaCompiler$CompiledSchema"/>
+        <Class name="org.pangrova.planner.substrait.NativeDatasetSchemaCompiler$CompiledSchema"/>
         <Method name="~(&lt;init&gt;|schema)"/>
         <Field name="schema"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
@@ -927,19 +917,19 @@
          NotThreadSafe wrappers lend that query's tree to planner consumers; no RelNode cache
          or alleged deep-copy detachment exists. Only the framework-tree fields are covered. -->
     <Match>
-        <Class name="org.pangrova.planner.core.analysis.PlanFragment"/>
+        <Class name="org.pangrova.planner.analysis.PlanFragment"/>
         <Method name="~&lt;init&gt;|relNode"/>
         <Field name="planNode"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.analysis.PlanResult"/>
+        <Class name="org.pangrova.planner.analysis.PlanResult"/>
         <Method name="~&lt;init&gt;|plan"/>
         <Field name="plan"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.analysis.PlannedQuery"/>
+        <Class name="org.pangrova.planner.analysis.PlannedQuery"/>
         <Method name="plan"/>
         <Field name="plan"/>
         <Bug pattern="EI_EXPOSE_REP"/>
@@ -948,7 +938,7 @@
          model as PlanFragment/PlanResult above; a copy would detach the returned plan
          from the cluster and trait set that created it. -->
     <Match>
-        <Class name="org.pangrova.planner.core.mv.CalciteMaterializedViewRewriter$RewriteResult"/>
+        <Class name="org.pangrova.planner.mv.CalciteMaterializedViewRewriter$RewriteResult"/>
         <Field name="plan" type="org.apache.calcite.rel.RelNode"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
@@ -956,19 +946,19 @@
     <!-- LiveStatisticsOwnershipTest proves these consumers must observe changes made through
          their owner-managed statistics/feedback services, rather than copy stale DTO state. -->
     <Match>
-        <Class name="org.pangrova.planner.core.adaptive.AdaptiveQueryExecutor"/>
+        <Class name="org.pangrova.planner.adaptive.AdaptiveQueryExecutor"/>
         <Method name="&lt;init&gt;"/>
         <Field name="statisticsCollector"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.adaptive.StageReplanCoordinator"/>
+        <Class name="org.pangrova.planner.adaptive.StageReplanCoordinator"/>
         <Method name="&lt;init&gt;"/>
         <Field name="feedbackStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.cost.StatisticsBasedCostEstimator"/>
+        <Class name="org.pangrova.planner.cost.StatisticsBasedCostEstimator"/>
         <Method name="&lt;init&gt;"/>
         <Field name="~collector|feedbackStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -977,13 +967,13 @@
     <!-- QueryResultCacheTest and SecurityPolicyChangeListenerTest prove external-store
          promotion and invalidation affect the original process-owned cache/store. -->
     <Match>
-        <Class name="org.pangrova.planner.core.cache.QueryResultCache"/>
+        <Class name="org.pangrova.planner.cache.QueryResultCache"/>
         <Method name="&lt;init&gt;"/>
         <Field name="l2"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.cache.SecurityPolicyChangeListener"/>
+        <Class name="org.pangrova.planner.cache.SecurityPolicyChangeListener"/>
         <Method name="&lt;init&gt;"/>
         <Field name="cache"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -992,7 +982,7 @@
     <!-- RuntimeFilterOwnershipTest proves SplitBlockBloomFilter is immutable: builder.build()
          clones backing words and serialized bytes are owned by the caller. -->
     <Match>
-        <Class name="org.pangrova.planner.core.runtimefilter.RuntimeFilter"/>
+        <Class name="org.pangrova.planner.runtimefilter.RuntimeFilter"/>
         <Method name="bloomFilter"/>
         <Field name="bloomFilter"/>
         <Bug pattern="EI_EXPOSE_REP"/>
@@ -1001,18 +991,18 @@
     <!-- PlanBaselineControllerTest proves these getters address the original live registries.
          Structural plan digests are public diagnostics, not secret/authentication hashes. -->
     <Match>
-        <Class name="org.pangrova.planner.core.stability.PlanBaselineController"/>
+        <Class name="org.pangrova.planner.stability.PlanBaselineController"/>
         <Method name="~baselineRegistry|captureRegistry"/>
         <Field name="~baselineRegistry|captureRegistry"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.stability.PlanBaselineRegistry"/>
+        <Class name="org.pangrova.planner.stability.PlanBaselineRegistry"/>
         <Method name="compareAgainstBaseline"/>
         <Bug pattern="UNSAFE_HASH_EQUALS"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.planner.core.stability.PlanCaptureRegistry"/>
+        <Class name="org.pangrova.planner.stability.PlanCaptureRegistry"/>
         <Method name="record"/>
         <Bug pattern="UNSAFE_HASH_EQUALS"/>
     </Match>
@@ -1021,7 +1011,7 @@
          covers borrowed DI identity only, not thread safety or completed resource drain. -->
     <Match>
         <Class name="org.pangrova.connector.paimon.PaimonConnector"/>
-        <Method name="getMetadata" params="org.pangrova.connector.api.session.ConnectorSession" returns="org.pangrova.connector.spi.metadata.ConnectorMetadata"/>
+        <Method name="getMetadata" params="org.pangrova.connector.api.session.ConnectorSession" returns="org.pangrova.connector.api.metadata.ConnectorMetadata"/>
         <Field name="metadata" type="org.pangrova.connector.paimon.PaimonMetadata"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
@@ -1037,14 +1027,14 @@
     </Match>
     <Match>
         <Class name="org.pangrova.connector.paimon.PaimonMetadata"/>
-        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,java.lang.String" returns="void"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,java.lang.String,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
         <Field name="catalog" type="org.apache.paimon.catalog.Catalog"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.connector.paimon.PaimonPageSourceProvider"/>
-        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
-        <Field name="catalog" type="org.apache.paimon.catalog.Catalog"/>
+        <Class name="org.pangrova.connector.paimon.PaimonMetadata"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,java.lang.String,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
+        <Field name="splitRegistry" type="org.pangrova.connector.paimon.PaimonSplitRegistry"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
@@ -1061,11 +1051,11 @@
     </Match>
 
     <!-- The manager registers SDK Splits in the same registry consumed by the page source.
-         A defensive copy would sever that producer/consumer identity. Only the two exact
+         A defensive copy would sever that producer/consumer identity. Only the exact
          borrowed registry fields are classified, not mutable split DTOs or lifecycle behavior. -->
     <Match>
         <Class name="org.pangrova.connector.paimon.PaimonPageSourceProvider"/>
-        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
         <Field name="splitRegistry" type="org.pangrova.connector.paimon.PaimonSplitRegistry"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
@@ -1302,7 +1292,7 @@
          immutable generated protobuf message, not a Builder. Classify only this exact getter;
          mutable arrays, other methods and other findings remain checked. -->
     <Match>
-        <Class name="org.pangrova.planner.core.type.StorageVectorRelDataType"/>
+        <Class name="org.pangrova.planner.type.StorageVectorRelDataType"/>
         <Method name="logicalType" params="" returns="org.pangrova.protocol.v2.LogicalType"/>
         <Field name="logicalType" type="org.pangrova.protocol.v2.LogicalType"/>
         <Bug pattern="EI_EXPOSE_REP"/>
@@ -1313,55 +1303,55 @@
          only the exact method/field/type below; resource leaks, startup failures, arrays,
          collections and concurrency/drain correctness remain checked. -->
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceContext"/>
-        <Method name="securityPolicy" params="" returns="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
-        <Field name="securityPolicy" type="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceContext"/>
+        <Method name="securityPolicy" params="" returns="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
+        <Field name="securityPolicy" type="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceContext"/>
-        <Method name="columnTagService" params="" returns="org.pangrova.governance.core.classification.ColumnTagService"/>
-        <Field name="columnTagService" type="org.pangrova.governance.core.classification.ColumnTagService"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceContext"/>
+        <Method name="columnTagService" params="" returns="org.pangrova.governance.runtime.classification.ColumnTagService"/>
+        <Field name="columnTagService" type="org.pangrova.governance.runtime.classification.ColumnTagService"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="securityPolicy" params="" returns="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
-        <Field name="securityPolicy" type="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="securityPolicy" params="" returns="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
+        <Field name="securityPolicy" type="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="columnTagService" params="" returns="org.pangrova.governance.core.classification.ColumnTagService"/>
-        <Field name="columnTagService" type="org.pangrova.governance.core.classification.ColumnTagService"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="columnTagService" params="" returns="org.pangrova.governance.runtime.classification.ColumnTagService"/>
+        <Field name="columnTagService" type="org.pangrova.governance.runtime.classification.ColumnTagService"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.governance.core.lineage.LineageEventEmitter,org.pangrova.governance.core.quality.GovernanceStatementHandler,org.pangrova.governance.core.classification.TagBasedSecurityPolicy,org.pangrova.governance.core.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore" returns="void"/>
-        <Field name="securityPolicy" type="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.runtime.lineage.LineageEventEmitter,org.pangrova.governance.runtime.quality.GovernanceStatementHandler,org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy,org.pangrova.governance.runtime.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore" returns="void"/>
+        <Field name="securityPolicy" type="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.governance.core.lineage.LineageEventEmitter,org.pangrova.governance.core.quality.GovernanceStatementHandler,org.pangrova.governance.core.classification.TagBasedSecurityPolicy,org.pangrova.governance.core.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore,org.pangrova.governance.core.classification.ColumnTagService" returns="void"/>
-        <Field name="columnTagService" type="org.pangrova.governance.core.classification.ColumnTagService"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.runtime.lineage.LineageEventEmitter,org.pangrova.governance.runtime.quality.GovernanceStatementHandler,org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy,org.pangrova.governance.runtime.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore,org.pangrova.governance.runtime.classification.ColumnTagService" returns="void"/>
+        <Field name="columnTagService" type="org.pangrova.governance.runtime.classification.ColumnTagService"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.governance.core.lineage.LineageEventEmitter,org.pangrova.governance.core.quality.GovernanceStatementHandler,org.pangrova.governance.core.classification.TagBasedSecurityPolicy,org.pangrova.governance.core.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore,org.pangrova.governance.core.classification.ColumnTagService" returns="void"/>
-        <Field name="securityPolicy" type="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.runtime.lineage.LineageEventEmitter,org.pangrova.governance.runtime.quality.GovernanceStatementHandler,org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy,org.pangrova.governance.runtime.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore,org.pangrova.governance.runtime.classification.ColumnTagService" returns="void"/>
+        <Field name="securityPolicy" type="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.governance.core.lineage.LineageEventEmitter,org.pangrova.governance.core.quality.GovernanceStatementHandler,org.pangrova.governance.core.classification.TagBasedSecurityPolicy,org.pangrova.governance.core.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore,org.pangrova.governance.core.classification.ColumnTagService" returns="void"/>
-        <Field name="lineageEmitter" type="org.pangrova.governance.core.lineage.LineageEventEmitter"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.runtime.lineage.LineageEventEmitter,org.pangrova.governance.runtime.quality.GovernanceStatementHandler,org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy,org.pangrova.governance.runtime.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore,org.pangrova.governance.runtime.classification.ColumnTagService" returns="void"/>
+        <Field name="lineageEmitter" type="org.pangrova.governance.runtime.lineage.LineageEventEmitter"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
+        <Class name="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
         <Method name="&lt;init&gt;" params="org.pangrova.persistence.security.api.mask.ColumnMaskStore,org.pangrova.governance.api.classification.AuditConfigStore" returns="void"/>
         <Field name="columnMaskStore" type="org.pangrova.persistence.security.api.mask.ColumnMaskStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -1384,21 +1374,21 @@
          exact producer admission gate; copying it would introduce another HTTP owner.
          Classify only these DI identity methods and the exact constructor field. -->
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceContext"/>
-        <Method name="lineageEmitter" params="" returns="org.pangrova.governance.core.lineage.LineageEventEmitter"/>
-        <Field name="lineageEmitter" type="org.pangrova.governance.core.lineage.LineageEventEmitter"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceContext"/>
+        <Method name="lineageEmitter" params="" returns="org.pangrova.governance.runtime.lineage.LineageEventEmitter"/>
+        <Field name="lineageEmitter" type="org.pangrova.governance.runtime.lineage.LineageEventEmitter"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="lineageEmitter" params="" returns="org.pangrova.governance.core.lineage.LineageEventEmitter"/>
-        <Field name="lineageEmitter" type="org.pangrova.governance.core.lineage.LineageEventEmitter"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="lineageEmitter" params="" returns="org.pangrova.governance.runtime.lineage.LineageEventEmitter"/>
+        <Field name="lineageEmitter" type="org.pangrova.governance.runtime.lineage.LineageEventEmitter"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.governance.core.GovernanceDeps"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.governance.core.lineage.LineageEventEmitter,org.pangrova.governance.core.quality.GovernanceStatementHandler,org.pangrova.governance.core.classification.TagBasedSecurityPolicy,org.pangrova.governance.core.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore" returns="void"/>
-        <Field name="lineageEmitter" type="org.pangrova.governance.core.lineage.LineageEventEmitter"/>
+        <Class name="org.pangrova.governance.runtime.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.runtime.lineage.LineageEventEmitter,org.pangrova.governance.runtime.quality.GovernanceStatementHandler,org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy,org.pangrova.governance.runtime.quality.CronScheduler,org.pangrova.governance.api.quality.QualityRuleStore" returns="void"/>
+        <Field name="lineageEmitter" type="org.pangrova.governance.runtime.lineage.LineageEventEmitter"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <!-- Metadata DI borrows live durable stores, shared cache tiers, event buses and
@@ -1407,24 +1397,24 @@
          arrays, concurrency, resource leaks and every other method remain checked. -->
     <Match>
         <Class name="org.pangrova.metadata.cache.TieredMetadataCache"/>
-        <Method name="&lt;init&gt;" params="long,long,long,org.pangrova.metadata.spi.cache.L2CacheStore" returns="void"/>
-        <Field name="l2Adapter" type="org.pangrova.metadata.spi.cache.L2CacheStore"/>
+        <Method name="&lt;init&gt;" params="long,long,long,org.pangrova.metadata.api.cache.L2CacheStore" returns="void"/>
+        <Field name="l2Adapter" type="org.pangrova.metadata.api.cache.L2CacheStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
         <Class name="org.pangrova.metadata.catalog.registry.CatalogRegistry"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository,org.pangrova.metadata.spi.catalog.ConnectorHandleFactory,org.pangrova.metadata.spi.catalog.FederationHandleFactory,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.persistence.table.api.provider.TableStores,org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository,org.pangrova.metadata.api.catalog.ConnectorHandleFactory,org.pangrova.metadata.api.catalog.FederationHandleFactory,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
         <Field name="eventDispatcher" type="org.pangrova.metadata.event.MetadataEventDispatcher"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
         <Class name="org.pangrova.metadata.catalog.registry.CatalogRegistry"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository,org.pangrova.metadata.spi.catalog.ConnectorHandleFactory,org.pangrova.metadata.spi.catalog.FederationHandleFactory,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.persistence.table.api.provider.TableStores,org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository,org.pangrova.metadata.api.catalog.ConnectorHandleFactory,org.pangrova.metadata.api.catalog.FederationHandleFactory,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
         <Field name="store" type="org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.indexing.store.IndexSchemaEvolutionHandler"/>
+        <Class name="org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler"/>
         <Method name="&lt;init&gt;" params="org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore" returns="void"/>
         <Field name="metadataStore" type="org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -1496,7 +1486,7 @@
          same authority instance; copying them would split state. -->
     <Match>
         <Class name="org.pangrova.metadata.catalog.registry.CatalogRegistry"/>
-        <Method name="tableControl" returns="org.pangrova.table.core.ownership.TableControlService"/>
+        <Method name="tableControl" returns="org.pangrova.table.ownership.TableControlService"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
@@ -1605,37 +1595,37 @@
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader$ParsedCapabilities" />
+        <Class name="org.pangrova.worker.jni.NativeCapabilityLoader$ParsedCapabilities" />
         <Method name="functionCatalog" params="" returns="org.pangrova.protocol.v2.FunctionCatalogManifest" />
         <Field name="functionCatalog" type="org.pangrova.protocol.v2.FunctionCatalogManifest" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader$ParsedCapabilities" />
+        <Class name="org.pangrova.worker.jni.NativeCapabilityLoader$ParsedCapabilities" />
         <Method name="inventory" params="" returns="org.pangrova.protocol.v2.CapabilityInventory" />
         <Field name="inventory" type="org.pangrova.protocol.v2.CapabilityInventory" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader$ParsedCapabilities" />
+        <Class name="org.pangrova.worker.jni.NativeCapabilityLoader$ParsedCapabilities" />
         <Method name="&lt;init&gt;" params="java.util.Set,java.util.Set,java.util.List,org.pangrova.protocol.v2.FunctionCatalogManifest,java.lang.String,org.pangrova.protocol.v2.CapabilityInventory" returns="void" />
         <Field name="functionCatalog" type="org.pangrova.protocol.v2.FunctionCatalogManifest" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader$ParsedCapabilities" />
+        <Class name="org.pangrova.worker.jni.NativeCapabilityLoader$ParsedCapabilities" />
         <Method name="&lt;init&gt;" params="java.util.Set,java.util.Set,java.util.List,org.pangrova.protocol.v2.FunctionCatalogManifest,java.lang.String,org.pangrova.protocol.v2.CapabilityInventory" returns="void" />
         <Field name="inventory" type="org.pangrova.protocol.v2.CapabilityInventory" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.connector.session.TaskConnectorSession" />
+        <Class name="org.pangrova.worker.connector.session.TaskConnectorSession" />
         <Method name="attempt" params="" returns="org.pangrova.protocol.v2.TaskAttemptId" />
         <Field name="attempt" type="org.pangrova.protocol.v2.TaskAttemptId" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.jni.write.catalog.CatalogControlLease" />
+        <Class name="org.pangrova.worker.catalog.CatalogControlLease" />
         <Method name="storageBinding" params="" returns="org.pangrova.protocol.v2.ObjectStoreExecutionBinding" />
         <Field name="storage" type="org.pangrova.protocol.v2.ObjectStoreExecutionBinding" />
         <Bug pattern="EI_EXPOSE_REP" />
@@ -1666,7 +1656,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.streaming.cdc.CdcConsumer"/>
-        <Field name="writer" type="org.pangrova.connector.spi.write.TableWriter"/>
+        <Field name="writer" type="org.pangrova.connector.api.write.TableWriter"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
@@ -1686,7 +1676,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.streaming.writer.incremental.IncrementalWriter"/>
-        <Field name="tableWriter" type="org.pangrova.connector.spi.write.TableWriter"/>
+        <Field name="tableWriter" type="org.pangrova.connector.api.write.TableWriter"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
@@ -1696,7 +1686,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.streaming.pipeline.StreamingWriter"/>
-        <Field name="tableWriter" type="org.pangrova.connector.spi.write.TableWriter"/>
+        <Field name="tableWriter" type="org.pangrova.connector.api.write.TableWriter"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
 
@@ -1728,7 +1718,7 @@
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider" />
+        <Class name="org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider" />
         <Method name="callWithRetryRaw" params="java.lang.String,org.pangrova.ai.api.invocation.GenerationParameters" returns="org.pangrova.ai.api.invocation.InferenceResult" />
         <Bug pattern="PREDICTABLE_RANDOM" />
     </Match>
@@ -1750,7 +1740,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.worker.bootstrap.lifecycle.WorkerResourceShutdown" />
-        <Method name="&lt;init&gt;" params="java.util.concurrent.ScheduledExecutorService,org.pangrova.worker.resource.ResourceManager,org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher,org.pangrova.observability.core.metrics.MetricsScope,org.pangrova.observability.sdk.config.TelemetryInitializer,boolean,org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease,org.pangrova.worker.buffer.ShuffleBufferManager" returns="void" />
+        <Method name="&lt;init&gt;" params="java.util.concurrent.ScheduledExecutorService,org.pangrova.worker.resource.ResourceManager,org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher,org.pangrova.observability.metrics.MetricsScope,org.pangrova.observability.sdk.config.TelemetryInitializer,boolean,org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease,org.pangrova.worker.buffer.ShuffleBufferManager" returns="void" />
         <Field name="shuffleBufferManager" type="org.pangrova.worker.buffer.ShuffleBufferManager" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -1768,14 +1758,14 @@
     </Match>
     <Match>
         <Class name="org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs" />
-        <Method name="nativeFunctionBridge" params="" returns="org.pangrova.worker.nativebridge.jni.NativeFunctionBridge" />
-        <Field name="nativeFunctionBridge" type="org.pangrova.worker.nativebridge.jni.NativeFunctionBridge" />
+        <Method name="nativeFunctionCallbacks" params="" returns="org.pangrova.worker.function.NativeFunctionCallbacks" />
+        <Field name="nativeFunctionCallbacks" type="org.pangrova.worker.function.NativeFunctionCallbacks" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
         <Class name="org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs" />
-        <Method name="nativeWriteExecutor" params="" returns="org.pangrova.worker.nativebridge.jni.write.NativeWriteExecutor" />
-        <Field name="nativeWriteExecutor" type="org.pangrova.worker.nativebridge.jni.write.NativeWriteExecutor" />
+        <Method name="nativeWriteExecutor" params="" returns="org.pangrova.worker.write.NativeWriteExecutor" />
+        <Field name="nativeWriteExecutor" type="org.pangrova.worker.write.NativeWriteExecutor" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
@@ -1822,14 +1812,14 @@
     </Match>
     <Match>
         <Class name="org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs" />
-        <Method name="setNativeFunctionBridge" params="org.pangrova.worker.nativebridge.jni.NativeFunctionBridge" returns="void" />
-        <Field name="nativeFunctionBridge" type="org.pangrova.worker.nativebridge.jni.NativeFunctionBridge" />
+        <Method name="setNativeFunctionCallbacks" params="org.pangrova.worker.function.NativeFunctionCallbacks" returns="void" />
+        <Field name="nativeFunctionCallbacks" type="org.pangrova.worker.function.NativeFunctionCallbacks" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
         <Class name="org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs" />
-        <Method name="setNativeWriteExecutor" params="org.pangrova.worker.nativebridge.jni.write.NativeWriteExecutor" returns="void" />
-        <Field name="nativeWriteExecutor" type="org.pangrova.worker.nativebridge.jni.write.NativeWriteExecutor" />
+        <Method name="setNativeWriteExecutor" params="org.pangrova.worker.write.NativeWriteExecutor" returns="void" />
+        <Field name="nativeWriteExecutor" type="org.pangrova.worker.write.NativeWriteExecutor" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -1882,8 +1872,8 @@
     </Match>
     <Match>
         <Class name="org.pangrova.worker.execution.NativeTaskExecutor" />
-        <Method name="setCatalogRuntime" params="org.pangrova.worker.nativebridge.jni.write.catalog.WorkerCatalogRuntime" returns="void" />
-        <Field name="catalogRuntime" type="org.pangrova.worker.nativebridge.jni.write.catalog.WorkerCatalogRuntime" />
+        <Method name="setCatalogRuntime" params="org.pangrova.worker.catalog.WorkerCatalogRuntime" returns="void" />
+        <Field name="catalogRuntime" type="org.pangrova.worker.catalog.WorkerCatalogRuntime" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -1892,15 +1882,15 @@
         <Bug pattern="PREDICTABLE_RANDOM" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver$CatalogResources" />
-        <Method name="metadata" params="" returns="org.pangrova.connector.spi.metadata.ConnectorMetadata" />
-        <Field name="metadata" type="org.pangrova.connector.spi.metadata.ConnectorMetadata" />
+        <Class name="org.pangrova.worker.catalog.CatalogResourceResolver$CatalogResources" />
+        <Method name="metadata" params="" returns="org.pangrova.connector.api.metadata.ConnectorMetadata" />
+        <Field name="metadata" type="org.pangrova.connector.api.metadata.ConnectorMetadata" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver$CatalogResources" />
-        <Method name="&lt;init&gt;" params="org.pangrova.connector.spi.metadata.ConnectorMetadata,org.pangrova.connector.spi.data.ConnectorPageSinkProvider,org.pangrova.connector.api.session.ConnectorSession,org.pangrova.connector.api.metadata.ConnectorOutputTableHandle,java.util.List" returns="void" />
-        <Field name="metadata" type="org.pangrova.connector.spi.metadata.ConnectorMetadata" />
+        <Class name="org.pangrova.worker.catalog.CatalogResourceResolver$CatalogResources" />
+        <Method name="&lt;init&gt;" params="org.pangrova.connector.api.metadata.ConnectorMetadata,org.pangrova.connector.api.data.ConnectorPageSinkProvider,org.pangrova.connector.api.session.ConnectorSession,org.pangrova.connector.api.metadata.ConnectorOutputTableHandle,java.util.List" returns="void" />
+        <Field name="metadata" type="org.pangrova.connector.api.metadata.ConnectorMetadata" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -1911,20 +1901,20 @@
     </Match>
     <Match>
         <Class name="org.pangrova.worker.memory.NativeMemoryCoordinator" />
-        <Method name="&lt;init&gt;" params="long,org.pangrova.worker.resource.memory.MemoryArbitrator,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.worker.memory.NativeSpillBridge" returns="void" />
+        <Method name="&lt;init&gt;" params="long,org.pangrova.worker.resource.memory.MemoryArbitrator,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.worker.memory.NativeSpillController" returns="void" />
         <Field name="arbitrator" type="org.pangrova.worker.resource.memory.MemoryArbitrator" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
         <Class name="org.pangrova.worker.memory.NativeMemoryCoordinator" />
-        <Method name="&lt;init&gt;" params="long,org.pangrova.worker.resource.memory.MemoryArbitrator,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.worker.memory.NativeSpillBridge" returns="void" />
+        <Method name="&lt;init&gt;" params="long,org.pangrova.worker.resource.memory.MemoryArbitrator,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.worker.memory.NativeSpillController" returns="void" />
         <Field name="nodePool" type="org.pangrova.worker.resource.memory.NodeMemoryPool" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
         <Class name="org.pangrova.worker.memory.NativeMemoryCoordinator" />
-        <Method name="&lt;init&gt;" params="long,org.pangrova.worker.resource.memory.MemoryArbitrator,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.worker.memory.NativeSpillBridge" returns="void" />
-        <Field name="spillBridge" type="org.pangrova.worker.memory.NativeSpillBridge" />
+        <Method name="&lt;init&gt;" params="long,org.pangrova.worker.resource.memory.MemoryArbitrator,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.worker.memory.NativeSpillController" returns="void" />
+        <Field name="spillBridge" type="org.pangrova.worker.memory.NativeSpillController" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -1941,20 +1931,8 @@
     </Match>
     <Match>
         <Class name="org.pangrova.worker.task.TaskManager" />
-        <Method name="retryExecutor" params="" returns="org.pangrova.worker.task.TaskRetryExecutor" />
-        <Field name="retryExecutor" type="org.pangrova.worker.task.TaskRetryExecutor" />
-        <Bug pattern="EI_EXPOSE_REP" />
-    </Match>
-    <Match>
-        <Class name="org.pangrova.worker.task.TaskManager" />
         <Method name="setRecentFileAccessTracker" params="org.pangrova.worker.cache.RecentFileAccessTracker" returns="void" />
         <Field name="recentFileAccessTracker" type="org.pangrova.worker.cache.RecentFileAccessTracker" />
-        <Bug pattern="EI_EXPOSE_REP2" />
-    </Match>
-    <Match>
-        <Class name="org.pangrova.worker.task.TaskManager" />
-        <Method name="setRetryExecutor" params="org.pangrova.worker.task.TaskRetryExecutor" returns="void" />
-        <Field name="retryExecutor" type="org.pangrova.worker.task.TaskRetryExecutor" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -1971,7 +1949,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.worker.task.memory.MemoryRefs" />
-        <Method name="&lt;init&gt;" params="org.pangrova.worker.resource.ResourceManager,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.observability.spi.tracing.TracingProvider" returns="void" />
+        <Method name="&lt;init&gt;" params="org.pangrova.worker.resource.ResourceManager,org.pangrova.worker.resource.memory.NodeMemoryPool,org.pangrova.observability.api.tracing.TracingProvider" returns="void" />
         <Field name="nodeMemoryPool" type="org.pangrova.worker.resource.memory.NodeMemoryPool" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2176,21 +2154,21 @@
     </Match>
     <Match>
         <Class name="org.pangrova.indexing.build.IndexBuildContext" />
-        <Method name="&lt;init&gt;" params="org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.registry.IndexEngineRegistry,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.codec.data.IndexSerializer,org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository,org.pangrova.indexing.build.GenerationChecker,org.pangrova.connector.spi.index.SnapshotPinProvider,java.util.concurrent.ExecutorService" returns="void" />
+        <Method name="&lt;init&gt;" params="org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.strategy.IndexEngineRegistry,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.codec.data.IndexSerializer,org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository,org.pangrova.indexing.build.GenerationChecker,org.pangrova.connector.api.index.SnapshotPinProvider,java.util.concurrent.ExecutorService" returns="void" />
         <Field name="storageManager" type="org.pangrova.indexing.storage.IndexStorageManager" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.indexing.eval.IndexEvaluationService" />
-        <Method name="&lt;init&gt;" params="org.pangrova.indexing.registry.IndexEngineRegistry,org.pangrova.indexing.storage.IndexCache,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.codec.data.IndexSerializer,org.pangrova.indexing.eval.IndexEvalCircuitBreaker" returns="void" />
+        <Class name="org.pangrova.indexing.evaluation.IndexEvaluationService" />
+        <Method name="&lt;init&gt;" params="org.pangrova.indexing.strategy.IndexEngineRegistry,org.pangrova.indexing.storage.IndexCache,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.codec.data.IndexSerializer,org.pangrova.indexing.evaluation.IndexEvalCircuitBreaker" returns="void" />
         <Field name="storageManager" type="org.pangrova.indexing.storage.IndexStorageManager" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <!-- The evaluator is deliberately bound to its owner-managed live cache, so
          invalidation and admission are shared with the coordinator's write path. -->
     <Match>
-        <Class name="org.pangrova.indexing.eval.IndexEvaluationService" />
-        <Method name="&lt;init&gt;" params="org.pangrova.indexing.registry.IndexEngineRegistry,org.pangrova.indexing.storage.IndexCache,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.codec.data.IndexSerializer,org.pangrova.indexing.eval.IndexEvalCircuitBreaker" returns="void" />
+        <Class name="org.pangrova.indexing.evaluation.IndexEvaluationService" />
+        <Method name="&lt;init&gt;" params="org.pangrova.indexing.strategy.IndexEngineRegistry,org.pangrova.indexing.storage.IndexCache,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.codec.data.IndexSerializer,org.pangrova.indexing.evaluation.IndexEvalCircuitBreaker" returns="void" />
         <Field name="cache" type="org.pangrova.indexing.storage.IndexCache" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2312,7 +2290,7 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.dispatch.StatementExecutionContext" />
+        <Class name="org.pangrova.query.dispatch.StatementExecutionContext" />
         <Field name="~(stateMachine)" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
@@ -2371,13 +2349,13 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.execution.core.binding.TaskRequestFactory$LeafTask" />
+        <Class name="org.pangrova.execution.binding.TaskRequestFactory$LeafTask" />
         <Method name="resourceGrant" params="" returns="org.pangrova.protocol.v2.StageResourceGrant" />
         <Field name="resourceGrant" type="org.pangrova.protocol.v2.StageResourceGrant" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.execution.core.binding.TaskRequestFactory$DmlWriteTask" />
+        <Class name="org.pangrova.execution.binding.TaskRequestFactory$DmlWriteTask" />
         <Method name="resourceGrant" params="" returns="org.pangrova.protocol.v2.StageResourceGrant" />
         <Field name="resourceGrant" type="org.pangrova.protocol.v2.StageResourceGrant" />
         <Bug pattern="EI_EXPOSE_REP" />
@@ -2410,7 +2388,7 @@
     </Match>
     <!-- The namespace response deep-copies each inner list; Java Stream.toList returns an unmodifiable outer list. -->
     <Match>
-        <Class name="org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResponse$ListNamespacesResponse" />
+        <Class name="org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestResponse$ListNamespacesResponse" />
         <Field name="namespaces" type="java.util.List" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
@@ -2446,7 +2424,7 @@
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.coordinator.http.endpoint.WebUiResource" />
+        <Class name="org.pangrova.server.coordinator.http.endpoint.WebUiResource" />
         <Field name="workerManager" type="org.pangrova.coordinator.worker.WorkerManager" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2461,7 +2439,7 @@
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.indexing.core.descriptor.IndexDescriptorCache" />
+        <Class name="org.pangrova.indexing.descriptor.IndexDescriptorCache" />
         <Field name="delegate" type="org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2471,7 +2449,7 @@
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.coordinator.indexing.filter.IndexSplitFilter" />
+        <Class name="org.pangrova.indexing.pruning.IndexSplitFilter" />
         <Field name="metadataStore" type="org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2531,12 +2509,12 @@
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder" />
-        <Field name="catalogRegistry" type="org.pangrova.metadata.catalog.registry.CatalogRegistry" />
+        <Class name="org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder" />
+        <Field name="catalogRegistry" type="org.pangrova.metadata.api.catalog.CatalogReadAccess" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder" />
+        <Class name="org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder" />
         <Field name="metadataService" type="org.pangrova.metadata.api.resolution.MetadataService" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2547,7 +2525,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.audit.QueryAuditEmitter" />
-        <Field name="emitter" type="org.pangrova.security.core.audit.AuditEventEmitter" />
+        <Field name="emitter" type="org.pangrova.security.audit.AuditEventEmitter" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -2557,12 +2535,12 @@
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.cache.ResultCacheCoordinator" />
-        <Field name="l1Cache" type="org.pangrova.planner.core.cache.QueryResultCache" />
+        <Field name="l1Cache" type="org.pangrova.planner.cache.QueryResultCache" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.cache.ResultCacheCoordinator" />
-        <Field name="l2Store" type="org.pangrova.planner.core.cache.L2CacheStore" />
+        <Field name="l2Store" type="org.pangrova.planner.cache.L2CacheStore" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -2582,7 +2560,7 @@
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycleController" />
-        <Field name="lineageEmitter" type="org.pangrova.governance.core.lineage.LineageEventEmitter" />
+        <Field name="lineageEmitter" type="org.pangrova.governance.runtime.lineage.LineageEventEmitter" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
@@ -2667,11 +2645,11 @@
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.stage.Stage" />
-        <Field name="stateMachine" type="org.pangrova.query.core.stage.StageStateMachine" />
+        <Field name="stateMachine" type="org.pangrova.query.stage.StageStateMachine" />
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.recovery.JournalRecoveryService" />
+        <Class name="org.pangrova.query.recovery.JournalRecoveryService" />
         <Field name="workerManager" type="org.pangrova.coordinator.worker.WorkerManager" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2696,22 +2674,22 @@
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.scheduler.core.speculation.SpeculativeStageHandler" />
-        <Field name="launcher" type="org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher" />
+        <Class name="org.pangrova.scheduler.speculation.SpeculativeStageHandler" />
+        <Field name="launcher" type="org.pangrova.scheduler.speculation.SpeculativeTaskLauncher" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher" />
-        <Field name="taskRegistry" type="org.pangrova.scheduler.core.speculation.SpeculativeTaskRegistry" />
+        <Class name="org.pangrova.scheduler.speculation.SpeculativeTaskLauncher" />
+        <Field name="taskRegistry" type="org.pangrova.scheduler.speculation.SpeculativeTaskRegistry" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher" />
+        <Class name="org.pangrova.scheduler.speculation.SpeculativeTaskLauncher" />
         <Field name="taskTracker" type="org.pangrova.coordinator.task.CoordinatorTaskTracker" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
-        <Class name="org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher" />
+        <Class name="org.pangrova.scheduler.speculation.SpeculativeTaskLauncher" />
         <Field name="workerManager" type="org.pangrova.coordinator.worker.WorkerManager" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
@@ -2748,7 +2726,7 @@
     <!-- The connector owns its output handle; the write commit path must retain
          that exact SPI identity through page-sink creation and final commit. -->
     <Match>
-        <Class name="org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver$CatalogResources" />
+        <Class name="org.pangrova.worker.catalog.CatalogResourceResolver$CatalogResources" />
         <Field name="outputHandle" type="org.pangrova.connector.api.metadata.ConnectorOutputTableHandle" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
@@ -2757,12 +2735,12 @@
          deletion client; copying either would break their shared lifecycle. -->
     <Match>
         <Class name="org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter" />
-        <Field name="emitter" type="org.pangrova.security.core.audit.AuditEventEmitter" />
+        <Field name="emitter" type="org.pangrova.security.audit.AuditEventEmitter" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.execution.dispatch.task.file.RemoveStageTask" />
-        <Field name="deleter" type="org.pangrova.file.spi.access.FileDeletionClient" />
+        <Field name="deleter" type="org.pangrova.file.api.access.FileDeletionClient" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <!-- S3Client is an SDK @ThreadSafe service, not mutable DTO representation.
@@ -2820,7 +2798,7 @@
     <!-- The record constructor orders and freezes the dependency set via a sorted
          copy; callers only iterate the exposed immutable set. -->
     <Match>
-        <Class name="org.pangrova.materialization.domain.DefinitionRevision" />
+        <Class name="org.pangrova.materialization.api.domain.DefinitionRevision" />
         <Method name="dependencies" />
         <Field name="dependencies" />
         <Bug pattern="EI_EXPOSE_REP" />
@@ -2849,7 +2827,7 @@
     <!-- TagBasedSecurityPolicy is an event listener that must apply masks through the
          assembly-owned ColumnMaskStore; a copy would diverge from the live authority. -->
     <Match>
-        <Class name="org.pangrova.governance.core.classification.TagBasedSecurityPolicy"/>
+        <Class name="org.pangrova.governance.runtime.classification.TagBasedSecurityPolicy"/>
         <Field name="columnMaskStore" type="org.pangrova.persistence.security.api.mask.ColumnMaskStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
@@ -2885,7 +2863,7 @@
     <!-- IndexSchemaEvolutionHandler reacts to catalog events through the assembly-owned
          metadata store; a copy would diverge from the live index metadata authority. -->
     <Match>
-        <Class name="org.pangrova.indexing.store.IndexSchemaEvolutionHandler"/>
+        <Class name="org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler"/>
         <Field name="metadataStore" type="org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
@@ -2902,55 +2880,55 @@
          tests verify mutations on the original owner; copying would split terminal state.
          Retrieval intent protobuf fields are immutable built messages; byte arrays stay checked. -->
     <Match>
-        <Class name="org.pangrova.query.core.lifecycle.QueryTerminalCleanup$Context"/>
-        <Method name="state" params="" returns="org.pangrova.query.core.lifecycle.QueryStateMachine"/>
-        <Field name="state" type="org.pangrova.query.core.lifecycle.QueryStateMachine"/>
+        <Class name="org.pangrova.query.lifecycle.QueryTerminalCleanup$Context"/>
+        <Method name="state" params="" returns="org.pangrova.query.lifecycle.QueryStateMachine"/>
+        <Field name="state" type="org.pangrova.query.lifecycle.QueryStateMachine"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.lifecycle.QueryTerminalCleanup$Context"/>
-        <Method name="&lt;init&gt;" params="java.lang.String,org.pangrova.query.core.lifecycle.QueryStateMachine,java.lang.String" returns="void"/>
-        <Field name="state" type="org.pangrova.query.core.lifecycle.QueryStateMachine"/>
+        <Class name="org.pangrova.query.lifecycle.QueryTerminalCleanup$Context"/>
+        <Method name="&lt;init&gt;" params="java.lang.String,org.pangrova.query.lifecycle.QueryStateMachine,java.lang.String" returns="void"/>
+        <Field name="state" type="org.pangrova.query.lifecycle.QueryStateMachine"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.retention.QueryRetentionScheduler"/>
+        <Class name="org.pangrova.query.retention.QueryRetentionScheduler"/>
         <Method name="&lt;init&gt;" params="java.util.concurrent.ConcurrentHashMap,java.util.function.Predicate,java.lang.Runnable" returns="void"/>
         <Field name="queries" type="java.util.concurrent.ConcurrentHashMap"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.stage.binding.RerankIntent"/>
+        <Class name="org.pangrova.execution.stage.binding.RerankIntent"/>
         <Method name="modelLimits" params="" returns="org.pangrova.protocol.v2.CapabilityLimits"/>
         <Field name="modelLimits" type="org.pangrova.protocol.v2.CapabilityLimits"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.stage.binding.RerankIntent"/>
+        <Class name="org.pangrova.execution.stage.binding.RerankIntent"/>
         <Method name="&lt;init&gt;" params="int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String" returns="void"/>
         <Field name="modelLimits" type="org.pangrova.protocol.v2.CapabilityLimits"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.stage.binding.RerankIntent"/>
+        <Class name="org.pangrova.execution.stage.binding.RerankIntent"/>
         <Method name="modelOutputType" params="" returns="org.pangrova.protocol.v2.LogicalType"/>
         <Field name="modelOutputType" type="org.pangrova.protocol.v2.LogicalType"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.stage.binding.RerankIntent"/>
+        <Class name="org.pangrova.execution.stage.binding.RerankIntent"/>
         <Method name="&lt;init&gt;" params="int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String" returns="void"/>
         <Field name="modelOutputType" type="org.pangrova.protocol.v2.LogicalType"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.stage.binding.RetrievalGenerationIntent"/>
+        <Class name="org.pangrova.execution.stage.binding.RetrievalGenerationIntent"/>
         <Method name="capability" params="" returns="org.pangrova.protocol.v2.CapabilityRef"/>
         <Field name="capability" type="org.pangrova.protocol.v2.CapabilityRef"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.query.core.stage.binding.RetrievalGenerationIntent"/>
+        <Class name="org.pangrova.execution.stage.binding.RetrievalGenerationIntent"/>
         <Method name="&lt;init&gt;" params="java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,org.pangrova.protocol.v2.CapabilityRef,java.util.List,int" returns="void"/>
         <Field name="capability" type="org.pangrova.protocol.v2.CapabilityRef"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
@@ -2967,13 +2945,13 @@
          participant; ownership and closure remain with the bootstrap owner. -->
     <Match>
         <Class name="org.pangrova.coordinator.query.cache.ResultCacheCoordinator"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.planner.core.cache.QueryResultCache,org.pangrova.cache.api.L2CacheStore,org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller" returns="void"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.planner.cache.QueryResultCache,org.pangrova.cache.api.L2CacheStore,org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller" returns="void"/>
         <Field name="l2Store" type="org.pangrova.cache.api.L2CacheStore"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.query.cache.ResultCacheCoordinator"/>
-        <Method name="&lt;init&gt;" params="org.pangrova.planner.core.cache.QueryResultCache,org.pangrova.cache.api.L2CacheStore,org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller" returns="void"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.planner.cache.QueryResultCache,org.pangrova.cache.api.L2CacheStore,org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller" returns="void"/>
         <Field name="invalidationPoller" type="org.pangrova.persistence.catalog.api.invalidation.InvalidationLogPoller"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>

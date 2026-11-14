@@ -38,11 +38,13 @@ class JdbcWorkerRegistryPostgresTest extends ContainerTestBase {
                 "rack-a", List.of("s3://bucket"),
                 "NONE", 0.1, 1, 1024L, now, now,
                 9191, null, inventory, 9443,
-                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1",
+                new org.pangrova.coordination.api.membership.WorkerShuffleDeployment("REMOTE", "pangrova"));
 
         registry.register(worker);
         WorkerSnapshot recovered = registry.getWorker("worker-1").orElseThrow();
 
+        assertThat(recovered.shuffleDeployment()).isEqualTo(worker.shuffleDeployment());
         assertThat(recovered.resultServerPort()).isEqualTo(9191);
         assertThat(recovered.copyTaskTlsPort()).isEqualTo(9443);
         assertThat(recovered.capabilityInventory()).isEqualTo(inventory);

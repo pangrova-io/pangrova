@@ -43,8 +43,8 @@ class GenerationValueIsolationTest {
         assertThat(new GenerationJobKey("tenant", "job").executionId()).isNotBlank();
         String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
         assertThat(classpath).isNotBlank();
-        for (String artifact : List.of("pangrova-spi", "pangrova-generation-core", "pangrova-generation-codec",
-                "pangrova-persistence-generation-postgresql", "pangrova-coordination-core", "pangrova-worker-core")) {
+        for (String artifact : List.of("pangrova-spi", "pangrova-generation-workflow", "pangrova-generation-codec",
+                "pangrova-persistence-generation-postgresql", "pangrova-coordination-control", "pangrova-worker")) {
             assertThat(classpath).doesNotContain(artifact);
             assertThat(java.util.Collections.list(loader.getResources(
                     "META-INF/maven/org.pangrova/" + artifact + "/pom.properties"))).isEmpty();
@@ -54,8 +54,8 @@ class GenerationValueIsolationTest {
                 "org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority",
                 "org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore",
                 "org.pangrova.generation.codec.execution.GenerationStageGraphCodec",
-                "org.pangrova.generation.core.submission.GenerationStageGraphFactory",
-                "org.pangrova.security.core.authorization.deferred.DeferredAuthorization",
+                "org.pangrova.generation.submission.GenerationStageGraphFactory",
+                "org.pangrova.security.authorization.deferred.DeferredAuthorization",
                 "org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats",
                 "org.pangrova.coordinator.generation.DurableGenerationDispatcher",
                 "org.pangrova.protocol.v2.TaskRequest",

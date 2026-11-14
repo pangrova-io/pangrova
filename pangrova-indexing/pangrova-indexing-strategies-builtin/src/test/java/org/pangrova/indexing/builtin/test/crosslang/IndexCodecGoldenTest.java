@@ -1,10 +1,11 @@
 package org.pangrova.indexing.builtin.test.crosslang;
 
-import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import java.util.ServiceLoader;
 import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.BloomFilterIndexData;
 
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,7 @@ class IndexCodecGoldenTest {
 
     @Test
     void indexSerializerHeaderLayoutIsStable() {
-        TypeSerializerRegistry registry = BuiltinIndexSerializers.createRegistry();
+        TypeSerializerRegistry registry = TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class));
         IndexSerializer serializer = new IndexSerializer(registry, true);
         BloomFilterIndexData bloom = makeMinimalBloom();
 
@@ -61,7 +62,7 @@ class IndexCodecGoldenTest {
 
     @Test
     void indexSerializerDetectsHeaderCorruption() {
-        TypeSerializerRegistry registry = BuiltinIndexSerializers.createRegistry();
+        TypeSerializerRegistry registry = TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class));
         IndexSerializer serializer = new IndexSerializer(registry, true);
         BloomFilterIndexData bloom = makeMinimalBloom();
         byte[] bytes = serializer.serialize(bloom);

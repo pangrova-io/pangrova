@@ -1,10 +1,14 @@
 package org.pangrova.connector.iceberg.handle;
 
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
+
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.util.Map;
 import java.util.TreeMap;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Immutable handle for Iceberg table write operations.
@@ -47,11 +51,11 @@ public record IcebergOutputTableHandle(
      * Compact constructor with validation.
      */
     public IcebergOutputTableHandle {
-        requireNonBlank(schemaName, "schemaName");
-        requireNonBlank(tableName, "tableName");
-        requireNonBlank(tableUuid, "tableUuid");
-        requireNonBlank(tableLocation, "tableLocation");
-        requireNonBlank(schemaJson, "schemaJson");
+        requireText(schemaName, "schemaName");
+        requireText(tableName, "tableName");
+        requireText(tableUuid, "tableUuid");
+        requireText(tableLocation, "tableLocation");
+        requireText(schemaJson, "schemaJson");
         partitionSpecJson = partitionSpecJson == null ? "{}" : partitionSpecJson;
         if (!MODE_INSERT.equals(writeMode)
                 && !MODE_OVERWRITE.equals(writeMode)
@@ -83,19 +87,13 @@ public record IcebergOutputTableHandle(
             throw new IllegalArgumentException(
                     "Iceberg WHOLE_TABLE overwrite must not carry static partitions");
         }
-        staticPartitions.forEach((key, value) -> requireNonBlank(key, "static partition column"));
+        staticPartitions.forEach((key, value) -> requireText(key, "static partition column"));
         declarationProperties = IcebergDeclarationProperties.requireCanonical(declarationProperties);
     }
 
     @Override
     public Map<String, String> declarationProperties() {
         return Map.copyOf(declarationProperties);
-    }
-
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
     }
 
     /**

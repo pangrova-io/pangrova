@@ -13,13 +13,14 @@
  */
 package org.pangrova.ai.api.model;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Set;
@@ -50,7 +51,7 @@ public final class AiModelIdentity {
         if (model == null) {
             throw new IllegalArgumentException("model must not be null");
         }
-        MessageDigest digest = newDigest();
+        MessageDigest digest = DigestUtils.sha256();
         updateModelIdentity(digest, model);
         model.capabilities().stream()
                 .sorted(Comparator
@@ -60,14 +61,6 @@ public final class AiModelIdentity {
                 .forEach(capability -> updateCapability(digest, capability));
         updateProperties(digest, model.properties());
         return digest.digest();
-    }
-
-    private static MessageDigest newDigest() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
-        }
     }
 
     private static void updateModelIdentity(MessageDigest digest, AiModelDescriptor model) {

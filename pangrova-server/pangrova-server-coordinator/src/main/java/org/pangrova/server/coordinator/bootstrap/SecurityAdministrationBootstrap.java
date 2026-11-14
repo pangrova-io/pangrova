@@ -14,8 +14,7 @@ final class SecurityAdministrationBootstrap {
 
     static void register(MetadataExecutionFactory factory, CoordinatorBootstrapConfig config, DataSource source) {
         boolean enabled = config.securityEnabled() && config.securityConfig() != null
-                && config.securityConfig().authenticatorType()
-                        != CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.NOOP && source != null;
+                && config.securityConfig().authenticatesClients() && source != null;
         Optional<PrivilegeMutationRepository> repository = enabled
                 ? Optional.of(new JdbcPrivilegeMutationRepository(source)) : Optional.empty();
         new PrivilegeStatementTasks(repository).register(factory);

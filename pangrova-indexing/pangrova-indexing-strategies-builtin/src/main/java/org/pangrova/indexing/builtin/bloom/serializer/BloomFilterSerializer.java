@@ -2,7 +2,7 @@ package org.pangrova.indexing.builtin.bloom.serializer;
 
 import org.pangrova.indexing.api.data.BloomFilterIndexData;
 import org.pangrova.indexing.codec.data.SerdeCodec;
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
 /**
  * Serializer for {@link BloomFilterIndexData}.

@@ -94,7 +94,16 @@ public final class JavaSourceReferences {
                 Path root = owners.get(file);
                 Path relativeFile = root.toRealPath().relativize(file);
                 if (unit.getPackageName() == null) throw new IllegalStateException("Missing package: " + file);
-                packages.get(root).add(unit.getPackageName().toString());
+                String packageName = unit.getPackageName().toString();
+                if (packageName.startsWith("org.pangrova.") && List.of(packageName.split("\\.")).contains("spi")) {
+                    throw new IllegalStateException("Declare Pangrova plugin contracts under api: " + file);
+                }
+                Path expected = Path.of(packageName.replace('.', '/')).resolve(file.getFileName());
+                if (!expected.equals(relativeFile)) {
+                    throw new IllegalStateException("Source " + relativeFile + " declares package "
+                            + packageName + "; expected path " + expected);
+                }
+                packages.get(root).add(packageName);
                 new TreeScanner<Void, Void>() {
                     private void reference(Tree tree, String name) {
                         if (name.startsWith("org.pangrova.")) {

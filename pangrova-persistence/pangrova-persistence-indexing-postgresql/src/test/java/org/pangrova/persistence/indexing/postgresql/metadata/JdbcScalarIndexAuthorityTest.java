@@ -1,21 +1,24 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
+import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
-import org.pangrova.indexing.api.error.IndexAlreadyExistsException;
+import org.pangrova.indexing.api.exception.IndexAlreadyExistsException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
+import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
@@ -28,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
+    private static final String OWNER = "mapping-test-owner";
     private static final String TENANT = "tenant-scalar-index";
     private static final String PRINCIPAL = "alice";
     private static final QualifiedTableName TABLE = new QualifiedTableName("lake", "raw", "events");
@@ -41,7 +45,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
         SchemaMigrationRunner.migrate(dataSource);
         GenerationAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL,
                 DeferredAuthorizationScope.raw(TABLE, Set.of("value"), TABLE));
-        indexes = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        indexes = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
     }
 
     @Test
@@ -49,7 +53,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
         var descriptor = descriptor("index-1");
         indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
 
-        assertThat(new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent).loadAuthorizedBuildPrincipal(descriptor))
+        assertThat(new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent).loadAuthorizedBuildPrincipal(descriptor))
                 .isEqualTo(PRINCIPAL);
         assertThatThrownBy(() -> indexes.loadAuthorizedBuildPrincipal(
                 new IndexDescriptor(descriptor.indexId(), descriptor.indexName(), "other", "raw", "events",
@@ -90,7 +94,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
 
         assertThatThrownBy(() -> indexes.loadAuthorizedBuildPrincipal(dropped))
                 .isInstanceOf(AuthorizationDeniedException.class);
-        assertThat(new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)
+        assertThat(new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent)
                 .loadDroppedIndexCleanupPrincipal(dropped)).isEqualTo(PRINCIPAL);
         assertThatThrownBy(() -> indexes.loadDroppedIndexCleanupPrincipal(
                 new IndexDescriptor(dropped.indexId(), dropped.indexName(), "other", "raw", "events",
@@ -136,7 +140,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
             assertThat(principal).isEqualTo(PRINCIPAL);
             observed.set(connection);
             calls.incrementAndGet();
-            org.pangrova.metadata.service.TableControlWriteAuthorities.postgres().requireCurrent(connection, principal, scope);
+            TableWriteAuthorityFixture.create().requireCurrent(connection, principal, scope);
             try (var statement = connection.prepareStatement(
                     "UPDATE index_descriptors SET stale_reason='authority-probe' WHERE index_id=?")) {
                 statement.setString(1, descriptor.indexId());
@@ -182,7 +186,8 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
     void sameNameRecreationKeepsDroppedIndexAndFilesForGc() {
         var old = namedDescriptor("index-old", "shared");
         indexes.registerIndexWithBuildAuthority(old, PRINCIPAL);
-        indexes.registerIndexFile(new IndexFileMapping(old.indexId(), "/data/old.parquet",
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim(old.indexId(), 0, OWNER, Instant.now())).isTrue();
+        indexes.registerIndexFile(OWNER, new IndexFileMapping(old.indexId(), "/data/old.parquet",
                 "/index/old.idx", 1, 16, "a".repeat(64), 0, "42", 0,
                 Instant.now(), 0));
         indexes.dropIndex(old.indexId(), Instant.now());
@@ -203,7 +208,8 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
     void purgeRequiresDroppedStateAndDeletesMappingsAtomically() {
         var descriptor = descriptor("index-purge");
         indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
-        indexes.registerIndexFile(new IndexFileMapping(descriptor.indexId(), "/data/purge.parquet",
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim(descriptor.indexId(), 0, OWNER, Instant.now())).isTrue();
+        indexes.registerIndexFile(OWNER, new IndexFileMapping(descriptor.indexId(), "/data/purge.parquet",
                 "/index/purge.idx", 1, 16, "a".repeat(64), 0, "42", 0,
                 Instant.now(), 0));
 

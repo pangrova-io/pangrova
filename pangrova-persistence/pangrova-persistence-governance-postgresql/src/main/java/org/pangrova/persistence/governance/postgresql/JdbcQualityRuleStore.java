@@ -16,11 +16,11 @@ import javax.sql.DataSource;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.governance.api.quality.QualityCheckResult;
-import org.pangrova.governance.api.quality.Severity;
+import org.pangrova.governance.api.enums.Severity;
 import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import org.pangrova.governance.api.quality.QualityRuleStore;
-import org.pangrova.governance.api.quality.QualityRuleStoreException;
+import org.pangrova.governance.api.exception.QualityRuleStoreException;
 import org.pangrova.governance.api.quality.IdentityQualityRuleStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -125,8 +125,8 @@ public final class JdbcQualityRuleStore implements IdentityQualityRuleStore {
         }
     }
 
-    private static org.pangrova.security.api.error.AccessDeniedException changedOwner() {
-        return new org.pangrova.security.api.error.AccessDeniedException(
+    private static org.pangrova.security.api.exception.AccessDeniedException changedOwner() {
+        return new org.pangrova.security.api.exception.AccessDeniedException(
                 "Quality rule ID belongs to another stable table identity");
     }
 

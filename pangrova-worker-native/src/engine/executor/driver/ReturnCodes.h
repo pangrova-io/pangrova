@@ -1,5 +1,5 @@
 // Unified return codes for native pull-model interfaces.
-// Single source of truth — used by TaskExecutor and JniBridge.
+// Single source of truth — used by TaskExecutor and JniEntryPoints.
 #pragma once
 
 #include <cstdint>

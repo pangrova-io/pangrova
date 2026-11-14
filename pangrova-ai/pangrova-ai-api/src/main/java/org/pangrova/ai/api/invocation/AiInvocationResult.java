@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Immutable result returned by the unified AI invocation path. */
 @Experimental
 public record AiInvocationResult(
@@ -91,11 +93,5 @@ public record AiInvocationResult(
         providerRequestId = providerRequestId == null ? "" : providerRequestId;
         Objects.requireNonNull(finishReason, "finishReason must not be null");
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
     }
 }

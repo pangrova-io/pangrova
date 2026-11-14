@@ -1,5 +1,7 @@
 package org.pangrova.execution.api.stage;
 
+import org.pangrova.execution.api.enums.TaskPurpose;
+
 import java.util.Objects;
 
 /** Immutable execution identity and purpose, independent of any planner tree or scheduling state. */

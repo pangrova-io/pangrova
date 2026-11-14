@@ -14,7 +14,6 @@
 package org.pangrova.client.jdbc;
 
 import org.pangrova.transport.client.ColumnDescriptor;
-import io.substrait.proto.Type;
 
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -69,13 +68,8 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
         if (descriptor.sqlType() == Types.OTHER && descriptor.typeName().equals("UUID")) {
             return UUID.class.getName();
         }
-        if (descriptor.logicalType().isPresent()) {
-            var child = descriptor.logicalType().orElseThrow().getSubstraitType().getList().getType();
-            boolean nullable = (child.hasFp64() ? child.getFp64().getNullability() : child.getFp32().getNullability())
-                    == Type.Nullability.NULLABILITY_NULLABLE;
-            if (child.hasFp64()) return nullable ? Double[].class.getName() : double[].class.getName();
-            return nullable ? Float[].class.getName() : float[].class.getName();
-        }
+        var vectorClass = descriptor.vectorArrayClass();
+        if (vectorClass.isPresent()) return vectorClass.orElseThrow().getName();
         return switch (getColumnType(column)) {
             case Types.BOOLEAN -> Boolean.class.getName();
             case Types.INTEGER -> Integer.class.getName();
@@ -100,10 +94,7 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
 
     @Override
     public int isNullable(int column) throws SQLException {
-        var logical = getColumn(column).logicalType();
-        return logical.isPresent() && logical.orElseThrow().getSubstraitType().getList().getNullability()
-                == Type.Nullability.NULLABILITY_REQUIRED
-                ? ResultSetMetaData.columnNoNulls : ResultSetMetaData.columnNullable;
+        return getColumn(column).allowsNull() ? ResultSetMetaData.columnNullable : ResultSetMetaData.columnNoNulls;
     }
 
     @Override

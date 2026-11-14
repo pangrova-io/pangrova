@@ -1,0 +1,3 @@
+org.pangrova.materialization.strategy.FullRefreshStrategyFactory
+org.pangrova.materialization.strategy.AppendOnlyRefreshStrategyFactory
+org.pangrova.materialization.strategy.PartitionReplaceRefreshStrategyFactory

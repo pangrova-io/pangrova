@@ -64,8 +64,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     private static final byte[] SECRET = new byte[32];
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
             DockerImageName.parse("postgres:16-alpine"));
-    private static final GenericContainer<?> MINIO = new GenericContainer<>(
-            DockerImageName.parse("minio/minio:RELEASE.2024-01-16T16-07-38Z"))
+    private static final GenericContainer<?> MINIO = org.pangrova.testing.testkit.MinioContainer.create()
             .withEnv("MINIO_ROOT_USER", ACCESS_KEY)
             .withEnv("MINIO_ROOT_PASSWORD", SECRET_KEY)
             .withCommand("server", "/data")
@@ -75,7 +74,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     @BeforeAll
     static void startBackends() throws Exception {
         POSTGRES.start();
-        createExecutionAuthority();
+        createExecutionAuthority(POSTGRES.getJdbcUrl());
         seedAnchor("query-1", owner());
         seedAnchor("ttl-query", owner());
         seedAnchor("large-cleanup-query", owner());
@@ -519,12 +518,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             statement.execute("CREATE DATABASE " + databaseName);
         }
         String jdbcUrl = POSTGRES.getJdbcUrl().replaceFirst("/[^/]+$", "/" + databaseName);
-        try (var connection = DriverManager.getConnection(
-                jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword());
-                var statement = connection.createStatement()) {
-            statement.execute("CREATE TABLE public.execution_anchor ("
-                    + "execution_id VARCHAR(128) PRIMARY KEY)");
-        }
+        createExecutionAuthority(jdbcUrl);
         Flyway.configure().dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("shuffle").defaultSchema("shuffle")
                 .locations("classpath:org/pangrova/shuffle/migration")
@@ -598,19 +592,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 new AllocationShape(4, 1, new byte[32]), expiresAtMs);
     }
 
-    private static void createExecutionAuthority() throws Exception {
-        try (var connection = DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-                var statement = connection.createStatement()) {
-            statement.execute("CREATE TABLE public.execution_anchor ("
-                    + "execution_id VARCHAR(128) PRIMARY KEY, "
-                    + "owner_id VARCHAR(128) NOT NULL, "
-                    + "owner_incarnation VARCHAR(64) NOT NULL, "
-                    + "fencing_token BIGINT NOT NULL CHECK (fencing_token > 0), "
-                    + "acquired_at TIMESTAMPTZ(6) NOT NULL, "
-                    + "expires_at TIMESTAMPTZ(6) NOT NULL, "
-                    + "version BIGINT NOT NULL DEFAULT 1)");
-        }
+    private static void createExecutionAuthority(String jdbcUrl) {
+        Flyway.configure().dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration").load().migrate();
     }
 
     private static void seedAnchor(String queryId, ExecutionOwnerIdentity owner)

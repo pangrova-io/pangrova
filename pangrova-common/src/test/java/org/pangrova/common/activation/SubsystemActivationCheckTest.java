@@ -1,5 +1,7 @@
 package org.pangrova.common.activation;
 
+import org.pangrova.common.exception.SubsystemActivationException;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

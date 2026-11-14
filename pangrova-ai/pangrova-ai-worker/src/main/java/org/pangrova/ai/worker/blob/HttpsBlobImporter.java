@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.blob;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.worker.context.AiExecutionContext;
@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.zip.GZIPInputStream;
+
+import static org.pangrova.common.util.Preconditions.requirePositiveDuration;
 
 /** Imports an allowlisted HTTPS object into the governed content-addressed FILE store. */
 public final class HttpsBlobImporter implements AutoCloseable {
@@ -259,13 +261,6 @@ public final class HttpsBlobImporter implements AutoCloseable {
         return IDN.toASCII(host, IDN.USE_STD3_ASCII_RULES).toLowerCase(Locale.ROOT);
     }
 
-    static Duration requirePositive(Duration value, String name) {
-        if (value == null || value.isZero() || value.isNegative()) {
-            throw new IllegalArgumentException(name + " must be positive");
-        }
-        return value;
-    }
-
     private static PangrovaException sizeFailure(
             String representation, long actual, long maximum) {
         return new PangrovaException(
@@ -309,8 +304,8 @@ public final class HttpsBlobImporter implements AutoCloseable {
                     allowedHosts, "allowedHosts must not be null"));
             allowedMimeTypes = Set.copyOf(Objects.requireNonNull(
                     allowedMimeTypes, "allowedMimeTypes must not be null"));
-            connectTimeout = requirePositive(connectTimeout, "connectTimeout");
-            readTimeout = requirePositive(readTimeout, "readTimeout");
+            connectTimeout = requirePositiveDuration(connectTimeout, "connectTimeout");
+            readTimeout = requirePositiveDuration(readTimeout, "readTimeout");
             if (maxWireBytes <= 0 || maxDecodedBytes <= 0) {
                 throw new IllegalArgumentException("HTTPS FILE byte limits must be positive");
             }
@@ -330,9 +325,9 @@ public final class HttpsBlobImporter implements AutoCloseable {
                     || maxConnectionsPerRoute > maxConnections) {
                 throw new IllegalArgumentException("HTTPS FILE pool limits are invalid");
             }
-            connectionTimeToLive = requirePositive(
+            connectionTimeToLive = requirePositiveDuration(
                     connectionTimeToLive, "connectionTimeToLive");
-            idleEviction = requirePositive(idleEviction, "idleEviction");
+            idleEviction = requirePositiveDuration(idleEviction, "idleEviction");
         }
     }
 

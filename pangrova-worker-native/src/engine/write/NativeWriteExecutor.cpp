@@ -17,7 +17,7 @@
 #include <limits>
 #include <utility>
 
-#include "bridge/JniBridge.h"
+#include "jni/JniEntryPoints.h"
 #include "engine/observability/PangrovaLog.h"
 
 namespace pangrova::write {
@@ -142,7 +142,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     beginWriteId_ = env->GetMethodID(
         writerClass, "beginWrite",
-        "(Lorg/pangrova/worker/nativebridge/jni/write/WriteDescriptor;)J");
+        "(Lorg/pangrova/worker/write/WriteDescriptor;)J");
     if (!beginWriteId_) {
       throw std::runtime_error(
           "NativeWriteExecutor: GetMethodID failed for beginWrite");
@@ -157,7 +157,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     commitWriteId_ = env->GetMethodID(
         writerClass, "commitWrite",
-        "(J)Lorg/pangrova/worker/nativebridge/jni/write/WriteCommitResult;");
+        "(J)Lorg/pangrova/worker/write/WriteCommitResult;");
     if (!commitWriteId_) {
       throw std::runtime_error(
           "NativeWriteExecutor: GetMethodID failed for commitWrite");
@@ -178,7 +178,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     // Cache WriteDescriptor class and constructor.
     jclass descLocal = env->FindClass(
-        "org/pangrova/worker/nativebridge/jni/write/WriteDescriptor");
+        "org/pangrova/worker/write/WriteDescriptor");
     if (!descLocal) {
       throw std::runtime_error(
           "NativeWriteExecutor: FindClass failed for WriteDescriptor");
@@ -188,7 +188,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     descriptorCtor_ = env->GetMethodID(
         descriptorClass_, "<init>",
-        "(Lorg/pangrova/worker/nativebridge/jni/write/WriteDescriptor$DmlOperation;"
+        "(Lorg/pangrova/worker/write/WriteDescriptor$DmlOperation;"
         "Ljava/util/List;Ljava/util/Map;)V");
     if (!descriptorCtor_) {
       throw std::runtime_error(
@@ -197,7 +197,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     // Cache ColumnSchema class and constructor (inner record of WriteDescriptor).
     jclass colLocal = env->FindClass(
-        "org/pangrova/worker/nativebridge/jni/write/WriteDescriptor$ColumnSchema");
+        "org/pangrova/worker/write/WriteDescriptor$ColumnSchema");
     if (!colLocal) {
       throw std::runtime_error(
           "NativeWriteExecutor: FindClass failed for WriteDescriptor$ColumnSchema");
@@ -215,7 +215,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     // Cache DmlOperation enum class and values() method (inner enum of WriteDescriptor).
     jclass modeLocal = env->FindClass(
-        "org/pangrova/worker/nativebridge/jni/write/WriteDescriptor$DmlOperation");
+        "org/pangrova/worker/write/WriteDescriptor$DmlOperation");
     if (!modeLocal) {
       throw std::runtime_error(
           "NativeWriteExecutor: FindClass failed for WriteDescriptor$DmlOperation");
@@ -225,7 +225,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     writeModeValues_ = env->GetStaticMethodID(
         writeModeClass_, "values",
-        "()[Lorg/pangrova/worker/nativebridge/jni/write/WriteDescriptor$DmlOperation;");
+        "()[Lorg/pangrova/worker/write/WriteDescriptor$DmlOperation;");
     if (!writeModeValues_) {
       throw std::runtime_error(
           "NativeWriteExecutor: GetStaticMethodID failed for DmlOperation.values()");
@@ -233,7 +233,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     // Cache WriteCommitResult accessor method IDs.
     jclass resultLocal = env->FindClass(
-        "org/pangrova/worker/nativebridge/jni/write/WriteCommitResult");
+        "org/pangrova/worker/write/WriteCommitResult");
     if (!resultLocal) {
       throw std::runtime_error(
           "NativeWriteExecutor: FindClass failed for WriteCommitResult");

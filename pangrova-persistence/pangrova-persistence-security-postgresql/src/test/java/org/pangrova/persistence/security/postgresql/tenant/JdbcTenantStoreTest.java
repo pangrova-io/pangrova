@@ -27,8 +27,8 @@ import javax.sql.DataSource;
 
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -215,7 +215,7 @@ class JdbcTenantStoreTest {
 
     private static void assertFailure(Throwable caught, Throwable failure, SQLException rollbackFailure) {
         if (failure instanceof SQLException) {
-            assertThat(caught).isInstanceOf(org.pangrova.persistence.security.api.tenant.TenantPersistenceException.class).hasCause(failure);
+            assertThat(caught).isInstanceOf(org.pangrova.persistence.security.api.exception.TenantPersistenceException.class).hasCause(failure);
         } else {
             assertThat(caught).isSameAs(failure);
         }
@@ -260,7 +260,7 @@ class JdbcTenantStoreTest {
         var uninitialized = new JdbcTenantStore(empty);
         Throwable failure = catchThrowable(() -> uninitialized.createTenant(
                 buildTenant("uninitialized", TenantStatus.ACTIVE, QUOTA)));
-        assertThat(failure).isInstanceOf(org.pangrova.persistence.security.api.tenant.TenantPersistenceException.class);
+        assertThat(failure).isInstanceOf(org.pangrova.persistence.security.api.exception.TenantPersistenceException.class);
         assertThat(((SQLException) failure.getCause()).getSQLState()).isEqualTo("42P01");
         try (var connection = empty.getConnection(); var query = connection.createStatement();
                 var result = query.executeQuery("SELECT to_regclass('tenants')")) {

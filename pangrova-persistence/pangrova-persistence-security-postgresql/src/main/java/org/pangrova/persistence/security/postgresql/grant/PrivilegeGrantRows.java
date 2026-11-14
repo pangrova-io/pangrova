@@ -2,7 +2,7 @@ package org.pangrova.persistence.security.postgresql.grant;
 
 import org.pangrova.security.api.grant.PrivilegeMutation;
 import org.pangrova.security.api.grant.PrivilegeScope;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

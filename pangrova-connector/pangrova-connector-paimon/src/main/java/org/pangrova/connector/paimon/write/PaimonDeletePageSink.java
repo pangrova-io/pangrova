@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
-import org.pangrova.connector.api.index.CommitEventType;
+import org.pangrova.connector.api.enums.CommitEventType;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.RowKind;
 

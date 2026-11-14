@@ -12,7 +12,7 @@
 
     <artifactId>pangrova-operations</artifactId>
     <name>Pangrova Operations</name>
-    <description>Operational management for Pangrova: upgrades, DDL, DR, scaling, config, bootstrap</description>
+    <description>Operational policies, recovery playbooks, and JVM diagnostics for Pangrova</description>
 
     <properties>
         <module.name>org.pangrova.operations</module.name>
@@ -20,7 +20,8 @@
 
     <dependencies>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId></dependency>        <dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-observability-api</artifactId></dependency>
+        <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>

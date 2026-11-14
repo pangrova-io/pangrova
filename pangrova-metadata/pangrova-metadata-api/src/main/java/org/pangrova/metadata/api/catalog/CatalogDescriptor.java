@@ -1,5 +1,8 @@
 package org.pangrova.metadata.api.catalog;
 
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
+
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;

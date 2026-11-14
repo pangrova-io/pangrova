@@ -1,5 +1,7 @@
 package org.pangrova.metadata.api.object;
 
+import org.pangrova.metadata.api.enums.AssetType;
+
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

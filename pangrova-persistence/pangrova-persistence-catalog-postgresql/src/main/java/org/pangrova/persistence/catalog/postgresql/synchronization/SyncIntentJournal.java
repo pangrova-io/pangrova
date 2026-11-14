@@ -1,7 +1,7 @@
 package org.pangrova.persistence.catalog.postgresql.synchronization;
 
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion;
-import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncConflictException;
+import org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

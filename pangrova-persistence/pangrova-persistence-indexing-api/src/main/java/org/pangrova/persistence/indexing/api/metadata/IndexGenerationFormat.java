@@ -2,6 +2,8 @@ package org.pangrova.persistence.indexing.api.metadata;
 
 import org.pangrova.common.api.annotation.Experimental;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Versioned cross-runtime identity of the bytes stored in an index artifact. */
 @Experimental
 public record IndexGenerationFormat(
@@ -19,12 +21,6 @@ public record IndexGenerationFormat(
         }
         if (!isSha256(schemaSha256)) {
             throw new IllegalArgumentException("schemaSha256 must be a SHA-256 hex digest");
-        }
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
         }
     }
 

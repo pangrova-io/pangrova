@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.testing.testkit.AbstractConnectorTckTest;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;

@@ -10,6 +10,7 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-protocol</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-native</artifactId></dependency>
         <dependency><groupId>io.grpc</groupId><artifactId>grpc-netty-shaded</artifactId></dependency>
         <dependency><groupId>io.grpc</groupId><artifactId>grpc-stub</artifactId></dependency>
         <dependency><groupId>io.grpc</groupId><artifactId>grpc-protobuf</artifactId></dependency>

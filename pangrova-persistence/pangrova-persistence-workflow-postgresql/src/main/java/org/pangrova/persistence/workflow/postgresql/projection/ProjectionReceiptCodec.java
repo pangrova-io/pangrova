@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.codec.json.MetadataJsonMapper;
+import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.metadata.codec.table.TableMetadataSerializer;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt;
 import java.util.ArrayList;
@@ -24,7 +24,7 @@ final class ProjectionReceiptCodec {
     private ProjectionReceiptCodec() {}
 
     static String request(MetadataProjectionMutation mutation) {
-        ObjectNode root = MetadataJsonMapper.createObjectNode().put("version", VERSION);
+        ObjectNode root = CanonicalJsonMapper.createObjectNode().put("version", VERSION);
         if (mutation instanceof MetadataProjectionMutation.UpsertTable upsert) {
             root.put("kind", "UPSERT");
             root.set("table", tree(TABLES.serialize(upsert.table())));
@@ -40,7 +40,7 @@ final class ProjectionReceiptCodec {
     }
 
     static String result(MetadataProjectionReceipt receipt) {
-        ObjectNode root = MetadataJsonMapper.createObjectNode()
+        ObjectNode root = CanonicalJsonMapper.createObjectNode()
                 .put("version", VERSION).put("changed", receipt.changed());
         receipt.previousTable().ifPresent(table -> root.set("previous", tree(TABLES.serialize(table))));
         receipt.allowedTenants().stream().sorted().forEach(root.putArray("tenants")::add);
@@ -107,7 +107,7 @@ final class ProjectionReceiptCodec {
 
     private static JsonNode tree(String json) {
         try {
-            return MetadataJsonMapper.readTree(json);
+            return CanonicalJsonMapper.readTree(json);
         } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
             throw new MetastoreException("Cannot decode projection JSON", failure);
         }

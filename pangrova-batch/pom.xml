@@ -8,10 +8,45 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
     <artifactId>pangrova-batch</artifactId>
-    <packaging>pom</packaging>
     <name>Pangrova Batch</name>
-    <modules>
-        <module>pangrova-batch-api</module>
-        <module>pangrova-batch-arrow</module>
-    </modules>
+    <description>Batch values, ownership contracts and Arrow decoding</description>
+    <properties>
+        <module.name>org.pangrova.batch</module.name>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-types</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-unsafe</artifactId>
+            <optional>true</optional>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

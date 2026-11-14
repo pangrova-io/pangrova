@@ -18,7 +18,7 @@ import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.api.invocation.RerankingBatchResult;
-import org.pangrova.ai.spi.reranking.RerankingProvider;
+import org.pangrova.ai.api.reranking.RerankingProvider;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 
 import java.util.List;

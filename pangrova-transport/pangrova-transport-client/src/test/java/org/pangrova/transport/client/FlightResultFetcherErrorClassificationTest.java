@@ -13,10 +13,14 @@
  */
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportConnectionException;
+import org.pangrova.transport.client.exception.TransportException;
+import org.pangrova.transport.client.exception.TransportServerException;
+
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
-import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.common.client.result.ResultEndpoint;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

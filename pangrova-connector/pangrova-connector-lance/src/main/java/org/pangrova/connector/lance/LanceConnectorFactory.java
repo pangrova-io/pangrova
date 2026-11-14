@@ -1,8 +1,8 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Map;

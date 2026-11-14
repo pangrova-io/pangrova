@@ -1,6 +1,5 @@
 package org.pangrova.testing.integration.e2e.connector;
 
-import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -16,10 +15,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
-import org.pangrova.table.api.ownership.OwnershipMode;
-import org.pangrova.table.core.ownership.TableControlService;
-import org.pangrova.table.core.config.TableControlSettings;
-import org.pangrova.table.api.ownership.TableControlState;
+import org.pangrova.table.api.enums.OwnershipMode;
+import org.pangrova.table.ownership.TableControlService;
+import org.pangrova.table.config.TableControlSettings;
+import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
@@ -49,7 +48,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
 
     @BeforeEach
     void enableDurableEnforcement() {
-        var registry = metadataBootstrap.catalogRegistry();
+        var registry = testCatalogRegistry();
         previousControl = registry.tableControl();
         store = new JdbcTableControlStore(stateStoreDataSource());
         registry.setTableControlService(new TableControlService(store, registry::requireCurrentCatalogIdentity,
@@ -59,7 +58,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
 
     @AfterEach
     void restoreEnforcement() throws Exception {
-        metadataBootstrap.catalogRegistry().setTableControlService(previousControl);
+        testCatalogRegistry().setTableControlService(previousControl);
         externalCatalog.close();
     }
 
@@ -145,8 +144,8 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         String renamed = PAIMON + "." + SCHEMA + "." + renamedTable;
         sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + source + " VALUES (1),(2)");
-        var policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
-                new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()),
+        var policies = new org.pangrova.metadata.security.TableControlRowPolicyStore(
+                metadataBootstrap.catalogRegistry().tableGovernance(),
                 new org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore(stateStoreDataSource()));
         policies.savePolicy(new org.pangrova.security.api.rowfilter.RowPolicy(0, "private_rows", PAIMON,
                 SCHEMA, table, "id > 1", List.of(), true, 1, null));
@@ -190,7 +189,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
 
     @Test
     void recreatedCatalogCannotInheritAuthorityForAnUnchangedPhysicalTable() throws Exception {
-        var registry = metadataBootstrap.catalogRegistry();
+        var registry = testCatalogRegistry();
         var source = registry.getCatalog(CATALOG).getDescriptor();
         String alias = "control_recreated_catalog";
         String table = "control_catalog_identity";
@@ -227,7 +226,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
 
     @Test
     void shadowDropChecksTheCapturedCatalogBeforeDeletingActualSdkFiles() throws Exception {
-        var registry = metadataBootstrap.catalogRegistry();
+        var registry = testCatalogRegistry();
         registry.setTableControlService(new TableControlService(store, registry::requireCurrentCatalogIdentity,
                 new TableControlSettings(true, false, Set.of())));
         var source = registry.getCatalog(CATALOG).getDescriptor();
@@ -325,15 +324,15 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         var owner = store.find(PAIMON, SCHEMA, table).orElseThrow();
         var persisted = new org.pangrova.persistence.governance.postgresql.JdbcQualityRuleStore(stateStoreDataSource());
         var rules = new org.pangrova.metadata.governance.TableControlQualityRuleStore(
-                new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()), persisted);
+                metadataBootstrap.catalogRegistry().tableGovernance(), persisted);
         long ruleId = java.util.UUID.randomUUID().getLeastSignificantBits() & Long.MAX_VALUE;
         var now = java.time.Instant.now();
         rules.saveRule(new org.pangrova.governance.api.quality.DataQualityRule(ruleId,
                 "required_positive", PAIMON, SCHEMA, table, "id > 0",
-                org.pangrova.governance.api.quality.Severity.ERROR, "msg", true, null, now, now,
+                org.pangrova.governance.api.enums.Severity.ERROR, "msg", true, null, now, now,
                 new org.pangrova.governance.api.quality.QualityExecutionIdentity("e2e-user", "e2e-tenant"), null));
-        configureWriteQualityGate(new org.pangrova.governance.core.quality.RuleBasedWriteQualityGate(
-                rules, new org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor()));
+        configureWriteQualityGate(new org.pangrova.governance.runtime.quality.RuleBasedWriteQualityGate(
+                rules, new org.pangrova.governance.runtime.quality.UnconfiguredQualityRuleExecutor()));
         try {
             assertThat(sqlRunner.executeExpectingError("INSERT INTO " + source + " VALUES (2)").message())
                     .contains("was not evaluated", "no authorized data-plane");

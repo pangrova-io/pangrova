@@ -4,8 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.Arguments;
-import org.pangrova.transport.client.http.PangrovaRestClient;
-import org.pangrova.client.session.RetryPolicy;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.common.client.session.RetryPolicy;
 
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -123,7 +123,7 @@ class JdbcMetadataProtocolTest {
             peer.response(path, status, body);
             try (var connection = connect(peer)) {
                 assertThatThrownBy(() -> discover(connection.getMetaData(), operation)).isInstanceOf(SQLException.class)
-                        .hasCauseInstanceOf(org.pangrova.client.error.PangrovaClientException.class);
+                        .hasCauseInstanceOf(org.pangrova.common.client.exception.PangrovaClientException.class);
             }
         }
     }

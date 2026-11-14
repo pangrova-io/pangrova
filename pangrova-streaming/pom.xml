@@ -17,7 +17,9 @@
 
     <modules>
         <module>pangrova-streaming-api</module>
-        <module>pangrova-streaming-core</module>
-        <module>pangrova-streaming-providers</module>
+        <module>pangrova-streaming-pipeline</module>
+        <module>pangrova-streaming-source-kafka</module>
+        <module>pangrova-streaming-formats-builtin</module>
+        <module>pangrova-streaming-writers-builtin</module>
     </modules>
 </project>

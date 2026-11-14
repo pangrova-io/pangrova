@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ObservabilityApiClasspathTest {
     @Test
     void contractsLinkWithoutRuntimeOrCentralSpi() throws Exception {
-        URL types = org.pangrova.observability.spi.tracing.TracingProvider.class.getProtectionDomain().getCodeSource().getLocation();
+        URL types = org.pangrova.observability.api.tracing.TracingProvider.class.getProtectionDomain().getCodeSource().getLocation();
         URL common = Experimental.class.getProtectionDomain().getCodeSource().getLocation();
         Path classes = Path.of(types.toURI());
         try (var loader = new URLClassLoader(new URL[]{types, common}, ClassLoader.getPlatformClassLoader());
@@ -44,9 +44,9 @@ class ObservabilityApiClasspathTest {
                     field.getGenericType();
                 }
             }
-            for (String excluded : List.of("org.pangrova.query.api.lifecycle.QueryState", "org.pangrova.query.api.event.QueryCompletedEvent",
-                    "org.pangrova.connector.spi.plugin.Connector", "io.opentelemetry.api.OpenTelemetry", "org.pangrova.query.core.event.QueryEventDispatcher", "org.pangrova.observability.noop.NoOpTracingProvider", "org.slf4j.Logger",
-                    "org.pangrova.worker.nativebridge.jni.NativeFunctionBridge",
+            for (String excluded : List.of("org.pangrova.query.api.enums.QueryState", "org.pangrova.query.api.event.QueryCompletedEvent",
+                    "org.pangrova.connector.api.plugin.Connector", "io.opentelemetry.api.OpenTelemetry", "org.pangrova.query.event.QueryEventDispatcher", "org.pangrova.observability.noop.NoOpTracingProvider", "org.slf4j.Logger",
+                    "org.pangrova.worker.function.NativeFunctionCallbacks",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap", "org.apache.arrow.vector.VectorSchemaRoot", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.calcite.rel.type.RelDataType", "org.postgresql.Driver")) {
                 assertThatThrownBy(() -> loader.loadClass(excluded)).isInstanceOf(ClassNotFoundException.class);

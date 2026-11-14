@@ -34,9 +34,34 @@ public record WorkerSnapshot(
         String capabilityInventory,
         int copyTaskTlsPort,
         String admissionDomainId,
-        String incarnationId
+        String incarnationId, WorkerShuffleDeployment shuffleDeployment
 ) {
     private static final int MAX_TCP_PORT = 65535;
+
+    public WorkerSnapshot(
+        String workerId,
+        String host,
+        int httpPort,
+        int transportPort,
+        int protocolVersion,
+        String rackId,
+        List<String> dataLocality,
+        String memoryPressure,
+        double cpuUtilization,
+        int runningTaskCount,
+        long availableMemoryBytes,
+        long lastHeartbeatMs,
+        long registeredAtMs,
+        int resultServerPort,
+        CacheCatalogSummary cacheSummary,
+        String capabilityInventory,
+        int copyTaskTlsPort,
+        String admissionDomainId,
+        String incarnationId) {
+        this(workerId, host, httpPort, transportPort, protocolVersion, rackId,
+                dataLocality, memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeatMs,
+                registeredAtMs, resultServerPort, cacheSummary, capabilityInventory, copyTaskTlsPort, admissionDomainId, incarnationId, null);
+    }
 
     /** Creates a snapshot for a worker without a dedicated COPY task TLS listener. */
     public WorkerSnapshot(String workerId, String host, int httpPort, int transportPort,

@@ -1,5 +1,7 @@
 package org.pangrova.connector.runtime.classloader;
 
+import org.pangrova.connector.runtime.enums.SharedPackagePolicy;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -75,11 +77,21 @@ class SharedPackagePolicyTest {
     @Test
     void spiPackagesContainsCoreModules() {
         assertThat(SharedPackagePolicy.SPI_PACKAGES).containsExactlyInAnyOrder(
-                "org.pangrova.indexing.api", "org.pangrova.indexing.spi", "org.pangrova.security.api", "org.pangrova.security.spi", "org.pangrova.connector.api", "org.pangrova.connector.spi", "org.pangrova.coordination.api", "org.pangrova.coordination.spi",
-                "org.pangrova.function.api", "org.pangrova.function.spi",
-                "org.pangrova.query.api", "org.pangrova.query.spi",
-                "org.pangrova.ai.api", "org.pangrova.ai.spi", "org.pangrova.filesystem.api", "org.pangrova.persistence.generation.api",
-                "org.pangrova.common", "org.pangrova.types", "org.pangrova.batch.api", "org.pangrova.protocol");
+                "org.pangrova.ai.api",
+                "org.pangrova.batch.api",
+                "org.pangrova.common.api.annotation",
+                "org.pangrova.connector.api",
+                "org.pangrova.coordination.api",
+                "org.pangrova.filesystem.api",
+                "org.pangrova.function.api",
+                "org.pangrova.governance.api.lineage",
+                "org.pangrova.indexing.api",
+                "org.pangrova.protocol.v2",
+                "org.pangrova.query.api",
+                "org.pangrova.security.api",
+                "org.pangrova.streaming.api",
+                "org.pangrova.types",
+                "com.google.protobuf");
     }
 
     @Test

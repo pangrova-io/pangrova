@@ -9,8 +9,8 @@ import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.postgresql.ds.PGSimpleDataSource;
 
@@ -41,9 +41,10 @@ public abstract class SignedOidcCoordinatorTestBase extends ContainerTestBase {
                 flags.metadata() && original.metadataJdbcConfig() != null,
                 flags.streaming(), flags.governance(), flags.resilience(), flags.tenant(), flags.operations(),
                 flags.speculation(), flags.pullModeSplitAssignment(), flags.cacheWriteback(), flags.indexing(),
-                flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints());
+                flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints(),
+                flags.shuffleProvider(), flags.shuffleProviderSettings());
         var security = new CoordinatorBootstrapConfig.SecurityConfig(
-                CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                "OAUTH2",
                 "bootstrap-test-internal-secret", Map.of("issuerUri", issuerUri(), "audience", "bootstrap-tests"));
         return SecuredCoordinatorFixtures.withAuthority(new CoordinatorBootstrapConfig(
                 loopbackCore(original.core()), securedFlags, original.query(), original.transport(), original.workerHealth(),
@@ -65,9 +66,10 @@ public abstract class SignedOidcCoordinatorTestBase extends ContainerTestBase {
                 flags.metadata() && original.metadataJdbcConfig() != null,
                 flags.streaming(), flags.governance(), flags.resilience(), true, flags.operations(),
                 flags.speculation(), flags.pullModeSplitAssignment(), flags.cacheWriteback(), flags.indexing(),
-                flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints());
+                flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints(),
+                flags.shuffleProvider(), flags.shuffleProviderSettings());
         var security = new CoordinatorBootstrapConfig.SecurityConfig(
-                CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                "OAUTH2",
                 "bootstrap-test-internal-secret", Map.of("issuerUri", issuerUri(), "audience", "bootstrap-tests"));
         var config = SecuredCoordinatorFixtures.withAuthority(new CoordinatorBootstrapConfig(
                 loopbackCore(original.core()), securedFlags, original.query(), original.transport(), original.workerHealth(),

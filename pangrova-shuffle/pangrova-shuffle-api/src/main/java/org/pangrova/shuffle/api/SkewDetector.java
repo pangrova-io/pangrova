@@ -10,7 +10,7 @@ import org.pangrova.common.api.annotation.Experimental;
  *
  * <p>The coordinator's AQE (Adaptive Query Execution) engine invokes a {@code SkewDetector}
  * after a shuffle stage commits and per-partition statistics are available via
- * {@link org.pangrova.shuffle.api.ShuffleCommitResult}. The detector analyzes the
+ * {@link org.pangrova.shuffle.api.ShuffleCommitReceipt}. The detector analyzes the
  * partition size distribution and identifies hot partitions that would cause
  * downstream stragglers.</p>
  *
@@ -31,7 +31,7 @@ import org.pangrova.common.api.annotation.Experimental;
  * Trino {@code ScaleWritersPartitioning}, Celeborn skew-partition-split.</p>
  *
  * @see ShufflePartitionStats
- * @see org.pangrova.shuffle.api.ShuffleCommitResult
+ * @see org.pangrova.shuffle.api.ShuffleCommitReceipt
  */
 @Experimental(reason = "ADR-002 D2 + G-SHUF-05: shuffle-plane skew detection for AQE")
 public interface SkewDetector {

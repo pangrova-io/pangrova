@@ -1,8 +1,8 @@
 package org.pangrova.connector.lance;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import java.util.List;

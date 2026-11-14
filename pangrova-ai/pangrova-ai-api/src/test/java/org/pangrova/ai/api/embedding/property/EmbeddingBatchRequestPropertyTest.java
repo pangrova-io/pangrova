@@ -6,7 +6,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
 
 import java.util.ArrayList;
 import java.util.List;

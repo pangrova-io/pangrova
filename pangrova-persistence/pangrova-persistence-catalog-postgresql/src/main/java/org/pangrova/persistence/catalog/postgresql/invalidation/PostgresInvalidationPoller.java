@@ -2,7 +2,7 @@ package org.pangrova.persistence.catalog.postgresql.invalidation;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,15 +15,16 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.pangrova.metadata.api.cache.InvalidationEntry;
 import org.pangrova.metadata.api.cache.MetadataCache;
+import org.pangrova.metadata.api.cache.InvalidationProgressRegistry;
 
 /**
  * Polls the {@code invalidation_log} JDBC table at a fixed interval and applies
@@ -37,7 +38,7 @@ import org.pangrova.metadata.api.cache.MetadataCache;
  * SQL writers. Timestamps are diagnostic only, never an event-selection fence.
  * Polling reads bounded pages through the primary-key index.</p>
  *
- * <p><strong>Lifecycle:</strong> Call {@link #initSchema()} once at bootstrap to
+ * <p><strong>Lifecycle:</strong> Call {@link #validateSchema()} once at bootstrap to
  * validate the migrated table, then {@link #start()} to begin polling. Call {@link #close()}
  * during shutdown to stop the poller and release the thread pool.</p>
  *
@@ -55,6 +56,9 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
     static final long DEFAULT_POLL_INTERVAL_SECONDS = 5;
 
     static final int POLL_PAGE_SIZE = 1000;
+    // Upper bound on pages drained per tick, so a continuously-writing producer
+    // cannot hold the scheduler thread; the next tick resumes from the watermark.
+    static final int MAX_PAGES_PER_POLL = 32;
 
     // ── DML ──────────────────────────────────────────────────────────
 
@@ -77,10 +81,9 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
     private final AtomicReference<Instant> lastProcessedTimestamp =
             new AtomicReference<>(Instant.EPOCH);
     private final AtomicLong lastProcessedId = new AtomicLong(0);
-    private final AtomicBoolean started = new AtomicBoolean();
-    private volatile org.pangrova.metadata.spi.cache.InvalidationProgressRegistry progressRegistry;
-    private volatile String coordinatorId;
-    private volatile java.util.function.Consumer<String> resultCacheInvalidator;
+    private boolean started;
+    private final InvalidationProgressRegistry progressRegistry;
+    private final Optional<String> reportingCoordinatorId;
 
     /**
      * Creates a poller with the default 5-second poll interval.
@@ -101,6 +104,27 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
      */
     public PostgresInvalidationPoller(DataSource dataSource, MetadataCache cache,
                                   long pollIntervalSeconds) {
+        this(dataSource, cache, pollIntervalSeconds, null, Optional.empty());
+    }
+
+    /**
+     * Binds cluster cleanup to the live membership floor before starting. A registered
+     * query coordinator supplies its ID to resume and report. A maintenance-only reader
+     * uses an empty ID and still observes every live query coordinator's watermark.
+     */
+    public PostgresInvalidationPoller(DataSource dataSource, MetadataCache cache,
+            InvalidationProgressRegistry progressRegistry, Optional<String> reportingCoordinatorId) {
+        this(dataSource, cache, DEFAULT_POLL_INTERVAL_SECONDS,
+                Objects.requireNonNull(progressRegistry, "progressRegistry"), reportingCoordinatorId);
+    }
+
+    PostgresInvalidationPoller(DataSource dataSource, MetadataCache cache, long pollIntervalSeconds,
+            InvalidationProgressRegistry progressRegistry, Optional<String> reportingCoordinatorId) {
+        this.reportingCoordinatorId = Objects.requireNonNull(reportingCoordinatorId, "reportingCoordinatorId");
+        if (reportingCoordinatorId.isPresent() && (reportingCoordinatorId.get().isBlank() || progressRegistry == null)) {
+            throw new IllegalArgumentException("Reporting requires a coordinator ID and progress registry");
+        }
+        this.progressRegistry = progressRegistry;
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
         this.cache = Objects.requireNonNull(cache, "cache must not be null");
         if (pollIntervalSeconds <= 0) {
@@ -120,27 +144,13 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
         this.scheduler = executor;
     }
 
-    @org.pangrova.common.VisibleForTesting
-    PostgresInvalidationPoller(DataSource dataSource, MetadataCache cache,
-                           long pollIntervalSeconds,
-                           ScheduledExecutorService scheduler) {
-        this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
-        this.cache = Objects.requireNonNull(cache, "cache must not be null");
-        if (pollIntervalSeconds <= 0) {
-            throw new IllegalArgumentException(
-                    "pollIntervalSeconds must be positive, got " + pollIntervalSeconds);
-        }
-        this.pollIntervalSeconds = pollIntervalSeconds;
-        this.scheduler = Objects.requireNonNull(scheduler, "scheduler must not be null");
-    }
-
     // ── Schema Initialization ────────────────────────────────────────
 
     /**
      * Validates the canonical migrated schema and mandatory commit-order gate.
      * Does not create a second, competing schema during bootstrap.
      */
-    public void initSchema() {
+    public void validateSchema() {
         try (Connection conn = dataSource.getConnection();
              var stmt = conn.createStatement()) {
             stmt.executeQuery("SELECT id, cache_key, invalidation_type, created_at, updated_at "
@@ -154,7 +164,7 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
             }
             LOG.info("event=invalidation_schema_validated");
         } catch (SQLException e) {
-            throw new MetastoreException("Failed to initialize invalidation_log schema", e);
+            throw new MetastoreException("Failed to validate invalidation_log schema", e);
         }
     }
 
@@ -164,11 +174,13 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
      * Starts the periodic polling task. Safe to call multiple times — subsequent
      * calls are no-ops if the scheduler is already running.
      */
-    public void start() {
-        if (!started.compareAndSet(false, true)) {
+    public synchronized void start() {
+        if (started) {
             return;
         }
+        seedWatermarkFromRegistry();
         scheduler.scheduleAtFixedRate(this::poll, 0, pollIntervalSeconds, TimeUnit.SECONDS);
+        started = true;
         LOG.info("event=invalidation_poller_started intervalSeconds={}", pollIntervalSeconds);
     }
 
@@ -223,28 +235,42 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
     @org.pangrova.common.VisibleForTesting
     synchronized void poll() {
         try {
-            List<InvalidationEntry> entries = fetchNewEntries();
             int applied = 0;
-            for (InvalidationEntry entry : entries) {
-                if (entry.id() <= lastProcessedId.get()) {
-                    continue;
+            for (int page = 0; page < MAX_PAGES_PER_POLL; page++) {
+                List<InvalidationEntry> entries = fetchNewEntries();
+                if (entries.isEmpty()) {
+                    break;
                 }
-                applyInvalidation(entry);
-                lastProcessedId.set(entry.id());
-                if (entry.updatedAt().isAfter(lastProcessedTimestamp.get())) {
-                    lastProcessedTimestamp.set(entry.updatedAt());
+                applied += applyPage(entries);
+                reportLastProcessedToRegistry();
+                if (entries.size() < POLL_PAGE_SIZE) {
+                    break;
                 }
-                applied++;
             }
             if (applied > 0) {
                 LOG.info("event=invalidation_poll_applied count={} lastTimestamp={} lastId={}",
                         applied, lastProcessedTimestamp.get(), lastProcessedId.get());
             }
-            reportLastProcessedToRegistry();
         } catch (Exception e) {
             LOG.warn("event=invalidation_poll_failed lastTimestamp={} error={}",
                     lastProcessedTimestamp.get(), e.getMessage());
         }
+    }
+
+    private int applyPage(List<InvalidationEntry> entries) {
+        int applied = 0;
+        for (InvalidationEntry entry : entries) {
+            if (entry.id() <= lastProcessedId.get()) {
+                continue;
+            }
+            applyInvalidation(entry);
+            lastProcessedId.set(entry.id());
+            if (entry.updatedAt().isAfter(lastProcessedTimestamp.get())) {
+                lastProcessedTimestamp.set(entry.updatedAt());
+            }
+            applied++;
+        }
+        return applied;
     }
 
     private List<InvalidationEntry> fetchNewEntries() {
@@ -277,7 +303,10 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
         switch (entry.invalidationType()) {
             case TABLE -> applyTableInvalidation(entry);
             case CATALOG -> applyCatalogInvalidation(entry);
-            case RESULT_CACHE -> applyResultCacheInvalidation(entry);
+            // Result-cache rows from an older deployment are ignored: the cache no longer exists.
+            case RESULT_CACHE -> LOG.debug(
+                    "event=invalidation_skip type=RESULT_CACHE reason=cache_removed key={}",
+                    entry.cacheKey());
             default -> throw new IllegalStateException(
                     "Unhandled invalidation type: " + entry.invalidationType());
         }
@@ -296,17 +325,6 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
     private void applyCatalogInvalidation(InvalidationEntry entry) {
         cache.invalidateCatalog(entry.cacheKey());
         LOG.debug("event=invalidation_applied type=CATALOG key={}", entry.cacheKey());
-    }
-
-    private void applyResultCacheInvalidation(InvalidationEntry entry) {
-        var invalidator = resultCacheInvalidator;
-        if (invalidator != null) {
-            invalidator.accept(entry.cacheKey());
-            LOG.debug("event=invalidation_applied type=RESULT_CACHE key={}", entry.cacheKey());
-        } else {
-            LOG.debug("event=invalidation_skip type=RESULT_CACHE reason=no_invalidator key={}",
-                    entry.cacheKey());
-        }
     }
 
     private static InvalidationEntry mapEntry(ResultSet rs) throws SQLException {
@@ -333,39 +351,25 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
         return lastProcessedTimestamp.get();
     }
 
-    /**
-     * Configures reporting of {@code lastProcessedId} after each poll cycle so
-     * other coordinators can observe DDL propagation.
-     *
-     * @param reporter             progress reporter (nullable — disables reporting)
-     * @param currentCoordinatorId this coordinator's identifier
-     */
-    public void setInvalidationProgressRegistry(
-            org.pangrova.metadata.spi.cache.InvalidationProgressRegistry reporter,
-            String currentCoordinatorId) {
-        this.progressRegistry = reporter;
-        this.coordinatorId = currentCoordinatorId;
-    }
-
-    /**
-     * Configures a callback for invalidating query result cache entries when
-     * a RESULT_CACHE invalidation entry is polled. The callback receives the
-     * table name (cache key) and should call QueryResultCache.invalidateByTable().
-     *
-     * @param invalidator callback that accepts a table name to invalidate (nullable)
-     */
-    public void setResultCacheInvalidator(java.util.function.Consumer<String> invalidator) {
-        this.resultCacheInvalidator = invalidator;
+    private void seedWatermarkFromRegistry() {
+        if (reportingCoordinatorId.isEmpty()) {
+            return;
+        }
+        String id = reportingCoordinatorId.orElseThrow();
+        long reported = progressRegistry.lastProcessedInvalidationId(id);
+        if (reported > 0) {
+            lastProcessedId.set(reported);
+            LOG.info("event=invalidation_watermark_seeded coordinatorId={} lastProcessedId={}", id, reported);
+        }
     }
 
     private void reportLastProcessedToRegistry() {
-        var reporter = progressRegistry;
-        var id = coordinatorId;
-        if (reporter == null || id == null) {
+        if (reportingCoordinatorId.isEmpty()) {
             return;
         }
+        String id = reportingCoordinatorId.orElseThrow();
         try {
-            reporter.updateLastProcessedInvalidationId(id, lastProcessedId.get());
+            progressRegistry.updateLastProcessedInvalidationId(id, lastProcessedId.get());
         } catch (Exception e) {
             LOG.debug("event=invalidation_registry_update_failed coordinatorId={} error={}",
                     id, e.getMessage());
@@ -387,11 +391,10 @@ public final class PostgresInvalidationPoller implements AutoCloseable,
     @Override
     public int cleanup() {
         long safetyBound = lastProcessedId.get();
-        var registry = progressRegistry;
-        if (registry != null) {
+        if (progressRegistry != null) {
             // Expiration is owned by registry maintenance. Never delete past any
             // still-registered coordinator, including an unknown progress fence.
-            safetyBound = Math.min(safetyBound, registry.minimumReportedInvalidationId());
+            safetyBound = Math.min(safetyBound, progressRegistry.minimumReportedInvalidationId());
         }
         if (safetyBound <= 0) {
             LOG.debug("event=invalidation_cleanup_skipped reason=no_processed_entries");

@@ -2,7 +2,7 @@ package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.batch.api.reader.ReadableBatch;
-import org.pangrova.connector.spi.data.ColumnarPageSink;
+import org.pangrova.connector.api.data.ColumnarPageSink;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.NativePage;

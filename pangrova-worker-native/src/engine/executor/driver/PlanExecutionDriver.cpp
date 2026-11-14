@@ -11,7 +11,7 @@
 #include "engine/executor/driver/PlanExecutionWriteSinks.h"
 #include "engine/executor/driver/TaskExecutor.h"
 #include "engine/executor/NativeUnsupportedFeatureException.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "engine/observability/NativeTracer.h"
 #include "engine/observability/PangrovaLog.h"
 #include "engine/observability/SpanScope.h"

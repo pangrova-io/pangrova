@@ -2,7 +2,7 @@
 
 `pangrova-persistence-file-api` owns File space/profile revision, directory refresh
 and COPY source claim/admission contracts under `org.pangrova.persistence.file.api`.
-File domain values, authorization and access contracts remain in `pangrova-file-api`;
+File domain values, authorization and access contracts remain in `pangrova-file`;
 physical object access belongs to Filesystem. No universal StorageProvider is introduced.
 
 `pangrova-persistence-file-postgresql` owns the existing six PostgreSQL implementations.

@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt;
 import java.time.Instant;

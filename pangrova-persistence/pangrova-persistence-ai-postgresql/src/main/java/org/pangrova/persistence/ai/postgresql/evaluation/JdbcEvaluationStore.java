@@ -24,11 +24,10 @@ import org.pangrova.ai.control.evaluation.EvaluationMetricPolicy;
 import org.pangrova.ai.control.evaluation.EvaluationMetricRule;
 import org.pangrova.ai.control.evaluation.EvaluationReleaseDecision;
 import org.pangrova.ai.control.evaluation.EvaluationRun;
-import org.pangrova.ai.control.evaluation.EvaluationRunState;
+import org.pangrova.ai.control.enums.EvaluationRunState;
 import org.pangrova.ai.control.evaluation.EvaluationStore;
-import org.pangrova.ai.control.evaluation.EvaluationSubjectType;
-import org.pangrova.ai.control.evaluation.EvaluationValidation;
-import org.pangrova.ai.control.api.AiControlException;
+import org.pangrova.ai.control.enums.EvaluationSubjectType;
+import org.pangrova.ai.control.exception.AiControlException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -44,6 +43,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.pangrova.common.util.Preconditions.requireOptionalText;
+import static org.pangrova.common.util.Preconditions.requireText;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 
@@ -104,8 +105,8 @@ public final class JdbcEvaluationStore implements EvaluationStore {
 
     @Override
     public Optional<EvaluationMetricPolicy> findMetricPolicy(String tenantId, String version) {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(version, "version");
+        requireText(tenantId, "tenantId");
+        requireText(version, "version");
         try (Connection connection = dataSource.getConnection()) {
             return JdbcEvaluationReleaseGate.loadPolicy(connection, tenantId, version);
         } catch (SQLException failure) {
@@ -185,8 +186,8 @@ public final class JdbcEvaluationStore implements EvaluationStore {
 
     @Override
     public Optional<EvaluationRun> findRun(String tenantId, String runId) {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(runId, "runId");
+        requireText(tenantId, "tenantId");
+        requireText(runId, "runId");
         try (Connection connection = dataSource.getConnection()) {
             return findRun(connection, tenantId, runId, false);
         } catch (SQLException failure) {
@@ -203,8 +204,8 @@ public final class JdbcEvaluationStore implements EvaluationStore {
             String traceReference,
             String failureClass,
             Instant completedAt) {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(runId, "runId");
+        requireText(tenantId, "tenantId");
+        requireText(runId, "runId");
         Objects.requireNonNull(outcome, "outcome must not be null");
         if (!outcome.isTerminal()) {
             throw new IllegalArgumentException("outcome must be terminal");
@@ -212,7 +213,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
         Objects.requireNonNull(metrics, "metrics must not be null");
         List<EvaluationMetric> immutableMetrics = List.copyOf(metrics);
         validateUniqueMetrics(immutableMetrics);
-        EvaluationValidation.requireOptionalText(traceReference, "traceReference");
+        requireOptionalText(traceReference, "traceReference");
         validateFailure(outcome, failureClass);
         Objects.requireNonNull(completedAt, "completedAt must not be null");
         if (outcome == EvaluationRunState.SUCCEEDED && immutableMetrics.isEmpty()) {
@@ -245,8 +246,8 @@ public final class JdbcEvaluationStore implements EvaluationStore {
     @Override
     public boolean completeFeatureViewMaterializationRun(
             String tenantId, String runId, Instant completedAt) {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(runId, "runId");
+        requireText(tenantId, "tenantId");
+        requireText(runId, "runId");
         Objects.requireNonNull(completedAt, "completedAt must not be null");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -282,8 +283,8 @@ public final class JdbcEvaluationStore implements EvaluationStore {
 
     @Override
     public List<EvaluationMetric> listMetrics(String tenantId, String runId) {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(runId, "runId");
+        requireText(tenantId, "tenantId");
+        requireText(runId, "runId");
         String sql = "SELECT metric_name,metric_value,metric_unit,passed,evidence_ref "
                 + "FROM evaluation_metrics WHERE tenant_id=? AND run_id=? ORDER BY metric_name";
         try (Connection connection = dataSource.getConnection();
@@ -332,8 +333,8 @@ public final class JdbcEvaluationStore implements EvaluationStore {
     @Override
     public Optional<EvaluationReleaseDecision> findReleaseDecision(
             String tenantId, String runId) {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(runId, "runId");
+        requireText(tenantId, "tenantId");
+        requireText(runId, "runId");
         String sql = "SELECT * FROM evaluation_release_decisions "
                 + "WHERE tenant_id=? AND run_id=?";
         try (Connection connection = dataSource.getConnection();
@@ -620,7 +621,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
 
     private static void validateFailure(
             EvaluationRunState outcome, String failureClass) {
-        EvaluationValidation.requireOptionalText(failureClass, "failureClass");
+        requireOptionalText(failureClass, "failureClass");
         if (outcome == EvaluationRunState.SUCCEEDED && failureClass != null) {
             throw new IllegalArgumentException(
                     "successful evaluation must not have a failureClass");

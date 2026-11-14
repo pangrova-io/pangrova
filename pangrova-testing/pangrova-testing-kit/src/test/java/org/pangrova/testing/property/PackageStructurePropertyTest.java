@@ -82,7 +82,7 @@ class PackageStructurePropertyTest {
     void domainContractsAreAllowedWhileRetiredOwnersRemainRejected() {
         for (String declaration : List.of("package org.pangrova.table.api.ownership;",
                 "import org.pangrova.table.api.ownership.TableControlRecord;",
-                "import static org.pangrova.table.api.ownership.TableControlState.ACTIVE;")) {
+                "import static org.pangrova.table.api.enums.TableControlState.ACTIVE;")) {
             assertThat(LEGACY_PACKAGE_REFERENCE.matcher(declaration).find()).isFalse();
         }
         for (String declaration : List.of("package org.pangrova.resource;",

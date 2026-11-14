@@ -1,7 +1,7 @@
 package org.pangrova.persistence.workflow.postgresql.projection;
 
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionConflictException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException;
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
 import java.sql.Connection;
 import java.sql.PreparedStatement;

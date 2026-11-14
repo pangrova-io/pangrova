@@ -12,7 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
 
 class ExecutionTraceContextTest {
     @Test
@@ -55,8 +55,8 @@ class ExecutionTraceContextTest {
             executor.submit(() -> {
                 var previous = Span.current().getSpanContext();
                 try (var scope = captured.makeCurrent()) {
-                    assertThat(NativeTraceExporter.currentTraceId()).isEqualTo(captured.traceId());
-                    assertThat(NativeTraceExporter.currentSpanId()).isEqualTo(captured.spanId());
+                    assertThat(CurrentSpanIds.currentTraceId()).isEqualTo(captured.traceId());
+                    assertThat(CurrentSpanIds.currentSpanId()).isEqualTo(captured.spanId());
                     assertThat(Span.current().isRecording()).isFalse();
                 }
                 assertThat(Span.current().getSpanContext()).isEqualTo(previous);

@@ -88,7 +88,7 @@ void PangrovaArbitrator::addPool(
   }
 
   PoolEntry entry;
-  entry.pool = pool.get();
+  entry.pool = pool;
   entry.priority = kDefaultPriority;
   entry.capacity = pool->capacity();
   pools_[pool.get()] = entry;
@@ -116,8 +116,11 @@ void PangrovaArbitrator::removePool(
 
   pools_.erase(it);
 
-  // Reclaim any unused capacity from the pool back to Java side.
-  uint64_t reclaimable = pool->capacity() - pool->usedBytes();
+  // Reclaim any unused capacity from the pool back to Java side. usedBytes can
+  // transiently exceed capacity, so guard the unsigned subtraction.
+  const uint64_t capacity = pool->capacity();
+  const uint64_t used = pool->usedBytes();
+  uint64_t reclaimable = capacity > used ? capacity - used : 0;
   if (reclaimable > 0) {
     uint64_t freed = shrinkPool(pool, reclaimable);
     if (freed > 0) {
@@ -170,10 +173,18 @@ void PangrovaArbitrator::growCapacity(
     commitCapacity(pool, granted, targetBytes);
     return;
   }
-  const auto reclaimed = shrinkPool(pool, targetBytes);
+  // Java denied the growth. Free capacity elsewhere before failing the query:
+  // first this pool's own unused capacity, then arbitration-driven reclaim
+  // (spill) across tracked pools, which is what makes used bytes releasable.
+  uint64_t reclaimed = shrinkPool(pool, targetBytes);
   if (reclaimed > 0) {
     listener_->allocationChanged(-static_cast<int64_t>(reclaimed));
     total_shrunk_bytes_.fetch_add(static_cast<int64_t>(reclaimed), std::memory_order_relaxed);
+  }
+  if (reclaimed < targetBytes) {
+    reclaimed += reclaimCapacity(targetBytes - reclaimed, /*allowSpill=*/true);
+  }
+  if (reclaimed > 0) {
     granted = listener_->allocationChanged(static_cast<int64_t>(targetBytes));
     if (granted > 0) {
       commitCapacity(pool, granted, targetBytes);
@@ -207,48 +218,100 @@ uint64_t PangrovaArbitrator::shrinkCapacity(
 
 uint64_t PangrovaArbitrator::shrinkCapacity(
     uint64_t targetBytes,
-    bool /*allowSpill*/,
-    bool /*allowAbort*/) {
-  if (targetBytes == 0) {
+    bool allowSpill,
+    bool allowAbort) {
+  // Aborting a query is never an acceptable way to satisfy a capacity request.
+  (void)allowAbort;
+  return reclaimCapacity(targetBytes, allowSpill);
+}
+
+uint64_t PangrovaArbitrator::reclaimCapacity(
+    uint64_t targetBytes,
+    bool allowSpill) {
+  if (targetBytes == 0 || shutdown_.load(std::memory_order_acquire)) {
     return 0;
   }
 
-  // Under memory pressure, shrink tracked pools starting from the largest.
-  // This implements the arbitration policy: largest pools yield first,
-  // respecting priority (lower priority number = higher priority = shrunk last).
-  uint64_t totalFreed = 0;
+  // Marks this thread as under arbitration so spill-time allocations do not
+  // recursively trigger arbitration (velox MemoryPool checks
+  // underMemoryArbitration()). Mirrors SharedArbitrator::shrinkCapacity.
+  facebook::velox::memory::ScopedMemoryArbitrationContext arbitrationCtx{};
 
-  std::lock_guard<std::mutex> lock(pools_mutex_);
-
-  if (pools_.empty()) {
+  // Snapshot candidates under the registry lock, then release it before doing
+  // any pool work: Velox reclaim re-enters growCapacity, so holding
+  // pools_mutex_ across it would deadlock. weak_ptr keeps the snapshot safe
+  // against a pool being destroyed in the meantime.
+  struct Candidate {
+    std::weak_ptr<facebook::velox::memory::MemoryPool> pool;
+    int32_t priority;
+    uint64_t capacity;
+  };
+  std::vector<Candidate> candidates;
+  {
+    std::lock_guard<std::mutex> lock(pools_mutex_);
+    candidates.reserve(pools_.size());
+    for (const auto& [key, entry] : pools_) {
+      candidates.push_back(Candidate{entry.pool, entry.priority, entry.capacity});
+    }
+  }
+  if (candidates.empty()) {
     return 0;
   }
 
-  // Build a sorted list: sort by priority descending (shrink low-priority first),
-  // then by capacity descending (shrink largest first within same priority).
-  std::vector<PoolEntry*> candidates;
-  candidates.reserve(pools_.size());
-  for (auto& [key, entry] : pools_) {
-    candidates.push_back(&entry);
-  }
+  // Largest low-priority pools yield first.
   std::sort(candidates.begin(), candidates.end(),
-      [](const PoolEntry* a, const PoolEntry* b) {
-        if (a->priority != b->priority) {
-          return a->priority > b->priority;  // Higher number = lower priority = shrunk first.
+      [](const Candidate& a, const Candidate& b) {
+        if (a.priority != b.priority) {
+          return a.priority > b.priority;
         }
-        return a->pool->capacity() > b->pool->capacity();  // Larger pools first.
+        return a.capacity > b.capacity;
       });
 
-  for (auto* candidate : candidates) {
+  uint64_t totalFreed = 0;
+
+  // Pass 1: give back unused capacity. Cheap and never blocks.
+  for (const auto& candidate : candidates) {
     if (totalFreed >= targetBytes) {
       break;
     }
-
-    uint64_t remaining = targetBytes - totalFreed;
-    uint64_t freed = shrinkPool(candidate->pool, remaining);
+    auto pool = candidate.pool.lock();
+    if (pool == nullptr) {
+      continue;
+    }
+    const uint64_t freed = shrinkPool(pool.get(), targetBytes - totalFreed);
     if (freed > 0) {
       listener_->allocationChanged(-static_cast<int64_t>(freed));
       totalFreed += freed;
+    }
+  }
+
+  // Pass 2: unused capacity is ~0 under real pressure, so drive operator
+  // reclaim (spill) for the shortfall.
+  if (allowSpill && totalFreed < targetBytes) {
+    for (const auto& candidate : candidates) {
+      if (totalFreed >= targetBytes) {
+        break;
+      }
+      auto pool = candidate.pool.lock();
+      if (pool == nullptr) {
+        continue;
+      }
+      const uint64_t shortfall = targetBytes - totalFreed;
+      if (pool->reclaimableBytes().value_or(0) == 0) {
+        continue;
+      }
+      // Pairs enter/leave arbitration on this pool's reclaimer so a driver
+      // that must pause for reclaim can do so.
+      facebook::velox::memory::MemoryPoolArbitrationSection section(pool.get());
+      facebook::velox::memory::MemoryReclaimer::Stats stats;
+      // maxWaitMs must be non-zero: zero makes Velox wait unboundedly for the
+      // requesting task to pause, which self-deadlocks when reclaiming it.
+      const uint64_t freed =
+          pool->reclaim(shortfall, kReclaimMaxWaitMs, stats);
+      if (freed > 0) {
+        listener_->allocationChanged(-static_cast<int64_t>(freed));
+        totalFreed += freed;
+      }
     }
   }
 
@@ -259,7 +322,8 @@ uint64_t PangrovaArbitrator::shrinkCapacity(
     PANGROVA_LOG(INFO) << "event=pangrova_arbitrator_global_shrink"
                      << " target_bytes=" << targetBytes
                      << " freed_bytes=" << totalFreed
-                     << " pool_count=" << pools_.size();
+                     << " allow_spill=" << allowSpill
+                     << " pool_count=" << candidates.size();
   }
 
   return totalFreed;

@@ -10,10 +10,10 @@ import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
-import org.pangrova.observability.core.metrics.MetricsScope;
-import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
-import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPuller;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.metrics.MetricsScope;
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

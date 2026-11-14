@@ -1,22 +1,22 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries;
 
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
-import org.pangrova.generation.api.output.GenerationOutputScope;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
-import org.pangrova.persistence.generation.api.GenerationStorageException;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
+import org.pangrova.persistence.generation.api.exception.GenerationStorageException;
 
 import javax.sql.DataSource;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -184,11 +184,7 @@ abstract class PostgresGenerationJobStoreMappings {
     }
 
     protected static byte[] sha256(byte[] bytes) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(bytes);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 unavailable", e);
-        }
+        return DigestUtils.sha256().digest(bytes);
     }
 
     protected static void bindLeaseIdentity(

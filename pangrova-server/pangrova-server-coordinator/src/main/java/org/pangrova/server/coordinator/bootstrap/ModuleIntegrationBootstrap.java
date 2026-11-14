@@ -1,51 +1,42 @@
 package org.pangrova.server.coordinator.bootstrap;
-import org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller;
 
-import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
-
-import org.pangrova.persistence.table.postgresql.maintenance.JdbcTableControlMaintenanceStore;
-import org.pangrova.persistence.table.memory.maintenance.InMemoryTableControlMaintenanceStore;
-
-import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
-
-import org.pangrova.persistence.generation.api.job.GenerationJobStore;
-
-import org.pangrova.governance.core.GovernanceDeps;
-import org.pangrova.governance.core.GovernanceContext;
-import org.pangrova.persistence.governance.postgresql.JdbcGovernanceAuditTrail;
-import org.pangrova.governance.core.classification.ColumnTagService;
-import org.pangrova.governance.core.lineage.LineageEventEmitter;
-import org.pangrova.governance.lineage.LineageBackendConfiguration;
-import org.pangrova.governance.core.quality.CronScheduler;
-import org.pangrova.governance.core.quality.AlertChannelRegistry;
-import org.pangrova.governance.core.quality.DataQualityAlerter;
-import org.pangrova.governance.core.quality.LogAlertChannel;
-import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor;
-import org.pangrova.governance.core.quality.GovernanceStatementHandler;
-import org.pangrova.governance.api.quality.QualityRuleStore;
-import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
+import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
+import org.pangrova.governance.api.quality.QualityRuleStore;
+import org.pangrova.governance.runtime.GovernanceContext;
+import org.pangrova.governance.runtime.GovernanceDeps;
+import org.pangrova.governance.runtime.classification.ColumnTagService;
+import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
+import org.pangrova.governance.runtime.quality.AlertChannelRegistry;
+import org.pangrova.governance.runtime.quality.CronScheduler;
+import org.pangrova.governance.runtime.quality.DataQualityAlerter;
+import org.pangrova.governance.runtime.quality.GovernanceStatementHandler;
+import org.pangrova.governance.runtime.quality.LogAlertChannel;
+import org.pangrova.governance.runtime.quality.UnconfiguredQualityRuleExecutor;
+import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
+import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
+import org.pangrova.persistence.governance.postgresql.JdbcGovernanceAuditTrail;
+import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
+import org.pangrova.persistence.streaming.memory.InMemoryCdcRegistrationStore;
+import org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcCdcRegistrationStore;
+import org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore;
+import org.pangrova.security.tenant.QuotaChecker;
+import org.pangrova.security.tenant.TenantResolver;
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 import org.pangrova.streaming.api.cdc.CdcRegistrationStore;
-import org.pangrova.streaming.pipeline.StreamingContext;
-import org.pangrova.streaming.cdc.CdcRegistrationHandler;
-import org.pangrova.streaming.store.memory.InMemoryCdcRegistrationStore;
-import org.pangrova.streaming.maintenance.MaintenanceScheduler;
-import org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
-import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
+import org.pangrova.streaming.cdc.CdcRegistrationHandler;
+import org.pangrova.streaming.maintenance.MaintenanceScheduler;
+import org.pangrova.streaming.pipeline.StreamingContext;
 import org.pangrova.streaming.watermark.WatermarkTracker;
-import org.pangrova.security.core.tenant.QuotaChecker;
-import org.pangrova.security.core.tenant.TenantResolver;
-import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
-import org.pangrova.coordination.spi.leadership.MaintenanceLeaderAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 
 /** Wires optional modules into the coordinator lifecycle. */
@@ -54,7 +45,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     private static final Logger LOG = LoggerFactory.getLogger(ModuleIntegrationBootstrap.class);
     private static final long INDEX_EVAL_TIMEOUT_MS = 5_000;
 
-    private volatile boolean closed;
+    private boolean closing;
+    private boolean closed;
 
     private volatile boolean maintenanceLeader;
 
@@ -78,7 +70,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     private org.pangrova.persistence.security.api.tenant.TenantStore tenantStore;
 
     // Operations
-    private org.pangrova.operations.recovery.RecoveryPlaybookFramework recoveryPlaybook;
+    private org.pangrova.operations.recovery.RecoveryPlaybook recoveryPlaybook;
 
     // Indexing
     private IndexingBootstrap indexingBootstrap;
@@ -90,176 +82,67 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     // AI infrastructure maintenance
     private org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask branchTtlCleanupTask;
 
-    // Metadata sync (leader-gated periodic sync for federation catalogs)
-    private org.pangrova.metadata.outbox.MetadataSyncService metadataSyncService;
-    private org.pangrova.metadata.outbox.TableVersionObserver versionObserver;
     private org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry;
-    private ScheduledExecutorService metadataSyncScheduler;
-    private volatile ScheduledFuture<?> metadataSyncTask;
+    private final CatalogMaintenance catalogMaintenance;
 
-    // Invalidation log cleanup (leader-gated)
-    private org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller invalidationPoller;
-    private volatile ScheduledFuture<?> invalidationCleanupTask;
+    ModuleIntegrationBootstrap() {
+        catalogMaintenance = new CatalogMaintenance();
+    }
+
+    ModuleIntegrationBootstrap(ScheduledExecutorService cleanupExecutor) {
+        catalogMaintenance = new CatalogMaintenance(cleanupExecutor);
+    }
 
     // Distributed lease (shared across indexing and DT refresh)
     private org.pangrova.persistence.coordination.api.lease.DistributedLease distributedLease;
 
-    private static final long METADATA_SYNC_INTERVAL_SECONDS = 60;
-
     @Override
-    public void onLeaderElected() {
+    public synchronized void onLeaderElected() {
+        if (closing || maintenanceLeader) {
+            return;
+        }
         maintenanceLeader = true;
-        startMaintenanceSchedule();
-        if (indexingBootstrap != null) {
-            indexingBootstrap.onLeaderElected();
+        try {
+            startMaintenanceSchedule();
+            if (indexingBootstrap != null) {
+                indexingBootstrap.onLeaderElected();
+            }
+            if (streamingBootstrap != null) {
+                streamingBootstrap.onLeaderElected();
+            }
+            if (branchTtlCleanupTask != null) {
+                branchTtlCleanupTask.start();
+            }
+            catalogMaintenance.start();
+        } catch (RuntimeException | Error failure) {
+            maintenanceLeader = false;
+            stopLeaderServices(failure);
+            throw failure;
         }
-        if (streamingBootstrap != null) {
-            streamingBootstrap.onLeaderElected();
-        }
-        if (branchTtlCleanupTask != null) {
-            branchTtlCleanupTask.start();
-        }
-        startMetadataSyncSchedule();
-        startInvalidationCleanupSchedule();
         LOG.info("event=unified_leader_elected");
     }
 
     @Override
-    public void onLeadershipLost() {
+    public synchronized void onLeadershipLost() {
         maintenanceLeader = false;
-        stopMaintenanceSchedule();
-        if (indexingBootstrap != null) {
-            indexingBootstrap.onLeadershipLost();
-        }
-        if (streamingBootstrap != null) {
-            streamingBootstrap.onLeadershipLost();
-        }
-        if (branchTtlCleanupTask != null) {
-            branchTtlCleanupTask.stop();
-        }
-        stopMetadataSyncSchedule();
-        stopInvalidationCleanupSchedule();
+        stopLeaderServices(null);
         LOG.info("event=unified_leadership_lost");
+    }
+
+    private void stopLeaderServices(Throwable failure) {
+        ResourceCloser.closeAll(failure, catalogMaintenance::stop,
+                ResourceCloser.present(branchTtlCleanupTask, task -> task.stop()),
+                ResourceCloser.present(streamingBootstrap, StreamingBootstrap::onLeadershipLost),
+                ResourceCloser.present(indexingBootstrap, IndexingBootstrap::onLeadershipLost),
+                this::stopMaintenanceSchedule);
     }
 
     private boolean isMaintenanceLeader() {
         return maintenanceLeader;
     }
 
-    void setMetadataSyncDeps(org.pangrova.metadata.outbox.MetadataSyncService syncService,
-                             org.pangrova.metadata.catalog.registry.CatalogRegistry catalog) {
-        this.metadataSyncService = syncService;
-        this.catalogRegistry = catalog;
-    }
-
-    /** Observes LINKED/MANAGED versions on the same leader-gated cadence as sync. */
-    void setVersionObserver(org.pangrova.metadata.outbox.TableVersionObserver observer) {
-        this.versionObserver = observer;
-    }
-
-    void setInvalidationPoller(PostgresInvalidationPoller poller) {
-        this.invalidationPoller = poller;
-    }
-
-    org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller getInvalidationPoller() {
-        return invalidationPoller;
-    }
-
-    private void startMetadataSyncSchedule() {
-        if (catalogRegistry == null
-                || (metadataSyncService == null && versionObserver == null)) {
-            return;
-        }
-        if (metadataSyncScheduler == null) {
-            metadataSyncScheduler = org.pangrova.common.concurrent.ManagedExecutorFactory
-                    .newSingleThreadScheduledExecutor("metadata-sync");
-        }
-        metadataSyncTask = metadataSyncScheduler.scheduleWithFixedDelay(
-                this::runMetadataSync,
-                METADATA_SYNC_INTERVAL_SECONDS, METADATA_SYNC_INTERVAL_SECONDS, TimeUnit.SECONDS);
-        LOG.info("event=metadata_sync_started intervalSeconds={}", METADATA_SYNC_INTERVAL_SECONDS);
-    }
-
-    private void stopMetadataSyncSchedule() {
-        if (metadataSyncTask != null) {
-            metadataSyncTask.cancel(false);
-            metadataSyncTask = null;
-        }
-        LOG.info("event=metadata_sync_stopped");
-    }
-
-    private void runMetadataSync() {
-        try {
-            org.pangrova.metadata.catalog.registry.CatalogRegistry.DivergenceReport report =
-                    catalogRegistry.reconcileFromStore();
-            if (!report.isEmpty()) {
-                LOG.info("event=periodic_catalog_reconcile loaded={} removed={} loadFailed={}",
-                        report.loaded().size(), report.removed().size(), report.loadFailed().size());
-            }
-        } catch (Exception e) {
-            LOG.warn("event=periodic_catalog_reconcile_failed error={}", e.getMessage(), e);
-        }
-
-        if (metadataSyncService != null) {
-            for (String catalogName : catalogRegistry.listCatalogNames()) {
-                try {
-                    org.pangrova.metadata.api.catalog.CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-                    if (!(handle
-                            instanceof org.pangrova.metadata.federation.FederationCatalogHandle fedHandle)) {
-                        continue;
-                    }
-                    org.pangrova.metadata.api.catalog.FederatedCatalog adapter =
-                            fedHandle.getFederatedCatalog();
-                    metadataSyncService.syncWithRetry(fedHandle.getDescriptor(), adapter);
-                } catch (Exception e) {
-                    LOG.warn("event=metadata_sync_catalog_failed catalog={} error={}",
-                            catalogName, e.getMessage(), e);
-                }
-            }
-        }
-        if (versionObserver != null) {
-            for (org.pangrova.metadata.outbox.TableVersionObservationReport report
-                    : versionObserver.observeAll()) {
-                if (report.versionChanges() > 0 || report.identityChanges() > 0
-                        || report.missing() > 0 || report.hasFailures()) {
-                    LOG.info("event=table_version_observed catalog={} checked={} "
-                                    + "versionChanges={} identityChanges={} missing={} "
-                                    + "unsupported={} errors={}",
-                            report.catalogName(), report.checked(), report.versionChanges(),
-                            report.identityChanges(), report.missing(), report.unsupported(),
-                            report.errors().size());
-                }
-            }
-        }
-    }
-
-    private static final long INVALIDATION_CLEANUP_INTERVAL_HOURS = 24;
-
-    private ScheduledExecutorService invalidationCleanupScheduler;
-
-    private void startInvalidationCleanupSchedule() {
-        if (invalidationPoller == null) {
-            return;
-        }
-        invalidationCleanupScheduler = org.pangrova.common.concurrent.ManagedExecutorFactory
-                .newSingleThreadScheduledExecutor("invalidation-cleanup");
-        invalidationCleanupTask = invalidationCleanupScheduler.scheduleWithFixedDelay(
-                () -> {
-                    try {
-                        invalidationPoller.cleanup();
-                    } catch (Exception e) {
-                        LOG.warn("event=invalidation_cleanup_failed error={}", e.getMessage());
-                    }
-                },
-                INVALIDATION_CLEANUP_INTERVAL_HOURS, INVALIDATION_CLEANUP_INTERVAL_HOURS, TimeUnit.HOURS);
-        LOG.info("event=invalidation_cleanup_started intervalHours={}", INVALIDATION_CLEANUP_INTERVAL_HOURS);
-    }
-
-    private void stopInvalidationCleanupSchedule() {
-        if (invalidationCleanupTask != null) {
-            invalidationCleanupTask.cancel(false);
-            invalidationCleanupTask = null;
-        }
+    CatalogMaintenance catalogMaintenance() {
+        return catalogMaintenance;
     }
 
     /** Supplies the catalog authority required by governance assembly and streaming. */
@@ -291,7 +174,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             return;
         }
         this.catalogRegistry = catalogs;
-        MaintenanceScheduler scheduler = buildMaintenanceScheduler(catalogs, dataSource, config);
+        MaintenanceScheduler scheduler = buildMaintenanceScheduler(catalogs, config);
         this.maintenanceScheduler = scheduler;
         WatermarkStore watermarkStore = dataSource != null
                 ? new JdbcWatermarkPositionStore(dataSource) : new InMemoryWatermarkStore();
@@ -327,7 +210,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         return jdbcStore;
     }
 
-    void startGovernance(CoordinatorBootstrapConfig config, DataSource dataSource) {
+    void startGovernance(CoordinatorBootstrapConfig config, DataSource dataSource, ColumnTagService columnTagService) {
         if (!config.governanceEnabled()) {
             LOG.info("Phase skipped: governance not enabled");
             return;
@@ -335,10 +218,9 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         if (dataSource == null) {
             throw new IllegalStateException("Enabled governance requires the durable metadata datasource");
         }
-        QualityRuleStore ruleStore = org.pangrova.metadata.governance.QualityRuleStoreWiring
-                .tableControl(
-                        org.pangrova.persistence.governance.postgresql.QualityRuleStores.jdbc(dataSource),
-                        java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry"));
+        QualityRuleStore ruleStore = new org.pangrova.metadata.governance.TableControlQualityRuleStore(
+                java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry").tableGovernance(),
+                org.pangrova.persistence.governance.postgresql.QualityRuleStores.jdbc(dataSource));
         lineageEmitter = LineageBackendConfiguration.createEmitter(
                 new org.pangrova.persistence.query.postgresql.lineage.JdbcQueryLineageOutbox(dataSource));
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
@@ -350,28 +232,16 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                 ruleStore, qualityExecutor, alerter);
         CronScheduler cronScheduler = new CronScheduler(handler, this::isMaintenanceLeader,
                 new JdbcGovernanceAuditTrail(dataSource));
-        ColumnTagService columnTagService = new ColumnTagService(table ->
-                java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry").tableGovernance()
-                        .requireBindable(table.catalog(), table.schema(), table.table()).tableId());
         governanceModule = new GovernanceContext(new GovernanceDeps(
                 lineageEmitter, handler, null, cronScheduler, ruleStore, columnTagService));
         try {
             governanceModule.initialize();
-        } catch (RuntimeException failure) {
-            // A failed assembly must not leave the just-created lineage consumer unowned.
-            LineageEventEmitter emitter = lineageEmitter;
-            lineageEmitter = null;
-            if (emitter != null) {
-                try {
-                    emitter.close();
-                } catch (RuntimeException cleanup) {
-                    failure.addSuppressed(cleanup);
-                }
-            }
+        } catch (RuntimeException | Error failure) {
+            ResourceCloser.closeAll(failure, this::closeGovernance);
             throw failure;
         }
         writeQualityGate = writeQualityGateEnabled()
-                ? new org.pangrova.governance.core.quality.RuleBasedWriteQualityGate(
+                ? new org.pangrova.governance.runtime.quality.RuleBasedWriteQualityGate(
                         ruleStore, qualityExecutor)
                 : null;
         LOG.info("event=governance_initialized ruleStore={} stableTagAuthority=true writeQualityGate={}",
@@ -429,9 +299,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             LOG.info("Phase skipped: operations not enabled");
             return;
         }
-        recoveryPlaybook = new org.pangrova.operations.recovery.RecoveryPlaybookFramework();
-        RecoveryActions.registerAll(recoveryPlaybook);
-        LOG.info("Phase: operations — initialized (RecoveryPlaybookFramework with 3 actions)");
+        recoveryPlaybook = new org.pangrova.operations.recovery.RecoveryPlaybook();
+        LOG.info("Phase: operations — initialized (unhandled incidents are escalated)");
     }
 
     CdcLifecycleManager getCdcLifecycleManager() { return cdcRegistrationHandler; }
@@ -439,15 +308,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     StreamingContext getStreamingContext() { return streamingModule; }
     LineageEventEmitter getLineageEmitter() { return lineageEmitter; }
 
-    /** Shared tag event source; null when governance is disabled. */
-    ColumnTagService getColumnTagService() {
-        return governanceModule != null ? governanceModule.columnTagService() : null;
-    }
     CircuitBreakerPolicy getCircuitBreakerPolicy() { return resilienceRegistry; }
     ResilienceRegistry getResilienceRegistry() { return resilienceRegistry; }
     TenantResolver getTenantResolver() { return tenantResolver; }
     QuotaChecker getQuotaChecker() { return quotaChecker; }
-    org.pangrova.operations.recovery.RecoveryPlaybookFramework getRecoveryPlaybook() { return recoveryPlaybook; }
+    org.pangrova.operations.recovery.RecoveryPlaybook getRecoveryPlaybook() { return recoveryPlaybook; }
     IndexingBootstrap getIndexingBootstrap() { return indexingBootstrap; }
     IndexQueryBootstrap getIndexQueryBootstrap() { return indexQueryBootstrap; }
     org.pangrova.persistence.coordination.api.lease.DistributedLease getDistributedLease() { return distributedLease; }
@@ -457,7 +322,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     void startIndexQuery(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
-                         org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider) {
+                         org.pangrova.observability.api.metrics.MetricsProvider metricsProvider) {
         try {
             indexQueryBootstrap = new IndexQueryBootstrap(
                     metadataStore, metricsProvider, INDEX_EVAL_TIMEOUT_MS, 0);
@@ -472,8 +337,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
                        org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
                        org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider,
-                       org.pangrova.security.spi.authorization.AccessControl accessControl,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.persistence.coordination.api.lease.DistributedLease lease) {
         startIndexing(metadataStore, buildClaims, catalog, metricsProvider, accessControl,
@@ -483,8 +348,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
                        org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
                        org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider,
-                       org.pangrova.security.spi.authorization.AccessControl accessControl,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.persistence.coordination.api.lease.DistributedLease lease,
                        GenerationJobStore artifactBuildStore) {
@@ -495,8 +360,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
                        org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
                        org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider,
-                       org.pangrova.security.spi.authorization.AccessControl accessControl,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.persistence.coordination.api.lease.DistributedLease lease,
                        GenerationJobStore artifactBuildStore,
@@ -509,8 +374,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
                        org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
                        org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider,
-                       org.pangrova.security.spi.authorization.AccessControl accessControl,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.persistence.coordination.api.lease.DistributedLease lease,
                        GenerationJobStore artifactBuildStore,
@@ -538,22 +403,12 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         if (closed) {
             return;
         }
-        stopMetadataSyncSchedule();
-        stopInvalidationCleanupSchedule();
-        if (metadataSyncScheduler != null) {
-            metadataSyncScheduler.shutdownNow();
-        }
-        if (invalidationCleanupScheduler != null) {
-            invalidationCleanupScheduler.shutdownNow();
-        }
-        closeModule(invalidationPoller, "metadata_invalidation");
-        closeOperations();
-        closeTenant();
-        closeResilience();
-        closeGovernance();
-        closeStreaming();
-        closeIndexing();
-        closeIndexQuery();
+        closing = true;
+        maintenanceLeader = false;
+        ResourceCloser.closeAll(null,
+                catalogMaintenance::close, this::closeOperations, this::closeTenant,
+                this::closeResilience, this::closeGovernance, this::closeStreaming,
+                this::closeIndexing, this::closeIndexQuery);
         closed = true;
     }
 
@@ -567,14 +422,28 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         }
     }
 
-    private void closeIndexing() { closeModule(indexingBootstrap, "indexing"); }
+    private void closeIndexing() {
+        closeModule(indexingBootstrap, "indexing");
+        indexingBootstrap = null;
+    }
 
-    private void closeIndexQuery() { closeModule(indexQueryBootstrap, "index_query"); }
+    private void closeIndexQuery() {
+        closeModule(indexQueryBootstrap, "index_query");
+        indexQueryBootstrap = null;
+    }
 
-    private void closeStreaming() { closeModule(streamingModule, "streaming"); }
+    private void closeStreaming() {
+        closeModule(streamingModule, "streaming");
+        streamingModule = null;
+        maintenanceScheduler = null;
+        maintenanceTableSource = null;
+        cdcRegistrationHandler = null;
+    }
 
     private void closeGovernance() {
         closeModule(governanceModule, "governance");
+        governanceModule = null;
+        lineageEmitter = null;
         writeQualityGate = null;
     }
 
@@ -586,6 +455,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     private void closeTenant() {
         if (tenantResolver == null && quotaChecker == null) return;
+        tenantStore = null;
         tenantResolver = null;
         quotaChecker = null;
         LOG.info("event=module_closed module=tenant");
@@ -598,19 +468,15 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     private MaintenanceScheduler buildMaintenanceScheduler(
-            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs, DataSource dataSource,
-            CoordinatorBootstrapConfig config) {
+            org.pangrova.metadata.catalog.registry.CatalogRegistry catalogs, CoordinatorBootstrapConfig config) {
         if (catalogs == null) {
             // Metadata-less mode has no ownership records. Keep the scheduler idle
             // rather than maintaining tables nobody has proved Pangrova may touch.
             this.maintenanceTableSource = java.util.List::of;
             return AbsentTableMaintenance.createDefaultScheduler();
         }
-        org.pangrova.table.core.maintenance.TableControlMaintenanceService policies =
-                new org.pangrova.table.core.maintenance.TableControlMaintenanceService(
-                        dataSource != null
-                                ? new JdbcTableControlMaintenanceStore(dataSource)
-                                : new InMemoryTableControlMaintenanceStore());
+        org.pangrova.table.maintenance.TableControlMaintenanceService policies =
+                catalogs.tableMaintenance();
         org.pangrova.streaming.maintenance.MaintenanceConfig maintenanceConfig =
                 org.pangrova.streaming.maintenance.MaintenanceConfig.defaults();
         var executor = new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(

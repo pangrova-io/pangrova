@@ -1,13 +1,15 @@
 package org.pangrova.indexing.builtin.test.property.engine;
 
+import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import java.util.ServiceLoader;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.indexing.api.data.CompositeIndexKey;
 import org.pangrova.indexing.builtin.btree.provider.BTreeStrategyProvider;
-import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 import org.pangrova.indexing.codec.data.IndexSerializer;
 
 import java.util.ArrayList;
@@ -25,7 +27,7 @@ class BTreeCompositePropertyTest {
         for (int i = count; i > 0; i--) rows.add(List.of((long) (i % 5), "v" + (i % 9)));
         var provider = new BTreeStrategyProvider();
         var data = provider.build(rows.iterator(), Map.of("btree.page_size", Integer.toString(pageSize)));
-        var serializer = new IndexSerializer(BuiltinIndexSerializers.createRegistry());
+        var serializer = new IndexSerializer(TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class)));
         var restored = serializer.deserialize(serializer.serialize(data)).orElseThrow();
         for (List<Comparable<?>> row : rows) {
             assertThat(provider.evaluate(restored, new EqualTo("bound-key", new CompositeIndexKey(row))))

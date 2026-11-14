@@ -207,7 +207,7 @@ class IcebergCommitRetryTest {
         long snapshotBefore = table.currentSnapshot().snapshotId();
 
         AtomicReference<String> notifiedTable = new AtomicReference<>();
-        AtomicReference<org.pangrova.connector.api.index.CommitEventType> notifiedType =
+        AtomicReference<org.pangrova.connector.api.enums.CommitEventType> notifiedType =
                 new AtomicReference<>();
         metadata.registerCommitListener(event -> {
             notifiedTable.set(event.tableName());
@@ -227,7 +227,7 @@ class IcebergCommitRetryTest {
                 .isEqualTo("delete_filter_notify");
         assertThat(notifiedType.get())
                 .as("Commit listener should receive DELETE event type")
-                .isEqualTo(org.pangrova.connector.api.index.CommitEventType.DELETE);
+                .isEqualTo(org.pangrova.connector.api.enums.CommitEventType.DELETE);
     }
 
     /**
@@ -263,7 +263,7 @@ class IcebergCommitRetryTest {
         Table table = createTable("append_notify");
 
         List<String> notifiedPaths = new ArrayList<>();
-        AtomicReference<org.pangrova.connector.api.index.CommitEventType> notifiedType =
+        AtomicReference<org.pangrova.connector.api.enums.CommitEventType> notifiedType =
                 new AtomicReference<>();
         metadata.registerCommitListener(event -> {
             notifiedPaths.addAll(event.addedFiles());
@@ -275,7 +275,7 @@ class IcebergCommitRetryTest {
         metadata.finishDistributedWrite(SESSION, handle, List.of(fragment));
 
         assertThat(notifiedType.get())
-                .isEqualTo(org.pangrova.connector.api.index.CommitEventType.APPEND);
+                .isEqualTo(org.pangrova.connector.api.enums.CommitEventType.APPEND);
         assertThat(notifiedPaths).hasSize(1);
         assertThat(notifiedPaths.get(0)).contains("data-notify.parquet");
     }

@@ -6,8 +6,8 @@
 
 #include "engine/executor/driver/TaskExecutor.h"
 #include "engine/resource/TaskObjectReadBudget.h"
-#include "bridge/RuntimeInitializer.h"
-#include "bridge/command/StatusSerializer.h"
+#include "jni/RuntimeInitializer.h"
+#include "command/StatusSerializer.h"
 #include "lance/LanceBatchWriter.h"
 #include "lance/LancePhysicalBatchWriter.h"
 #include "pangrova/protocol/v2/runtime.pb.h"

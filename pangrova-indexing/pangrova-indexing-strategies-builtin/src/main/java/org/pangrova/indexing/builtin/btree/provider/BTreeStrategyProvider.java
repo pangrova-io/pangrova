@@ -1,10 +1,13 @@
 package org.pangrova.indexing.builtin.btree.provider;
 
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.btree.serializer.BTreeSerializer;
+
 import org.pangrova.indexing.builtin.btree.evaluator.BTreeSearcher;
 import org.pangrova.indexing.api.data.CompositeIndexKey;
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.BTreeIndexData;
 import org.pangrova.indexing.api.data.BTreePage;
 import org.pangrova.indexing.api.data.IndexData;
@@ -30,6 +33,11 @@ public final class BTreeStrategyProvider implements IndexStrategyProvider {
     private static final String PROP_PAGE_SIZE = "btree.page_size";
     private static final String PROP_STORE_POSITIONS = "btree.store_positions";
     private static final int DEFAULT_PAGE_SIZE = 4096;
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new BTreeSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

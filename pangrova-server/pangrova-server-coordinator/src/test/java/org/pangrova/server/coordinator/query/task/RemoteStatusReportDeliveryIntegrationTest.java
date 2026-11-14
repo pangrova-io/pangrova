@@ -1,12 +1,12 @@
 package org.pangrova.server.coordinator.query.task;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.task.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
@@ -14,7 +14,7 @@ import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.worker.task.RemoteTaskStatusReporter;
+import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;

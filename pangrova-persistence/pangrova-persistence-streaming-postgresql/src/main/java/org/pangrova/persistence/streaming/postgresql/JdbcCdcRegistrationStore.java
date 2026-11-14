@@ -4,7 +4,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.streaming.api.cdc.CdcRegistration;
 import org.pangrova.streaming.api.cdc.CdcRegistration.CdcStreamState;
 import org.pangrova.streaming.api.cdc.CdcRegistrationStore;
-import org.pangrova.streaming.api.checkpoint.StreamingStoreException;
+import org.pangrova.streaming.api.exception.StreamingStoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

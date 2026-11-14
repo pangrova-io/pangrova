@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.connector.api.enums.MetadataTableKind;
+
 import java.util.HashMap;
 import java.util.Map;
 

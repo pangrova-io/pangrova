@@ -1,10 +1,10 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.query.core.recovery.JournalRecoveryService;
+import org.pangrova.query.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
@@ -279,8 +279,8 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             WorkerManager workerManager = new WorkerManager(new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
             workerManager.registerWorker(new org.pangrova.coordinator.worker.WorkerInfo(
                     "worker-alive", "localhost", 8081, 9091, 0,
-                    org.pangrova.scheduler.api.placement.HealthState.ACTIVE,
-                    org.pangrova.common.value.MemoryPressure.NONE,
+                    org.pangrova.scheduler.api.enums.HealthState.ACTIVE,
+                    org.pangrova.common.enums.MemoryPressure.NONE,
                     0.0, 0, 4L * 1024 * 1024 * 1024,
                     Instant.now(), 0.0, null,
                     2, null, List.of(), null,

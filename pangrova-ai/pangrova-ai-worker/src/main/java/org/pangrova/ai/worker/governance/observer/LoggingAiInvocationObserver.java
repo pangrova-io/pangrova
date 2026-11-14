@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.governance.observer;
 
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
 import org.slf4j.Logger;

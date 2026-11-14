@@ -33,13 +33,13 @@ size_t FlightShuffleServer::evictFullyConsumedLingering(
 std::shared_ptr<ShuffleProducerRegistration> FlightShuffleServer::registerHandle(
     int64_t handle, SerializedShuffleQueue* queue, const std::string& query_id,
     int32_t stage_id, int32_t num_partitions, uint64_t plan_epoch,
-    uint32_t attempt_id, uint64_t fencing_token) {
+    uint32_t attempt_id, uint64_t fencing_token, bool disk_only) {
   auto lease = acquireControl();
   if (num_partitions <= 0 || num_partitions > buffer_store_->limits().partitions_per_handle) {
     throw std::invalid_argument("invalid shuffle partition limit");
   }
   ShuffleProducerIdentity identity{
-      handle, queue, query_id, stage_id, num_partitions, plan_epoch, attempt_id, fencing_token};
+      handle, queue, query_id, stage_id, num_partitions, plan_epoch, attempt_id, fencing_token, disk_only};
   // Validate before consulting an existing identity or reserving any credit.
   if (handle <= 0 || !queue || query_id.empty() || stage_id < 0 ||
       plan_epoch == 0 || fencing_token == 0) {
@@ -70,7 +70,7 @@ std::shared_ptr<ShuffleProducerRegistration> FlightShuffleServer::registerHandle
     return owner;
   }
   try {
-    auto demuxer = std::make_shared<PartitionDemuxer>(queue, buffer_store_);
+    auto demuxer = std::make_shared<PartitionDemuxer>(queue, buffer_store_, disk_only);
     demuxer->setMaxPartitions(num_partitions);
     demuxer->start();
     owner->publish(std::move(demuxer));

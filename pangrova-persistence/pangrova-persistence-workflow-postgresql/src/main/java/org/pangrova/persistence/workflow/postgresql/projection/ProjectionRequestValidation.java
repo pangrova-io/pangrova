@@ -1,7 +1,7 @@
 package org.pangrova.persistence.workflow.postgresql.projection;
 
 import org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation;
-import org.pangrova.persistence.workflow.api.projection.MetadataProjectionScopeException;
+import org.pangrova.persistence.workflow.api.exception.MetadataProjectionScopeException;
 
 /** Reject PostgreSQL identifier limits before accepting a durable request. */
 final class ProjectionRequestValidation {

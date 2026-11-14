@@ -8,15 +8,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "indexing/index/IndexHintFilter.h"
 #include "engine/observability/PangrovaLog.h"
 #include "engine/observability/NativeProfiler.h"
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "engine/shuffle/ShuffleBatchSerializer.h"
 
-#include "bridge/command/StatusSerializer.h"
-#include "bridge/registry/HandleRegistry.h"
+#include "command/StatusSerializer.h"
+#include "command/resource/HandleRegistry.h"
 #include "engine/result/FlightResultServer.h"
 #include "capabilities/capability/LogicalTypeContract.h"
 

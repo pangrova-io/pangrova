@@ -3,12 +3,12 @@ package org.pangrova.persistence.catalog.postgresql.synchronization;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion;
-import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncConflictException;
-import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncPendingException;
+import org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException;
+import org.pangrova.persistence.catalog.api.exception.MetadataSyncPendingException;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
@@ -100,7 +100,7 @@ class PostgresMetadataSyncRepositoryTest {
     void newIncarnationDoesNotInheritProgressAndRejectsOldCompletion() {
         var first = completion(Optional.empty(), Optional.of(CHECKPOINT), 1, 0);
         repository.complete(first);
-        deployments.deleteCatalogDescriptor(descriptor.name());
+        deployments.deleteCatalogDescriptor(descriptor.identity());
         var replacement = new CatalogDescriptor("catalog", CatalogType.FEDERATION, "inventory", CatalogState.ACTIVE,
                 Map.of(), "", Set.of());
         deployments.saveCatalogDescriptor(replacement);

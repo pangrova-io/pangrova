@@ -4,9 +4,9 @@ import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.api.invocation.InferenceResult;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.invocation.MultimodalPrompt;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 

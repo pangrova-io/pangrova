@@ -10,7 +10,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.filesystem.api.object.ObjectStoreAccessorProvider;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.filesystem.api.blob.BlobStorage;
@@ -26,7 +26,7 @@ class FileSystemObjectProviderIsolationTest {
         var unavailable = List.of("software.amazon.awssdk.services.s3.S3Client",
                 "com.aliyun.sdk.service.oss2.OSSClient", "org.postgresql.Driver",
                 "org.pangrova.worker.file.ObjectStoreAccessorFactory",
-                "org.pangrova.file.core.access.FileSpaceAccessService",
+                "org.pangrova.file.access.FileSpaceAccessService",
                 "org.pangrova.filesystem.s3.object.S3ObjectStoreAccessorProvider");
         for (String name : unavailable) {
             assertThatThrownBy(() -> Class.forName(name)).isInstanceOf(ClassNotFoundException.class);

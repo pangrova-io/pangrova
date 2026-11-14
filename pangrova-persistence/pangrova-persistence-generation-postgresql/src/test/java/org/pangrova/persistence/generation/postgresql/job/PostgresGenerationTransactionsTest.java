@@ -1,7 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.generation.api.GenerationStorageException;
+import org.pangrova.persistence.generation.api.exception.GenerationStorageException;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Proxy;
@@ -39,7 +39,7 @@ class PostgresGenerationTransactionsTest {
             if (original instanceof SQLException) {
                 assertThat(actual).isInstanceOf(GenerationStorageException.class).hasCause(original);
                 assertThat(((GenerationStorageException) actual).getErrorCode())
-                        .isEqualTo(org.pangrova.common.exception.PangrovaErrorCode.METADATA_METASTORE_ERROR);
+                        .isEqualTo(org.pangrova.common.enums.PangrovaErrorCode.METADATA_METASTORE_ERROR);
             } else {
                 assertThat(actual).isSameAs(original);
             }

@@ -46,7 +46,7 @@ class JdbcInvalidationPollerIntegrationTest {
         RecordingMetadataCache cache = new RecordingMetadataCache();
         PostgresInvalidationPoller poller = new PostgresInvalidationPoller(
                 dataSource, cache, 1);
-        poller.initSchema();
+        poller.validateSchema();
 
         // Insert entries with out-of-order updated_at timestamps.
         // Simulate: entry A committed first (earlier updated_at), entry B committed
@@ -87,7 +87,7 @@ class JdbcInvalidationPollerIntegrationTest {
         RecordingMetadataCache cache = new RecordingMetadataCache();
         PostgresInvalidationPoller poller = new PostgresInvalidationPoller(
                 dataSource, cache, 1);
-        poller.initSchema();
+        poller.validateSchema();
 
         // Write invalidation — uses NOW() in SQL
         poller.writeInvalidation("cat\u001Fsch\u001Ftbl1", InvalidationType.TABLE);
@@ -114,7 +114,7 @@ class JdbcInvalidationPollerIntegrationTest {
         RecordingMetadataCache cache = new RecordingMetadataCache();
         PostgresInvalidationPoller poller = new PostgresInvalidationPoller(
                 dataSource, cache, 1);
-        poller.initSchema();
+        poller.validateSchema();
 
         // Write and poll first batch
         poller.writeInvalidation("cat\u001Fsch\u001Ftbl1", InvalidationType.TABLE);
@@ -153,7 +153,7 @@ class JdbcInvalidationPollerIntegrationTest {
         var executor = Executors.newSingleThreadExecutor();
         try (var poller = new PostgresInvalidationPoller(dataSource, cache, 1);
              var first = dataSource.getConnection()) {
-            poller.initSchema();
+            poller.validateSchema();
             first.setAutoCommit(false);
             int firstPid;
             try (var statement = first.createStatement();

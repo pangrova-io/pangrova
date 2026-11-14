@@ -57,7 +57,7 @@ ordinary task HTTP route remains for tasks without a COPY ticket. URI-source
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `coordinator.speculation.enabled` | bool | `false` | Enable the existing straggler detector and speculative task launcher. Copies use issued task authority, winner election and exact-attempt drain receipts; enabling this does not establish worker restart or publication-fencing guarantees. |
+| `coordinator.speculation.enabled` | bool | `false` | Enable the existing straggler detector and speculative task launcher. Copies use issued task authority, winner election and exact-attempt drain receipts; external Shuffle additionally requires explicit winning-producer attempt isolation. The current Pangrova remote lifecycle rejects this combination at startup. |
 
 ## coordinator.ha
 
@@ -88,6 +88,7 @@ system properties (`-D...`) on every coordinator:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `coordinator.query.timeout` | duration | `"5m"` | Maximum query execution time before timeout |
+| `coordinator.query.placement-provider` | string | `load-balanced` | Installed worker placement strategy ID |
 | `coordinator.query.max-concurrent` | int | `100` | Maximum number of concurrently executing queries |
 | `coordinator.task.spill.max-bytes` | long | `8589934592` (8 GiB) | Per-task spill byte ceiling; zero disables task spilling. Requires Worker-local spill directory. |
 
@@ -104,10 +105,11 @@ to Standalone, which uses the same Coordinator configuration loader.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `coordinator.shuffle.mode` | enum | `NATIVE` | `NATIVE` serves shuffle from each Worker's own Flight server. `REMOTE` writes to the external shuffle service so a dead Worker's output can be re-read from another node instead of recomputing the stage chain |
-| `coordinator.shuffle.endpoints` | string (comma-separated `host:port`) | `""` | External shuffle servers. Required when `mode=REMOTE`; startup fails closed without them |
+| `coordinator.shuffle.mode` | enum | `NATIVE` | `NATIVE` serves shuffle from each Worker's own Flight server. `REMOTE` uses the selected external provider. Consumers require a committed partition receipt. The Pangrova provider declares blocking partition reads and rejects speculative-attempt isolation. |
+| `coordinator.shuffle.provider` | string | `pangrova` | Selects the external control provider in REMOTE mode. Scope its options under `coordinator.shuffle.provider.<id>.*`. Startup checks the installed factory, configuration and required capabilities. Worker registration, refresh and recovery admit only a matching mode and external provider ID. |
+| `coordinator.shuffle.endpoints` | string (comma-separated `host:port`) | `""` | Pangrova service addresses. Set this or `coordinator.shuffle.provider.pangrova.endpoints` once for REMOTE mode with the Pangrova provider. |
 
-`REMOTE` additionally requires shared PostgreSQL execution authority, Coordinator
+The production Pangrova remote service requires shared PostgreSQL execution authority, Coordinator
 transport TLS plus `coordinator.shuffle.tls.server-identity` (the shuffle service
 demands mutual TLS), matching `worker.shuffle.mode=REMOTE` on every Worker, and a
 deployed shuffle service with a PostgreSQL database, an S3 bucket and the
@@ -169,7 +171,7 @@ except `security.enabled` and `tenant.enabled`.
 | `streaming.enabled` | bool | `true` | Enable the streaming module |
 | `tenant.enabled` | bool | `false` | Enable the multi-tenant module; requires authenticated user identities |
 | `indexing.enabled` | bool | `true` | Enable the indexing module |
-| `operations.enabled` | bool | `true` | Enable the operations module (compaction, maintenance) |
+| `operations.enabled` | bool | `true` | Construct the Coordinator recovery playbook for explicitly dispatched incidents |
 | `observability.enabled` | bool | `true` | Enable the observability module |
 | `security.enabled` | bool | `false` | Enable the security module. Requires an authoritative PostgreSQL metadata datasource and configured `security.auth.type`; missing/unavailable stores fail startup. |
 | `security.auth.type` | string | — | Authenticator type when security is enabled: `OAUTH2`, `LDAP`, or `NOOP` (development only) |

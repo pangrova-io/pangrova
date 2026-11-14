@@ -4,12 +4,12 @@
 
 | Artifact | Responsibility |
 | --- | --- |
-| `pangrova-table-api` | Table identity, ownership, version observations, rename intent, maintenance/statistics values and the policy authority read port |
-| `pangrova-table-core` | Existing table control, policy binding, maintenance and statistics orchestration; ownership-dependent maintenance defaults |
+| `pangrova-table` | Table identity, ownership, version observations, rename intent, maintenance/statistics values and the policy authority read port |
+| `pangrova-table` | Existing table control, policy binding, maintenance and statistics orchestration; ownership-dependent maintenance defaults |
 
 The API uses Common and Connector API (for immutable table statistics). It does not depend on
 Persistence ports, Core, Metadata, Protocol, a database, an SDK or process assembly. There is
-no empty SPI package: the existing `api.policybinding.TablePolicyAuthority` is a narrow calling
+no empty SPI package: the existing `api.policy.TablePolicyAuthority` is a narrow calling
 port for policy consumers, not a provider registry.
 
 Core consumes persistence contracts and receives stores through constructors. Store facts,

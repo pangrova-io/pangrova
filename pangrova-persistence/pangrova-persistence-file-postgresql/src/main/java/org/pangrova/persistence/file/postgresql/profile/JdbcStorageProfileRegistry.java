@@ -3,12 +3,12 @@ package org.pangrova.persistence.file.postgresql.profile;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.persistence.file.api.profile.StorageProfileRegistry;
-import org.pangrova.persistence.file.api.profile.StorageProfileRevision;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.file.api.profile.StorageProfileRevision;
+import org.pangrova.common.enums.StorageType;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

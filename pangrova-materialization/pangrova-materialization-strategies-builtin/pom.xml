@@ -21,11 +21,11 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-materialization-api</artifactId>
+            <artifactId>pangrova-common</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-materialization-spi</artifactId>
+            <artifactId>pangrova-materialization-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

@@ -17,7 +17,7 @@ import org.pangrova.ai.api.capability.AiRequestConstraints;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.model.AiModelDescriptor;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.enums.Modality;
 
 import java.net.URI;
 import java.time.Duration;

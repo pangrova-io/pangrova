@@ -1,5 +1,7 @@
 package org.pangrova.streaming.api.cdc;
 
+import org.pangrova.streaming.api.enums.CdcOperation;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;

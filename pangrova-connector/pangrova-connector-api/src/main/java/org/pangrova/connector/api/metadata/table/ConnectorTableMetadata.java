@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

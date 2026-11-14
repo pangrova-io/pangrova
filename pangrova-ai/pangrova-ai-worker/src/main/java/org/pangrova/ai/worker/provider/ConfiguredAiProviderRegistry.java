@@ -15,21 +15,15 @@ package org.pangrova.ai.worker.provider;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.control.config.AiModelConfigParser;
+import org.pangrova.ai.control.config.AiProviderFactories;
 import org.pangrova.ai.api.model.AiModelDescriptor;
 import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.ai.spi.embedding.EmbeddingProvider;
+import org.pangrova.ai.api.embedding.EmbeddingProvider;
 import org.pangrova.security.api.secret.SecretResolver;
-import org.pangrova.ai.spi.inference.InferenceProvider;
-import org.pangrova.ai.spi.reranking.RerankingProvider;
-import org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider;
-import org.pangrova.ai.provider.openai.embedding.OpenAiEmbeddingConfig;
-import org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider;
-import org.pangrova.ai.provider.openai.inference.OpenAiInferenceConfig;
-import org.pangrova.ai.provider.openai.inference.OpenAiResponsesInferenceProvider;
-import org.pangrova.ai.provider.openai.inference.OpenAiTranscriptionInferenceProvider;
-import org.pangrova.ai.provider.openai.rerank.OpenAiCompatibleRerankingProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
+import org.pangrova.ai.api.reranking.RerankingProvider;
 
 import java.io.Closeable;
 import java.util.Collection;
@@ -57,14 +51,11 @@ import java.util.function.Function;
 @ThreadSafe
 public final class ConfiguredAiProviderRegistry implements AutoCloseable {
 
-    private static final String OPENAI_COMPATIBLE = "openai-compatible";
-    private static final String OPENAI_RESPONSES = "openai-responses";
-    private static final String OPENAI_TRANSCRIPTION = "openai-transcription";
-    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
     private static final int CLOSED_MASK = Integer.MIN_VALUE;
     private static final int ACTIVE_RESOLUTION_MASK = Integer.MAX_VALUE;
 
     private final Map<String, AiModelDescriptor> models;
+    private final AiProviderFactories factories;
     private final SecretResolver secretResolver;
     private final Optional<Function<BlobReference, byte[]>> blobLoader;
     private final ConcurrentMap<String, InferenceProvider> inferenceProviders =
@@ -99,33 +90,15 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
             Optional<Function<BlobReference, byte[]>> blobLoader) {
         this.secretResolver = Objects.requireNonNull(secretResolver, "secretResolver required");
         this.blobLoader = Objects.requireNonNull(blobLoader, "blobLoader must not be null");
-        this.models = parseModels(
+        this.factories = AiProviderFactories.discover();
+        this.models = AiModelConfigParser.parse(
                 config == null ? Map.of() : config,
-                blobLoader.isPresent());
+                blobLoader.isPresent(), factories);
     }
 
     /** Returns immutable canonical descriptors for every enabled configured model. */
     public Collection<AiModelDescriptor> models() {
         return models.values();
-    }
-
-    /**
-     * Parses enabled model descriptors without resolving credentials or creating
-     * providers. Worker bootstrap uses this read-only view for exact model
-     * capability advertisement.
-     */
-    public static Collection<AiModelDescriptor> describeModels(
-            Map<String, String> config) {
-        return describeModels(config, false);
-    }
-
-    /** Parses model inventory for a Worker whose governed FILE runtime initialized. */
-    public static Collection<AiModelDescriptor> describeModels(
-            Map<String, String> config,
-            boolean governedBlobLoaderAvailable) {
-        return parseModels(
-                config == null ? Map.of() : config,
-                governedBlobLoaderAvailable).values();
     }
 
     /** Resolves an inference provider by exact configured model name. */
@@ -234,30 +207,8 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     }
 
     private InferenceProvider createInference(AiModelDescriptor model) {
-        requireSupportedProvider(model);
-        String apiKey = resolveSecret(model);
-        int maxBatchSize = AiModelProperties.integer(model, "max-batch-size", 16);
-        double maxRequestsPerSecond = AiModelProperties.positiveDouble(
-                model, "max-requests-per-second", 10.0);
-        int timeoutSeconds = AiModelProperties.integer(
-                model, "timeout-seconds", DEFAULT_TIMEOUT_SECONDS);
-        OpenAiInferenceConfig config = new OpenAiInferenceConfig(
-                model.endpoint().toString(), providerModel(model), apiKey,
-                maxBatchSize, maxRequestsPerSecond,
-                AiModelProperties.integer(model, "max-concurrency", -1),
-                timeoutSeconds);
-        InferenceProvider delegate = switch (model.provider()) {
-            case OPENAI_COMPATIBLE -> new OpenAiCompatibleInferenceProvider(
-                    config, blobLoaderFor(model));
-            case OPENAI_RESPONSES -> new OpenAiResponsesInferenceProvider(
-                    config, blobLoaderFor(model));
-            case OPENAI_TRANSCRIPTION -> new OpenAiTranscriptionInferenceProvider(
-                    config, blobLoaderFor(model).orElseThrow(() -> configurationFailure(
-                            "OpenAI transcription model '" + model.name()
-                                    + "' requires a governed FILE content loader")));
-            default -> throw configurationFailure(
-                    "Unsupported AI inference provider '" + model.provider() + "'");
-        };
+        InferenceProvider delegate = factories.require(model.provider(), model.name())
+                .createInference(model, resolveSecret(model), blobLoaderFor(model));
         Set<AiCapabilityDescriptor> capabilities = capabilitiesFor(
                 model, AiCapabilityDescriptor.Operation.TEXT_GENERATION,
                 AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION);
@@ -270,26 +221,8 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     }
 
     private EmbeddingProvider createEmbedding(AiModelDescriptor model) {
-        requireCompatibleProvider(model, "embedding");
-        int dimension = AiModelProperties.integer(model, "embedding-dimension", -1);
-        if (dimension <= 0) {
-            throw configurationFailure(
-                    "Model '" + model.name() + "' requires a positive embedding-dimension");
-        }
-        String apiKey = resolveSecret(model);
-        var config = new OpenAiEmbeddingConfig(
-                model.endpoint().toString(),
-                providerModel(model),
-                apiKey,
-                dimension,
-                AiModelProperties.integer(model, "max-batch-size", 32),
-                AiModelProperties.positiveDouble(
-                        model, "max-requests-per-second", 10.0),
-                model.properties().getOrDefault("query-prefix", ""),
-                model.properties().getOrDefault("document-prefix", ""),
-                AiModelProperties.integer(
-                        model, "timeout-seconds", DEFAULT_TIMEOUT_SECONDS));
-        EmbeddingProvider delegate = new OpenAiCompatibleEmbeddingProvider(config);
+        EmbeddingProvider delegate = factories.require(model.provider(), model.name())
+                .createEmbedding(model, resolveSecret(model));
         Set<AiCapabilityDescriptor> capabilities = capabilitiesFor(
                 model, AiCapabilityDescriptor.Operation.EMBEDDING);
         return VersionedAiProviders.embedding(
@@ -301,16 +234,8 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     }
 
     private RerankingProvider createReranking(AiModelDescriptor model) {
-        requireCompatibleProvider(model, "reranking");
-        RerankingProvider delegate = new OpenAiCompatibleRerankingProvider(
-                model.endpoint(),
-                providerModel(model),
-                resolveSecret(model),
-                AiModelProperties.integer(model, "max-batch-size", 32),
-                AiModelProperties.positiveDouble(
-                        model, "max-requests-per-second", 10.0),
-                AiModelProperties.integer(
-                        model, "timeout-seconds", DEFAULT_TIMEOUT_SECONDS));
+        RerankingProvider delegate = factories.require(model.provider(), model.name())
+                .createReranking(model, resolveSecret(model));
         return VersionedAiProviders.reranking(
                 delegate,
                 model.name(),
@@ -344,10 +269,6 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                             + model.name() + "'");
         }
         return secret;
-    }
-
-    private static String providerModel(AiModelDescriptor model) {
-        return model.properties().get("provider-model");
     }
 
     private Optional<Function<BlobReference, byte[]>> blobLoaderFor(
@@ -396,33 +317,6 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 AiInvocationException.Category.CAPABILITY_MISMATCH,
                 false,
                 "Model '" + model.name() + "' has no inference capability");
-    }
-
-    private static Map<String, AiModelDescriptor> parseModels(
-            Map<String, String> config,
-            boolean governedBlobLoaderAvailable) {
-        return AiModelConfigParser.parse(config, governedBlobLoaderAvailable);
-    }
-
-    private static void requireSupportedProvider(AiModelDescriptor model) {
-        if (!Set.of(
-                OPENAI_COMPATIBLE,
-                OPENAI_RESPONSES,
-                OPENAI_TRANSCRIPTION).contains(model.provider())) {
-            throw configurationFailure(
-                    "Unsupported AI provider '" + model.provider() + "' for model '"
-                            + model.name() + "'");
-        }
-    }
-
-    private static void requireCompatibleProvider(
-            AiModelDescriptor model, String operation) {
-        if (!OPENAI_COMPATIBLE.equals(model.provider())) {
-            throw configurationFailure(
-                    "AI " + operation + " requires provider '"
-                            + OPENAI_COMPATIBLE + "'; model '" + model.name()
-                            + "' configures '" + model.provider() + "'");
-        }
     }
 
     private static Set<AiCapabilityDescriptor> capabilitiesFor(

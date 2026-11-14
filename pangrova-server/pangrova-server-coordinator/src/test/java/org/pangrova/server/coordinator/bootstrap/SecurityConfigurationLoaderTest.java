@@ -5,7 +5,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.YamlConfigLoader;
-import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,7 +27,7 @@ class SecurityConfigurationLoaderTest {
                       audience: pangrova
                 """);
         var security = SecurityConfigurationLoader.load(PangrovaConfiguration.fromYaml(YamlConfigLoader.load(file)));
-        assertThat(security.authenticatorType()).isEqualTo(AuthenticatorType.OAUTH2);
+        assertThat(security.requireAuthenticator().providerId()).isEqualTo("OAUTH2");
         assertThat(security.authenticatorProperties()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("issuerUri", "http://127.0.0.1:9", "audience", "pangrova"));
         assertThatThrownBy(() -> security.authenticatorProperties().put("audience", "other"))

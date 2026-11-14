@@ -18,7 +18,7 @@
 #include "TestMemoryHelper.h"
 #include "capabilities/artifact/ImmutableArtifactCache.h"
 #include "capabilities/artifact/RowLocatorSidecar.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "engine/resource/TaskObjectReadBudget.h"
 #include "vector/diskann/DiskAnnBuilder.h"
 #include "vector/diskann/DiskAnnIndexCache.h"

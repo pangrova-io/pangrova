@@ -1,9 +1,13 @@
 """Launcher tests: select the actual role closure without scanning unrelated target JARs."""
+import json
 import os
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import importlib.util
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[3]
 HELPER = ROOT / 'bin' / 'pangrova-classpath.sh'
@@ -45,7 +49,7 @@ class RuntimeClasspathTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip().split(':'), [str(jar), str(dependency)])
 
     def test_missing_dependency_is_rejected_without_scanning_other_artifacts(self):
-        self.package('pangrova-worker/pangrova-worker-core', 'pangrova-worker-core',
+        self.package('pangrova-server/pangrova-server-worker', 'pangrova-server-worker',
                      [self.home / 'absent.jar'])
         result = self.resolve('worker')
         self.assertNotEqual(result.returncode, 0)
@@ -56,15 +60,68 @@ class RuntimeClasspathTest(unittest.TestCase):
         self.package('pangrova-standalone', 'pangrova-standalone', ['', ''])
         self.assertNotEqual(self.resolve('standalone').returncode, 0)
 
-    def test_role_distribution_takes_precedence_over_shared_lib(self):
+    def test_incomplete_role_distribution_cannot_load_unlisted_jars(self):
         role_lib = self.home / 'lib/coordinator'
         role_lib.mkdir(parents=True)
         role_jar = role_lib / 'server.jar'
         role_jar.touch()
         (self.home / 'lib/worker.jar').touch()
         result = self.resolve('coordinator')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), str(role_jar))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('classpath.list', result.stderr)
+        self.assertEqual(result.stdout, '')
+
+    def test_role_manifest_preserves_maven_order_and_rejects_a_missing_member(self):
+        lib = self.home / 'lib/coordinator'
+        lib.mkdir(parents=True)
+        jars = [lib / name for name in ('z.jar', 'a.jar')]
+        for jar in jars:
+            jar.touch()
+        (lib / 'classpath.list').write_text('z.jar\na.jar\n')
+        (lib / 'unlisted.jar').touch()
+        self.assertEqual(self.resolve('coordinator').stdout.strip().split(':'), list(map(str, jars)))
+        jars[0].unlink()
+        result = self.resolve('coordinator')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '')
+
+    def test_role_scripts_pass_each_config_path_as_one_argument(self):
+        java = self.home / 'jdk/bin/java'
+        java.parent.mkdir(parents=True)
+        java.write_text(f'#!{sys.executable}\nimport json, sys\n'
+                        """if "-version" in sys.argv: print('java version "17"')\n"""
+                        'else: print(json.dumps(sys.argv[1:]))\n')
+        java.chmod(0o755)
+        config = str(self.home / 'explicit [x] role.yml')
+        for role in ('coordinator', 'worker', 'standalone'):
+            with self.subTest(role=role):
+                lib = self.home / 'lib' / role
+                lib.mkdir(parents=True)
+                (lib / 'entry.jar').touch()
+                (lib / 'classpath.list').write_text('entry.jar\n')
+                result = subprocess.run(
+                    ['bash', str(ROOT / 'bin' / f'pangrova-{role}.sh'), '--config', config],
+                    env={**os.environ, 'JAVA_HOME': str(java.parents[1]), 'PANGROVA_HOME': str(self.home)},
+                    text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                argv = json.loads(result.stdout.splitlines()[-1])
+                self.assertEqual(argv[argv.index('--config') + 1:], [config])
+
+    def test_stager_checks_binary_contents_even_under_unrelated_artifact_names(self):
+        spec = importlib.util.spec_from_file_location("stage", ROOT / "deploy/docker/stage-role-classpaths.py")
+        stage = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stage)
+        for role, member in (
+            ("coordinator", "org/pangrova/worker/jni/NativeRuntime.class"),
+            ("coordinator", "META-INF/native/linux/aarch64/libpangrova_native.so"),
+            ("worker", "META-INF/versions/17/org/pangrova/planner/analysis/SqlCompiler.class"),
+        ):
+            with self.subTest(role=role, member=member):
+                unrelated = self.home / "shared-dependency.jar"
+                with ZipFile(unrelated, "w") as jar:
+                    jar.writestr(member, b"")
+                with self.assertRaisesRegex(ValueError, "runtime"):
+                    stage.check_contents(role, unrelated, self.home / "server.jar")
 
     def test_unbuilt_role_fails_with_actionable_build_command(self):
         result = self.resolve('coordinator')

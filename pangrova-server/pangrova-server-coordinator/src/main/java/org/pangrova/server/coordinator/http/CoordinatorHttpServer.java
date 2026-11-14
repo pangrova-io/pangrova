@@ -2,8 +2,8 @@ package org.pangrova.server.coordinator.http;
 
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
-import org.pangrova.coordinator.http.IdempotencyKeyRegistry;
-import org.pangrova.coordinator.http.RequestLimitConfig;
+import org.pangrova.server.coordinator.http.request.IdempotencyKeyRegistry;
+import org.pangrova.server.coordinator.http.request.RequestLimitConfig;
 
 import java.net.InetSocketAddress;
 
@@ -12,29 +12,29 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.ext.ContextResolver;
 import org.pangrova.transport.http.EmbeddedHttpServerFactory;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
-import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
-import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
-import org.pangrova.coordinator.http.endpoint.CoordinatorHealthResource;
-import org.pangrova.coordinator.http.endpoint.CoordinatorTaskResource;
-import org.pangrova.coordinator.http.endpoint.QueryResource;
-import org.pangrova.coordinator.http.endpoint.RequestLimitFilter;
-import org.pangrova.coordinator.http.endpoint.SplitResource;
-import org.pangrova.coordinator.http.endpoint.StreamingResource;
-import org.pangrova.coordinator.http.endpoint.TracingFilter;
-import org.pangrova.coordinator.http.endpoint.WebUiResource;
-import org.pangrova.coordinator.http.endpoint.WebUiStaticResource;
-import org.pangrova.coordinator.http.endpoint.WorkerResource;
-import org.pangrova.coordinator.http.endpoint.catalog.CatalogDeploymentResource;
-import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestOperations;
-import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResource;
-import org.pangrova.coordinator.http.endpoint.catalog.OAuth2TokenResource;
-import org.pangrova.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
+import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.server.coordinator.http.endpoint.AuthenticationFilter;
+import org.pangrova.server.coordinator.http.endpoint.CoordinatorExceptionMapper;
+import org.pangrova.server.coordinator.http.endpoint.CoordinatorHealthResource;
+import org.pangrova.server.coordinator.http.endpoint.CoordinatorTaskResource;
+import org.pangrova.server.coordinator.http.endpoint.QueryResource;
+import org.pangrova.server.coordinator.http.endpoint.RequestLimitFilter;
+import org.pangrova.server.coordinator.http.endpoint.SplitResource;
+import org.pangrova.server.coordinator.http.endpoint.StreamingResource;
+import org.pangrova.server.coordinator.http.endpoint.TracingFilter;
+import org.pangrova.server.coordinator.http.endpoint.WebUiResource;
+import org.pangrova.server.coordinator.http.endpoint.WebUiStaticResource;
+import org.pangrova.server.coordinator.http.endpoint.WorkerResource;
+import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogDeploymentResource;
+import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestOperations;
+import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestResource;
+import org.pangrova.server.coordinator.http.endpoint.catalog.OAuth2TokenResource;
+import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
-import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.authentication.AuthenticationManager;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
@@ -155,6 +155,8 @@ public final class CoordinatorHttpServer {
     }
 
     private static void registerResources(ResourceConfig config, CoordinatorHttpServerContext deps) {
+        config.register(new org.pangrova.server.coordinator.http.endpoint.ServerInfoResource(
+                CoordinatorHttpServer.class.getPackage().getImplementationVersion()));
         config.register(new CoordinatorTaskResource(deps.receiver()));
         // A-CLIENT-01: one shared idempotency registry per coordinator so retried write submissions
         // carrying the same Idempotency-Key resolve to the same queryId instead of executing twice.
@@ -164,8 +166,7 @@ public final class CoordinatorHttpServer {
                         idempotencyRegistry, new OtelExecutionTraceContextFactory()));
         registerIfPresent(config, deps.healthCheckEndpoint(), CoordinatorHealthResource::new);
         registerIfPresent(config, deps.workerManager(),
-                manager -> new WorkerResource(
-                        manager, null, deps.coordinatorEpochSupplier()));
+                manager -> new WorkerResource(manager, deps.coordinatorEpochSupplier()));
         registerIfPresent(config, deps.cdcHandler(), StreamingResource::new);
         registerIfPresent(config, deps.splitAssignmentManager(), SplitResource::new);
         registerCatalogRestResources(config, deps);
@@ -207,7 +208,8 @@ public final class CoordinatorHttpServer {
     }
 
     private static void registerFilters(ResourceConfig config, CoordinatorHttpServerContext deps) {
-        config.register(org.pangrova.coordinator.http.endpoint.RequestPeerAddressFilter.class);
+        config.register(org.pangrova.server.coordinator.http.endpoint.ApiVersionFilter.class);
+        config.register(org.pangrova.server.coordinator.http.endpoint.RequestPeerAddressFilter.class);
         if (deps.workerManager() != null && (deps.authenticationManager() == null
                 || deps.internalAuthSecret() == null || deps.internalAuthSecret().isBlank())) {
             throw new IllegalArgumentException("Worker control requires configured internal-service authentication");

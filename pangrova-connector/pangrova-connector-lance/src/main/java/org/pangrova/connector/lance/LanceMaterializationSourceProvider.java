@@ -1,20 +1,22 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.api.metadata.ManagedSourceCatalog;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.materialization.ChangeProof;
-import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
 import org.pangrova.connector.api.materialization.MaterializationCapabilities;
-import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.api.exception.MaterializationSourceException;
 import org.pangrova.connector.api.materialization.PinnedSource;
-import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.api.materialization.SourceProvider;
 import org.pangrova.connector.api.materialization.SourceRef;
 import org.pangrova.connector.api.materialization.SourceSnapshotRef;
 
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Objects;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Lance materialization source contract.
@@ -205,11 +207,5 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
 
     private static String schemaFingerprint(LanceTableHandle table) {
         return "lance-schema:" + HexFormat.of().formatHex(table.schemaFence());
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
     }
 }

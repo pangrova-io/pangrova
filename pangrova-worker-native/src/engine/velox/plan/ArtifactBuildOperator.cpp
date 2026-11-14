@@ -166,7 +166,8 @@ void ArtifactBuildOperator::addInput(facebook::velox::RowVectorPtr input) {
         row_positions_.size() + static_cast<uint64_t>(input->size());
     if (vector::hnsw::HnswIndex::estimatePeakBuildBytes(
             static_cast<int64_t>(next_rows), config_.hnsw.dimension,
-            config_.hnsw.max_connections) > config_.task.max_input_bytes) {
+            config_.hnsw.max_connections, config_.hnsw.ef_construction) >
+            config_.task.max_input_bytes) {
       throw std::runtime_error(
           "RESOURCE_EXHAUSTED: HNSW estimated peak exceeds memory grant");
     }

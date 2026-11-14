@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Enforces that all public top-level interfaces and abstract classes under
-# the manifest-declared -api/-spi contract trees are annotated with one of:
+# the manifest-declared API contract trees are annotated with one of:
 #   @Stable, @Experimental, or @Internal.
 #
 # This guards the SPI contract: any new interface added without an explicit
@@ -25,7 +25,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BASELINE_FILE="${ROOT_DIR}/.pangrova/scripts/.spi-annotation-baseline.txt"
 
 # Contract roots are every artifact declared in .pangrova/modules.yaml whose
-# artifactId ends in -api or -spi. Adding a contract artifact to the manifest
+# artifactId ends in -api. Adding a contract artifact to the manifest
 # enrolls it in this gate automatically.
 CONTRACT_ROOTS=()
 while IFS= read -r artifact; do
@@ -36,11 +36,15 @@ while IFS= read -r artifact; do
     ' "${ROOT_DIR}/.pangrova/modules.yaml")
     [[ -n "${dir}" && -d "${ROOT_DIR}/${dir}/src/main/java" ]] \
         && CONTRACT_ROOTS+=("${ROOT_DIR}/${dir}/src/main/java")
-done < <(sed -n -e 's/^  \(pangrova-.*-api\):$/\1/p' \
-    -e 's/^  \(pangrova-.*-spi\):$/\1/p' "${ROOT_DIR}/.pangrova/modules.yaml")
+done < <(sed -n 's/^  \(pangrova-.*-api\):$/\1/p' "${ROOT_DIR}/.pangrova/modules.yaml")
+# Single-JAR domains publish contracts alongside implementation packages.
+for domain in batch file parser planner query semantic table; do
+    dir="${ROOT_DIR}/pangrova-${domain}/src/main/java/org/pangrova/${domain}/api"
+    [[ ! -d "${dir}" ]] || CONTRACT_ROOTS+=("${dir}")
+done
 
 if [[ ${#CONTRACT_ROOTS[@]} -eq 0 ]]; then
-    echo "ERROR: no -api/-spi contract roots found in .pangrova/modules.yaml" >&2
+    echo "ERROR: no API contract roots found in .pangrova/modules.yaml" >&2
     exit 2
 fi
 

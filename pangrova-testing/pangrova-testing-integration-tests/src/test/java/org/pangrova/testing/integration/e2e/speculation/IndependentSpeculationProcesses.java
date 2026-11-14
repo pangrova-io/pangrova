@@ -2,9 +2,9 @@ package org.pangrova.testing.integration.e2e.speculation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
-import org.pangrova.client.protocol.ResultProtocol;
-import org.pangrova.client.protocol.QueryStatusResponse;
+import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.common.client.enums.ResultProtocol;
+import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 import java.io.IOException;

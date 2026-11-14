@@ -7,9 +7,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.pangrova.common.util.OrderedMaps;
 
 /**
  * Type-safe representation of a column value in a row.
@@ -127,7 +127,7 @@ public sealed interface ColumnValue {
             if (entries.keySet().stream().anyMatch(java.util.Objects::isNull)) {
                 throw new IllegalArgumentException("Map keys must not be null");
             }
-            entries = Collections.unmodifiableMap(new LinkedHashMap<>(entries));
+            entries = OrderedMaps.immutableCopy(entries);
         }
     }
 

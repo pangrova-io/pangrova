@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
-import org.pangrova.coordination.spi.leadership.MaintenanceLeaderAware;
+import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

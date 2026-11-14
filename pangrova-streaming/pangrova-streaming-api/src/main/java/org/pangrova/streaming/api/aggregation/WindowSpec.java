@@ -1,5 +1,7 @@
 package org.pangrova.streaming.api.aggregation;
 
+import org.pangrova.streaming.api.enums.WindowType;
+
 import java.time.Duration;
 
 /**

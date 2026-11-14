@@ -14,14 +14,14 @@
         <module.name>org.pangrova.persistence.generation.api</module.name>
     </properties>
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-execution-api</artifactId></dependency>
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
   <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId><scope>test</scope></dependency>
 
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-batch-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-batch</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-types</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-query-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

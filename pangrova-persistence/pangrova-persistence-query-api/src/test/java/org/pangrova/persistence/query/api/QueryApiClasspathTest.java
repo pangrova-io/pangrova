@@ -2,8 +2,9 @@ package org.pangrova.persistence.query.api;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.api.annotation.Stable;
-import org.pangrova.query.api.lifecycle.QueryState;
-import org.pangrova.persistence.query.api.audit.QueryAuditStore;
+import org.pangrova.query.api.enums.QueryState;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -20,16 +21,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class QueryApiClasspathTest {
     @Test
     void everyExportedTypeLinksAndAnAnchorConstructsOnTheContractClasspath() throws Exception {
-        URL api = QueryAuditStore.class.getProtectionDomain().getCodeSource().getLocation();
-        URL[] locations = {api,
+        URL api = QueryStateJournal.class.getProtectionDomain().getCodeSource().getLocation();
+        URL[] locations = {api, ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.connector.api.commit.WriteAuthorizationReceipt.class.getProtectionDomain().getCodeSource().getLocation(),
-                org.pangrova.types.PangrovaType.class.getProtectionDomain().getCodeSource().getLocation(),
+                org.pangrova.types.enums.PangrovaType.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.batch.api.page.Page.class.getProtectionDomain().getCodeSource().getLocation(),
                 Stable.class.getProtectionDomain().getCodeSource().getLocation(),
                 QueryState.class.getProtectionDomain().getCodeSource().getLocation()};
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {
-            for (String absent : List.of("org.pangrova.query.core.audit.QueryAuditService",
-                    "org.pangrova.security.api.identity.UserIdentity",
+            for (String absent : List.of("org.pangrova.security.api.identity.UserIdentity",
                     "org.pangrova.persistence.jdbc.api.query.ExecutionTransactionFence",
                     "org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore",
                     "org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence",
@@ -53,11 +53,10 @@ class QueryApiClasspathTest {
                     linked.add(name);
                 }
             }
-            assertThat(linked).contains("org.pangrova.persistence.query.api.audit.QueryAuditStore",
-                    "org.pangrova.persistence.query.api.commit.WriteCommitJournal",
+            assertThat(linked).contains("org.pangrova.persistence.query.api.commit.WriteCommitJournal",
                     "org.pangrova.persistence.query.api.state.QueryStateJournal",
                     "org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore");
-            Class<?> anchor = loader.loadClass("org.pangrova.query.api.ownership.ExecutionAnchor");
+            Class<?> anchor = loader.loadClass("org.pangrova.execution.api.ownership.ExecutionAnchor");
             Instant start = Instant.parse("2026-10-31T00:00:00Z");
             Object value = anchor.getConstructor(String.class, String.class, String.class,
                     long.class, Instant.class, Instant.class)

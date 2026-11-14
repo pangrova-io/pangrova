@@ -358,11 +358,11 @@ shuffle JNI bridge is part of the production data path.
 Read-dependent writes are the deliberate exception: the Native drain sends
 Arrow IPC bytes synchronously to Java `NativeWriteExecutor`, which decodes
 them for the connector `ConnectorPageSink`. The borrowed direct buffer must
-not outlive that call. The current code in `NativeRuntime`, `JniBridge` and
+not outlive that call. The current code in `NativeRuntime`, `JniEntryPoints` and
 `NativeWriteExecutor` is the authoritative interface and lifetime contract.
-The Java write adapter consumes `nativebridge.connector.spi.CatalogResourceResolver`;
+The Java write adapter consumes `worker.catalog.CatalogResourceResolver`;
 the Worker-local catalog runtime supplies the exact leased revision and decoded output
-handle. Its immutable `TaskConnectorSession` lives in `nativebridge.connector.session`,
+handle. Its immutable `TaskConnectorSession` lives in `worker.connector.session`,
 below both catalog binding and JNI write execution. Neither shared contract imports a
 JNI executor or owns native handles. Moving these Java contracts does not change native
 entry-point names, callback signatures or catalog-lease lifetime.
@@ -455,7 +455,7 @@ falling back to a different row set.
 ## 13. Project Structure
 
 Authoritative code locations are `pangrova-worker-native/src` for Native
-execution, shuffle and JNI; `pangrova-worker/pangrova-worker-core/src/main/java` for Worker
+execution, shuffle and JNI; `pangrova-worker/src/main/java` for Worker
 admission/lifecycle and connector write callbacks; and
 `pangrova-protocol/src/main/proto/pangrova/protocol/v2` for the shared
 contract. Generated protocol sources are never hand-edited.

@@ -53,7 +53,9 @@ bash "$project_root/pangrova-worker-native/bin/package-native-lib.sh" --producti
     "$native_library" >&2
 (
     cd "$native_stage"
-    sha256sum -- cli/*.jar lib/*.jar
+    sha256sum -- cli/*.jar lib/*.jar \
+        lib/coordinator/classpath.list lib/coordinator/*.jar \
+        lib/worker/classpath.list lib/worker/*.jar
 ) > "$native_stage/runtime.sha256"
 native_sha="$(sha256sum "$native_library" | cut -d " " -f 1)"
 bundle_sha="$(sha256sum "$native_bundle" | cut -d " " -f 1)"

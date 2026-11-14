@@ -1,6 +1,7 @@
 package org.pangrova.testing.property;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.testing.testkit.architecture.JavaSourceReferences;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
@@ -106,16 +107,27 @@ class PackageDependencyGraphTest {
     @Test
     void packageAnnotationsAreReferencesButOwnershipAndCommentsAreNot() throws Exception {
         Path source = root.resolve("src/main/java");
-        Files.createDirectories(source);
-        Files.writeString(source.resolve("package-info.java"), """
+        Path owner = Files.createDirectories(source.resolve("org/pangrova/owner"));
+        Files.writeString(owner.resolve("package-info.java"), """
                 /* package org.pangrova.fake; */
                 @org.pangrova.policy.Marker
                 package org.pangrova.owner;
                 """);
-        var facts = org.pangrova.testing.testkit.architecture.JavaSourceReferences.scan(source);
+        var facts = JavaSourceReferences.scan(source);
         assertThat(facts.packages()).containsExactly("org.pangrova.owner");
         assertThat(facts.references()).containsOnlyKeys("org.pangrova.policy.Marker");
-        assertThat(facts.references().get("org.pangrova.policy.Marker")).isEqualTo("package-info.java:2");
+        assertThat(facts.references().get("org.pangrova.policy.Marker")).isEqualTo(Path.of("org/pangrova/owner/package-info.java") + ":2");
+    }
+
+    @Test
+    void misplacedClassReportsItsDeclaredPackageAndExpectedPath() throws Exception {
+        Path source = Files.createDirectories(root.resolve("src/main/java"));
+        Files.writeString(source.resolve("Named.java"), "package org.pangrova.example; class Named {}");
+
+        assertThatThrownBy(() -> JavaSourceReferences.scan(source))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Named.java declares package org.pangrova.example")
+                .hasMessageContaining(Path.of("org/pangrova/example/Named.java").toString());
     }
 
     @Test

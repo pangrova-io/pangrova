@@ -1,11 +1,11 @@
 package org.pangrova.persistence.coordination.postgresql.lease;
 
-import org.pangrova.persistence.coordination.api.error.CoordinationStorageException;
+import org.pangrova.persistence.coordination.api.exception.CoordinationStorageException;
 
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.coordination.api.lease.LeaseEntry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

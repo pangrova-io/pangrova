@@ -1,7 +1,7 @@
 package org.pangrova.persistence.query.memory.coordination;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
 
 import java.time.Clock;
@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Single-process execution-anchor store for standalone deployments and tests. */
 @ThreadSafe
@@ -137,7 +139,7 @@ public final class InMemoryExecutionAnchorStore implements ExecutionAnchorStore 
 
     @Override
     public synchronized Optional<ExecutionAnchor> current(String executionId) {
-        requireNonBlank(executionId, "executionId");
+        requireText(executionId, "executionId");
         Row row = rows.get(executionId);
         return row != null && row.expiresAt.isAfter(now())
                 ? Optional.of(row.toAnchor()) : Optional.empty();
@@ -154,26 +156,20 @@ public final class InMemoryExecutionAnchorStore implements ExecutionAnchorStore 
     private static void requireRequest(
             String executionId, String ownerId, String ownerIncarnation,
             Duration leaseDuration) {
-        requireNonBlank(executionId, "executionId");
+        requireText(executionId, "executionId");
         requireOwner(ownerId, ownerIncarnation);
         requireDuration(leaseDuration);
     }
 
     private static void requireOwner(String ownerId, String ownerIncarnation) {
-        requireNonBlank(ownerId, "ownerId");
-        requireNonBlank(ownerIncarnation, "ownerIncarnation");
+        requireText(ownerId, "ownerId");
+        requireText(ownerIncarnation, "ownerIncarnation");
     }
 
     private static void requireDuration(Duration leaseDuration) {
         Objects.requireNonNull(leaseDuration, "leaseDuration must not be null");
         if (leaseDuration.toMillis() <= 0) {
             throw new IllegalArgumentException("leaseDuration must be at least one millisecond");
-        }
-    }
-
-    private static void requireNonBlank(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 

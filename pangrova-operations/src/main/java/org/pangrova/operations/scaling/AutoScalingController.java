@@ -76,7 +76,7 @@ public final class AutoScalingController {
     }
 
     /**
-     * Creates a controller without shuffle drain policy (uses no-op).
+     * Creates a controller that only scales out until an authoritative shuffle drain policy is supplied.
      */
     public AutoScalingController(
             ScalingPolicy policy,
@@ -85,11 +85,11 @@ public final class AutoScalingController {
             IntSupplier workerCountSupplier,
             Clock clock) {
         this(policy, emergencyThreshold, executor, workerCountSupplier,
-                ShuffleDrainPolicy.noOp(), clock);
+                ShuffleDrainPolicy.preserveWorkers(), clock);
     }
 
     /**
-     * Creates a controller with default clock and no shuffle drain policy.
+     * Creates a scale-out-only controller using the system clock.
      */
     public AutoScalingController(
             ScalingPolicy policy,

@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.classification;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 import java.util.List;
 import java.util.Map;
 
@@ -11,6 +13,7 @@ import java.util.Map;
  * startup, all persisted tags are replayed through the classification event system so
  * that auto-masking rules are re-generated from the authoritative tag state.</p>
  */
+@Experimental
 public interface ColumnTagStore {
 
     /**

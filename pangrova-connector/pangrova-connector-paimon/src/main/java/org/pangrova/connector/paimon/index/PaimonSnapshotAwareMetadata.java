@@ -2,11 +2,11 @@ package org.pangrova.connector.paimon.index;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
 import org.pangrova.connector.api.index.SnapshotDataFile;
-import org.pangrova.connector.api.index.SnapshotExpiredException;
+import org.pangrova.connector.api.exception.SnapshotExpiredException;
 import org.pangrova.connector.api.index.SnapshotFileDelta;
-import org.pangrova.connector.api.index.SnapshotRelation;
+import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;

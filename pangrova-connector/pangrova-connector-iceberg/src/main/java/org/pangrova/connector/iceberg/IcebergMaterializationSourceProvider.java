@@ -1,14 +1,12 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,16 +23,18 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 import org.pangrova.connector.api.materialization.ChangeProof;
-import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
 import org.pangrova.connector.api.materialization.MaterializationCapabilities;
-import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.api.exception.MaterializationSourceException;
 import org.pangrova.connector.api.materialization.PartitionChange;
 import org.pangrova.connector.api.materialization.PartitionValue;
 import org.pangrova.connector.api.materialization.PinnedSource;
-import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.api.materialization.SourceProvider;
 import org.pangrova.connector.api.materialization.SourceRef;
 import org.pangrova.connector.api.materialization.SourceSnapshotRef;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Iceberg materialization source contract.
@@ -592,18 +592,7 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                         + " does not support change-set mode " + mode);
     }
 
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-    }
-
     private static String sha256(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is required by the Java runtime", failure);
-        }
+        return DigestUtils.sha256Hex(value);
     }
 }

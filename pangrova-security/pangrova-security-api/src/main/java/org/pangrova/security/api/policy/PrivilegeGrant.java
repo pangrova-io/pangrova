@@ -1,5 +1,7 @@
 package org.pangrova.security.api.policy;
 
+import org.pangrova.security.api.enums.Privilege;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Instant;

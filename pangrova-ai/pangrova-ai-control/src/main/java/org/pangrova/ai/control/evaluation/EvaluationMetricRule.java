@@ -17,7 +17,11 @@
  */
 package org.pangrova.ai.control.evaluation;
 
+import org.pangrova.ai.control.enums.EvaluationMetricDirection;
+
 import java.util.Objects;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Immutable numerical release rule for one named metric. */
 public record EvaluationMetricRule(
@@ -28,8 +32,8 @@ public record EvaluationMetricRule(
         double maximumBaselineRegression) {
 
     public EvaluationMetricRule {
-        EvaluationValidation.requireText(name, "name");
-        EvaluationValidation.requireText(unit, "unit");
+        requireText(name, "name");
+        requireText(unit, "unit");
         Objects.requireNonNull(direction, "direction must not be null");
         if (!Double.isFinite(threshold)) {
             throw new IllegalArgumentException("threshold must be finite");

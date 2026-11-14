@@ -54,12 +54,36 @@ def collect(source):
     return edges, components
 
 
+def cyclic_components(components):
+    """Group mutually reachable source directories. This graph is small (one node per component)."""
+    reachable = {}
+    for origin in components:
+        visited = set()
+        pending = [origin]
+        while pending:
+            current = pending.pop()
+            if current not in visited:
+                visited.add(current)
+                pending.extend(components.get(current, ()))
+        reachable[origin] = visited
+    groups = set()
+    for origin, targets in reachable.items():
+        members = tuple(sorted(target for target in targets if origin in reachable.get(target, ())))
+        if len(members) > 1:
+            groups.add(members)
+    return sorted(groups)
+
+
 def check(source, report=False):
     edges, components = collect(source)
     if report:
         for origin in sorted(components):
             for target, (file, line, header) in sorted(components[origin].items()):
                 print(f"{origin} -> {target}: {file}:{line} includes {header}")
+        groups = cyclic_components(components)
+        print(f"Cyclic source-component groups: {len(groups)}")
+        for group in groups:
+            print("  " + ", ".join(group))
     try:
         tuple(TopologicalSorter(edges).static_order())
     except CycleError as error:

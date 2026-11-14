@@ -2,7 +2,7 @@ package org.pangrova.persistence.query.postgresql.state;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.journal.JournalEventContext;
-import org.pangrova.persistence.query.api.commit.JournalWriteException;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.TaskStateEvent;
 

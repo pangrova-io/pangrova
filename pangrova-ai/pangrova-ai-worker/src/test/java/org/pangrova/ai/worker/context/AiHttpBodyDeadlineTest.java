@@ -2,9 +2,9 @@ package org.pangrova.ai.worker.context;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.ai.provider.openai.embedding.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.provider.openai.embedding.OpenAiEmbeddingConfig;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;

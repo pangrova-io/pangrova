@@ -17,13 +17,13 @@ class PangrovaShuffleProviderIsolationTest {
         ClassLoader loader = PangrovaShuffleClient.class.getClassLoader();
         for (String excluded : List.of("org.pangrova.shuffle.exchange.ExternalShuffleTransport",
                 "org.pangrova.shuffle.exchange.SpoolBackedExchangeManager",
-                "org.pangrova.shuffle.core.PartitionMergeStrategy",
+                "org.pangrova.shuffle.exchange.PartitionMergeStrategy",
                 "org.pangrova.shuffle.exchange.ExchangeTaskAttempt",
                 "org.pangrova.worker.execution.NativeTaskExecutor",
-                "org.pangrova.worker.nativebridge.jni.NativeRuntime",
+                "org.pangrova.worker.jni.NativeRuntime",
                 "org.pangrova.worker.bootstrap.WorkerBootstrap",
                 "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
-                "org.pangrova.planner.core.analysis.PlannerContext",
+                "org.pangrova.planner.analysis.PlannerContext",
                 "org.pangrova.worker.exchange.remote.RemoteShuffleClient",
                 "org.pangrova.worker.exchange.codec.CanonicalBatchChunks")) {
             assertThatThrownBy(() -> loader.loadClass(excluded)).isInstanceOf(ClassNotFoundException.class);

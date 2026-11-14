@@ -1,0 +1,53 @@
+package org.pangrova.testing.integration.e2e.speculation;
+
+import PROTOCOL_PACKAGE.ResultProtocol;
+import org.pangrova.testing.integration.e2e.SharedTestContainers;
+import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Locale;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
+public final class SqlProcessComparison {
+    private static final Pattern VALUE = Pattern.compile("(?m)^\\|\\s*42\\s*\\|\\s*$");
+    public static void main(String[] arguments) throws Exception {
+        int warmup = Integer.parseInt(arguments[0]);
+        int iterations = Integer.parseInt(arguments[1]);
+        var postgres = SharedTestContainers.POSTGRES;
+        var network = SharedTestContainers.NETWORK;
+        try (IndependentLocalProcesses processes = new IndependentLocalProcesses();
+             PrintWriter csv = new PrintWriter(Files.newBufferedWriter(Path.of(arguments[2]), StandardOpenOption.CREATE_NEW))) {
+            processes.startCoordinatorAndFirstWorker();
+            String table = "spec_catalog.default.perf_" + UUID.randomUUID().toString().replace("-", "");
+            processes.createSourceCatalog();
+            processes.query("CREATE TABLE " + table + " (id BIGINT)", ResultProtocol.GRPC_TLS);
+            for (int part = 0; part < 3; part++) {
+                processes.query("INSERT INTO " + table + " VALUES (4), (5), (5)", ResultProtocol.GRPC_TLS);
+            }
+            processes.startSecondWorker();
+            String[] queries = {"SELECT 21 + 21 AS answer", "SELECT SUM(id) AS answer FROM " + table};
+            csv.println("iteration,workload,client_elapsed_ns,query_id");
+            for (int i = -warmup; i < iterations; i++) {
+                for (int offset = 0; offset < 2; offset++) {
+                    int index = Math.floorMod(i + offset, 2);
+                    long start = System.nanoTime();
+                    IndependentLocalProcesses.QueryResult result = processes.query(queries[index], ResultProtocol.GRPC_TLS);
+                    long elapsed = System.nanoTime() - start;
+                    if (!VALUE.matcher(result.output()).find() || !result.output().contains("1 row")) {
+                        throw new AssertionError("Unexpected SQL result " + result.queryId() + ": " + result.output());
+                    }
+                    if (i >= 0) {
+                        csv.printf(Locale.ROOT, "%d,%s,%d,%s%n", i, index == 0 ? "constant" : "iceberg-sum", elapsed, result.queryId());
+                        csv.flush();
+                        if (csv.checkError()) throw new IllegalStateException("Could not save accepted sample");
+                    }
+                }
+            }
+        } finally {
+            postgres.stop();
+            network.close();
+        }
+    }
+}

@@ -1,11 +1,11 @@
 package org.pangrova.persistence.table.memory.control;
 
-import org.pangrova.persistence.table.api.control.TableControlException;
+import org.pangrova.table.api.exception.TableControlException;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.identity.TableRef;
 import org.pangrova.table.api.rename.TableControlRenameIntent;
-import org.pangrova.table.api.ownership.TableControlState;
-import org.pangrova.persistence.table.api.control.TableControlStore;
+import org.pangrova.table.api.enums.TableControlState;
+import org.pangrova.table.api.ownership.TableControlStore;
 import org.pangrova.table.api.observation.TableVersionObservation;
 import org.pangrova.common.concurrent.ThreadSafe;
 
@@ -88,6 +88,22 @@ public final class InMemoryTableControlStore implements TableControlStore {
                     liveByName.remove(key(source.catalog(), source.schema(), source.table()), record.tableId()));
         }
         names.forEach(name -> liveByName.put(name, record.tableId()));
+    }
+
+    @Override
+    public synchronized void replaceRegistration(TableControlRecord expected, TableControlRecord replacement,
+            java.time.Instant retiredAt) {
+        expected.requireReplacement(replacement);
+        var current = byId.get(expected.tableId());
+        if (!expected.matchesRegistration(current)
+                || !expected.tableId().equals(liveByName.get(expected.tableRef()))
+                || byId.containsKey(replacement.tableId())) {
+            throw TableControlException.staleWrite("Table registration changed for " + expected.qualifiedName());
+        }
+        var dropped = current.retiredAt(retiredAt);
+        byId.put(expected.tableId(), dropped);
+        byId.put(replacement.tableId(), replacement);
+        liveByName.put(replacement.tableRef(), replacement.tableId());
     }
 
     @Override

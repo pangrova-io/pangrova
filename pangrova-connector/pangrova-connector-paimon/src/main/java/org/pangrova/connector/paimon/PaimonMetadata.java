@@ -2,8 +2,8 @@ package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
@@ -12,11 +12,11 @@ import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.MetadataTableKind;
+import org.pangrova.connector.api.enums.MetadataTableKind;
 import org.pangrova.connector.api.metadata.MetadataTableListing;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
@@ -384,7 +384,7 @@ public class PaimonMetadata implements ConnectorMetadata {
         return writes.reconstruct(tableName, writeMode, baseSnapshotId);
     }
 
-    org.pangrova.connector.spi.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
+    org.pangrova.connector.api.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
         return writes.physical();
     }
 
@@ -440,7 +440,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.spi.metadata.ConnectorSystemTable> getSystemTable(
+    public java.util.Optional<org.pangrova.connector.api.metadata.ConnectorSystemTable> getSystemTable(
             ConnectorSession session, ConnectorTableHandle table, String systemTableName) {
         PaimonTableHandle handle = (PaimonTableHandle) table;
         Table paimonTable = loadFreshTable(handle.schemaName(), handle.tableName());
@@ -474,7 +474,7 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public void changeColumnType(ConnectorSession session, ConnectorTableHandle table,
-                                 String columnName, org.pangrova.types.PangrovaType newType) {
+                                 String columnName, org.pangrova.types.enums.PangrovaType newType) {
         PaimonDdlOperations.changeColumnType(catalog, (PaimonTableHandle) table, columnName, newType.name());
     }
 
@@ -497,7 +497,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.List<org.pangrova.connector.spi.metadata.TableProcedure> listTableProcedures() {
+    public java.util.List<org.pangrova.connector.api.metadata.TableProcedure> listTableProcedures() {
         return PaimonTableProcedures.list();
     }
 
@@ -528,7 +528,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     // --- Index SPI overrides ---
 
     @Override
-    public Optional<org.pangrova.connector.spi.index.FileSystemAccessor> getFileSystemAccessor() {
+    public Optional<org.pangrova.connector.api.index.FileSystemAccessor> getFileSystemAccessor() {
         Catalog underlying = catalog;
         while (underlying instanceof org.apache.paimon.catalog.DelegateCatalog delegate) {
             underlying = delegate.wrapped();
@@ -541,7 +541,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public Optional<org.pangrova.connector.spi.index.ColumnValueReader> getColumnValueReader() {
+    public Optional<org.pangrova.connector.api.index.ColumnValueReader> getColumnValueReader() {
         return Optional.of(new PaimonCatalogColumnValueReader(catalog));
     }
 
@@ -557,23 +557,23 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.spi.index.NativeIndexEvaluator> getNativeIndexEvaluator() {
+    public java.util.Optional<org.pangrova.connector.api.index.NativeIndexEvaluator> getNativeIndexEvaluator() {
         return java.util.Optional.of(nativeIndexEvaluator);
     }
 
     /** Registers the connector's internal lifecycle callback without a data session. */
-    public void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
+    public void registerCommitListener(org.pangrova.connector.api.index.CommitListener listener) {
         commitNotifier.register(listener);
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.spi.index.SnapshotAwareMetadata> getSnapshotAwareMetadata(
+    public java.util.Optional<org.pangrova.connector.api.index.SnapshotAwareMetadata> getSnapshotAwareMetadata(
             String schemaName, String tableName) {
         return PaimonIndexAccessors.getSnapshotAwareMetadata(catalog, schemaName, tableName);
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.spi.index.ConnectorIndexSupport> getIndexSupport() {
+    public java.util.Optional<org.pangrova.connector.api.index.ConnectorIndexSupport> getIndexSupport() {
         return java.util.Optional.of(new PaimonConnectorIndexSupport(this, catalog));
     }
 
@@ -595,7 +595,7 @@ public class PaimonMetadata implements ConnectorMetadata {
             java.util.List<String> addedFiles,
             java.util.List<String> removedFiles,
             String snapshotId,
-            org.pangrova.connector.api.index.CommitEventType eventType) {
+            org.pangrova.connector.api.enums.CommitEventType eventType) {
         commitNotifier.notify(
                 tenantId, schemaName, tableName,
                 addedFiles, removedFiles, snapshotId, eventType);

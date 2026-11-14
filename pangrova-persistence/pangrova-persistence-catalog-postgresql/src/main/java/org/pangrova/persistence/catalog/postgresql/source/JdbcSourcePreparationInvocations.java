@@ -2,7 +2,7 @@ package org.pangrova.persistence.catalog.postgresql.source;
 
 import org.pangrova.connector.api.metadata.SourcePrepareInvocation;
 import org.pangrova.connector.api.metadata.SourcePublicationReservation;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;

@@ -5,6 +5,8 @@ import org.pangrova.common.api.annotation.Experimental;
 import java.util.Locale;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * One secret lookup: a provider prefix, an opaque provider-specific key, and an
  * optional tenant scope.
@@ -17,8 +19,8 @@ import java.util.Objects;
 public record SecretReference(String prefix, String key, String tenantId) {
 
     public SecretReference {
-        requireNonBlank(prefix, "prefix");
-        requireNonBlank(key, "key");
+        requireText(prefix, "prefix");
+        requireText(key, "key");
     }
 
     /** Creates a tenant-neutral reference. */
@@ -47,11 +49,5 @@ public record SecretReference(String prefix, String key, String tenantId) {
                 reference.substring(0, separator).toUpperCase(Locale.ROOT),
                 reference.substring(separator + 3),
                 null);
-    }
-
-    private static void requireNonBlank(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
     }
 }

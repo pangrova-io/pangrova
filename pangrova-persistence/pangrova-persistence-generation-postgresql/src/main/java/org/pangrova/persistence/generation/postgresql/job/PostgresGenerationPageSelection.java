@@ -1,6 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.PageRow;
 
 import java.sql.Connection;

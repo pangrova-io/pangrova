@@ -2,16 +2,16 @@ package org.pangrova.observability.noop;
 
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.logging.Logger;
-import org.pangrova.observability.spi.logging.LoggingProvider;
+import org.pangrova.observability.api.logging.LoggingProvider;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.pangrova.observability.api.tracing.Span;
-import org.pangrova.observability.api.tracing.SpanKind;
-import org.pangrova.observability.api.tracing.StatusCode;
-import org.pangrova.observability.spi.tracing.TracingProvider;
-import org.pangrova.observability.api.profiling.ProfilingUnavailableException;
+import org.pangrova.observability.api.enums.SpanKind;
+import org.pangrova.observability.api.enums.StatusCode;
+import org.pangrova.observability.api.tracing.TracingProvider;
+import org.pangrova.observability.api.exception.ProfilingUnavailableException;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -89,7 +89,7 @@ class NoOpFragmentationAuditTest {
         assertInstanceOf(Logger.class, NoOpLogger.INSTANCE);
 
         // Profiling bridge NoOp
-        assertInstanceOf(org.pangrova.observability.spi.profiling.Profiler.class, new UnavailableProfiler());
+        assertInstanceOf(org.pangrova.observability.api.profiling.Profiler.class, new UnavailableProfiler());
     }
 
     /**

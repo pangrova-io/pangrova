@@ -44,7 +44,7 @@ class TypesClasspathIsolationTest {
                     field.getGenericType();
                 }
             }
-            for (String excluded : List.of("org.pangrova.connector.spi.plugin.Connector",
+            for (String excluded : List.of("org.pangrova.connector.api.plugin.Connector",
                     "org.apache.arrow.vector.VectorSchemaRoot", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.calcite.rel.type.RelDataType", "org.postgresql.Driver")) {
                 assertThatThrownBy(() -> loader.loadClass(excluded)).isInstanceOf(ClassNotFoundException.class);

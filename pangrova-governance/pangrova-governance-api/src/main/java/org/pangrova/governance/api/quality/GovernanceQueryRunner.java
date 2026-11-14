@@ -1,13 +1,18 @@
 package org.pangrova.governance.api.quality;
 
+import org.pangrova.governance.api.exception.GovernanceQueryException;
+
+import org.pangrova.common.api.annotation.Experimental;
+
 /**
  * Functional interface for executing quality rule SQL against table data.
  *
- * <p>The coordinator provides the implementation at wiring time, routing
- * governance SQL through the internal query pipeline. This avoids a direct
- * dependency from governance to coordinator internals.</p>
+ * <p>An installed data-plane runner must bind the target's stable ID to its current
+ * qualified name before reading, then authorize the persisted subject for all
+ * referenced relations. The production Coordinator currently has no such runner.</p>
  */
 @FunctionalInterface
+@Experimental
 public interface GovernanceQueryRunner {
 
     /**

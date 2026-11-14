@@ -63,21 +63,30 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
         pool.setSchema(SHUFFLE_SCHEMA);
         pool.setAutoCommit(true);
         HikariDataSource dataSource = new HikariDataSource(pool);
-        Flyway.configure()
-                .dataSource(dataSource)
-                .schemas(SHUFFLE_SCHEMA)
-                .defaultSchema(SHUFFLE_SCHEMA)
-                .locations("classpath:org/pangrova/shuffle/migration")
-                .load()
-                .migrate();
-        read(dataSource, connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "SELECT execution_id FROM public.execution_anchor WHERE FALSE")) {
-                statement.executeQuery().close();
+        try {
+            Flyway.configure()
+                    .dataSource(dataSource)
+                    .schemas(SHUFFLE_SCHEMA)
+                    .defaultSchema(SHUFFLE_SCHEMA)
+                    .locations("classpath:org/pangrova/shuffle/migration")
+                    .load()
+                    .migrate();
+            read(dataSource, connection -> {
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "SELECT execution_id FROM public.execution_anchor WHERE FALSE")) {
+                    statement.executeQuery().close();
+                }
+                return null;
+            });
+            return new PostgresShuffleStore(dataSource);
+        } catch (RuntimeException | Error failure) {
+            try {
+                dataSource.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
             }
-            return null;
-        });
-        return new PostgresShuffleStore(dataSource);
+            throw failure;
+        }
     }
     PostgresShuffleBatchStore batchStore() {
         return batchStore;

@@ -3,13 +3,13 @@ package org.pangrova.testing.integration.e2e.arch;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
-import org.pangrova.connector.spi.secret.ConnectorSecretResolver;
-import org.pangrova.metadata.federation.FederatedCatalogFactory;
-import org.pangrova.function.spi.registry.FunctionFactory;
-import org.pangrova.function.spi.runtime.FunctionCallbackScope;
+import org.pangrova.security.api.secret.SecretProvider;
+import org.pangrova.metadata.api.catalog.FederatedCatalogFactory;
+import org.pangrova.function.api.registry.FunctionFactory;
+import org.pangrova.function.api.runtime.FunctionCallbackScope;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
-import org.pangrova.worker.nativebridge.jni.write.catalog.WorkerCatalogRuntime;
-import org.pangrova.coordinator.metadata.PluginFederationHandleFactory;
+import org.pangrova.security.secret.resolution.SecretResolverRegistry;
+import org.pangrova.metadata.catalog.federation.PluginFederationHandleFactory;
 
 import java.util.ArrayDeque;
 import java.util.Set;
@@ -42,9 +42,9 @@ class ServiceLoaderReachabilityTest {
     @Test
     void constructorDiscoveryUsesItsActualServiceArgument() {
         var classes = new ClassFileImporter().importClasses(
-                WorkerCatalogRuntime.class, PluginFederationHandleFactory.class);
-        assertThat(ServiceLoaderReachability.contractsOf(WorkerCatalogRuntime.class.getName(), classes))
-                .containsExactly(ConnectorSecretResolver.class.getName());
+                SecretResolverRegistry.class, PluginFederationHandleFactory.class);
+        assertThat(ServiceLoaderReachability.contractsOf(SecretResolverRegistry.class.getName(), classes))
+                .containsExactly(SecretProvider.class.getName());
         assertThat(ServiceLoaderReachability.contractsOf(PluginFederationHandleFactory.class.getName(), classes))
                 .containsExactly(FederatedCatalogFactory.class.getName());
     }

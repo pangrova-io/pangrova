@@ -78,7 +78,7 @@ class RemoteShuffleClientPoolTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new RemoteShuffleClientPool(5000, 0, RemoteShuffleClientPool.PoolOptions.defaults(), admission()));
         assertThrows(IllegalArgumentException.class,
-                () -> new RemoteShuffleChannelAdmission.Limits(100, 0));
+                () -> new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(100, 0));
     }
 
     @Test
@@ -170,6 +170,6 @@ class RemoteShuffleClientPoolTest {
     }
 
     private static RemoteShuffleChannelAdmission admission() {
-        return new RemoteShuffleChannelAdmission(new RemoteShuffleChannelAdmission.Limits(100, 8));
+        return new RemoteShuffleChannelAdmission(new org.pangrova.shuffle.api.worker.ShuffleChannelLimits(100, 8));
     }
 }

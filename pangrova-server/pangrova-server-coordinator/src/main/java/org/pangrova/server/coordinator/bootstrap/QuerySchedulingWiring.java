@@ -1,15 +1,18 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.scheduler.core.placement.TaskScheduler;
-import org.pangrova.scheduler.core.resource.WeightedFairScheduler;
-import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategyFactory;
-import org.pangrova.scheduler.spi.placement.WorkerSelectionStrategyFactory;
+import org.pangrova.common.lifecycle.ResourceCloser;
+
+import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.resource.WeightedFairScheduler;
+import org.pangrova.scheduler.api.placement.WorkerSelectionStrategyFactory;
+import java.util.HashMap;
 import java.util.Objects;
+import java.util.ServiceLoader;
 import java.util.Optional;
 import org.pangrova.persistence.security.api.tenant.TenantStore;
-import org.pangrova.scheduler.spi.placement.TenantPlacementResolver;
-import org.pangrova.scheduler.api.error.NoAvailableWorkerException;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.scheduler.api.placement.TenantPlacementResolver;
+import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
+import org.pangrova.security.api.enums.TenantStatus;
 
 /**
  * Assembles placement through its typed factory and owns the optional tenant executor.
@@ -20,24 +23,37 @@ final class QuerySchedulingWiring implements AutoCloseable {
     private final WeightedFairScheduler tenantScheduler;
     private final TaskScheduler scheduler;
 
-    QuerySchedulingWiring(TenantStore tenantStore) {
-        this(tenantStore, new LoadBalancedStrategyFactory());
+    QuerySchedulingWiring(TenantStore tenantStore, String providerId) {
+        this(tenantStore, providerId, ServiceLoader.load(WorkerSelectionStrategyFactory.class,
+                QuerySchedulingWiring.class.getClassLoader()));
     }
 
-    QuerySchedulingWiring(TenantStore tenantStore, WorkerSelectionStrategyFactory factory) {
-        Objects.requireNonNull(factory, "factory");
-        String providerId = Objects.requireNonNull(factory.providerId(), "providerId");
-        if (providerId.isBlank()) throw new IllegalArgumentException("providerId must not be blank");
-        if (factory.apiVersion() != WorkerSelectionStrategyFactory.API_VERSION) {
-            throw new IllegalArgumentException("Unsupported placement API version for " + providerId);
+    QuerySchedulingWiring(TenantStore tenantStore, String providerId, Iterable<WorkerSelectionStrategyFactory> factories) {
+        var installed = new HashMap<String, WorkerSelectionStrategyFactory>();
+        for (var candidate : factories) {
+            String id = candidate.providerId();
+            if (id == null || id.isBlank()) {
+                throw new IllegalArgumentException("Placement factory providerId must not be blank");
+            }
+            if (candidate.apiVersion() != WorkerSelectionStrategyFactory.API_VERSION) {
+                throw new IllegalArgumentException("Unsupported placement API version for " + id);
+            }
+            if (installed.putIfAbsent(id, candidate) != null) {
+                throw new IllegalArgumentException("Duplicate placement provider: " + id);
+            }
+        }
+        var factory = installed.get(providerId);
+        if (factory == null) {
+            throw new IllegalArgumentException("Unknown placement provider: " + providerId
+                    + ". Installed: " + installed.keySet());
         }
         tenantScheduler = tenantStore != null ? new WeightedFairScheduler() : null;
         try {
             scheduler = new TaskScheduler(Objects.requireNonNull(factory.create(), "strategy"),
                     tenantPlacement(tenantStore));
         } catch (RuntimeException | Error failure) {
-            CoordinatorResourceRelease.close(failure,
-                    CoordinatorResourceRelease.present(tenantScheduler, WeightedFairScheduler::close));
+            ResourceCloser.closeAll(failure,
+                    ResourceCloser.present(tenantScheduler, WeightedFairScheduler::close));
             throw failure;
         }
     }

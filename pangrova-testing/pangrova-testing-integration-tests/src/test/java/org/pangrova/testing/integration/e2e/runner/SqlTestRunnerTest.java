@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.runner;
 
+import org.pangrova.testing.integration.exception.SqlExecutionException;
+
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;

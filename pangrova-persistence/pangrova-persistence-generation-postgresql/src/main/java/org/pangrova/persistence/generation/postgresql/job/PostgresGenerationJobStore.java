@@ -10,7 +10,7 @@ import org.pangrova.persistence.generation.postgresql.execution.PostgresGenerati
 import org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentGenerationAuthority;
 import org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore;
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.output.GenerationOutput;
@@ -169,7 +169,7 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
     @Override
     public Optional<GenerationLease> claimNextPage(
             String tenantId, String jobId,
-            org.pangrova.query.api.ownership.ExecutionAnchor executionAnchor, long ownerEpoch,
+            org.pangrova.execution.api.ownership.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now) {
         String leaseOwner = Objects.requireNonNull(executionAnchor, "executionAnchor").ownerId();
         if (!new GenerationJobKey(tenantId, jobId).executionId().equals(executionAnchor.executionId())) {
@@ -337,7 +337,7 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
     @Override
     public Optional<GenerationJob> claimReadyForPublication(
             String tenantId, String jobId,
-            org.pangrova.query.api.ownership.ExecutionAnchor executionAnchor, long ownerEpoch,
+            org.pangrova.execution.api.ownership.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now) {
         String owner = Objects.requireNonNull(executionAnchor, "executionAnchor").ownerId();
         requireLeaseRequest(tenantId, jobId, owner, ownerEpoch, leaseDuration, now);

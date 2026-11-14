@@ -1,18 +1,20 @@
 package org.pangrova.server.coordinator.bootstrap;
+
+import org.pangrova.persistence.table.api.provider.TableStoreFactory;
+import org.pangrova.persistence.table.api.provider.TableStores;
+import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationRepository;
+import org.pangrova.persistence.materialization.postgresql.JdbcMaterializationCatalog;
 import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
 
-import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
-import org.pangrova.persistence.table.postgresql.governancebinding.JdbcTableControlGovernanceBindingStore;
-import org.pangrova.persistence.table.postgresql.statistics.JdbcTableControlStatisticsStore;
-import org.pangrova.metadata.assembly.generation.GenerationStores;
+import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.ai.postgresql.embedding.JdbcCurrentModelAuthority;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 import org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
-import org.pangrova.common.lifecycle.BootstrapFailedException;
+import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
-import org.pangrova.coordinator.metadata.PluginFederationHandleFactory;
+import org.pangrova.metadata.catalog.federation.PluginFederationHandleFactory;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
@@ -21,10 +23,8 @@ import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.pangrova.persistence.jdbc.support.PooledDataSourceFactory;
 import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.security.api.secret.SecretResolver;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
-import org.pangrova.security.secret.env.EnvSecretProvider;
-import org.pangrova.security.secret.file.FileSecretProvider;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.security.secret.resolution.SecretResolverRegistry;
+import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
 import org.slf4j.Logger;
@@ -49,7 +49,7 @@ public final class CoordinatorBootstrap {
     private final CoordinatorBootstrapConfig config;
     private final CurrentModelAuthority modelAuthority =
             new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
-    private final GenerationStores artifactStores = new GenerationStores(modelAuthority);
+    private final PostgresGenerationStores artifactStores = new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create());
     private final org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle =
             new org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
@@ -60,9 +60,10 @@ public final class CoordinatorBootstrap {
     private PluginConnectorHandleFactory connectorHandleFactory;
     private NativeDatasetControlBootstrap nativeDatasetControl;
     private DataSource metadataDataSource;
+    private org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry coordinatorRegistry;
     private AiInfrastructureStores aiInfrastructureStores;
     private org.pangrova.persistence.coordination.api.lease.DistributedLease distributedLease;
-    private org.pangrova.persistence.coordination.spi.provider.CoordinationProvider zkLeaseProvider;
+    private org.pangrova.persistence.coordination.api.provider.CoordinationProvider zkLeaseProvider;
     private SecurityBootstrap security;
     private ModuleIntegrationBootstrap moduleWiring;
     private StreamingBootstrap streamingBootstrap;
@@ -111,12 +112,11 @@ public final class CoordinatorBootstrap {
 
     private void startRoleSubsystems() {
         security = new SecurityBootstrap(config, metadataDataSource, source ->
-                org.pangrova.metadata.assembly.security.ColumnMaskStoreWiring.tableControl(
-                        new org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore(source),
-                        metadataBootstrap.catalogRegistry()),
-                source -> new org.pangrova.metadata.service.TableControlRowPolicyStore(
-                        new org.pangrova.metadata.service.RegistryTablePolicyAuthority(
-                                metadataBootstrap.catalogRegistry()),
+                new org.pangrova.metadata.security.TableControlColumnMaskStore(
+                        metadataBootstrap.catalogRegistry().tableGovernance(),
+                        new org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore(source)),
+                source -> new org.pangrova.metadata.security.TableControlRowPolicyStore(
+                        metadataBootstrap.catalogRegistry().tableGovernance(),
                         new org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore(source)));
         security.start();
         validateInternalAuthSecret();
@@ -137,14 +137,14 @@ public final class CoordinatorBootstrap {
     private void startQueryAndHttp() {
         query = buildQueryBootstrap();
         query.start();
-        var invalidationPoller = moduleWiring == null ? null : moduleWiring.getInvalidationPoller();
-        if (invalidationPoller != null) {
-            query.executionWiring().wireResultCacheInvalidation(invalidationPoller);
-        }
         ha = buildHighAvailabilityBootstrap();
         ha.setClaimedExecutionRecovery(claimed ->
                 query.recoverWriteCommitIntents(claimed, ha.haService()));
         ha.start();
+        var invalidationPoller = moduleWiring.catalogMaintenance().getInvalidationPoller();
+        if (invalidationPoller != null) {
+            invalidationPoller.start();
+        }
         query.wireHighAvailability(ha.haService());
         wireQueryOwnershipTracking();
         http = buildHttpBootstrap();
@@ -169,11 +169,11 @@ public final class CoordinatorBootstrap {
                 metadataBootstrap != null ? metadataBootstrap.metadataService() : null);
     }
 
-    org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource copySourceReadResource() {
+    org.pangrova.server.coordinator.http.endpoint.copy.CopySourceReadResource copySourceReadResource() {
         if (metadataDataSource == null || security.accessControl() == null || ha == null) {
             return null;
         }
-        return new org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource(
+        return new org.pangrova.server.coordinator.http.endpoint.copy.CopySourceReadResource(
                 new org.pangrova.persistence.file.postgresql.copy.JdbcCopySourceReadAdmissions(
                         metadataDataSource, security.accessControl(),
                         new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence()),
@@ -184,12 +184,12 @@ public final class CoordinatorBootstrap {
      * Files API tickets are issued only with durable metadata, an authorization provider, and
      * the shared secret that binds a descriptor to this cluster.
      */
-    org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource() {
+    org.pangrova.server.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource() {
         if (metadataDataSource == null || security.accessControl() == null
                 || config.internalAuthSecret() == null || config.internalAuthSecret().isBlank()) {
             return null;
         }
-        var context = org.pangrova.file.core.access.FileSpaceAccessService.FileSpaceAccessContext.of(
+        var context = org.pangrova.file.access.FileSpaceAccessService.FileSpaceAccessContext.of(
                 System.getProperty("pangrova.files.managed-storage-profile", ""),
                 () -> getWorkerManager() == null ? java.util.List.of()
                         : getWorkerManager().getActiveWorkers().stream()
@@ -201,29 +201,26 @@ public final class CoordinatorBootstrap {
                 config.internalAuthSecret(),
                 new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(metadataDataSource,
                         new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(metadataDataSource)));
-        var access = new org.pangrova.file.core.access.FileSpaceAccessService(
+        var access = new org.pangrova.file.access.FileSpaceAccessService(
                 new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry(metadataDataSource),
                 new org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry(metadataDataSource),
                 security.accessControl(), context);
-        return new org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource(
+        return new org.pangrova.server.coordinator.http.endpoint.file.FileSpaceFilesResource(
                 access,
-                new org.pangrova.file.core.access.FileUrlService(access,
+                new org.pangrova.file.access.FileUrlService(access,
                         org.pangrova.file.worker.WorkerFileClient.create(
                                 config.internalAuthSecret())),
-                new org.pangrova.coordinator.file.StageFileUrlService(access));
+                new org.pangrova.server.coordinator.http.endpoint.file.StageFileUrlService(access));
     }
 
     private HighAvailabilityBootstrap buildHighAvailabilityBootstrap() {
         org.pangrova.persistence.coordination.api.lease.DistributedLease lease = ensureDistributedLease();
         var haBootstrap = new HighAvailabilityBootstrap(config, query.queryManager(), query.workerManager(),
-                query.taskTracker(), query.schedulerExecutor(), lease, modelAuthority);
+                query.taskTracker(), query.schedulerExecutor(), lease, coordinatorRegistry, modelAuthority,
+                query::retryTaskOnDeadWorker);
         if (metadataDataSource != null) {
             haBootstrap.setDataSource(metadataDataSource);
             haBootstrap.setExecutionAuthority(executionAuthority);
-        }
-        if (zkLeaseProvider != null) {
-            // A-HA-01: run coordinator membership/discovery on the same ZooKeeper quorum as the lease.
-            haBootstrap.setQuorumCoordinatorRegistry(zkLeaseProvider.registry());
         }
         // Task 38 / G-META-02: Wire catalog registry for peer divergence
         // detection/repair at leader election time.
@@ -273,18 +270,14 @@ public final class CoordinatorBootstrap {
     }
 
     private void initSecretResolver() {
-        SecretResolverRegistry registry = new SecretResolverRegistry();
-        registry.register(new EnvSecretProvider());
-        registry.register(new FileSecretProvider());
-        secretResolver = registry;
-        LOG.info("event=phase_started phase=secret_resolver providers=ENV,FILE");
+        secretResolver = SecretResolverRegistry.discover(CoordinatorBootstrap.class.getClassLoader());
+        LOG.info("event=phase_started phase=secret_resolver");
     }
 
     private void validateInternalAuthSecret() {
         if (config.securityEnabled()
                 && config.securityConfig() != null
-                && config.securityConfig().authenticatorType()
-                        != CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.NOOP) {
+                && !config.securityConfig().bypassesAuthentication()) {
             String secret = config.internalAuthSecret();
             if (secret == null || secret.isBlank()) {
                 throw new IllegalStateException(
@@ -307,6 +300,9 @@ public final class CoordinatorBootstrap {
             metadataDataSource = PooledDataSourceFactory.create(jdbc.jdbcUrl(), jdbc.username(), jdbc.password());
             distributedLease = resolveDistributedLease(metadataDataSource);
             SchemaMigrationRunner.migrate(metadataDataSource);
+            coordinatorRegistry = zkLeaseProvider == null
+                    ? new org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry(metadataDataSource)
+                    : java.util.Objects.requireNonNull(zkLeaseProvider.registry(), "quorum coordinator registry");
             aiInfrastructureStores = AiInfrastructureStores.jdbc(
                     metadataDataSource, artifactStores.builds(metadataDataSource));
             CatalogDeploymentRepository deployments = new PostgresCatalogDeploymentRepository(metadataDataSource);
@@ -319,21 +315,10 @@ public final class CoordinatorBootstrap {
                     cl, secretResolver, nativeDatasetControl::forCatalog, nativeDatasetControl::sourceForCatalog);
             var federationFactory = new PluginFederationHandleFactory(cl, secretResolver);
             metadataBootstrap = MetadataBootstrap.initialize(
-                    deployments, tables, projections, new PostgresMetadataSyncRepository(metadataDataSource),
-                    connectorHandleFactory, federationFactory, metadataDataSource);
-            // Control records (ownership/identity/version) are durable in the metadata
-            // schema; the in-memory default only serves tests and metadata-less modes.
-            metadataBootstrap.catalogRegistry().setTableControlService(
-                    new org.pangrova.table.core.ownership.TableControlService(
-                            new JdbcTableControlStore(metadataDataSource),
-                            metadataBootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
-                            org.pangrova.table.core.config.TableControlSettings.fromSystemProperties()));
-            metadataBootstrap.catalogRegistry().setTableStatisticsService(
-                    new org.pangrova.table.core.statistics.TableControlStatisticsService(
-                            metadataBootstrap.catalogRegistry().tableControl(),
-                            new JdbcTableControlStatisticsStore(metadataDataSource)));
-            metadataBootstrap.catalogRegistry().setGovernanceBindingStore(
-                    new JdbcTableControlGovernanceBindingStore(metadataDataSource));
+                    loadTableStores(cl, metadataDataSource), deployments, tables, projections, new PostgresMetadataSyncRepository(metadataDataSource),
+                    connectorHandleFactory, federationFactory,
+                    new JdbcMaterializationRepository(metadataDataSource),
+                    new JdbcMaterializationCatalog(metadataDataSource));
             LOG.info("event=phase_started phase=metadata");
         } catch (Exception e) {
             throw new BootstrapFailedException("Metadata", e);
@@ -368,40 +353,31 @@ public final class CoordinatorBootstrap {
             moduleWiring.setDistributedLease(distributedLease);
         }
         if (metadataBootstrap != null) {
-            moduleWiring.setMetadataSyncDeps(metadataBootstrap.syncService(), metadataBootstrap.catalogRegistry());
+            moduleWiring.setCatalogRegistry(metadataBootstrap.catalogRegistry());
+            moduleWiring.catalogMaintenance().setMetadataSyncDeps(
+                    metadataBootstrap.syncService(), metadataBootstrap.catalogRegistry());
         }
-        moduleWiring.startGovernance(config, metadataDataSource);
-        // Share the governance tag event source with metadata DDL so SET/UNSET
-        // COLUMN TAG activates masking, and replay durable tags after a restart.
-        if (metadataBootstrap != null && metadataBootstrap.metadataService()
-                instanceof org.pangrova.metadata.service.DefaultMetadataService taggedService) {
-            org.pangrova.governance.core.classification.ColumnTagService tagService =
-                    moduleWiring.getColumnTagService();
-            if (tagService != null) {
-                taggedService.setColumnTagService(tagService);
-                taggedService.replayColumnTags();
-            }
+        if (config.governanceEnabled()) {
+            var metadata = java.util.Objects.requireNonNull(metadataBootstrap, "metadataBootstrap");
+            moduleWiring.startGovernance(config, metadataDataSource, metadata.columnTagEvents());
+            metadata.replayColumnTags();
         }
         moduleWiring.startResilience(config);
         moduleWiring.startTenant(config, metadataDataSource);
         moduleWiring.startOperations(config);
         startRoleIndexing();
-        // Wire metadata sync deps for leader-gated periodic sync (Pillar 5)
         if (metadataBootstrap != null) {
-            moduleWiring.setMetadataSyncDeps(
-                    metadataBootstrap.syncService(),
-                    metadataBootstrap.catalogRegistry());
-            moduleWiring.setVersionObserver(metadataBootstrap.versionObserver());
+            moduleWiring.catalogMaintenance().setVersionObserver(metadataBootstrap.versionObserver());
         }
         // Wire invalidation poller for leader-gated TTL cleanup (Task 1.9)
         if (metadataDataSource != null && metadataBootstrap != null) {
-            var invalidationPoller =
-                    new org.pangrova.persistence.catalog.postgresql.invalidation.PostgresInvalidationPoller(
-                    metadataDataSource,
-                    metadataBootstrap.metadataCache());
-            moduleWiring.setInvalidationPoller(invalidationPoller);
-            invalidationPoller.initSchema();
-            invalidationPoller.start();
+            var invalidationPoller = CoordinatorInvalidationProgress.createPoller(metadataDataSource,
+                    metadataBootstrap.metadataCache(), coordinatorRegistry, config.role(), config.coordinatorId());
+            moduleWiring.catalogMaintenance().setInvalidationPoller(invalidationPoller);
+            invalidationPoller.validateSchema();
+            if (!config.role().isQuery()) {
+                invalidationPoller.start();
+            }
         }
     }
 
@@ -442,12 +418,12 @@ public final class CoordinatorBootstrap {
         try {
             org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore indexMetadataStore =
                     new org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore(metadataDataSource,
-                            org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+                            CoordinatorTableWriteAuthority.create()::requireCurrent);
             org.pangrova.metadata.catalog.registry.CatalogRegistry catalogRegistry =
                     metadataBootstrap.catalogRegistry();
-            org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider =
+            org.pangrova.observability.api.metrics.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
-            org.pangrova.security.spi.authorization.AccessControl accessControl =
+            org.pangrova.security.api.authorization.AccessControl accessControl =
                     security != null ? security.accessControl() : null;
             moduleWiring.startIndexing(
                     indexMetadataStore,
@@ -456,19 +432,9 @@ public final class CoordinatorBootstrap {
                     config.baseIndexPath(), distributedLease,
                     artifactStores.builds(
                             metadataDataSource),
-                    org.pangrova.generation.core.submission.GenerationPublicationFactory.route(java.util.Map.of(
-                            org.pangrova.generation.api.output.GenerationOutputTypeIds.VECTOR_INDEX,
-                            artifactStores.indexPublications(
-                                    metadataDataSource),
-                            org.pangrova.generation.api.output.GenerationOutputTypeIds.TEXT_INDEX,
-                            artifactStores.indexPublications(
-                                    metadataDataSource),
-                            org.pangrova.generation.api.output.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
-                            artifactStores.generatedPublications(
-                                    metadataDataSource),
-                            org.pangrova.generation.api.output.GenerationOutputTypeIds.TABULAR_EXPORT,
-                            artifactStores.tabularPublications(
-                                    metadataDataSource))),
+                    IndexingBootstrap.publicationRouter(artifactStores.indexPublications(metadataDataSource),
+                            artifactStores.generatedPublications(metadataDataSource),
+                            artifactStores.tabularPublications(metadataDataSource)),
                     maintenanceLeaderElection);
             LOG.info("event=phase_started phase=indexing");
         } catch (Exception e) {
@@ -480,8 +446,8 @@ public final class CoordinatorBootstrap {
         try {
             org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore indexMetadataStore =
                     new org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore(metadataDataSource,
-                            org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
-            org.pangrova.observability.spi.metrics.MetricsProvider metricsProvider =
+                            CoordinatorTableWriteAuthority.create()::requireCurrent);
+            org.pangrova.observability.api.metrics.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
             moduleWiring.startIndexQuery(indexMetadataStore, metricsProvider);
             LOG.info("event=phase_started phase=index_query");
@@ -522,21 +488,6 @@ public final class CoordinatorBootstrap {
     private void wireQueryOwnershipTracking() {
         if (ha != null && ha.haService() != null && query != null && query.queryDispatcher() != null) {
             query.queryDispatcher().setOwnershipTracking(ha.haService(), config.coordinatorId());
-        }
-        wireInvalidationPollerRegistry();
-    }
-
-    private void wireInvalidationPollerRegistry() {
-        if (moduleWiring == null || ha == null || ha.coordinatorRegistry() == null) {
-            return;
-        }
-        var poller = moduleWiring.getInvalidationPoller();
-        if (poller != null) {
-            poller.setInvalidationProgressRegistry(
-                    new org.pangrova.coordinator.coordination.InvalidationProgressRegistryAdapter(
-                            ha.coordinatorRegistry()),
-                    config.coordinatorId());
-            LOG.debug("event=invalidation_poller_registry_wired coordinatorId={}", config.coordinatorId());
         }
     }
 
@@ -595,7 +546,20 @@ public final class CoordinatorBootstrap {
         return query != null ? query.coordinatorTransportServer() : null;
     }
     public CircuitBreakerPolicy getCircuitBreaker() { return query != null ? query.circuitBreaker() : null; }
-    public org.pangrova.operations.recovery.RecoveryPlaybookFramework getRecoveryPlaybook() {
+    public org.pangrova.operations.recovery.RecoveryPlaybook getRecoveryPlaybook() {
         return moduleWiring != null ? moduleWiring.getRecoveryPlaybook() : null;
     }
+    static TableStores loadTableStores(ClassLoader loader, DataSource source) {
+        var factories = new java.util.HashMap<String, TableStoreFactory>();
+        for (var factory : java.util.ServiceLoader.load(TableStoreFactory.class, loader)) {
+            String id = factory.identifier();
+            if (id == null || id.isBlank() || factories.putIfAbsent(id, factory) != null) {
+                throw new IllegalStateException("Blank or duplicate table storage provider: " + id);
+            }
+        }
+        var factory = factories.get("postgresql");
+        if (factory == null) throw new IllegalStateException("Missing PostgreSQL table storage provider");
+        return factory.create(java.util.Optional.of(source));
+    }
+
 }

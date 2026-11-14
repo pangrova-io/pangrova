@@ -19,6 +19,8 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-common</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-bootstrap</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-coordinator</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -26,7 +28,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordination-core</artifactId>
+            <artifactId>pangrova-coordination-control</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -34,7 +36,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-worker-core</artifactId>
+            <artifactId>pangrova-server-worker</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

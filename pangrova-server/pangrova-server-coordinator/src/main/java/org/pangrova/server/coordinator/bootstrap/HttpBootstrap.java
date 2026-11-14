@@ -1,7 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
-import org.pangrova.common.lifecycle.BootstrapFailedException;
+import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
@@ -9,12 +9,12 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.resolution.MetadataService;
 import org.pangrova.observability.noop.UnavailableProfiler;
-import org.pangrova.observability.core.profiling.ProfilerEndpoint;
-import org.pangrova.query.core.profiling.QueryProfileService;
+import org.pangrova.observability.profiling.ProfilerEndpoint;
+import org.pangrova.query.profiling.QueryProfileService;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
-import org.pangrova.security.core.authentication.AuthenticationManager;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.security.authentication.AuthenticationManager;
+import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

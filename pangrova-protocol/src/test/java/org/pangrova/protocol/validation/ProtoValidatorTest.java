@@ -1,5 +1,7 @@
 package org.pangrova.protocol.validation;
 
+import org.pangrova.protocol.exception.ProtoValidationException;
+
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;

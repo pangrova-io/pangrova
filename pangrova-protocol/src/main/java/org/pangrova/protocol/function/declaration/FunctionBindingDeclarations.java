@@ -1,5 +1,7 @@
 package org.pangrova.protocol.function.declaration;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.protobuf.ByteString;
 import io.substrait.proto.Type;
@@ -12,8 +14,6 @@ import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.TypedValue;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -32,7 +32,7 @@ public final class FunctionBindingDeclarations {
 
     private FunctionBindingDeclarations() {
         JsonNode root = BindingDeclarationJson.load();
-        declarationSha256 = ByteString.copyFrom(sha256(BindingDeclarationJson.canonicalBytes(root)));
+        declarationSha256 = ByteString.copyFrom(DigestUtils.sha256().digest(BindingDeclarationJson.canonicalBytes(root)));
         BindingDeclarationJson.keys(root, Set.of("schemaVersion", "bindings", "structuralContracts",
                 "physicalTypeBridge", "governedLayouts"), Set.of());
         if (!root.get("schemaVersion").isIntegralNumber() || !root.get("schemaVersion").canConvertToInt()
@@ -41,7 +41,7 @@ public final class FunctionBindingDeclarations {
         }
         BindingDeclarationValidation.array(root.get("bindings"));
         BindingDeclarationValidation.array(root.get("structuralContracts"));
-        PhysicalTypeBridgeDeclaration.validate(root.get("physicalTypeBridge"));
+        PhysicalTypeProjectionDeclaration.validate(root.get("physicalTypeBridge"));
         loadGovernedLayouts(root.get("governedLayouts"));
         loadBindings(root.get("bindings"));
         for (JsonNode binding : bindings.values()) {
@@ -103,7 +103,7 @@ public final class FunctionBindingDeclarations {
         }
         return CapabilityRef.newBuilder().setCapabilityId(id)
                 .setSemanticVersion(BindingDeclarationJson.text(entry, "version"))
-                .setSignatureSha256(ByteString.copyFrom(sha256(BindingDeclarationJson.canonicalBytes(entry))))
+                .setSignatureSha256(ByteString.copyFrom(DigestUtils.sha256().digest(BindingDeclarationJson.canonicalBytes(entry))))
                 .build();
     }
 
@@ -276,13 +276,5 @@ public final class FunctionBindingDeclarations {
             throw new IllegalArgumentException("Normalized default is outside its declared enum");
         }
         return builder.build();
-    }
-
-    private static byte[] sha256(byte[] bytes) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(bytes);
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
-        }
     }
 }

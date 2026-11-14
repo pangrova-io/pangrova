@@ -15,7 +15,7 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.coordinator.indexing.ai.lifecycle.IndexRecommendationEngine;
 import org.pangrova.coordinator.indexing.ai.lifecycle.VectorIndexHealthAssessor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +48,7 @@ final class SelfIntelligenceBootstrap {
     private final org.pangrova.ai.control.embedding.EmbeddingModelRegistry
             embeddingModelRegistry;
 
-    private org.pangrova.planner.core.advisor.QueryPatternRecorder patternRecorder;
+    private org.pangrova.planner.advisor.QueryPatternRecorder patternRecorder;
     private org.pangrova.coordinator.ai.layout.DataLayoutAdvisor layoutAdvisor;
     private VectorIndexHealthAssessor vectorIndexHealthAssessor;
     private org.pangrova.coordinator.indexing.ai.lifecycle.IndexRecommendationEngine indexRecommendationEngine;
@@ -70,7 +70,7 @@ final class SelfIntelligenceBootstrap {
     }
 
     void initialize(QueryExecutionBootstrap executionWiring) {
-        patternRecorder = new org.pangrova.planner.core.advisor.QueryPatternRecorder(PATTERN_CAPACITY);
+        patternRecorder = new org.pangrova.planner.advisor.QueryPatternRecorder(PATTERN_CAPACITY);
         layoutAdvisor = new org.pangrova.coordinator.ai.layout.DataLayoutAdvisor(patternRecorder);
         vectorIndexHealthAssessor = new VectorIndexHealthAssessor();
         indexRecommendationEngine = new IndexRecommendationEngine();
@@ -114,7 +114,7 @@ final class SelfIntelligenceBootstrap {
                     new IllegalStateException("durable Native AI index build service is not configured"));
         }
         return (descriptor, action) -> java.util.concurrent.CompletableFuture.failedFuture(
-                new org.pangrova.security.api.error.AccessDeniedException(
+                new org.pangrova.security.api.exception.AccessDeniedException(
                         "Scheduled index rebuild requires current trusted authorization for "
                                 + descriptor.indexId() + "; a service principal cannot be synthesized"));
     }
@@ -201,10 +201,10 @@ final class SelfIntelligenceBootstrap {
             Iterable<org.pangrova.indexing.api.descriptor.IndexDescriptor> stale) {
         var result = new ArrayList<org.pangrova.indexing.api.descriptor.IndexDescriptor>();
         for (var idx : ready) {
-            if (idx.indexType() == org.pangrova.indexing.api.descriptor.IndexType.VECTOR) result.add(idx);
+            if (idx.indexType() == org.pangrova.indexing.api.enums.IndexType.VECTOR) result.add(idx);
         }
         for (var idx : stale) {
-            if (idx.indexType() == org.pangrova.indexing.api.descriptor.IndexType.VECTOR) result.add(idx);
+            if (idx.indexType() == org.pangrova.indexing.api.enums.IndexType.VECTOR) result.add(idx);
         }
         return result;
     }
@@ -234,7 +234,7 @@ final class SelfIntelligenceBootstrap {
         var readyIndexes = indexing.getMetadataStore().findIndexesByState(IndexState.READY);
         int evaluated = 0;
         for (var descriptor : readyIndexes) {
-            if (descriptor.indexType() != org.pangrova.indexing.api.descriptor.IndexType.VECTOR) {
+            if (descriptor.indexType() != org.pangrova.indexing.api.enums.IndexType.VECTOR) {
                 continue;
             }
             evaluated += evaluateIndexRecommendation(descriptor);

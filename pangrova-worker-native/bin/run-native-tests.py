@@ -5,6 +5,7 @@ import argparse
 from contextlib import contextmanager
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -127,6 +128,20 @@ def retain_ctest_log(build, logs, started_ns):
         shutil.copyfileobj(incoming, retained)
 
 
+SANITIZER_DIAGNOSTIC = re.compile(
+    rb"^(?:(?:==[0-9]+==)?(?:ERROR|SUMMARY): (?:Address|Leak|UndefinedBehavior|Thread|Memory)Sanitizer"
+    rb"|.+:[0-9]+(?::[0-9]+)?: runtime error: )")
+
+
+def require_clean_sanitizers(log):
+    """CTest can succeed after recoverable UBSan findings. Check the retained test output."""
+    with log.open("rb") as stream:
+        for line in stream:
+            if SANITIZER_DIAGNOSTIC.match(line):
+                detail = line.decode("utf-8", errors="replace").strip()
+                raise RuntimeError(f"Native sanitizer finding: {detail}. Full per-test output: {log}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     native = Path(__file__).resolve().parents[1]
@@ -170,6 +185,8 @@ def main():
                         raise
                     # Preserve CTest's failure status even if it could not write evidence.
                     print(f"CTest evidence was not retained: {failure}", file=sys.stderr)
+                if code == 0:
+                    require_clean_sanitizers(logs / "ctest.log")
                 return code if code >= 0 else 128 - code
             finally:
                 if not stop_process_group(process, 30):

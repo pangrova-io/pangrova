@@ -2,10 +2,10 @@ package org.pangrova.connector.runtime.discovery;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.plugin.ConnectorContext;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.connector.spi.plugin.ConnectorRole;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
+import org.pangrova.connector.api.enums.ConnectorRole;
 
 import java.util.List;
 import java.util.Map;
@@ -126,7 +126,7 @@ class ConnectorFactoryRegistryTest {
         public void validateConfiguration(Map<String, String> config) {
             if (config.containsKey("bad")) {
                 throw new ConfigurationException(
-                        org.pangrova.common.exception.PangrovaErrorCode.CONFIG_INVALID_VALUE,
+                        org.pangrova.common.enums.PangrovaErrorCode.CONFIG_INVALID_VALUE,
                         "bad configuration");
             }
         }

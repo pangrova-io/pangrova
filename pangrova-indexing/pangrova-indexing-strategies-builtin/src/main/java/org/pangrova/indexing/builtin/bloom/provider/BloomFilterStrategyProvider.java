@@ -1,11 +1,14 @@
 package org.pangrova.indexing.builtin.bloom.provider;
 
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.bloom.serializer.BloomFilterSerializer;
+
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.indexing.builtin.normalize.IndexValueNormalizer;
 import org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData;
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.BloomFilterIndexData;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.connector.api.index.predicate.EqualTo;
@@ -28,6 +31,11 @@ public final class BloomFilterStrategyProvider implements IndexStrategyProvider 
     private static final String PROP_FPP = "bloom.fpp";
     private static final int DEFAULT_EXPECTED_ENTRIES = 10_000;
     private static final double DEFAULT_FPP = 0.01;
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new BloomFilterSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

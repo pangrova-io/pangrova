@@ -70,11 +70,19 @@ remove_find() {
   done < <(find . -type d \( -name .git -o -name node_modules -o -name target \) -prune -o "$@" -print0 2>/dev/null)
 }
 
-remove_build_find() {
-  local path
-  while IFS= read -r -d '' path; do
-    remove_path "$path"
-  done < <(find . -type d \( -name .git -o -name node_modules \) -prune -o "$@" -print0 2>/dev/null)
+remove_build_outputs() {
+  local pom
+  # Maven output belongs to the directory declaring the module. A Java package
+  # named target or build is ordinary source, including in a new untracked module.
+  while IFS= read -r -d '' pom; do
+    remove_path "${pom%/pom.xml}/target"
+  done < <(find . -type d \( -name .git -o -name src -o -name target -o -name node_modules \) -prune \
+    -o -path './pangrova-worker-native' -prune -o -name pom.xml -type f -print0)
+  local build_directory
+  for build_directory in pangrova-worker-native/build pangrova-worker-native/build-*; do
+    [ -d "$build_directory" ] && remove_path "$build_directory"
+  done
+  return 0
 }
 
 # Ephemeral caches produced by ordinary Java, Python, and test runs.
@@ -88,9 +96,7 @@ remove_find -name '__pycache__' -type d
 remove_path docs/internal
 
 if [ "$ALL" -eq 1 ]; then
-  remove_build_find -name 'target' -type d
-  remove_build_find -name 'build' -type d
-  remove_build_find -name 'build-*' -type d
+  remove_build_outputs
   remove_path pangrova-worker-native/deps-download
   remove_path pangrova-worker-native/deps-install
   remove_path logs

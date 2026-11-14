@@ -14,13 +14,15 @@
 package org.pangrova.ai.api.model;
 
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Canonical, versioned model object used by both inference and embedding. */
 @Experimental
@@ -96,11 +98,5 @@ public record AiModelDescriptor(
                         "Model '" + name + "' version '" + version
                                 + "' does not provide " + operation
                                 + " capability version '" + capabilityVersion + "'"));
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
     }
 }

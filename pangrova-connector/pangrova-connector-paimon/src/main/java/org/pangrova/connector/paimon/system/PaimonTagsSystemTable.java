@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.SortedMap;
 
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;

@@ -14,7 +14,7 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.SnapshotManager;
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.connector.api.index.SnapshotExpiredException;
+import org.pangrova.connector.api.exception.SnapshotExpiredException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

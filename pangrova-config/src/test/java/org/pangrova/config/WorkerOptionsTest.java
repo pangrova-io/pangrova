@@ -133,9 +133,11 @@ class WorkerOptionsTest {
     }
 
     @Test
-    void spillDirectoryHasNoDefault() {
-        assertThat(WorkerOptions.SPILL_DIRECTORY.defaultValue()).isNull();
-        assertThat(WorkerOptions.SPILL_DIRECTORY.hasDefaultValue()).isFalse();
+    void spillDirectoryDefaultsToWritableLocalPath() {
+        // An unset directory disabled engine spill entirely, so large joins and
+        // aggregations failed instead of spilling.
+        assertThat(WorkerOptions.SPILL_DIRECTORY.defaultValue()).isEqualTo("data/worker-spill");
+        assertThat(WorkerOptions.SPILL_DIRECTORY.hasDefaultValue()).isTrue();
     }
 
     // ---- Native engine ----

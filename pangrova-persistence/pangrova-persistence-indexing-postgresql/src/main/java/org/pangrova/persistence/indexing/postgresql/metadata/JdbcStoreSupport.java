@@ -1,6 +1,6 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

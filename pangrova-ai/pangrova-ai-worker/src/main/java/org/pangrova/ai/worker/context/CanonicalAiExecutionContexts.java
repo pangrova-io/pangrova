@@ -3,7 +3,7 @@ package org.pangrova.ai.worker.context;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionCallbackContext;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 
 /** Maps the validated canonical authority without a second schema or identity decoder. */
 final class CanonicalAiExecutionContexts {

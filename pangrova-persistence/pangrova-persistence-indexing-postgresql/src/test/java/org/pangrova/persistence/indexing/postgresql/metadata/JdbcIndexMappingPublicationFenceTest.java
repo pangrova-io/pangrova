@@ -1,5 +1,8 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
+import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
 import java.time.Instant;
 import java.time.Duration;
 import java.sql.Connection;
@@ -16,9 +19,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.metadata.service.TableControlWriteAuthorities;
+import org.pangrova.indexing.api.enums.IndexType;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
@@ -31,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
+    private static final String OWNER = "mapping-test-owner";
     private static final Instant START = Instant.parse("2026-11-01T00:00:00Z");
     private DataSource dataSource;
     private JdbcIndexMetadataStore store;
@@ -42,17 +45,32 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
         var table = new QualifiedTableName("lake", "raw", "events");
         GenerationAuthorityFixtures.provision(dataSource, "tenant", "builder",
                 DeferredAuthorizationScope.raw(table, Set.of("value"), table));
-        store = new JdbcIndexMetadataStore(dataSource, TableControlWriteAuthorities.postgres()::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
         initial = new IndexDescriptor("index", "idx", "lake", "raw", "events", List.of("value"),
                 IndexType.HASH, Map.of(), IndexState.BUILDING, null, 0, "snapshot-0", null,
                 START, START, "tenant");
         store.registerIndexWithBuildAuthority(initial, "builder");
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("index", 0, OWNER, START)).isTrue();
+    }
+
+    @Test
+    void replacementRejectsWritesFromThePreviouslySuccessfulHeartbeat() {
+        var claims = new JdbcIndexBuildClaimRepository(dataSource);
+        assertThat(claims.heartbeat("index", 0, OWNER, START.plusSeconds(1))).isTrue();
+        assertThat(claims.expireBefore(START.plusSeconds(2))).isOne();
+        assertThat(claims.tryClaim("index", 0, "winner", START.plusSeconds(3))).isTrue();
+
+        assertThatThrownBy(() -> store.batchRegisterIndexFiles(OWNER, List.of(mapping(0, "late"))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("lost its claim");
+        store.registerIndexFile("winner", mapping(0, "current"));
+        assertThat(store.getIndexFileMappings("index")).extracting(IndexFileMapping::dataFilePath)
+                .containsExactly("current");
     }
 
     @Test
     void publishedGenerationRejectsLateSingleMapping() {
         var manifest = store.publishIndexGeneration(publication(initial, 0));
-        assertThatThrownBy(() -> store.registerIndexFile(mapping(0, "late")))
+        assertThatThrownBy(() -> store.registerIndexFile(OWNER, mapping(0, "late")))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(store.getIndexFileMappings("index")).isEmpty();
         assertThat(store.findActiveIndexGeneration("index")).contains(manifest);
@@ -61,7 +79,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
     @Test
     void publishedGenerationRejectsLateMappingBatch() {
         var manifest = store.publishIndexGeneration(publication(initial, 0));
-        assertThatThrownBy(() -> store.batchRegisterIndexFiles(List.of(mapping(0, "late"))))
+        assertThatThrownBy(() -> store.batchRegisterIndexFiles(OWNER, List.of(mapping(0, "late"))))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(store.getIndexFileMappings("index")).isEmpty();
         assertThat(store.findActiveIndexGeneration("index")).contains(manifest);
@@ -69,21 +87,21 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
 
     @Test
     void mixedGenerationBatchIsRejectedBeforeAnyRowIsInserted() {
-        assertThatThrownBy(() -> store.batchRegisterIndexFiles(List.of(mapping(0, "first"), mapping(1, "second"))))
+        assertThatThrownBy(() -> store.batchRegisterIndexFiles(OWNER, List.of(mapping(0, "first"), mapping(1, "second"))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(store.getIndexFileMappings("index")).isEmpty();
     }
 
     @Test
     void unreservedGenerationCannotAcceptMappings() {
-        assertThatThrownBy(() -> store.registerIndexFile(mapping(9, "wrong-generation")))
+        assertThatThrownBy(() -> store.registerIndexFile(OWNER, mapping(9, "wrong-generation")))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(store.getIndexFileMappings("index")).isEmpty();
     }
 
     @Test
     void copyRequiresAnActiveTargetReservation() {
-        store.registerIndexFile(mapping(0, "source"));
+        store.registerIndexFile(OWNER, mapping(0, "source"));
         store.publishIndexGeneration(publication(initial, 1));
         assertThatThrownBy(() -> store.copyIndexGenerationMappings("index", 0, 1, List.of()))
                 .isInstanceOf(IllegalStateException.class);
@@ -92,7 +110,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
 
     @Test
     void publishedTargetCannotBeRepopulatedByCopy() {
-        store.registerIndexFile(mapping(0, "source"));
+        store.registerIndexFile(OWNER, mapping(0, "source"));
         store.publishIndexGeneration(publication(initial, 1));
         var ready = store.findIndex("index").orElseThrow();
         Instant next = ready.updatedAt().plusMillis(1);
@@ -110,12 +128,12 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
 
     @Test
     void initialAndReservedReplacementWritesPublishNormally() {
-        store.registerIndexFile(mapping(0, "first"));
-        store.batchRegisterIndexFiles(List.of(mapping(0, "second"), mapping(0, "third")));
+        store.registerIndexFile(OWNER, mapping(0, "first"));
+        store.batchRegisterIndexFiles(OWNER, List.of(mapping(0, "second"), mapping(0, "third")));
         assertThat(store.publishIndexGeneration(publication(initial, 3)).objectCount()).isEqualTo(3);
         var replacement = reserveReplacement();
         assertThat(store.copyIndexGenerationMappings("index", 0, 1, List.of("second"))).isEqualTo(2);
-        store.registerIndexFile(mapping(1, "new"));
+        store.registerIndexFile(OWNER, mapping(1, "new"));
         assertThat(store.publishIndexGeneration(publication(replacement, 3)).objectCount()).isEqualTo(3);
         assertThat(store.getIndexFileMappings("index").stream().filter(row -> row.generation() == 1))
                 .extracting(IndexFileMapping::dataFilePath).containsExactlyInAnyOrder("first", "third", "new");
@@ -123,9 +141,9 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
 
     @Test
     void duplicateBatchRollsBackItsEarlierNewRows() {
-        store.registerIndexFile(mapping(0, "existing"));
-        assertThatThrownBy(() -> store.batchRegisterIndexFiles(List.of(mapping(0, "new"), mapping(0, "existing"))))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.error.MetastoreException.class);
+        store.registerIndexFile(OWNER, mapping(0, "existing"));
+        assertThatThrownBy(() -> store.batchRegisterIndexFiles(OWNER, List.of(mapping(0, "new"), mapping(0, "existing"))))
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetastoreException.class);
         assertThat(store.getIndexFileMappings("index")).extracting(IndexFileMapping::dataFilePath)
                 .containsExactly("existing");
         assertThat(store.publishIndexGeneration(publication(initial, 1)).objectCount()).isEqualTo(1);
@@ -137,7 +155,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
         var replacement = reserveReplacement();
         assertThat(store.failIndexGeneration("index", 1, replacement.updatedAt(),
                 replacement.updatedAt().plusMillis(1), "failed")).isTrue();
-        assertThatThrownBy(() -> store.registerIndexFile(mapping(1, "late")))
+        assertThatThrownBy(() -> store.registerIndexFile(OWNER, mapping(1, "late")))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(store.getIndexFileMappings("index")).isEmpty();
     }
@@ -145,7 +163,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
     @Test
     void droppedInitialBuildRejectsLateWrites() {
         store.dropIndex("index", START.plusSeconds(1));
-        assertThatThrownBy(() -> store.registerIndexFile(mapping(0, "late")))
+        assertThatThrownBy(() -> store.registerIndexFile(OWNER, mapping(0, "late")))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(store.getIndexFileMappings("index")).isEmpty();
     }
@@ -156,7 +174,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
         var release = new CountDownLatch(1);
         var publisherPid = new AtomicInteger();
         var publisher = new JdbcIndexMetadataStore(dataSource, (connection, principal, scope) -> {
-            TableControlWriteAuthorities.postgres().requireCurrent(connection, principal, scope);
+            TableWriteAuthorityFixture.create().requireCurrent(connection, principal, scope);
             publisherPid.set(backendPid(connection));
             entered.countDown();
             try {
@@ -170,7 +188,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
         try {
             var publication = executor.submit(() -> publisher.publishIndexGeneration(publication(initial, 0)));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
-            var write = executor.submit(() -> store.registerIndexFile(mapping(0, "late")));
+            var write = executor.submit(() -> store.registerIndexFile(OWNER, mapping(0, "late")));
             awaitBlockedBy(publisherPid.get());
             release.countDown();
             assertThat(publication.get(5, TimeUnit.SECONDS).objectCount()).isZero();
@@ -203,7 +221,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
             try (var statement = blocker.createStatement()) {
                 statement.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema()), 731)");
             }
-            var write = executor.submit(() -> store.registerIndexFile(mapping(0, "first")));
+            var write = executor.submit(() -> store.registerIndexFile(OWNER, mapping(0, "first")));
             int writerPid = awaitBlockedBy(backendPid(blocker));
             var publication = executor.submit(() -> store.publishIndexGeneration(publication(initial, 1)));
             awaitBlockedBy(writerPid);
@@ -245,6 +263,7 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
         Instant next = ready.updatedAt().plusMillis(1);
         assertThat(store.beginIndexGeneration("index", 1, "snapshot-1", next,
                 ready.updatedAt(), ready.state(), 0)).isTrue();
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("index", 1, OWNER, START)).isTrue();
         return new IndexDescriptor("index", "idx", "lake", "raw", "events", List.of("value"),
                 IndexType.HASH, Map.of(), IndexState.BUILDING, null, 1, "snapshot-1", null,
                 START, next, "tenant");

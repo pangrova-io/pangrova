@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Checks the real provider test classpath, without filtering away incorrect dependencies. */
 class FileProviderClasspathIsolationTest {
     @Test
-    void backendClassesLinkWithoutDomainCoreOrServerRuntime() throws Exception {
+    void backendClassesLinkWithFlatFileArtifactAndWithoutServerRuntime() throws Exception {
         var loader = getClass().getClassLoader();
         for (String name : List.of(
                 "org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry",
@@ -27,11 +27,17 @@ class FileProviderClasspathIsolationTest {
                 nested.getDeclaredConstructors();
             }
         }
-        for (String name : List.of("org.pangrova.file.core.access.FileUrlService",
-                "org.pangrova.metadata.catalog.registry.CatalogRegistry",
+        // File publishes its contracts and access service together. The manifest limits
+        // this provider's actual imports within that artifact to org.pangrova.file.api.
+        var fileContract = loader.loadClass("org.pangrova.file.api.space.FileSpace");
+        var fileService = loader.loadClass("org.pangrova.file.access.FileUrlService");
+        assertThat(fileService.getProtectionDomain().getCodeSource().getLocation())
+                .isEqualTo(fileContract.getProtectionDomain().getCodeSource().getLocation());
+        for (String name : List.of("org.pangrova.metadata.catalog.registry.CatalogRegistry",
                 "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
-                "org.pangrova.coordinator.query.QueryManager")) {
-            assertThatThrownBy(() -> loader.loadClass(name)).isInstanceOf(ClassNotFoundException.class);
+                "org.pangrova.coordinator.query.QueryManager",
+                "org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient")) {
+            assertThatThrownBy(() -> loader.loadClass(name)).as(name).isInstanceOf(ClassNotFoundException.class);
         }
     }
 }

@@ -8,6 +8,7 @@
     <description>Canonical graph and exchange encoding with strict source split decoding</description>
     <properties><module.name>org.pangrova.generation.codec</module.name></properties>
     <dependencies>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-shuffle-api</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
   <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-api</artifactId><scope>test</scope></dependency>
 

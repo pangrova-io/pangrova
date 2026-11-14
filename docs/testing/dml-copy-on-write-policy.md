@@ -73,7 +73,7 @@ negative pre-allocation cases.
 The central closest-test command, after reactor test compilation, is:
 
 ```sh
-mvn -pl pangrova-coordination/pangrova-coordination-core -am test \
+mvn -pl pangrova-coordination/pangrova-coordination-control -am test \
   -Dtest=QuerySchedulingEngineWriteAdmissionTest,QueryWriteReservationConcurrencyTest,WriteAllocationIntentTest,WritePolicyObservationTest \
   -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=false
 ```

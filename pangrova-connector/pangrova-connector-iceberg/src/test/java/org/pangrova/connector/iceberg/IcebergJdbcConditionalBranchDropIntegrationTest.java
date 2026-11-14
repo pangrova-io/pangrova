@@ -23,7 +23,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.ConditionalBranchDropResult;
+import org.pangrova.connector.api.enums.ConditionalBranchDropResult;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 

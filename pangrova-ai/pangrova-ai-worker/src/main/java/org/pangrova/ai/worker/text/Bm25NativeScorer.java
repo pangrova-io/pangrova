@@ -3,7 +3,7 @@
 
 package org.pangrova.ai.worker.text;
 
-import org.pangrova.worker.nativebridge.jni.NativeLibraryLoader;
+import org.pangrova.worker.jni.NativeLibraryLoader;
 
 /**
  * BM25 batch scorer with native SIMD acceleration.
@@ -42,7 +42,7 @@ public final class Bm25NativeScorer {
                 request.avgDocLength());
     }
 
-    // CHECKSTYLE.OFF: ParameterNumber -- Stable JNI ABI mirrored by JniBridge.cpp.
+    // CHECKSTYLE.OFF: ParameterNumber -- Stable JNI ABI mirrored by JniEntryPoints.cpp.
     private static native double[] nativeScoreBatch(
             double[] idfs, int[] termFreqs, int[] docLengths,
             int numDocs, int numTerms, double k1, double b, double avgDocLength);

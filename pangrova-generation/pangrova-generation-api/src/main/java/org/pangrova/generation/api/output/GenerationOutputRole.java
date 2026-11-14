@@ -1,5 +1,7 @@
 package org.pangrova.generation.api.output;
 
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+
 import java.util.Objects;
 
 /** Required ordinal and distribution scope for one object role. */

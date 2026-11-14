@@ -84,13 +84,34 @@ TEST(NativeAnnIndexTest, HnswRejectsTruncatedArtifactBeforeAllocation) {
   EXPECT_FALSE(loaded.load(path.string(), 1024));
 }
 
+// ef_construction bounds searchLayer's two priority queues and visited set, so a
+// larger value needs more scratch. The estimate used to omit it entirely, which
+// let a build pass admission and then fail mid-way against the real pool.
+TEST(NativeAnnIndexTest, HnswEstimateGrowsWithEfConstruction) {
+  constexpr int64_t kCount = 10'000;
+  constexpr int64_t kDimension = 8;
+  constexpr int64_t kConnections = 16;
+  const uint64_t small = hnsw::HnswIndex::estimatePeakBuildBytes(
+      kCount, kDimension, kConnections, kConnections);
+  const uint64_t large = hnsw::HnswIndex::estimatePeakBuildBytes(
+      kCount, kDimension, kConnections, 4096);
+  EXPECT_GT(large, small);
+  EXPECT_LT(small, large);
+}
+
+TEST(NativeAnnIndexTest, HnswEstimateRejectsEfBelowConnections) {
+  EXPECT_THROW(
+      hnsw::HnswIndex::estimatePeakBuildBytes(100, 8, 16, 8),
+      std::invalid_argument);
+}
+
 TEST(NativeAnnIndexTest, HnswBuildRejectsInsufficientMemoryGrant) {
   constexpr int64_t kCount = 64;
   constexpr int64_t kDimension = 4;
   constexpr int64_t kConnections = 8;
   auto vectors = lineVectors(kCount, kDimension);
   const uint64_t estimated = hnsw::HnswIndex::estimatePeakBuildBytes(
-      kCount, kDimension, kConnections);
+      kCount, kDimension, kConnections, 32);
 
   hnsw::HnswIndex rejected({kDimension, kConnections, 32});
   try {

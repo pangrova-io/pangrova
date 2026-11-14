@@ -14,7 +14,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.NoSuchElementException;
 
-import org.pangrova.shuffle.spi.spool.SpoolReader;
+import org.pangrova.shuffle.api.spool.SpoolReader;
 
 /** Reads only the owner's fixed attempt selection, one bounded verified batch at a time. */
 final class LocalFsSpoolReader implements SpoolReader {

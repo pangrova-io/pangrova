@@ -1,9 +1,10 @@
 package org.pangrova.protocol.shuffle.codec;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -23,7 +24,7 @@ public final class ShuffleProducerSetChecksum {
             throw new IllegalArgumentException(
                     "producer-set identity requires query, stage, epoch, and producers");
         }
-        MessageDigest digest = sha256();
+        MessageDigest digest = DigestUtils.sha256();
         byte[] queryBytes = queryId.getBytes(StandardCharsets.UTF_8);
         updateInt(digest, producerCount);
         for (int partitionId = 0; partitionId < producerCount; partitionId++) {
@@ -34,14 +35,6 @@ public final class ShuffleProducerSetChecksum {
             updateLong(digest, planEpoch);
         }
         return digest.digest();
-    }
-
-    private static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
     }
 
     private static void updateInt(MessageDigest digest, int value) {

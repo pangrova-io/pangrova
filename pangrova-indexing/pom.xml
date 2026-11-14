@@ -20,6 +20,6 @@
         <module>pangrova-indexing-codec</module>
 
         <module>pangrova-indexing-strategies-builtin</module>
-        <module>pangrova-indexing-core</module>
+        <module>pangrova-indexing-lifecycle</module>
     </modules>
 </project>

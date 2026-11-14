@@ -17,7 +17,9 @@
 
     <modules>
         <module>pangrova-governance-api</module>
-        <module>pangrova-governance-core</module>
-        <module>pangrova-governance-providers</module>
+        <module>pangrova-governance-runtime</module>
+        <module>pangrova-governance-lineage-log</module>
+        <module>pangrova-governance-lineage-openlineage</module>
+        <module>pangrova-governance-quality-sql</module>
     </modules>
 </project>

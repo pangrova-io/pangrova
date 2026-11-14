@@ -2,7 +2,7 @@ package org.pangrova.persistence.indexing.postgresql.metadata;
 
 import java.sql.Connection;
 import java.sql.SQLException;
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 
 /**
  * Serializes artifact membership writes with publication on the descriptor row.
@@ -36,6 +36,21 @@ final class JdbcIndexMappingWriteFence {
             return;
         }
         throw new IllegalStateException("Index generation is not buildable: " + indexId + "/" + generation);
+    }
+
+    static void requireCurrentAttempt(Connection connection, String indexId, int generation, String owner)
+            throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "SELECT 1 FROM index_build_claims WHERE index_id=? AND generation=? AND owner_id=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.setString(3, owner);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    throw new IllegalStateException("Index build attempt lost its claim: " + indexId + "/" + generation);
+                }
+            }
+        }
     }
 
     static void requirePublishedSource(Connection connection, String indexId, int generation) throws SQLException {

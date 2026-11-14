@@ -3,11 +3,12 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.scheduler.api.placement.HealthState;
+import org.pangrova.coordination.api.membership.WorkerShuffleDeployment;
+import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.observability.noop.NoOpTracingProvider;
-import org.pangrova.common.value.MemoryPressure;
+import org.pangrova.common.enums.MemoryPressure;
 import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
@@ -120,8 +121,9 @@ class QueryBootstrapWorkerRegistryWiringTest {
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, null, 2,
                 null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(), 0,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id),
+                new WorkerShuffleDeployment("NATIVE", null));
     }
 
 }

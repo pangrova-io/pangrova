@@ -1,10 +1,10 @@
 package org.pangrova.security.kms.aws;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.security.api.crypto.KeyManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.kms.KmsClient;
@@ -26,7 +26,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.net.URI;
 import java.util.Objects;
-import org.pangrova.security.spi.crypto.KeyManager;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * AWS KMS key management using envelope encryption.
@@ -43,6 +43,7 @@ public class AwsKmsKeyManager implements KeyManager {
 
     private final KmsClient kmsClient;
     private final String defaultKeyArn;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
      * Creates a key manager backed by AWS KMS.
@@ -58,7 +59,7 @@ public class AwsKmsKeyManager implements KeyManager {
     }
 
     /**
-     * Visible for testing — allows injecting a pre-built KmsClient.
+     * Takes ownership of a pre-built KMS client.
      */
     AwsKmsKeyManager(KmsClient kmsClient, String defaultKeyArn) {
         this.kmsClient = Objects.requireNonNull(kmsClient, "kmsClient must not be null");
@@ -162,18 +163,15 @@ public class AwsKmsKeyManager implements KeyManager {
     }
 
     @Override
-    public int getKeyVersion(String keyId) {
-        Objects.requireNonNull(keyId, "keyId must not be null");
-        // AWS KMS manages key rotation internally; the current key version
-        // is not directly exposed. Return 1 as the logical version since
-        // KMS handles transparent rotation behind the scenes.
-        return 1;
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            kmsClient.close();
+        }
     }
 
     private static KmsClient buildClient(KmsConfiguration configuration) {
         KmsClientBuilder builder = KmsClient.builder()
-                .region(Region.of(configuration.region()))
-                .credentialsProvider(DefaultCredentialsProvider.create());
+                .region(Region.of(configuration.region()));
         if (configuration.endpointOverride() != null && !configuration.endpointOverride().isBlank()) {
             builder.endpointOverride(URI.create(configuration.endpointOverride()));
         }

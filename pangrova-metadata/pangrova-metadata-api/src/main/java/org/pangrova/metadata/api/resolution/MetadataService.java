@@ -24,16 +24,15 @@ public interface MetadataService {
 
     List<String> listCatalogs(MetadataSessionContext session);
 
-    /** Returns the unresolved authoritative catalog descriptor for internal deployment. */
-    default Optional<CatalogDescriptor> getCatalogDescriptor(String catalogName) {
-        return Optional.empty();
-    }
+    /** Reads current deployment authority. Empty means the catalog is absent. */
+    Optional<CatalogDescriptor> getCatalogDescriptor(String catalogName);
 
-    /** Resolves only the requested durable catalog incarnation and revision. */
-    default Optional<CatalogDescriptor> findCatalogDescriptorRevision(
-            String catalogName, String incarnationId, long revision) {
-        return Optional.empty();
-    }
+    /**
+     * Reads exactly one historical deployment. Empty means that revision does not exist.
+     * Propagate lookup failures and reject unavailable history explicitly.
+     */
+    Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String catalogName, String incarnationId, long revision);
 
     List<String> listSchemas(MetadataSessionContext session, String catalogName);
 

@@ -6,7 +6,7 @@ import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.api.data.text.PrefixEntry;
 import org.pangrova.indexing.api.data.text.PrefixIndexData;
 import org.pangrova.connector.api.index.predicate.LikePattern;

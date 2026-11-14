@@ -1,5 +1,7 @@
 package org.pangrova.security.codec.authorization;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import com.fasterxml.jackson.core.JsonParser;
@@ -16,7 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 
 /** Canonical metadata encoding of exact deferred permissions, without credentials or identity groups. */
 public final class DeferredAuthorizationScopeCodec {
@@ -35,12 +37,7 @@ public final class DeferredAuthorizationScopeCodec {
 
     /** Returns a digest of the canonical exact permissions and observed policy content. */
     public static String sha256(DeferredAuthorizationScope scope) {
-        try {
-            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(encode(scope)));
-        } catch (java.security.NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 unavailable", failure);
-        }
+        return DigestUtils.sha256Hex(encode(scope));
     }
 
     /** Builds one receipt from the same scope observation, without a second connector lookup. */

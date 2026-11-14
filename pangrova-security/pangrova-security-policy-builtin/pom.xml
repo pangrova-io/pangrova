@@ -12,7 +12,7 @@
         <module.name>org.pangrova.security.policy.builtin</module.name>
     </properties>
     <dependencies>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file-api</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-file</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-persistence-security-api</artifactId>

@@ -1,6 +1,6 @@
 package org.pangrova.generation.api.execution;
 
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 /** Exact backend-issued execution identity carried by a Native task completion. */
 public record GenerationExecutionOwner(String ownerId, String ownerIncarnation, long fencingToken) {

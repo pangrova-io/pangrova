@@ -19,7 +19,7 @@ package org.pangrova.persistence.ai.postgresql.evaluation;
 
 import org.pangrova.ai.control.evaluation.EvaluationMetric;
 import org.pangrova.ai.control.evaluation.EvaluationRun;
-import org.pangrova.ai.control.evaluation.EvaluationSubjectType;
+import org.pangrova.ai.control.enums.EvaluationSubjectType;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

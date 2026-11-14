@@ -5,20 +5,20 @@ import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.schema.IcebergSchemaBuilder;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.types.PangrovaType;
-import org.pangrova.connector.spi.index.ColumnValueReader;
-import org.pangrova.connector.spi.index.CommitListener;
-import org.pangrova.connector.spi.index.ConnectorIndexSupport;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.connector.api.index.ColumnValueReader;
+import org.pangrova.connector.api.index.CommitListener;
+import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.NativeIndexCapability;
-import org.pangrova.connector.spi.index.NativeIndexEvaluator;
-import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.DeleteFilter;
-import org.pangrova.connector.api.metadata.DeletionMode;
+import org.pangrova.connector.api.enums.DeletionMode;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.CopyFilePublicationMetadata;
-import org.pangrova.connector.api.metadata.ConditionalBranchDropResult;
+import org.pangrova.connector.api.metadata.CopyFilePublicationMetadata;
+import org.pangrova.connector.api.enums.ConditionalBranchDropResult;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
@@ -43,7 +43,7 @@ import java.util.function.Consumer;
  * Acts as anti-corruption layer: Iceberg SDK types stay within this module.
  */
 public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePublicationMetadata,
-        org.pangrova.connector.spi.metadata.DistributedWritePublicationMetadata {
+        org.pangrova.connector.api.metadata.DistributedWritePublicationMetadata {
 
     static final long DEFAULT_PIN_TTL_MS = 1_800_000L; // 30 minutes
     static final long DEFAULT_COMMIT_TIMEOUT_MS = 30_000L; // 30 seconds
@@ -514,7 +514,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
 
     @Override
     public void createView(ConnectorSession session, SchemaTableName viewName, String sql,
-            org.pangrova.connector.api.metadata.view.ViewCreateMode mode) {
+            org.pangrova.connector.api.enums.ViewCreateMode mode) {
         viewStore.create(viewName, sql, mode);
     }
 

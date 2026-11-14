@@ -3,7 +3,7 @@ package org.pangrova.persistence.security.postgresql.policy;
 import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
 
 import org.pangrova.persistence.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -45,8 +45,8 @@ final class IcebergTaskToSplit {
             if (delete.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES
                     && !org.pangrova.connector.iceberg.handle.IcebergTableHandle.CAPABILITIES
                             .supportsEqualityDeleteRead()) {
-                throw new org.pangrova.connector.api.error.ConnectorException(
-                        org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                throw new org.pangrova.connector.api.exception.ConnectorException(
+                        org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
                         "Cannot read Iceberg table " + qualifiedTableName + " at snapshot " + snapshotId
                                 + ": equality deletes are not supported (delete file " + delete.path()
                                 + ", data file " + task.file().path() + ")");
@@ -83,6 +83,20 @@ final class IcebergTaskToSplit {
      * with the same name and makes schema evolution synthesize NULL instead.
      */
     static List<ColumnMapping> withNullOnlyColumns(Schema schema, List<ColumnMapping> mappings) {
+        boolean hasUnknown = false;
+        for (Types.NestedField field : schema.columns()) {
+            if (field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                hasUnknown = true;
+                break;
+            }
+        }
+        // This runs once per file. Without UNKNOWN columns the table-level list is
+        // already complete, and List.copyOf returns the same instance for an
+        // already-immutable input, so millions of splits share one list instead of
+        // each allocating a copy.
+        if (!hasUnknown) {
+            return List.copyOf(mappings);
+        }
         List<ColumnMapping> result = new ArrayList<>(mappings);
         for (Types.NestedField field : schema.columns()) {
             if (field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
@@ -220,6 +234,7 @@ final class IcebergTaskToSplit {
                 }
             }
         }
-        return mappings;
+        // Immutable so every split from this scan can share the instance.
+        return List.copyOf(mappings);
     }
 }

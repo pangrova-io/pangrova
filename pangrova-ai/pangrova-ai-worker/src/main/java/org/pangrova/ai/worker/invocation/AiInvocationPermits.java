@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 
 import java.time.Duration;
 import java.time.Instant;

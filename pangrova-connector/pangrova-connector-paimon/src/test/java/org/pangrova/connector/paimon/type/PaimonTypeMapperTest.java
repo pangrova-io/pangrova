@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.type;
 
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.VectorType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.apache.paimon.types.ArrayType;

@@ -13,15 +13,15 @@
  */
 package org.pangrova.ai.worker.inference.openai;
 
-import org.pangrova.ai.provider.openai.inference.OpenAiCompatibleInferenceProvider;
-import org.pangrova.ai.provider.openai.inference.OpenAiInferenceConfig;
+import org.pangrova.ai.http.chat.OpenAiCompatibleInferenceProvider;
+import org.pangrova.ai.http.chat.OpenAiInferenceConfig;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.embedding.BlobReference;
 import org.pangrova.ai.api.invocation.ContentPart;
 import org.pangrova.ai.api.invocation.GenerationParameters;

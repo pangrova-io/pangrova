@@ -1,6 +1,6 @@
 package org.pangrova.generation.api.page;
 
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 
 import java.util.HashSet;
 import java.util.List;

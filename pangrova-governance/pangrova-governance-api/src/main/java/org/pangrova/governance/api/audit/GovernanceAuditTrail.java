@@ -1,5 +1,9 @@
 package org.pangrova.governance.api.audit;
 
+import org.pangrova.governance.api.enums.OperationType;
+
+import org.pangrova.common.api.annotation.Experimental;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +13,7 @@ import java.util.Map;
  * Records all policy changes, access grants, quality rule modifications,
  * and tag assignments with timestamp, actor, and before/after state.
  */
+@Experimental
 public interface GovernanceAuditTrail {
 
     /**

@@ -135,7 +135,7 @@ TEST_F(ArtifactVectorSearchTest, TraversesNonmatchingBridgesThenReturnsExactElig
   EXPECT_EQ(pool_->usedBytes(), 0);
 }
 
-TEST_F(ArtifactVectorSearchTest, EmptyEligibilityIsSuccessfulButUnderfilledExplorationIsAnError) {
+TEST_F(ArtifactVectorSearchTest, EmptyEligibilityIsSuccessfulAndUnderfilledExplorationReportsShortfall) {
   auto search = source();
   VectorSearchUsage empty;
   EXPECT_TRUE(search->search(query_, {3, 4, 4}, empty, [] {}).empty());
@@ -146,8 +146,10 @@ TEST_F(ArtifactVectorSearchTest, EmptyEligibilityIsSuccessfulButUnderfilledExplo
   const auto nonmedoid = (graph->medoid() + 1) % 4;
   search->addEligible(positions_[nonmedoid]);
   VectorSearchUsage bounded;
-  EXPECT_THROW(search->search(query_, {1, 1, 4}, bounded, [] {}), std::runtime_error);
+  auto underfilled = search->search(query_, {1, 1, 4}, bounded, [] {});
+  EXPECT_TRUE(underfilled.empty());
   EXPECT_EQ(bounded.rescored, 0);
+  EXPECT_EQ(bounded.recall_shortfall, 1u);
 }
 
 TEST_F(ArtifactVectorSearchTest, FewerEligibleRowsThanKAreACompletePopulationAndQuotaCannotExpand) {

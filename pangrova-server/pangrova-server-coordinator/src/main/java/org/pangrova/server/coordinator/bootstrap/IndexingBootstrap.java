@@ -4,13 +4,12 @@ import org.pangrova.persistence.generation.api.publication.GenerationPublication
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 
-import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 
 import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
-import org.pangrova.indexing.core.descriptor.IndexDescriptorCache;
-import org.pangrova.indexing.core.evaluation.IndexEvalMetrics;
-import org.pangrova.coordinator.indexing.filter.IndexEvalConfig;
-import org.pangrova.coordinator.indexing.filter.IndexSplitFilter;
+import org.pangrova.indexing.descriptor.IndexDescriptorCache;
+import org.pangrova.indexing.evaluation.IndexEvalMetrics;
+import org.pangrova.indexing.pruning.IndexEvalConfig;
+import org.pangrova.indexing.pruning.IndexSplitFilter;
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.IndexDdlContext;
 import org.pangrova.coordinator.indexing.lifecycle.IndexCommitContext;
@@ -25,12 +24,12 @@ import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import org.pangrova.coordinator.indexing.lifecycle.MetadataBackedGenerationChecker;
 import org.pangrova.coordinator.indexing.lifecycle.StuckBuildRecovery;
 import org.pangrova.coordinator.generation.DurableGenerationPublisher;
-import org.pangrova.indexing.registry.IndexEngineRegistry;
+import org.pangrova.indexing.strategy.IndexEngineRegistry;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.config.IndexingConfig;
-import org.pangrova.indexing.eval.IndexEvaluationService;
-import org.pangrova.indexing.metrics.IndexBuildMetrics;
+import org.pangrova.indexing.evaluation.IndexEvaluationService;
+import org.pangrova.indexing.build.IndexBuildMetrics;
 import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
 import org.pangrova.indexing.storage.IndexCache;
@@ -40,15 +39,17 @@ import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.CacheEvent;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
-import org.pangrova.coordination.spi.leadership.MaintenanceLeaderAware;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.generation.publication.GenerationPublicationRouter;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -205,16 +206,19 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     private IndexSerializer initializeEngine(IndexingConfig config, MetricsProvider metricsProvider) {
         engineRegistry = new IndexEngineRegistry();
+        if (engineRegistry.size() == 0) {
+            throw new IllegalStateException("Indexing requires at least one JVM file-pruning strategy");
+        }
         LOG.info("event=indexing_phase phase=engine_registry providers={}", engineRegistry.size());
         indexCache = new IndexCache(config.cacheSizeBytes());
         storageManager = new IndexStorageManager();
-        TypeSerializerRegistry serdeRegistry = BuiltinIndexSerializers.createRegistry();
+        TypeSerializerRegistry serdeRegistry = TypeSerializerRegistry.fromStrategies(engineRegistry.providers());
         IndexSerializer serializer = new IndexSerializer(serdeRegistry, config.checksumEnabled());
         if (metricsProvider != null) {
             buildMetrics = new IndexBuildMetrics(metricsProvider);
             evalMetrics = new IndexEvalMetrics(metricsProvider);
             lifecycleMetrics = new IndexLifecycleMetrics(metricsProvider);
-            new org.pangrova.indexing.metrics.IndexCacheMetrics(metricsProvider, indexCache);
+            new org.pangrova.indexing.storage.IndexCacheMetrics(metricsProvider, indexCache);
         }
         return serializer;
     }
@@ -224,7 +228,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             IndexBuildClaimRepository buildClaims) {
         accessorResolver = new ConnectorAccessorResolver(catalogRegistry);
         var generationChecker = new MetadataBackedGenerationChecker(metadataStore);
-        org.pangrova.connector.spi.index.SnapshotPinProvider snapshotPinProvider =
+        org.pangrova.connector.api.index.SnapshotPinProvider snapshotPinProvider =
                 new org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider(
                         metadataStore, artifactBuildStore, accessorResolver);
         IndexBuildContext buildDeps = new IndexBuildContext(
@@ -241,7 +245,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
                 java.time.Duration.ofSeconds(config.runtime().eval().circuitOpenDurationSeconds());
         var breakerStateStore = new org.pangrova.coordinator.indexing.MetadataBreakerStateStore(
                 metadataStore, circuitFailureThreshold, circuitOpenDuration);
-        var circuitBreaker = new org.pangrova.indexing.eval.IndexEvalCircuitBreaker(
+        var circuitBreaker = new org.pangrova.indexing.evaluation.IndexEvalCircuitBreaker(
                 circuitFailureThreshold, circuitOpenDuration, breakerStateStore);
         evaluationService = new IndexEvaluationService(
                 engineRegistry, indexCache, storageManager, serializer, circuitBreaker);
@@ -341,13 +345,23 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }, 5, 5, TimeUnit.SECONDS);
     }
 
+    /** Binds each supported artifact family to the adapter that owns its atomic publication. */
+    static GenerationPublicationStore publicationRouter(GenerationPublicationStore indexes,
+            GenerationPublicationStore generatedValues, GenerationPublicationStore tabularExports) {
+        return GenerationPublicationRouter.route(Map.of(
+                GenerationOutputTypeIds.VECTOR_INDEX, indexes,
+                GenerationOutputTypeIds.TEXT_INDEX, indexes,
+                GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, generatedValues,
+                GenerationOutputTypeIds.TABULAR_EXPORT, tabularExports));
+    }
+
     /** Starts metadata publication using the same real durable execution authority as query tasks. */
     void wireExecutionAuthority(org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority authority) {
         if (artifactBuildStore == null || artifactPublisher != null) {
             return;
         }
         artifactPublisher = new DurableGenerationPublisher(artifactBuildStore,
-                artifactPublicationStores(artifactPublicationStore),
+                artifactPublicationStore,
                 new org.pangrova.coordinator.generation.GenerationExecutionOwnership(authority));
         artifactPublisher.start();
     }
@@ -389,22 +403,13 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         return artifactBuildStore;
     }
 
-    static Map<String, GenerationPublicationStore>
-            artifactPublicationStores(
-                    GenerationPublicationStore store) {
-        return Map.of(
-                org.pangrova.generation.api.output.GenerationOutputTypeIds.VECTOR_INDEX, store,
-                org.pangrova.generation.api.output.GenerationOutputTypeIds.TEXT_INDEX, store,
-                org.pangrova.generation.api.output.GenerationOutputTypeIds.TABULAR_EXPORT, store,
-                org.pangrova.generation.api.output.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, store);
-    }
 
     /**
      * Registers an idempotent processor on the existing durable commit-log barrier.
      * Connector callbacks continue to perform one operation only: append the event.
      */
     public java.util.Set<String> registerDurableCommitProcessor(
-            org.pangrova.connector.spi.index.CommitListener additional) {
+            org.pangrova.connector.api.index.CommitListener additional) {
         if (commitHandler == null || accessorResolver == null || additional == null) {
             return java.util.Set.of();
         }

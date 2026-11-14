@@ -2,13 +2,13 @@ package org.pangrova.generation.codec.execution;
 
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 
-import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 
+import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate.PublicationRead;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.nio.charset.StandardCharsets;

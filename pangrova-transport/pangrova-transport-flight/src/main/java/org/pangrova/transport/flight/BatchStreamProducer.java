@@ -2,7 +2,7 @@ package org.pangrova.transport.flight;
 
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.protocol.transport.DataProducer;
-import org.pangrova.protocol.transport.DataProducerException;
+import org.pangrova.protocol.exception.DataProducerException;
 import org.pangrova.protocol.transport.DataTicket;
 import org.pangrova.protocol.transport.DataStream;
 import org.apache.arrow.flight.Action;

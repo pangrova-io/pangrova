@@ -11,16 +11,16 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcWorkerRegistry;
-import org.pangrova.query.core.audit.QueryAuditService;
-import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.server.coordinator.assembly.security.audit.AuditWriterConfig;
+import org.pangrova.query.audit.QueryAuditService;
+import org.pangrova.security.audit.AuditEventEmitter;
+import org.pangrova.server.coordinator.enums.AuditWriterConfig;
 import org.pangrova.server.coordinator.assembly.security.audit.AuditWriterFactory;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.persistence.coordination.api.membership.WorkerRegistry;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,7 +63,7 @@ final class QueryRuntimeWiring {
         }
         var registry = new org.pangrova.persistence.ai.postgresql.embedding.JdbcEmbeddingModelRegistry(
                 dependencies.metadataDataSource(), "admin", "users");
-        registry.initSchema();
+        registry.validateSchema();
         return registry;
     }
 
@@ -80,7 +80,7 @@ final class QueryRuntimeWiring {
 
     QueryManagerResult buildQueryManager(QueryDispatcher queryDispatcher,
             QueryStateJournal stateJournal, AuditEventEmitter auditEmitter,
-            java.util.Optional<org.pangrova.query.spi.retention.ReaderPinLifecycle> readerPins) {
+            java.util.Optional<org.pangrova.query.api.retention.ReaderPinLifecycle> readerPins) {
         java.util.Objects.requireNonNull(stateJournal, "stateJournal must be selected explicitly");
         AsyncSubmitConfig asyncConfig = AsyncSubmitConfig.defaultEnabled();
         ExecutorService asyncExecutor = ManagedExecutorFactory.newBoundedThreadPool(
@@ -94,7 +94,7 @@ final class QueryRuntimeWiring {
                     dependencies.moduleWiring().getLineageEmitter(), auditEmitter,
                     dependencies.queryAuditService(),
                     dependencies.moduleWiring().getResilienceRegistry(),
-                    new org.pangrova.planner.core.throttle.QueryThrottlingService(1000, 100.0, DEFAULT_THROTTLE_BURST),
+                    new org.pangrova.planner.throttle.QueryThrottlingService(1000, 100.0, DEFAULT_THROTTLE_BURST),
                     stateJournal, null, null, asyncConfig, asyncExecutor, new OtelExecutionTraceContextFactory());
             LOG.info("event=async_submit_wired enabled={} submitTimeoutMs={}",
                     asyncConfig.enabled(), asyncConfig.submitTimeoutMs());

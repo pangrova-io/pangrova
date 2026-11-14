@@ -1,8 +1,8 @@
 package org.pangrova.persistence.table.memory.governancebinding;
 
-import org.pangrova.table.api.policybinding.GovernanceBinding;
-import org.pangrova.table.api.policybinding.GovernanceBindingType;
-import org.pangrova.persistence.table.api.governancebinding.TableControlGovernanceBindingStore;
+import org.pangrova.table.api.policy.GovernanceBinding;
+import org.pangrova.table.api.enums.GovernanceBindingType;
+import org.pangrova.table.api.policy.TableControlGovernanceBindingStore;
 
 import java.util.ArrayList;
 import java.util.Comparator;

@@ -109,7 +109,7 @@ class ResilienceModuleIntegrationTest {
 
         boolean shouldRetry = retryManager.onTaskFailure(
                 "s-1", "t-1",
-                org.pangrova.common.exception.PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE);
+                org.pangrova.common.enums.PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE);
 
         assertThat(shouldRetry).isTrue();
     }
@@ -121,7 +121,7 @@ class ResilienceModuleIntegrationTest {
 
         boolean shouldRetry = retryManager.onTaskFailure(
                 "s-2", "t-1",
-                org.pangrova.common.exception.PangrovaErrorCode.PARSER_SYNTAX_ERROR);
+                org.pangrova.common.enums.PangrovaErrorCode.PARSER_SYNTAX_ERROR);
 
         assertThat(shouldRetry).isFalse();
     }
@@ -156,7 +156,7 @@ class ResilienceModuleIntegrationTest {
 
     private static CoordinatorBootstrapConfig buildResilienceConfig() {
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-resilience-test", 0, 30_000, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-resilience-test", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, true, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

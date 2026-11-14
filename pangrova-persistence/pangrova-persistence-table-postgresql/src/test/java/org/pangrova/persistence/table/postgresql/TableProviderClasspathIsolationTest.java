@@ -14,13 +14,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Checks the actual owner classpath, without filtering away accidental dependencies. */
 class TableProviderClasspathIsolationTest {
     @Test
-    void allProvidersConstructWithoutDomainOrProcessRuntime() {
+    void storesLinkWithTheFlatTableArtifactWithoutServerOrAlternateBackends() throws Exception {
         var loader = getClass().getClassLoader();
-        for (String name : List.of("org.pangrova.table.core.ownership.TableControlService",
+        var contract = loader.loadClass("org.pangrova.table.api.ownership.TableControlRecord");
+        var service = loader.loadClass("org.pangrova.table.ownership.TableControlService");
+        assertThat(service.getProtectionDomain().getCodeSource().getLocation())
+                .isEqualTo(contract.getProtectionDomain().getCodeSource().getLocation());
+        for (String name : List.of(
+                "org.pangrova.persistence.table.memory.control.InMemoryTableControlStore",
                 "org.pangrova.metadata.catalog.registry.CatalogRegistry",
                 "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",
-                "org.pangrova.security.core.authorization.deferred.DeferredAuthorization")) {
-            assertThatThrownBy(() -> loader.loadClass(name)).isInstanceOf(ClassNotFoundException.class);
+                "org.pangrova.security.authorization.deferred.DeferredAuthorization")) {
+            assertThatThrownBy(() -> loader.loadClass(name)).as(name).isInstanceOf(ClassNotFoundException.class);
         }
         var source = new org.postgresql.ds.PGSimpleDataSource();
         assertThat(new JdbcTableControlStore(source)).isNotNull();

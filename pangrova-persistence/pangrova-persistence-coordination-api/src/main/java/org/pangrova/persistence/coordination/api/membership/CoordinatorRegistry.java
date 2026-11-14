@@ -1,6 +1,6 @@
 package org.pangrova.persistence.coordination.api.membership;
 
-import org.pangrova.coordination.api.membership.CoordinatorRole;
+import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.coordination.api.membership.CoordinatorSnapshot;
 
 import org.pangrova.common.api.annotation.Internal;
@@ -37,8 +37,8 @@ public interface CoordinatorRegistry {
      * Registers a coordinator or updates an existing registration.
      *
      * <p>This operation is idempotent: calling it multiple times with the
-     * same {@code coordinatorId} overwrites the previous snapshot (upsert
-     * semantics). The latest snapshot wins.</p>
+     * same {@code coordinatorId} refreshes membership fields. The existing
+     * invalidation watermark survives re-registration and is advanced separately by the poller.</p>
      *
      * @param coordinator the coordinator snapshot to register (must not be null)
      */

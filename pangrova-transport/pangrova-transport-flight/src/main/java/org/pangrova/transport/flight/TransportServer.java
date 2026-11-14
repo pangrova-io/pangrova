@@ -192,14 +192,14 @@ public class TransportServer implements TransportServerLifecycle {
     }
 
     private org.apache.arrow.flight.FlightServer buildServer() throws IOException {
-        BatchStreamProducer adapter = new BatchStreamProducer(producer, allocator, ticketSigner);
+        BatchStreamProducer batchProducer = new BatchStreamProducer(producer, allocator, ticketSigner);
         validateTlsConfiguration();
         if (config.tlsEnabled()) {
-            return buildSecureServer(adapter);
+            return buildSecureServer(batchProducer);
         }
         Location location = Location.forGrpcInsecure("0.0.0.0", requestedPort);
         org.apache.arrow.flight.FlightServer.Builder builder =
-                org.apache.arrow.flight.FlightServer.builder(allocator, location, adapter);
+                org.apache.arrow.flight.FlightServer.builder(allocator, location, batchProducer);
         attachInterceptors(builder);
         return builder.build();
     }
@@ -212,7 +212,7 @@ public class TransportServer implements TransportServerLifecycle {
         }
     }
 
-    private org.apache.arrow.flight.FlightServer buildSecureServer(BatchStreamProducer adapter) throws IOException {
+    private org.apache.arrow.flight.FlightServer buildSecureServer(BatchStreamProducer batchProducer) throws IOException {
         Path certificate = requireTlsFile(config.tlsCertPath());
         Path key = requireTlsFile(config.tlsKeyPath());
         Path trust = config.mtlsConfigured() ? requireTlsFile(config.tlsTrustChainPath()) : null;
@@ -220,7 +220,7 @@ public class TransportServer implements TransportServerLifecycle {
         try (var certificateInput = Files.newInputStream(certificate);
              var keyInput = Files.newInputStream(key);
              var trustInput = trust == null ? null : Files.newInputStream(trust)) {
-            var builder = org.apache.arrow.flight.FlightServer.builder(allocator, location, adapter)
+            var builder = org.apache.arrow.flight.FlightServer.builder(allocator, location, batchProducer)
                     .useTls(certificateInput, keyInput);
             if (trustInput != null) {
                 builder.useMTlsClientVerification(trustInput);

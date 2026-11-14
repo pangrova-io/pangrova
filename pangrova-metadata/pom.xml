@@ -3,5 +3,5 @@
     <modelVersion>4.0.0</modelVersion>
     <parent><groupId>org.pangrova</groupId><artifactId>pangrova-bom</artifactId><version>0.1.0-SNAPSHOT</version></parent>
     <artifactId>pangrova-metadata</artifactId><packaging>pom</packaging><name>Pangrova Metadata</name>
-    <modules><module>pangrova-metadata-api</module><module>pangrova-metadata-codec</module><module>pangrova-metadata-core</module></modules>
+    <modules><module>pangrova-metadata-api</module><module>pangrova-metadata-codec</module><module>pangrova-metadata-catalog</module></modules>
 </project>

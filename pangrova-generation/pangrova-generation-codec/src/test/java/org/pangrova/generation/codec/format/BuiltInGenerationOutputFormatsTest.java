@@ -2,8 +2,8 @@ package org.pangrova.generation.codec.format;
 
 import org.pangrova.generation.api.output.GenerationOutputRole;
 
-import org.pangrova.generation.api.output.GenerationOutputScope;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 
 import org.junit.jupiter.api.Test;
 

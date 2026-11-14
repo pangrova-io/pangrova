@@ -1,5 +1,8 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
+import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -17,11 +20,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.metadata.service.TableControlWriteAuthorities;
+import org.pangrova.indexing.api.enums.IndexType;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
@@ -31,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 class JdbcIndexSelectionsTest {
+    private static final String OWNER = "mapping-test-owner";
     private static final String SPECIAL = "x'); DROP TABLE index_descriptors; -- ,{}\\\"中文";
     private DataSource dataSource;
     private JdbcIndexMetadataStore store;
@@ -38,7 +41,7 @@ class JdbcIndexSelectionsTest {
     @BeforeEach
     void setUp() throws SQLException {
         dataSource = SharedPostgresContainer.migratedDataSource("index_selections");
-        store = new JdbcIndexMetadataStore(dataSource, TableControlWriteAuthorities.postgres()::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
     }
 
     @Test
@@ -62,16 +65,19 @@ class JdbcIndexSelectionsTest {
     @Test
     void mappingsKeepSnapshotAndExactGenerationSelectionWithLiteralPaths() {
         store.registerIndex(descriptor("first", "tenant", IndexState.BUILDING));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("first", 0, OWNER, Instant.now())).isTrue();
         store.registerIndex(descriptor("second", "tenant", IndexState.BUILDING));
-        store.registerIndexFile(mapping("first", SPECIAL, 0, "snap'0"));
-        store.registerIndexFile(mapping("second", SPECIAL, 0, "snap'0"));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("second", 0, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, mapping("first", SPECIAL, 0, "snap'0"));
+        store.registerIndexFile(OWNER, mapping("second", SPECIAL, 0, "snap'0"));
         publish("first", 0);
         publish("second", 0);
         var ready = store.findIndex("first").orElseThrow();
         var stagingAt = ready.updatedAt().plusSeconds(1);
         assertThat(store.beginIndexGeneration(ready.indexId(), 1, "snapshot",
                 stagingAt, ready.updatedAt(), ready.state(), ready.generation())).isTrue();
-        store.registerIndexFile(mapping("first", SPECIAL, 1, "snap'1"));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("first", 1, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, mapping("first", SPECIAL, 1, "snap'1"));
         assertThat(store.batchGetIndexArtifacts(
                 Map.of("first", new IndexFileSelection(1, "")), List.of(SPECIAL))).isEmpty();
         store.publishIndexGeneration(new IndexPublicationRequest("first", "first", 1, "snapshot",
@@ -99,10 +105,12 @@ class JdbcIndexSelectionsTest {
     @Test
     void batchesCountMarkAndCopyOnlySelectedPathsWithoutCrossIndexOrGenerationDeletion() {
         store.registerIndex(descriptor("first", "tenant", IndexState.BUILDING));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("first", 0, OWNER, Instant.now())).isTrue();
         store.registerIndex(descriptor("second", "tenant", IndexState.BUILDING));
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("second", 0, OWNER, Instant.now())).isTrue();
         List<String> paths = IntStream.range(0, 1005).mapToObj(i -> SPECIAL + i).toList();
-        store.batchRegisterIndexFiles(paths.stream().map(path -> mapping("first", path, 0, "snapshot")).toList());
-        store.registerIndexFile(mapping("second", paths.get(0), 0, "snapshot"));
+        store.batchRegisterIndexFiles(OWNER, paths.stream().map(path -> mapping("first", path, 0, "snapshot")).toList());
+        store.registerIndexFile(OWNER, mapping("second", paths.get(0), 0, "snapshot"));
         assertThat(store.getIndexFileMappingCounts(List.of("first", "first"), paths)).containsEntry("first", 1005);
         assertThat(store.batchGetIndexFileMappings(List.of("first"), paths).get("first")).hasSize(1005);
         assertThat(store.filterUnindexedFiles("first", List.of(paths.get(1004), "missing", "missing")))
@@ -126,6 +134,66 @@ class JdbcIndexSelectionsTest {
         assertThat(store.getIndexFileMappingCounts(List.of("first"), List.of())).isEmpty();
         assertThat(store.filterUnindexedFiles("first", List.of())).isEmpty();
         store.markOrphanedByDataFiles("first", List.of());
+    }
+
+    @Test
+    void publicationBetweenBatchesDoesNotMixReadSnapshotsOrDuplicateOverlappingPaths() {
+        store.registerIndex(descriptor("idx", "tenant", IndexState.BUILDING));
+        var claims = new JdbcIndexBuildClaimRepository(dataSource);
+        assertThat(claims.tryClaim("idx", 0, OWNER, Instant.now())).isTrue();
+        var paths = IntStream.range(0, 1001).mapToObj(i -> "data-" + i).toList();
+        store.batchRegisterIndexFiles(OWNER, paths.stream()
+                .map(path -> mapping("idx", path, 0, "original-object")).toList());
+        var format = new IndexGenerationFormat("pangrova.index-file", 1, 0, "b".repeat(64), "test-writer");
+        store.publishIndexGeneration(new IndexPublicationRequest("idx", "idx", 0, "snapshot", "VECTOR",
+                format, paths.size(), Instant.EPOCH, Instant.EPOCH.plusSeconds(1)));
+        var ready = store.findIndex("idx").orElseThrow();
+        var stagingAt = ready.updatedAt().plusSeconds(1);
+        assertThat(store.beginIndexGeneration("idx", 1, "next", stagingAt, ready.updatedAt(),
+                ready.state(), ready.generation())).isTrue();
+        assertThat(store.copyIndexGenerationMappings("idx", 0, 1, List.of())).isEqualTo(paths.size());
+
+        var queries = new AtomicInteger();
+        DataSource reader = beforeArtifactQuery(() -> {
+            if (queries.incrementAndGet() == 2) {
+                store.publishIndexGeneration(new IndexPublicationRequest("idx", "idx", 1, "next", "VECTOR",
+                        format, paths.size(), stagingAt, stagingAt.plusSeconds(1)));
+            }
+        });
+        var selected = Map.of("idx", new IndexFileSelection(0, "snapshot"));
+        var requested = new java.util.ArrayList<>(paths);
+        requested.add(paths.get(0));
+        var result = new JdbcIndexFileMappingStore(reader).batchGetIndexArtifacts(selected, requested);
+        assertThat(queries).hasValue(2);
+        assertThat(result.get("idx")).hasSize(paths.size());
+        assertThat(result.get("idx").values()).allMatch(mapping -> mapping.generation() == 0);
+        assertThat(store.batchGetIndexArtifacts(selected, paths)).isEmpty();
+        assertThat(store.batchGetIndexArtifacts(Map.of("idx", new IndexFileSelection(1, "next")), paths)
+                .get("idx")).hasSize(paths.size());
+    }
+
+    private DataSource beforeArtifactQuery(Runnable action) {
+        ClassLoader loader = getClass().getClassLoader();
+        return (DataSource) Proxy.newProxyInstance(loader, new Class<?>[]{DataSource.class},
+                (proxy, method, args) -> {
+                    Object value = invoke(dataSource, method, args);
+                    if (!(value instanceof Connection connection)) {
+                        return value;
+                    }
+                    return Proxy.newProxyInstance(loader, new Class<?>[]{Connection.class}, (c, m, a) -> {
+                        Object prepared = invoke(connection, m, a);
+                        if (!(prepared instanceof java.sql.PreparedStatement statement)) {
+                            return prepared;
+                        }
+                        return Proxy.newProxyInstance(loader, new Class<?>[]{java.sql.PreparedStatement.class},
+                                (p, operation, parameters) -> {
+                                    if (operation.getName().equals("executeQuery")) {
+                                        action.run();
+                                    }
+                                    return invoke(statement, operation, parameters);
+                                });
+                    });
+                });
     }
 
     @ParameterizedTest

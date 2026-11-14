@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.common.lifecycle.ResourceCloser;
+
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeWorkerInventory;
@@ -7,7 +9,7 @@ import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeQueryInve
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeTaskRegistry;
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptCanceller;
 import org.pangrova.coordinator.query.scheduling.CoordinatorSpeculativeAttemptDispatcher;
-import org.pangrova.metadata.assembly.generation.GenerationStores;
+import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
 import java.util.concurrent.ScheduledExecutorService;
@@ -16,36 +18,37 @@ import java.util.concurrent.ExecutorService;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
-import org.pangrova.planner.core.analysis.SqlCompiler;
-import org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.query.core.lifecycle.QueryTimeoutScheduler;
+import org.pangrova.query.lifecycle.QueryTimeoutScheduler;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
-import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
+import org.pangrova.query.api.stage.StageCompletionCallback;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
-import org.pangrova.scheduler.core.speculation.SpeculationConfig;
-import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
+import org.pangrova.scheduler.placement.TaskScheduler;
+import org.pangrova.scheduler.api.retry.TaskRetryAdmission;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.speculation.SpeculationConfig;
+import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.server.coordinator.bootstrap.query.audit.QueryAuditServices;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.persistence.coordination.api.membership.WorkerRegistry;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
 import org.apache.arrow.memory.BufferAllocator;
 import org.slf4j.Logger;
@@ -72,11 +75,11 @@ final class QueryBootstrap {
     private final org.pangrova.security.api.secret.SecretResolver secretResolver;
     private final org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores aiInfrastructureStores;
     private final CurrentModelAuthority modelAuthority;
-    private final GenerationStores artifactStores;
+    private final PostgresGenerationStores artifactStores;
 
     private WorkerManager workerManager;
     private QueryManager queryManager;
-    private final QueryAuditServices queryAuditServices = new QueryAuditServices();
+    private final QueryAuditServices queryAuditServices;
     private java.util.concurrent.ExecutorService asyncSubmitExecutor;
     private TaskStatusReceiver taskStatusReceiver;
     private CoordinatorTaskTracker taskTracker;
@@ -95,11 +98,10 @@ final class QueryBootstrap {
     private CacheAffinityAssigner cacheAffinityAssigner;
     private SpeculativeStageHandler speculativeStageHandler;
     private SpeculativeTaskLauncher speculativeTaskLauncher;
-    private org.pangrova.scheduler.core.speculation.SpeculativeExecutionScheduler speculationScheduler;
+    private org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler speculationScheduler;
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private TaskScheduler taskScheduler;
     private QuerySchedulingWiring queryScheduling;
-    private org.pangrova.planner.core.cache.QueryResultCache queryResultCache;
     private org.pangrova.persistence.generation.api.job.GenerationJobStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
@@ -153,6 +155,12 @@ final class QueryBootstrap {
         this.metadataBootstrap = metadataBootstrap;
         this.moduleWiring = moduleWiring;
         this.metadataDataSource = metadataDataSource;
+        // Audit must survive restarts; the in-memory store drops entries at its
+        // size cap and loses everything on restart. Only dev/test setups without a
+        // metadata database fall back to it.
+        this.queryAuditServices = new QueryAuditServices(metadataDataSource != null
+                ? new org.pangrova.persistence.query.postgresql.audit.JdbcQueryAuditStore(metadataDataSource)
+                : new org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore());
         this.streamingBootstrap = streamingBootstrap;
         this.coordinationService = coordinationService;
         durableRecovery = new QueryDurableRecoveryWiring(
@@ -160,7 +168,7 @@ final class QueryBootstrap {
         this.secretResolver = secretResolver;
         this.aiInfrastructureStores = aiInfrastructureStores;
         this.modelAuthority = java.util.Objects.requireNonNull(modelAuthority, "modelAuthority");
-        artifactStores = new GenerationStores(modelAuthority);
+        artifactStores = new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create());
     }
 
     void start() {
@@ -170,7 +178,10 @@ final class QueryBootstrap {
                 queryAuditServices.auditService()));
         WorkerRegistry workerRegistry = runtimeWiring.createWorkerRegistry();
         workerManager = new WorkerManager(
-                config.workerSuspectThresholdMs(), config.workerDeadThresholdMs(), workerRegistry);
+                config.workerSuspectThresholdMs(), config.workerDeadThresholdMs(), workerRegistry,
+                new org.pangrova.coordination.api.membership.WorkerShuffleDeployment(config.shuffleMode().name(),
+                        config.shuffleMode() == org.pangrova.config.enums.ShuffleMode.REMOTE
+                                ? config.featureFlags().shuffleProvider() : null));
         // P1-5: aggregate per-tenant usage reported by worker heartbeats into a
         // cluster-wide view (phase 1: reporting + aggregation observability).
         workerManager.setTenantUsageAggregator(
@@ -193,10 +204,8 @@ final class QueryBootstrap {
         var runtimeFilters = new RuntimeFilterRegistry();
         SqlCompiler compiler = new PlannerWiring(config, metadataBootstrap, readerPinLeases, accessControl)
                 .buildSqlCompiler(runtimeFilters);
-        // Publish each resource to its shutdown owner immediately after acquisition.
-        queryResultCache = compiler.queryResultCache();
         queryScheduling = new QuerySchedulingWiring(
-                moduleWiring != null ? moduleWiring.getTenantStore() : null);
+                moduleWiring != null ? moduleWiring.getTenantStore() : null, config.query().placementProvider());
         taskScheduler = queryScheduling.scheduler();
         if (metadataDataSource != null) {
             artifactBuildStore = artifactStores.builds(
@@ -264,9 +273,9 @@ final class QueryBootstrap {
         generatedValueMaterialization = materializationWiring.createGeneratedValue(catalog);
         var generatedValueReads = materializationWiring.createGeneratedValueReads(catalog);
         var publishedReads = artifactBuildStore == null ? null
-                : new org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver(
+                : new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         artifactBuildStore);
-        org.pangrova.semantic.api.view.SemanticViewStore semanticViewStore =
+        org.pangrova.semantic.api.version.SemanticViewStore semanticViewStore =
                 metadataDataSource == null ? null
                         : new org.pangrova.persistence.semantic.postgresql.JdbcSemanticViewStore(
                                 metadataDataSource);
@@ -334,12 +343,12 @@ final class QueryBootstrap {
     private void joinCallbacks() {
         durableRecovery.close();
         if (queryManager != null) queryManager.stopPeriodicCleanup();
-        CoordinatorResourceRelease.close(null,
+        ResourceCloser.closeAll(null,
                 () -> { if (materializationMaintenance != null) materializationMaintenance.close(); },
                 () -> { if (speculationScheduler != null) speculationScheduler.close(); },
                 () -> CoordinatorShutdownSequence.stopTimeoutScheduler(queryTimeoutScheduler),
                 () -> { if (splitAssignmentManager != null) splitAssignmentManager.stopLeaseReclamation(); });
-        CoordinatorResourceRelease.close(null,
+        ResourceCloser.closeAll(null,
                 () -> {
                     if (readerPinRenewalExecutor != null) {
                         org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
@@ -364,6 +373,9 @@ final class QueryBootstrap {
 
     private void closeQueryResources(
             org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission progress) {
+        progress.step("shuffle-coordinator", () -> {
+            if (executionWiring != null) executionWiring.closeShuffleSession();
+        });
         progress.step("audit", () -> CoordinatorShutdownSequence.closeAuditEmitter(auditEmitter));
         progress.step("control-transport", () ->
                 CoordinatorShutdownSequence.stopCoordinatorTransport(controlPlaneResultServer));
@@ -372,7 +384,6 @@ final class QueryBootstrap {
         });
         progress.step("transport-allocator", () ->
                 CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
-        progress.step("result-cache", () -> CoordinatorShutdownSequence.closeQueryResultCache(queryResultCache));
     }
 
     /** Completes post-start HA wiring once the elected epoch service exists. */
@@ -510,10 +521,12 @@ final class QueryBootstrap {
     }
 
     private void initSpeculation() {
+        // The launcher also dispatches worker-loss task retries, so it exists even
+        // when straggler speculation is disabled; only the detector stays gated.
+        speculativeTaskLauncher = new SpeculativeTaskLauncher();
         if (!config.speculationEnabled()) {
             return;
         }
-        speculativeTaskLauncher = new SpeculativeTaskLauncher();
         var speculationConfig = new SpeculationConfig(true,
                 SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS, true, true,
                 SpeculationConfig.DEFAULT_DATA_SKEW_MULTIPLIER, java.util.Map.of(),
@@ -530,7 +543,7 @@ final class QueryBootstrap {
         if (speculativeStageHandler == null || !speculativeStageHandler.isEnabled()) {
             return;
         }
-        speculationScheduler = new org.pangrova.scheduler.core.speculation.SpeculativeExecutionScheduler(
+        speculationScheduler = new org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler(
                 speculativeStageHandler,
                 new CoordinatorSpeculativeQueryInventory(queryManager),
                 new CoordinatorSpeculativeTaskRegistry(taskTracker),
@@ -560,7 +573,7 @@ final class QueryBootstrap {
     }
 
     java.util.Set<String> recoverWriteCommitIntents(
-            java.util.List<org.pangrova.query.api.ownership.ExecutionAnchor> claimed,
+            java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claimed,
             HighAvailabilityCoordinationService service) {
         return durableRecovery.recover(claimed, service, writeCommitRecoveryService);
     }
@@ -581,7 +594,7 @@ final class QueryBootstrap {
                                 artifactBuildStore,
                                 artifactStores.stages(
                                         metadataDataSource));
-        return new TaskStatusReceiver(new TaskStatusReceiverContext(
+        TaskStatusReceiver receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(
                 queryManager, taskTracker, workerManager,
                 speculative ? speculativeTaskLauncher : null,
                 speculative ? new DuplicateTaskResolver() : null,
@@ -589,6 +602,8 @@ final class QueryBootstrap {
                 queryManager.getStateJournal(), catalog, writeCommitTracker, stageCallback,
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
                 journal, artifactSink));
+        receiver.setOperatorStatsRegistry(queryAuditServices.operatorStatsRegistry());
+        return receiver;
     }
 
     private CircuitBreakerPolicy resolveCircuitBreaker() {
@@ -623,6 +638,42 @@ final class QueryBootstrap {
     SplitAssignmentManager splitAssignmentManager() { return splitAssignmentManager; }
     CacheAffinityAssigner cacheAffinityAssigner() { return cacheAffinityAssigner; }
     QueryDispatcher queryDispatcher() { return queryDispatcher; }
+
+    /**
+     * Retries one task whose worker was declared dead. The replacement identity is
+     * admitted onto its Stage before dispatch, so a late report from the dead attempt
+     * can neither complete nor fail the Stage.
+     *
+     * @return true when a replacement was dispatched; false when no retry is possible
+     */
+    boolean retryTaskOnDeadWorker(String queryId, String taskId, String deadWorkerId) {
+        if (speculativeTaskLauncher == null || queryDispatcher == null) {
+            return false;
+        }
+        var engine = queryDispatcher.dagEngine();
+        int maxRetries = config.query().workerMaxRetry();
+        try {
+            String retryId = speculativeTaskLauncher.retryFailedTask(
+                    queryId, taskId, deadWorkerId,
+                    new TaskRetryAdmission() {
+                        @Override
+                        public boolean reserve(String candidateId) {
+                            return engine.tryPrepareTaskRetry(
+                                    queryId, taskId, candidateId, maxRetries);
+                        }
+
+                        @Override
+                        public void rollback(String candidateId) {
+                            engine.rollbackTaskRetry(queryId, taskId, candidateId);
+                        }
+                    });
+            return retryId != null;
+        } catch (RuntimeException failure) {
+            LOG.warn("event=task_retry_dispatch_failed queryId={} taskId={} workerId={} error={}",
+                    queryId, taskId, deadWorkerId, failure.getMessage());
+            return false;
+        }
+    }
     org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker() {
         return writeCommitTracker;
     }

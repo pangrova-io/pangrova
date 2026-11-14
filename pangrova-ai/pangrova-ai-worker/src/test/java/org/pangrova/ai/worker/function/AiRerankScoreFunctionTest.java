@@ -17,7 +17,7 @@ import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.ai.api.invocation.RerankingBatchResult;
-import org.pangrova.ai.spi.reranking.RerankingProvider;
+import org.pangrova.ai.api.reranking.RerankingProvider;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.AiTestTaskAuthority;

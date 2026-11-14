@@ -1,6 +1,6 @@
 package org.pangrova.indexing.builtin.btree.evaluator;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.api.data.BTreeIndexData;
 import org.pangrova.indexing.api.data.BTreePage;
 import org.pangrova.indexing.api.data.CompositeIndexKey;

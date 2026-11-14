@@ -14,7 +14,7 @@
 package org.pangrova.ai.worker.invocation;
 
 import org.pangrova.ai.worker.governance.observer.AiInvocationObserver;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.invocation.AiInvocationResult;
 

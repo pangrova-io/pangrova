@@ -20,8 +20,8 @@ import java.util.Objects;
 import org.pangrova.security.api.audit.AccessedObject;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.api.audit.AuditEventQuery;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.spi.audit.AuditEventWriter;
+import org.pangrova.security.api.enums.AuditEventType;
+import org.pangrova.security.api.audit.AuditEventWriter;
 import org.pangrova.persistence.security.api.audit.QueryableAuditEventWriter;
 
 /**

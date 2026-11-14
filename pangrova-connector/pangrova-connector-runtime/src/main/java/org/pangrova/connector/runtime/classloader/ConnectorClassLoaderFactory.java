@@ -1,5 +1,7 @@
 package org.pangrova.connector.runtime.classloader;
 
+import org.pangrova.connector.runtime.enums.SharedPackagePolicy;
+
 import java.net.URL;
 
 /**

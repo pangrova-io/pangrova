@@ -1,12 +1,12 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.connector.spi.index.ColumnValueReader;
-import org.pangrova.connector.spi.index.ConnectorIndexSupport;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.connector.api.index.ColumnValueReader;
+import org.pangrova.connector.api.index.ConnectorIndexSupport;
+import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.NativeIndexCapability;
-import org.pangrova.connector.spi.index.NativeIndexEvaluator;
-import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
-import org.pangrova.connector.spi.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.NativeIndexEvaluator;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.apache.paimon.catalog.Catalog;
 
 import java.util.List;

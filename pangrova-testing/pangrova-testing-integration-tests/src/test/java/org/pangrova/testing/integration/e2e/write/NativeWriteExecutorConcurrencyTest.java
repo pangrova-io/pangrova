@@ -8,7 +8,7 @@ import org.apache.iceberg.hadoop.HadoopInputFile;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.parquet.Parquet;
 import org.junit.jupiter.api.Test;
-import org.pangrova.worker.nativebridge.jni.write.WriteCommitResult;
+import org.pangrova.worker.write.WriteCommitResult;
 
 import java.nio.file.Path;
 import java.util.List;

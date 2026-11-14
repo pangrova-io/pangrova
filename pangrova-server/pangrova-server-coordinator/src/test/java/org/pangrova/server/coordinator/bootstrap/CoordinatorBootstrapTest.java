@@ -54,10 +54,10 @@ class CoordinatorBootstrapTest extends org.pangrova.server.coordinator.testinfra
             });
             var repository = bootstrap.getMetadataBootstrap().materializationRepository();
             var catalog = bootstrap.getMetadataBootstrap().materializationCatalog();
-            assertThat(repository).isNotNull();
-            assertThat(catalog).isNotNull();
+            assertThat(repository).isNotNull().isSameAs(bootstrap.getMetadataBootstrap().materializationRepository());
+            assertThat(catalog).isNotNull().isSameAs(bootstrap.getMetadataBootstrap().materializationCatalog());
             assertThat(catalog.listPublished(
-                    new org.pangrova.materialization.domain.TenantId("bootstrap-tenant"))).isEmpty();
+                    new org.pangrova.materialization.api.domain.TenantId("bootstrap-tenant"))).isEmpty();
         } finally {
             bootstrap.shutdown();
         }
@@ -141,14 +141,14 @@ class CoordinatorBootstrapTest extends org.pangrova.server.coordinator.testinfra
     void startWithSecurityEnabledNoOpAuthenticator() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec-1", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-sec-1", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, new CoordinatorBootstrapConfig.SecurityConfig(
-                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.NOOP,
+                        "NOOP",
                         "bootstrap-test-internal-secret", java.util.Map.of()), null);
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
 
@@ -193,7 +193,7 @@ class CoordinatorBootstrapTest extends org.pangrova.server.coordinator.testinfra
     void securityEnabledAuthFilterRejectsUnauthenticatedQueryWhenOAuth2() throws Exception {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-sec-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -201,7 +201,7 @@ class CoordinatorBootstrapTest extends org.pangrova.server.coordinator.testinfra
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null,
                 new CoordinatorBootstrapConfig.SecurityConfig(
-                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                        "OAUTH2",
                         "test-internal-secret", java.util.Map.of("issuerUri", issuerUri())), null);
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
@@ -229,7 +229,7 @@ class CoordinatorBootstrapTest extends org.pangrova.server.coordinator.testinfra
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, false, false),
                 defaults.query(), defaults.transport(), defaults.workerHealth(), null,
                 new CoordinatorBootstrapConfig.SecurityConfig(
-                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                        "OAUTH2",
                         null, java.util.Map.of("issuerUri", issuerUri())), null);
         var infrastructure = withAuthority(config);
         var missingSecret = new CoordinatorBootstrapConfig(
@@ -253,14 +253,14 @@ class CoordinatorBootstrapTest extends org.pangrova.server.coordinator.testinfra
     void securityEnabledNoOpAdmitsRequestButRequiresWorker() throws Exception {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec-3", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        "coord-sec-3", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, new CoordinatorBootstrapConfig.SecurityConfig(
-                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.NOOP,
+                        "NOOP",
                         "bootstrap-test-internal-secret", java.util.Map.of()), null);
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();

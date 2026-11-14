@@ -1,10 +1,10 @@
 package org.pangrova.connector.iceberg.index;
 
-import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
 import org.pangrova.connector.api.index.SnapshotDataFile;
-import org.pangrova.connector.api.index.SnapshotExpiredException;
+import org.pangrova.connector.api.exception.SnapshotExpiredException;
 import org.pangrova.connector.api.index.SnapshotFileDelta;
-import org.pangrova.connector.api.index.SnapshotRelation;
+import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;

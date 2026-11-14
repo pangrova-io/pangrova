@@ -63,34 +63,34 @@
           ],
           "MethodLength": [
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "155",
               "message": "方法 start 97 行（最多： 50 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "103",
               "message": "方法 buildQueryDispatcher 62 行（最多： 50 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "174",
               "message": "方法 buildStatementDispatcher 72 行（最多： 50 行）。"
             }
           ],
           "FileLength": [
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/RemoteTaskDispatcher.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/scheduler/RemoteTaskDispatcher.java",
               "line": "1",
               "message": "文件 583 行 （最多：500 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/index/ddl/IndexDdlExecutor.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/ddl/IndexDdlExecutor.java",
               "line": "1",
               "message": "文件 569 行 （最多：500 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/index/lifecycle/IndexCommitHandler.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/lifecycle/IndexCommitHandler.java",
               "line": "1",
               "message": "文件 502 行 （最多：500 行）。"
             }
@@ -144,34 +144,34 @@
           ],
           "MethodLength": [
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "155",
               "message": "方法 start 97 行（最多： 50 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "103",
               "message": "方法 buildQueryDispatcher 62 行（最多： 50 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "174",
               "message": "方法 buildStatementDispatcher 72 行（最多： 50 行）。"
             }
           ],
           "FileLength": [
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/scheduler/RemoteTaskDispatcher.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/scheduler/RemoteTaskDispatcher.java",
               "line": "1",
               "message": "文件 583 行 （最多：500 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/index/ddl/IndexDdlExecutor.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/ddl/IndexDdlExecutor.java",
               "line": "1",
               "message": "文件 569 行 （最多：500 行）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/index/lifecycle/IndexCommitHandler.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/index/lifecycle/IndexCommitHandler.java",
               "line": "1",
               "message": "文件 502 行 （最多：500 行）。"
             }
@@ -199,24 +199,24 @@
               "message": "圈复杂度： 19 （最多： 15 ）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/model/ExactModelResolver.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/ai/model/ExactModelResolver.java",
               "line": "17",
               "message": "圈复杂度： 17 （最多： 15 ）。"
             }
           ],
           "ParameterNumber": [
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrapConfig.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrapConfig.java",
               "line": "186",
               "message": "参数共： 12个，最多：10个。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "133",
               "message": "参数共： 11个，最多：10个。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "72",
               "message": "参数共： 13个，最多：10个。"
             }
@@ -244,24 +244,24 @@
               "message": "圈复杂度： 19 （最多： 15 ）。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/model/ExactModelResolver.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/ai/model/ExactModelResolver.java",
               "line": "17",
               "message": "圈复杂度： 17 （最多： 15 ）。"
             }
           ],
           "ParameterNumber": [
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrapConfig.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrapConfig.java",
               "line": "186",
               "message": "参数共： 12个，最多：10个。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryBootstrap.java",
               "line": "133",
               "message": "参数共： 11个，最多：10个。"
             },
             {
-              "file": "pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
+              "file": "pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java",
               "line": "72",
               "message": "参数共： 13个，最多：10个。"
             }

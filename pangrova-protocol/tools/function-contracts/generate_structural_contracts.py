@@ -11,7 +11,7 @@ if sys.version_info < (3, 10):
 from registration_catalog import canonical_json
 
 from binding_declarations import read_declarations, structural_contract_digest
-from physical_type_bridge import render_bridge
+from physical_type_mapping import render_bridge
 from binding_manifest import render_binding_manifest
 
 

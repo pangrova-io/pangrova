@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.ai;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.dockerjava.api.exception.NotFoundException;
-import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
+import org.pangrova.worker.function.NativeFunctionConfig;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 

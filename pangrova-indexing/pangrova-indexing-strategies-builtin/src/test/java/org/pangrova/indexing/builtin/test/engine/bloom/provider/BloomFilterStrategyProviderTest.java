@@ -4,8 +4,8 @@ import org.pangrova.indexing.builtin.bloom.provider.BloomFilterStrategyProvider;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData;
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.BloomFilterIndexData;
 import org.pangrova.indexing.api.data.HashIndexData;
 import org.pangrova.connector.api.index.predicate.EqualTo;

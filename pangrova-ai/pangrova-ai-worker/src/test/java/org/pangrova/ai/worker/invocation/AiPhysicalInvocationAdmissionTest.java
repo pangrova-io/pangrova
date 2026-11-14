@@ -2,7 +2,7 @@ package org.pangrova.ai.worker.invocation;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 
 import java.time.Duration;

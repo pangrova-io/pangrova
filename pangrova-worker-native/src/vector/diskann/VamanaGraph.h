@@ -12,6 +12,7 @@
 // Placement: vector/diskann/ — Native disk-resident vector index.
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -121,6 +122,9 @@ class VamanaIndex {
 
   VamanaConfig config_;
   std::string indexPath_;
+  // Companion .vecs descriptor, opened on first rerank read. pread() is
+  // thread-safe, so concurrent searches share it without a lock or seek.
+  mutable std::atomic<int> vecsFd_{-1};
   int64_t numVectors_ = 0;
   int64_t medoid_ = 0;
 

@@ -10,24 +10,23 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
 import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
-import org.pangrova.table.core.ownership.TableControlService;
-import org.pangrova.table.core.config.TableControlSettings;
-import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
+import org.pangrova.table.ownership.TableControlService;
+import org.pangrova.table.config.TableControlSettings;
 import org.pangrova.metadata.security.TableControlColumnMaskStore;
-import org.pangrova.metadata.service.TableControlRowPolicyStore;
+import org.pangrova.metadata.security.TableControlRowPolicyStore;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
@@ -55,7 +54,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
 
     @BeforeEach
     void createSourcesAndScopedReader() {
-        var registry = metadataBootstrap.catalogRegistry();
+        var registry = testCatalogRegistry();
         previousControl = registry.tableControl();
         registry.setTableControlService(new TableControlService(new JdbcTableControlStore(stateStoreDataSource()),
                 registry::requireCurrentCatalogIdentity, new TableControlSettings(true, true, java.util.Set.of())));
@@ -71,9 +70,9 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(UserRoleAssignment.of(authenticatedCatalogSession(CATALOG).getUser(), role));
         grants = new JdbcGrantStore(stateStoreDataSource());
-        policies = new TableControlRowPolicyStore(new RegistryTablePolicyAuthority(registry),
+        policies = new TableControlRowPolicyStore(registry.tableGovernance(),
                 new JdbcRowPolicyStore(stateStoreDataSource()));
-        masks = new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(registry),
+        masks = new TableControlColumnMaskStore(registry.tableGovernance(),
                 new JdbcColumnMaskStore(stateStoreDataSource()));
         grant(visible);
     }
@@ -97,7 +96,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
                 awaitQueriesDrained();
             } finally {
                 if (previousControl != null) {
-                    metadataBootstrap.catalogRegistry().setTableControlService(previousControl);
+                    testCatalogRegistry().setTableControlService(previousControl);
                 }
             }
         }

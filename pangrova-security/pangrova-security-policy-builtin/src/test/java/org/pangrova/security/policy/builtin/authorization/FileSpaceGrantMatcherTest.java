@@ -1,8 +1,8 @@
 package org.pangrova.security.policy.builtin.authorization;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.file.api.space.FileSpaceType;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.file.api.enums.FileSpaceType;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 
 import static org.assertj.core.api.Assertions.assertThat;

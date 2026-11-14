@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.pangrova.client.error.ErrorDetail;
+import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExecutionError;

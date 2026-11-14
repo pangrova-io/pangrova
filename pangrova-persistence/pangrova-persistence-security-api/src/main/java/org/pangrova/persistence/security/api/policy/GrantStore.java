@@ -2,7 +2,7 @@ package org.pangrova.persistence.security.api.policy;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 
 import java.util.List;

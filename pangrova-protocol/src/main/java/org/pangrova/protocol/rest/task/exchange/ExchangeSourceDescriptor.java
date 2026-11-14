@@ -2,6 +2,8 @@ package org.pangrova.protocol.rest.task.exchange;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Complete wire binding for one producer of a typed ExchangeInput node. */
 public record ExchangeSourceDescriptor(
         @JsonProperty("plan_node_id") String planNodeId,
@@ -26,11 +28,11 @@ public record ExchangeSourceDescriptor(
     private static final int MAX_PORT = 65_535;
 
     public ExchangeSourceDescriptor {
-        requireNonBlank(planNodeId, "planNodeId");
-        requireNonBlank(exchangeId, "exchangeId");
-        requireNonBlank(sourceTaskId, "sourceTaskId");
-        requireNonBlank(host, "host");
-        requireNonBlank(signedTicket, "signedTicket");
+        requireText(planNodeId, "planNodeId");
+        requireText(exchangeId, "exchangeId");
+        requireText(sourceTaskId, "sourceTaskId");
+        requireText(host, "host");
+        requireText(signedTicket, "signedTicket");
         validateExpectedPartitions(expectedSourcePartitions);
         validateIdentifiers(sourceStageId, sourcePartitionId, outputPartitionId, attemptId);
         validateEpochs(planEpoch, fencingToken);
@@ -80,12 +82,6 @@ public record ExchangeSourceDescriptor(
         if (ticketExpiresAtEpochMs <= 0) {
             throw new IllegalArgumentException(
                     "ticketExpiresAtEpochMs must be positive");
-        }
-    }
-
-    private static void requireNonBlank(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 }

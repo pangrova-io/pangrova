@@ -221,7 +221,7 @@
   <!-- <logger name="org.pangrova.ai.worker"      level="DEBUG" /> -->
 
   <!-- JNI bridge: WARN in production; DEBUG for native crash diagnosis -->
-  <logger name="org.pangrova.worker.nativebridge.jni"         level="WARN" />
+  <logger name="org.pangrova.worker.jni"         level="WARN" />
 
   <!-- ── Root Logger ────────────────────────────────────── -->
   <root level="INFO">

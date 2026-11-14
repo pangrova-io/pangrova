@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.config;
 
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.CoordinatorOptions;
-import org.pangrova.config.StateStoreType;
+import org.pangrova.config.enums.StateStoreType;
 import org.pangrova.config.YamlConfigLoader;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.junit.jupiter.api.BeforeEach;

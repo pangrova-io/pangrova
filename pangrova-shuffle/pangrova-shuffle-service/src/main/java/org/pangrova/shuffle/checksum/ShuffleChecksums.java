@@ -1,7 +1,8 @@
 package org.pangrova.shuffle.checksum;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import org.pangrova.protocol.v2.Checksum;
 
@@ -18,11 +19,7 @@ public final class ShuffleChecksums {
     }
 
     static MessageDigest sha256Digest() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
+        return DigestUtils.sha256();
     }
 
     /** Validates and extracts one canonical SHA-256 protocol checksum. */

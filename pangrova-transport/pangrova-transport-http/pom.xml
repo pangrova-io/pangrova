@@ -10,7 +10,7 @@
     </parent>
     <artifactId>pangrova-transport-http</artifactId>
     <name>Pangrova Transport HTTP</name>
-    <description>Shared embedded Jetty HTTP server transport</description>
+    <description>Shared HTTP clients, TLS configuration and embedded Jetty server transport</description>
     <properties>
         <module.name>org.pangrova.transport.http</module.name>
     </properties>

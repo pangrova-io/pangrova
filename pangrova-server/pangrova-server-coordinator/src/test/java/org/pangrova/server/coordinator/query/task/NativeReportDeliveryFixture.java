@@ -1,8 +1,8 @@
 package org.pangrova.server.coordinator.query.task;
 
 
-import org.pangrova.common.http.HttpClientFactory;
-import org.pangrova.common.http.ManagedHttpClient;
+import org.pangrova.transport.http.client.HttpClientFactory;
+import org.pangrova.transport.http.client.ManagedHttpClient;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
@@ -12,23 +12,23 @@ import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
-import org.pangrova.planner.core.analysis.SqlCompiler;
-import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
-import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.worker.task.RemoteTaskStatusReporter;
+import org.pangrova.worker.task.report.RemoteTaskStatusReporter;
 
 import java.net.URI;
 import java.net.http.HttpRequest;

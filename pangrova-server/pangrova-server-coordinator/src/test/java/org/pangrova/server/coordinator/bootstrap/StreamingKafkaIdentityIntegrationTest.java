@@ -4,9 +4,10 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.junit.jupiter.api.Test;
-import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
+import org.pangrova.streaming.coordinator.CdcSourceRegistry;
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
-import org.pangrova.streaming.api.cdc.CdcSourceReader;
+import org.pangrova.streaming.api.source.CdcSourceReader;
 import org.pangrova.streaming.api.source.SourceRecord;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.testing.testkit.ContainerTestBase;
@@ -44,7 +45,7 @@ class StreamingKafkaIdentityIntegrationTest extends ContainerTestBase {
             }
         }
         var original = state(topic);
-        try (var reader = StreamingBootstrap.createSourceReader(original)) {
+        try (var reader = CdcSourceRegistry.discover(getClass().getClassLoader()).open(original)) {
             var records = consume(reader, 5);
             assertThat(records).hasSize(5);
             Map<TopicPartitionOffset, Long> offsets = new HashMap<>();
@@ -57,7 +58,7 @@ class StreamingKafkaIdentityIntegrationTest extends ContainerTestBase {
         var replacement = state(topic);
         assertThat(replacement.streamName()).isEqualTo(original.streamName());
         assertThat(replacement.checkpointId()).isNotEqualTo(original.checkpointId());
-        try (var reader = StreamingBootstrap.createSourceReader(replacement)) {
+        try (var reader = CdcSourceRegistry.discover(getClass().getClassLoader()).open(replacement)) {
             assertThat(consume(reader, 5)).extracting(SourceRecord::offset).containsExactly(0L, 1L, 2L, 3L, 4L);
         }
     }
@@ -72,7 +73,7 @@ class StreamingKafkaIdentityIntegrationTest extends ContainerTestBase {
     }
 
     private static StreamState state(String topic) {
-        return StreamState.builder().streamName("same-stream").tenantId("tenant")
+        return StreamState.builder().sourceProvider("kafka").streamName("same-stream").tenantId("tenant")
                 .lifecycleState(StreamLifecycleState.RUNNING).targetTable("catalog.db.target")
                 .sourceFormat("debezium-json").sourceProperties(Map.of(
                         "bootstrap.servers", KAFKA.getBootstrapServers(), "topic", topic,

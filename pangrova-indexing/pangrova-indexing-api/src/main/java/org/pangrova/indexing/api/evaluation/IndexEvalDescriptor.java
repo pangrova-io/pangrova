@@ -2,7 +2,7 @@ package org.pangrova.indexing.api.evaluation;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 
 import java.util.Objects;
 

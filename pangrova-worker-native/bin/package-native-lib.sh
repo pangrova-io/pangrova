@@ -8,14 +8,14 @@
 # If no argument is given, auto-detects from pangrova-worker-native/build/.
 #
 # Resource layout (sqlite-jdbc / Netty tcnative pattern):
-#   pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/{os}/{arch}/lib...
+#   pangrova-worker/src/main/resources/META-INF/native/{os}/{arch}/lib...
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NATIVE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$NATIVE_ROOT/.." && pwd)"
-RESOURCE_BASE="$PROJECT_ROOT/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native"
+RESOURCE_BASE="$PROJECT_ROOT/pangrova-worker/src/main/resources/META-INF/native"
 
 detect_platform() {
     local uname_s uname_m

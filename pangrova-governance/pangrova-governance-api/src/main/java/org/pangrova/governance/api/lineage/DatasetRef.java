@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.lineage;
 
+import org.pangrova.governance.api.enums.ColumnDerivationKind;
+
 import java.util.List;
 
 /**
@@ -32,12 +34,12 @@ public record DatasetRef(
     public record ColumnLineage(
         String outputColumn,
         List<SourceColumnRef> sourceColumns,
-        org.pangrova.query.api.lineage.QueryLineageMetadata.DerivationKind derivation
+        ColumnDerivationKind derivation
     ) {
         /** A two-argument direct column reference has identity semantics. */
         public ColumnLineage(String outputColumn, List<SourceColumnRef> sourceColumns) {
             this(outputColumn, sourceColumns,
-                    org.pangrova.query.api.lineage.QueryLineageMetadata.DerivationKind.DIRECT);
+                    ColumnDerivationKind.DIRECT);
         }
 
         public ColumnLineage {

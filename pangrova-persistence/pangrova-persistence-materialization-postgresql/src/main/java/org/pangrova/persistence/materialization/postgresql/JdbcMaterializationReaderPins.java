@@ -6,12 +6,12 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.UUID;
 import javax.sql.DataSource;
-import org.pangrova.materialization.domain.AttemptId;
-import org.pangrova.materialization.domain.GcLedgerEntry;
-import org.pangrova.materialization.domain.GenerationId;
-import org.pangrova.materialization.domain.MaterializationException;
-import org.pangrova.materialization.domain.QueryId;
-import org.pangrova.materialization.domain.ReaderPin;
+import org.pangrova.materialization.api.domain.AttemptId;
+import org.pangrova.materialization.api.domain.GcLedgerEntry;
+import org.pangrova.materialization.api.domain.GenerationId;
+import org.pangrova.materialization.api.exception.MaterializationException;
+import org.pangrova.materialization.api.domain.QueryId;
+import org.pangrova.materialization.api.domain.ReaderPin;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 

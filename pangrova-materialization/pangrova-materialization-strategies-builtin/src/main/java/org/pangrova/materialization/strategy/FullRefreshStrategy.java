@@ -1,13 +1,13 @@
 package org.pangrova.materialization.strategy;
 
 import java.util.Map;
-import org.pangrova.materialization.domain.MaterializationException;
-import org.pangrova.materialization.domain.RefreshKind;
-import org.pangrova.materialization.domain.StrategyId;
-import org.pangrova.materialization.extension.RefreshContext;
-import org.pangrova.materialization.domain.RefreshPlan;
-import org.pangrova.materialization.extension.RefreshStrategy;
-import org.pangrova.materialization.extension.StrategyCompatibility;
+import org.pangrova.materialization.api.exception.MaterializationException;
+import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.domain.StrategyId;
+import org.pangrova.materialization.api.refresh.RefreshContext;
+import org.pangrova.materialization.api.domain.RefreshPlan;
+import org.pangrova.materialization.api.refresh.RefreshStrategy;
+import org.pangrova.materialization.api.refresh.StrategyCompatibility;
 import org.pangrova.connector.api.materialization.ChangeProof;
 
 /**

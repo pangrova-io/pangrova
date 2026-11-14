@@ -2,9 +2,9 @@ package org.pangrova.testing.integration.e2e;
 
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
-import org.pangrova.generation.core.submission.GenerationPublicationFactory;
+import org.pangrova.generation.publication.GenerationPublicationRouter;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 
 import javax.sql.DataSource;
 import java.util.Map;
@@ -13,7 +13,7 @@ import java.util.Map;
 final class E2eGenerationPublications {
     private E2eGenerationPublications() {}
 
-    static Map<String, GenerationPublicationStore> stores(DataSource dataSource) {
+    private static Map<String, GenerationPublicationStore> stores(DataSource dataSource) {
         var index = ModelAuthorityFixtures.artifacts().indexPublications(dataSource);
         return Map.of(GenerationOutputTypeIds.VECTOR_INDEX, index, GenerationOutputTypeIds.TEXT_INDEX, index,
                 GenerationOutputTypeIds.TABULAR_EXPORT, ModelAuthorityFixtures.artifacts().tabularPublications(dataSource),
@@ -21,6 +21,6 @@ final class E2eGenerationPublications {
     }
 
     static GenerationPublicationStore router(DataSource dataSource) {
-        return GenerationPublicationFactory.route(stores(dataSource));
+        return GenerationPublicationRouter.route(stores(dataSource));
     }
 }

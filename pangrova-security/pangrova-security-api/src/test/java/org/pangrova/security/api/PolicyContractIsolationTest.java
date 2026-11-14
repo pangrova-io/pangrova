@@ -1,6 +1,6 @@
 package org.pangrova.security.api;
 
-import org.pangrova.security.api.error.AccessDeniedException;
+import org.pangrova.security.api.exception.AccessDeniedException;
 
 import org.pangrova.common.exception.PangrovaException;
 
@@ -50,7 +50,7 @@ class PolicyContractIsolationTest {
                 } catch (InvocationTargetException error) {
                     Throwable rejection = error.getCause();
                     assertThat(rejection.getClass().getName())
-                            .isEqualTo("org.pangrova.security.api.error.AuthorizationDeniedException");
+                            .isEqualTo("org.pangrova.security.api.exception.AuthorizationDeniedException");
                     assertThat(rejection.getClass().getMethod("getErrorCode").invoke(rejection).toString())
                             .isEqualTo("ACCESS_DENIED");
                 }

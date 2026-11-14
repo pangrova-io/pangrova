@@ -11,8 +11,8 @@
 #include <stdexcept>
 #include <folly/ScopeGuard.h>
 
-#include "bridge/JniBridge.h"
-#include "bridge/JniExceptionScope.h"
+#include "jni/JniEntryPoints.h"
+#include "jni/JniExceptionScope.h"
 #include "engine/observability/PangrovaLog.h"
 
 namespace pangrova::shuffle {

@@ -13,7 +13,9 @@ RESOURCE = Path(__file__).resolve().parents[2] / "src/main/resources/function-co
 class BindingDeclarationsTest(unittest.TestCase):
     def test_actual_declaration_preserves_complete_mapping_and_purpose(self):
         declaration = read_declarations(RESOURCE.read_text())
-        self.assertEqual(107, len(declaration["bindings"]))
+        self.assertEqual(111, len(declaration["bindings"]))
+        self.assertTrue({"min_by", "max_by", "to_ieee754_32", "to_ieee754_64"}
+                        .issubset({entry["name"] for entry in declaration["bindings"]}))
         embed = next(entry for entry in declaration["bindings"] if entry["name"] == "ai_embed")
         self.assertEqual("WORKER_AI_CALLBACK", embed["registrationDependency"])
         self.assertEqual({"ordinal": 2, "name": "purpose", "type": "VARCHAR", "constant": True,

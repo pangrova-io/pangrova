@@ -9,7 +9,7 @@ import java.util.OptionalInt;
 import org.pangrova.types.MapType;
 import org.pangrova.types.primitive.VarcharType;
 import org.pangrova.types.primitive.temporal.TimestampType;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 

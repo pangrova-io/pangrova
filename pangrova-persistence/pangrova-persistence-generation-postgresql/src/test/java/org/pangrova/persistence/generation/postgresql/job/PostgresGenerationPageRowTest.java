@@ -1,7 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

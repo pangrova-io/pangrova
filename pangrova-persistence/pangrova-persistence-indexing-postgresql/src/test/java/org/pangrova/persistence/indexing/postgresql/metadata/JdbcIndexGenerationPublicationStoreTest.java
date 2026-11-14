@@ -1,8 +1,10 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
-import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
+import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 
 import org.pangrova.persistence.generation.postgresql.publication.JdbcIndexGenerationPublicationStore;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
@@ -12,18 +14,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.output.GenerationOutput;
-import org.pangrova.generation.api.output.GenerationOutputScope;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
 import org.pangrova.generation.api.page.GenerationPage;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -60,7 +62,7 @@ class JdbcIndexGenerationPublicationStoreTest {
         buildStore = GenerationAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.metadata.testinfra.GenerationExecutionFixtures(dataSource);
         publicationStore = GenerationAuthorityFixtures.artifacts().indexPublications(dataSource);
-        indexStore = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        indexStore = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
         indexStore.registerIndex(descriptor);
         GenerationAuthorityFixtures.provision(
                 dataSource, TENANT, "principal-1", dispatch().authorizationScope());
@@ -149,10 +151,10 @@ class JdbcIndexGenerationPublicationStoreTest {
         var empty = new GenerationJob(
                 TENANT, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.execution.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.enums.GenerationExecutionKind.BUILD,
                 org.pangrova.generation.api.dependency.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
+                org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
                 "s3://bucket/staging/index-1/0", "pangrova.diskann.segment", 2, 0,
                 "a".repeat(64), "native-build-1", "kms/key-1", "create-index-request-1",
                 0, 0, GenerationJobState.READY_TO_PUBLISH, 0, START, START, START);
@@ -242,10 +244,10 @@ class JdbcIndexGenerationPublicationStoreTest {
         return new GenerationJob(
                 TENANT, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.execution.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.enums.GenerationExecutionKind.BUILD,
                 org.pangrova.generation.api.dependency.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/index-1/0",
                 "pangrova.diskann.segment", 2, 0, "a".repeat(64),
                 "native-build-1", "kms/key-1", "create-index-request-1",
@@ -258,10 +260,10 @@ class JdbcIndexGenerationPublicationStoreTest {
         return new GenerationJob(
                 TENANT, "job-1", "index-1", GenerationOutputTypeIds.TEXT_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.execution.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.enums.GenerationExecutionKind.BUILD,
                 org.pangrova.generation.api.dependency.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/index-1/0",
                 "pangrova.bm25.segment", 1, 0, "a".repeat(64),
                 "native-build-1", "kms/key-1", "create-index-request-1",
@@ -302,7 +304,7 @@ class JdbcIndexGenerationPublicationStoreTest {
 
     private static GenerationDispatchSpec dispatch(List<GenerationPage> pages) {
         return GenerationDispatchSpecFactory.create(
-                "job-1", org.pangrova.generation.core.submission.GenerationStageGraphFactory.forArtifactPages(
+                "job-1", org.pangrova.generation.submission.GenerationStageGraphFactory.forArtifactPages(
                         "substrait-plan".getBytes(StandardCharsets.UTF_8), "operator-binding".getBytes(StandardCharsets.UTF_8), pages, java.util.List.of()),
                 TENANT, "principal-1",
                 org.pangrova.security.api.authorization.DeferredAuthorizationScope.raw(

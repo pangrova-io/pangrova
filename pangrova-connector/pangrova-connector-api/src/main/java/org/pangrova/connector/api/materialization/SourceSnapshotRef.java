@@ -3,6 +3,8 @@ package org.pangrova.connector.api.materialization;
 import java.time.Instant;
 import org.pangrova.common.api.annotation.Stable;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Immutable identity of one observed source snapshot.
  *
@@ -64,12 +66,5 @@ public record SourceSnapshotRef(
      */
     public boolean isEmptySource() {
         return snapshotToken.startsWith(EMPTY_TOKEN_PREFIX);
-    }
-
-    private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-        return value;
     }
 }

@@ -25,6 +25,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Tenant-scoped immutable Feature View and Training Dataset catalog. */
 public interface FeatureCatalogStore {
 
@@ -181,12 +183,6 @@ public interface FeatureCatalogStore {
     private static void requirePositive(long value, String name) {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (blank(value)) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 

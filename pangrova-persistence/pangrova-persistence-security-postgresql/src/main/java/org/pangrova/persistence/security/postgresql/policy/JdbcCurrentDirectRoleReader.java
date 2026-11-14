@@ -1,6 +1,6 @@
 package org.pangrova.persistence.security.postgresql.policy;
 
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 
 import java.sql.Connection;

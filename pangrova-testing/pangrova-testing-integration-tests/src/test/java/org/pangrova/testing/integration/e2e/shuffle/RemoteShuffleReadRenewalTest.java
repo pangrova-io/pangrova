@@ -46,7 +46,7 @@ class RemoteShuffleReadRenewalTest extends ContainerTestBase {
             var binding = new ExternalShuffleTransport(actual.shuffleId(), actual.endpoints(), actual.commitAddress(),
                     actual.outputPartitionId(), actual.partitionCount(), actual.planEpoch(), actual.executionOwner(),
                     actual.consumerAttempt(), actual.deadlineEpochMs(), new ShuffleAccess(shortGrant.getToken().toByteArray(),
-                    shortGrant.getExpiresAtEpochMs()), actual.expectedProducerPartitions(), actual.expectedProducerSetChecksum());
+                    shortGrant.getExpiresAtEpochMs()), actual.expectedProducerPartitions(), actual.expectedProducerSetChecksum(), actual.publication());
             verifyRollover(service, binding, first, second, shortGrant);
         }
     }

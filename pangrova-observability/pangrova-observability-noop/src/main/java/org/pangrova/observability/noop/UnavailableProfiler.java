@@ -1,7 +1,7 @@
 package org.pangrova.observability.noop;
 
-import org.pangrova.observability.api.profiling.ProfilingUnavailableException;
-import org.pangrova.observability.spi.profiling.Profiler;
+import org.pangrova.observability.api.exception.ProfilingUnavailableException;
+import org.pangrova.observability.api.profiling.Profiler;
 
 /** Explicit node configuration with no profiling implementation. Never reports fabricated success. */
 public final class UnavailableProfiler implements Profiler {

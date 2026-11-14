@@ -64,6 +64,14 @@ and target platform. The Java image receives Native output through a target
 context, not a host library or independently selected image tag. Source equality
 is checked before packaging. Host `target/`, Native build trees and development
 JNI resources are excluded from the Docker context; new source modules are not.
+The Native build consumes both Protocol schema trees, the function-contract
+resources and their Python generators. Java-only Protocol changes reuse the
+same Native layers and rebuild the Java runtime.
+
+The builder compiles the locked, patched Iceberg SDK with Gradle 8.14.4 and its SDK regression test before resolving the Pangrova Java reactor. Newly created builders use the same SDK without a host Maven repository.
+
+CI passes the Git revision as `SOURCE_COMMIT` and checks the resulting runtime
+image’s `org.opencontainers.image.revision` label before staging its libraries.
 
 The Ubuntu build base, Maven build base, and Temurin runtime base are pinned to
 image digests. Refresh those digests deliberately as one reviewed dependency
@@ -102,7 +110,13 @@ with that instruction set.
 
 The Linux classifier JAR is built and installed explicitly, then Java is built
 with `native-runtime`. Runtime dependencies are copied from the actual Maven
-dependency graph, including connector providers and JDBC drivers. Native loading
+dependency graph, including the Iceberg, Paimon and Lance providers and JDBC drivers.
+Each packaged role requires its ordered `lib/<role>/classpath.list`. Staging checks
+the process entry point and role-specific class and native library exclusions inside
+the JARs, including multi-release entries. The Coordinator
+classpath excludes Worker Core and its JNI bundle. The Worker classpath excludes
+the planner and Coordinator. The flat JAR inventory under `lib/` is the
+Standalone closure used for frozen-artifact regression. Native loading
 remains classpath resource extraction followed by `System.load()`; no environment
 library path or host JNI fallback is used.
 The Coordinator and Worker include the SLF4J 2 Logback provider in the runtime

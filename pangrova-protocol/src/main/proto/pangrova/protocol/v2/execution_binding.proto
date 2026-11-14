@@ -241,6 +241,8 @@ message ExternalShuffleInput {
   ShuffleServiceAddress commit_address = 9;
   uint32 expected_producer_partitions = 10;
   Checksum expected_producer_set_checksum = 11;
+  // Coordinator publication evidence for exactly output_partition_id.
+  ShufflePartitionPublication publication = 12;
 }
 
 enum RuntimeFilterScope {
@@ -372,4 +374,12 @@ message StageResourceGrant {
   uint64 provider_request_bytes = 20;
   uint64 provider_response_bytes = 21;
   uint64 provider_items = 22;
+}
+
+// Fixed-size evidence carried independently of service-supplied read frames.
+message ShufflePartitionPublication {
+  optional int64 last_sequence = 1;
+  optional int64 total_bytes = 2;
+  optional int64 total_rows = 3;
+  bytes manifest_sha256 = 4;
 }

@@ -72,9 +72,9 @@ SHOW INDEXES ON prod.analytics.events;
 
 - The index type name after `USING` is an identifier; options in `WITH (...)` are
   type-specific — see each index type's page.
-- Indexes are not maintained incrementally on write. Rebuild explicitly with
-  `ALTER INDEX ... REBUILD`; `IndexStrategyProvider.supportsIncrementalBuild()`
-  defaults to false and no provider overrides it.
+- Use `ALTER INDEX ... REBUILD` for an explicit rebuild. The JVM strategy
+  contract builds a payload from the supplied file rows. Commit-driven
+  maintenance and checkpointing belong to the Coordinator lifecycle.
 - Scalar index rebuilds write each generation under a distinct `v2/.../gN/`
   storage prefix. Publication selects the new generation only after its files
   are complete; retained older mappings continue to refer to their original

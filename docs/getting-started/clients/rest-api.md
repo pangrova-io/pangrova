@@ -24,7 +24,7 @@ http://<coordinator-host>:<port>/v1
 | `GET` | `/v1/query/{queryId}/state` | Get query execution state |
 | `POST` | `/v1/query/{queryId}/cancel` | Cancel a running query |
 | `GET` | `/v1/query/profile/{queryId}` | Get query flame graph (SVG) |
-| `GET` | `/v1/query/profile/{queryId}/json` | Get structured query profile (JSON) |
+| `GET` | `/v1/query/profile/{queryId}/json` | Get structured query profile (JSON); operator tree comes from real task telemetry and is empty with `telemetryAvailable=false` when none was retained |
 | `GET` | `/v1/health` | Health check (`503` when not ready) |
 | `POST` | `/v1/workers/register` | Worker registration (internal) |
 | `POST` | `/v1/worker/heartbeat` | Worker heartbeat (internal) |
@@ -67,8 +67,19 @@ Response:
 The `result_endpoint` points to the Worker serving results via Arrow Flight
 transport (`ticket` identifies the Flight ticket; `protocol` identifies the
 result transport). The `session_properties` field is optional and defaults to an
-empty map. Retried submissions can be deduplicated by sending an
-`Idempotency-Key` header; a retry with the same key resolves to the same query.
+empty map. When an authenticated principal submits an `Idempotency-Key`, the
+Coordinator retains the original submission receipt for ten minutes after completion.
+A retry with the same SQL and session properties returns that receipt, including its
+original state and result endpoint. Poll the state endpoint for later transitions.
+Changing the SQL or session properties with the same key returns HTTP 409. Each
+principal has an independent key space. Concurrent matching requests share the first
+submission.
+
+A rejection before query registration, such as a draining Coordinator, releases the
+key. If the submission throws after registration or registration cannot be confirmed,
+the Coordinator preserves the error for the same retention window and returns
+`X-Pangrova-Query-Id` so the client can look up the execution. These guarantees cover
+one running Coordinator. Restart and failover discard its in-memory submission keys.
 
 ### Query Lifecycle
 
@@ -131,6 +142,7 @@ All error responses use a consistent format:
 | 400 | `BAD_REQUEST` | Malformed request (missing query field) |
 | 404 | `NOT_FOUND` | Query ID not found |
 | 409 | `CONFLICT` | Unregistered worker (registration conflict) |
+| 422 | `API_VERSION_UNSUPPORTED` | Invalid or unsupported API version on a version-checked endpoint |
 | 500 | `INTERNAL_ERROR` | Server-side failure |
 
 ### Authentication Headers
@@ -139,7 +151,7 @@ All error responses use a consistent format:
 |--------|-------------|
 | `Authorization: Bearer <jwt-token>` | JWT authentication |
 | `Authorization: Basic <user:password>` | Password authentication |
-| `X-Pangrova-Api-Version` | Requested API version; responses always echo the negotiated version |
+| `X-Pangrova-Api-Version` | Clients send their API version. The response advertises the server’s current version. |
 | `X-Pangrova-Request-Id` | Client-generated request ID for tracing and idempotent retries |
 | `Idempotency-Key` | Deduplicates retried `POST /v1/query/submit` requests |
 

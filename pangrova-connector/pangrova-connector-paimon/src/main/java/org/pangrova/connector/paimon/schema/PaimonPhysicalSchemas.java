@@ -1,10 +1,10 @@
 package org.pangrova.connector.paimon.schema;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 
 import org.apache.arrow.vector.ipc.WriteChannel;
@@ -44,7 +44,7 @@ public final class PaimonPhysicalSchemas {
         var columns = rowType.getFields().stream().map(field -> new NativePhysicalWriteAllocation.Column(
                 field.id(), field.name(), PaimonDeclaredMetadata.declared(
                         field.type(), field.name(), options))).toList();
-        return new NativePhysicalWriteAllocation.Schema(schemaId, metadata, sha256(metadata), columns);
+        return new NativePhysicalWriteAllocation.Schema(schemaId, metadata, DigestUtils.sha256().digest(metadata), columns);
     }
 
     private static byte[] serialize(org.apache.arrow.vector.types.pojo.Schema schema) {
@@ -54,14 +54,6 @@ public final class PaimonPhysicalSchemas {
             return bytes.toByteArray();
         } catch (IOException failure) {
             throw new IllegalStateException("Paimon SDK physical schema serialization failed", failure);
-        }
-    }
-
-    private static byte[] sha256(byte[] bytes) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(bytes);
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
 }

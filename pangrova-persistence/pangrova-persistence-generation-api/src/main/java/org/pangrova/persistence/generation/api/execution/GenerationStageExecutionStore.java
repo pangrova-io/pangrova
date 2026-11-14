@@ -1,7 +1,7 @@
 package org.pangrova.persistence.generation.api.execution;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.page.GenerationLease;
@@ -10,7 +10,7 @@ import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate.PublicationRead;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore.ExchangeEvidence;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.time.Duration;
 import java.time.Instant;

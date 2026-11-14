@@ -1,7 +1,7 @@
 package org.pangrova.connector.api.plugin;
 
 import org.pangrova.common.api.annotation.Stable;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 
 import java.util.Optional;
 
@@ -17,7 +17,7 @@ public interface ConnectorContext {
     Optional<NativeDatasetControlPlane> nativeDatasetControlPlane();
 
     /** Sole durable source authority, available only in the catalog owner process. */
-    default Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog> managedSourceCatalog() {
+    default Optional<org.pangrova.connector.api.metadata.ManagedSourceCatalog> managedSourceCatalog() {
         return Optional.empty();
     }
 }

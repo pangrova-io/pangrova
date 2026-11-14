@@ -18,7 +18,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security-core</artifactId>
+            <artifactId>pangrova-security-access</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

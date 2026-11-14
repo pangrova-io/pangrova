@@ -1,5 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
@@ -25,7 +27,7 @@ class JdbcIndexCommitQueueTest {
     @BeforeEach
     void setUp() throws SQLException {
         dataSource = SharedPostgresContainer.migratedDataSource("commit_heads");
-        store = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        store = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
     }
 
     @Test
@@ -41,7 +43,7 @@ class JdbcIndexCommitQueueTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not the current table head");
         store.markCommitEventProcessed(batch.get(0).eventId(), 10L);
-        JdbcIndexMetadataStore restarted = new JdbcIndexMetadataStore(dataSource, org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+        JdbcIndexMetadataStore restarted = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
         assertThat(restarted.pollUnprocessedCommitEvents(2, 11L))
                 .extracting(CommitLogEntry::snapshotId).containsExactly("second");
         restarted.markCommitEventProcessed(batch.get(1).eventId(), 11L);

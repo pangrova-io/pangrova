@@ -1,5 +1,7 @@
 package org.pangrova.persistence.streaming.postgresql;
 
+import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
+
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -8,14 +10,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pangrova.testing.testkit.postgres.JdbcMutationFault;
-import org.pangrova.streaming.api.checkpoint.StreamingStoreException;
+import org.pangrova.streaming.api.exception.StreamingStoreException;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Statement;
 import java.sql.SQLException;
 import java.util.stream.Stream;
 import java.time.Instant;
@@ -33,8 +33,7 @@ class JdbcStreamOffsetStoreTest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        dataSource = SharedPostgresContainer.isolatedDataSource("offset");
-        initSchema(dataSource);
+        dataSource = SharedPostgresContainer.migratedDataSource("stream_offset");
         stateStore = new JdbcStreamStateStore(dataSource);
         offsetStore = new JdbcStreamOffsetStore(dataSource);
     }
@@ -162,7 +161,7 @@ class JdbcStreamOffsetStoreTest extends ContainerTestBase {
         StreamState state = new StreamState(
                 streamName, "tenant-test", "checkpoint-" + streamName,
                 StreamLifecycleState.RUNNING,
-                "catalog.schema.t",
+                "catalog.schema.t", "kafka",
                 Map.of("bootstrap.servers", "b:9092", "topic", "t"),
                 "debezium-json",
                 Map.of(), "user", "coord",
@@ -170,48 +169,5 @@ class JdbcStreamOffsetStoreTest extends ContainerTestBase {
                 0L, 0L, 0L, null,
                 now, now);
         stateStore.createState(state);
-    }
-
-    private static void initSchema(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS ingestion_stream_offsets");
-            stmt.execute("DROP TABLE IF EXISTS ingestion_stream_state");
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS ingestion_stream_state (
-                        stream_name       VARCHAR(255) NOT NULL PRIMARY KEY,
-                        tenant_id         VARCHAR(255) NOT NULL,
-                        checkpoint_id     VARCHAR(255) NOT NULL UNIQUE,
-                        lifecycle_state   VARCHAR(32)  NOT NULL,
-                        target_table      VARCHAR(512) NOT NULL,
-                        source_properties TEXT         NOT NULL,
-                        source_format     VARCHAR(64)  NOT NULL,
-                        stream_properties TEXT,
-                        creator_identity  VARCHAR(255),
-                        coordinator_id    VARCHAR(255),
-                        epoch             BIGINT       NOT NULL DEFAULT 0,
-                        schema_version    INT          NOT NULL DEFAULT 0,
-                        error_message     TEXT,
-                        records_consumed  BIGINT       NOT NULL DEFAULT 0,
-                        records_written   BIGINT       NOT NULL DEFAULT 0,
-                        records_dead_lettered BIGINT   NOT NULL DEFAULT 0,
-                        last_offset_commit_time TIMESTAMP,
-                        created_at        TIMESTAMP    NOT NULL,
-                        updated_at        TIMESTAMP    NOT NULL
-                    )
-                    """);
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS ingestion_stream_offsets (
-                        stream_name      VARCHAR(255) NOT NULL,
-                        topic            VARCHAR(512) NOT NULL,
-                        partition_id     INT          NOT NULL,
-                        committed_offset BIGINT       NOT NULL,
-                        updated_at       TIMESTAMP    NOT NULL,
-                        PRIMARY KEY (stream_name, topic, partition_id),
-                        FOREIGN KEY (stream_name) REFERENCES ingestion_stream_state(stream_name)
-                            ON DELETE CASCADE
-                    )
-                    """);
-        }
     }
 }

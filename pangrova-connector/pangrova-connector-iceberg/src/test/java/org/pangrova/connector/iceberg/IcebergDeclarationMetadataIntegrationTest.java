@@ -19,7 +19,7 @@ import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 
 import java.nio.file.Path;
@@ -129,7 +129,7 @@ class IcebergDeclarationMetadataIntegrationTest {
             assertThat(tables.getTableReadMetadata(handle).declarationEvidence())
                     .isEqualTo(ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE);
             assertThatThrownBy(() -> tables.getTableMetadata(handle))
-                    .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                    .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                     .hasMessageContaining("Historical generated declaration evidence is unavailable");
             assertThat(tables.getTableMetadata(IcebergTableHandleFactory.fromTable("db", "declared", table))
                     .columns()).containsExactly("id", "title", "embedding");

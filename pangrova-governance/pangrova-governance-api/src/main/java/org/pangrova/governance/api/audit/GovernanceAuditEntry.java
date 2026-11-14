@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.audit;
 
+import org.pangrova.governance.api.enums.OperationType;
+
 import java.time.Instant;
 import java.util.Map;
 

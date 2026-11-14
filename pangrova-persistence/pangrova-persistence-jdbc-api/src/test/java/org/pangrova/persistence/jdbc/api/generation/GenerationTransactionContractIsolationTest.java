@@ -20,7 +20,7 @@ class GenerationTransactionContractIsolationTest {
                 GenerationTransactionAuthority.class.getProtectionDomain().getCodeSource().getLocation(),
                 GenerationDispatchSpec.class.getProtectionDomain().getCodeSource().getLocation(),
                 DigestUtils.class.getProtectionDomain().getCodeSource().getLocation(),
-                org.pangrova.query.api.ownership.ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation()
+                org.pangrova.execution.api.ownership.ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation()
         };
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {
             for (String name : List.of("GenerationTransactionAuthority", "GenerationPublicationCandidates",
@@ -34,8 +34,8 @@ class GenerationTransactionContractIsolationTest {
             for (String missing : List.of("org.postgresql.Driver", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore",
                     "org.pangrova.generation.codec.execution.GenerationStageGraphCodec",
-                    "org.pangrova.security.core.authorization.deferred.DeferredAuthorization",
-                    "org.pangrova.metadata.generation.MetadataGenerationTransactionAuthority")) {
+                    "org.pangrova.security.authorization.deferred.DeferredAuthorization",
+                    "org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationTransactionAuthority")) {
                 assertThatThrownBy(() -> loader.loadClass(missing)).isInstanceOf(ClassNotFoundException.class);
             }
         }

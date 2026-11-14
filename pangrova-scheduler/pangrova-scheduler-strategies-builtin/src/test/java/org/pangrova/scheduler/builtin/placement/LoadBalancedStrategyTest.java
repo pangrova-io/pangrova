@@ -3,7 +3,7 @@ package org.pangrova.scheduler.builtin.placement;
 import org.junit.jupiter.api.Test;
 import org.pangrova.scheduler.api.placement.WorkerSelectionCandidate;
 import org.pangrova.scheduler.api.placement.WorkerSelectionRequest;
-import org.pangrova.scheduler.spi.placement.WorkerSelectionStrategyFactory;
+import org.pangrova.scheduler.api.placement.WorkerSelectionStrategyFactory;
 import java.util.List;
 import java.util.Collections;
 import java.util.stream.IntStream;

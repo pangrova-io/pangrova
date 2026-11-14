@@ -87,7 +87,7 @@ and native validation:
 
 ```bash
 ./pangrova-worker-native/bin/package-native-lib.sh
-mvn -q -pl pangrova-worker/pangrova-worker-core -am test
+mvn -q -pl pangrova-worker -am test
 mvn -q -pl pangrova-testing/pangrova-testing-integration-tests -am test
 mvn -q -pl pangrova-testing/pangrova-testing-integration-tests \
   -Dtest=ActivationSmokeE2ETest test

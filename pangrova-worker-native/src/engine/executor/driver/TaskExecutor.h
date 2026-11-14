@@ -1,5 +1,5 @@
 // TaskExecutor: Orchestrator composing TaskLifecycle + PlanExecutionDriver +
-// TaskOutputRouter. Public API unchanged — JniBridge is unaware of the split.
+// TaskOutputRouter. Public API unchanged — JniEntryPoints is unaware of the split.
 #pragma once
 
 #include <array>
@@ -249,6 +249,7 @@ class TaskExecutor {
   bool isResultTask() const;
   int32_t shufflePartitionCount() const;
   bool usesExternalShuffle() const;
+  bool usesLocalDiskShuffle() const;
   int64_t executorHandle() const;
   std::string errorMessage() const;
   TaskLifecycle::Snapshot lifecycleSnapshot() const;

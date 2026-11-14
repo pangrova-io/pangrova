@@ -2,12 +2,12 @@ package org.pangrova.testing.integration.e2e.speculation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.awaitility.Awaitility;
-import org.pangrova.transport.client.http.PangrovaRestClient;
-import org.pangrova.transport.client.authentication.ClientAuthentication;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.client.http.authentication.ClientAuthentication;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
-import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;
@@ -49,9 +49,10 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final Path warehouse;
     private final Path javaExecutable;
     private final LocalRuntimeArtifacts artifacts;
-    private final org.pangrova.worker.nativebridge.jni.NativeFunctionConfig functions;
+    private final org.pangrova.worker.function.NativeFunctionConfig functions;
     private final Inet4Address advertisedAddress;
     private final boolean speculation;
+    private final boolean localShuffle;
     private final ProcessSecurityAuthority security;
     private final ProcessStatusReportRelay reports;
     private final TestTlsAuthority tls;
@@ -72,19 +73,29 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private boolean tlsClosed;
 
     IndependentLocalProcesses() throws Exception {
-        this(org.pangrova.worker.nativebridge.jni.NativeFunctionConfig.DEFAULT);
+        this(org.pangrova.worker.function.NativeFunctionConfig.DEFAULT);
     }
 
-    IndependentLocalProcesses(org.pangrova.worker.nativebridge.jni.NativeFunctionConfig functions) throws Exception {
+    IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions) throws Exception {
         this(functions, false);
     }
 
     IndependentLocalProcesses(boolean speculation) throws Exception {
-        this(org.pangrova.worker.nativebridge.jni.NativeFunctionConfig.DEFAULT, speculation);
+        this(org.pangrova.worker.function.NativeFunctionConfig.DEFAULT, speculation);
     }
 
-    private IndependentLocalProcesses(org.pangrova.worker.nativebridge.jni.NativeFunctionConfig functions,
+    private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
                                       boolean speculation) throws Exception {
+        this(functions, speculation, false);
+    }
+
+    static IndependentLocalProcesses diskShuffle() throws Exception {
+        return new IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig.DEFAULT, false, true);
+    }
+
+    private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
+            boolean speculation, boolean localShuffle) throws Exception {
+        this.localShuffle = localShuffle;
         this.speculation = speculation;
         this.functions = java.util.Objects.requireNonNull(functions, "functions");
         if (!functions.autoRegister()) {
@@ -147,7 +158,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     void startCoordinatorAndFirstWorker() throws Exception {
         security.start();
-        coordinator = launch("coordinator",
+        coordinator = launch("coordinator", artifacts.coordinatorClasspath(),
                 "org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain",
                 coordinatorYaml(), "-Xms128m", "-Xmx512m",
                 "-XX:MaxDirectMemorySize=128m",
@@ -186,8 +197,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
         long after = System.nanoTime();
         Path spill = Files.createDirectories(workspace.resolve(id + "-spill"));
         Path shuffleSpill = Files.createDirectories(workspace.resolve(id + "-shuffle-spill"));
-        OwnedProcess process = launch(id,
-                "org.pangrova.worker.bootstrap.PangrovaWorkerMain",
+        OwnedProcess process = launch(id, artifacts.workerClasspath(),
+                "org.pangrova.server.worker.bootstrap.PangrovaWorkerMain",
                 workerYaml(id, spill, shuffleSpill), "-Xms128m", "-Xmx384m",
                 "-XX:MaxDirectMemorySize=128m", "-Dio.netty.maxDirectMemory=0");
         workers.put(id, process);
@@ -454,7 +465,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
         }
     }
 
-    private OwnedProcess launch(String name, String mainClass, String yaml, String... jvmArgs)
+    private OwnedProcess launch(String name, String classpath, String mainClass, String yaml, String... jvmArgs)
             throws IOException {
         Path config = privateFile(name, ".yml");
         Path log = privateFile(name, ".log");
@@ -476,7 +487,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
                 "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
                 "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-                "-cp", artifacts.classpath(), mainClass, "--config", config.toString()));
+                "-cp", classpath, mainClass, "--config", config.toString()));
         Process process = new ProcessBuilder(command)
                 .redirectErrorStream(true).redirectOutput(log.toFile()).start();
         OwnedProcess owner = new OwnedProcess(name, process, config, log);
@@ -512,6 +523,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                       private-key-path: "%s"
                       root-ca-path: "%s"
                   shuffle:
+                    mode: %s
                     tls:
                       server-identity: "%s"
                 state-store:
@@ -533,7 +545,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   enabled: true
                 """.formatted(coordinatorPort, internalSecret, speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
-                tls.root(), advertisedAddress.getHostAddress(),
+                tls.root(), localShuffle ? "LOCAL" : "NATIVE", advertisedAddress.getHostAddress(),
                 security.hostJdbcUrl(), security.hostLdapUrl());
     }
 
@@ -568,6 +580,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   spill:
                     directory: "%s"
                   shuffle:
+                    mode: %s
                     service:
                       retention-bytes: 16777216
                       transit-bytes: 16777216
@@ -582,7 +595,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 """.formatted(workspace.resolve("admission-" + id), id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
                 identity.certificateChain(), identity.privateKey(), tls.root(),
                 advertisedAddress.getHostAddress(),
-                spill, shuffleSpill) + aiWorkerYaml();
+                spill, localShuffle ? "LOCAL" : "NATIVE", shuffleSpill) + aiWorkerYaml();
     }
 
     private String aiWorkerYaml() throws IOException {

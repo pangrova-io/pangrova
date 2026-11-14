@@ -26,13 +26,18 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-query-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-api</artifactId></dependency>
         <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-batch-arrow</artifactId>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-unsafe</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-batch-api</artifactId>
+            <artifactId>pangrova-batch</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

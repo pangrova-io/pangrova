@@ -76,7 +76,13 @@ VeloxMemoryGovernor::createTaskPool(
     const std::string& task_id,
     int64_t max_bytes) {
   auto pool_name = query_id + "." + task_id;
-  auto pool = velox_mgr_->addRootPool(pool_name, max_bytes);
+  // Without a root reclaimer Velox refuses to build task/node/exchange
+  // reclaimers, so reclaimableBytes() stays nullopt and arbitration-driven
+  // spill can never release anything. The base reclaimer walks child pools.
+  auto pool = velox_mgr_->addRootPool(
+      pool_name,
+      max_bytes,
+      facebook::velox::memory::MemoryReclaimer::create());
   {
     std::lock_guard lock(task_pools_mutex_);
     pruneExpiredTaskPoolsLocked();

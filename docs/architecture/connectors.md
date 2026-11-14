@@ -56,10 +56,9 @@ sidebar_label: "Connector Design"
 ### 1.2 Core SPI Interfaces
 
 All Connector contracts are owned by **`pangrova-connector-api`**. The artifact
-contains `org.pangrova.connector.api` caller values and `org.pangrova.connector.spi`
-implementation contracts. `Connector` and `ConnectorFactory` are in `.spi.plugin`;
+contains caller values and implementation contracts under `org.pangrova.connector.api`. `Connector` and `ConnectorFactory` are in `.api.plugin`;
 `ConnectorContext` is in `.api.plugin`. Provider JARs register
-`META-INF/services/org.pangrova.connector.spi.plugin.ConnectorFactory`.
+`META-INF/services/org.pangrova.connector.api.plugin.ConnectorFactory`.
 The old `org.pangrova.spi.connector` classes are removed, without forwarding wrappers.
 
 The API artifact depends only on Common, Types and Batch API. Engine types and scalar
@@ -72,7 +71,7 @@ proof of a wired capability. `IndexPredicateCodec` belongs to `indexing-codec` a
 is not currently used by a production transport.
 
 `ConnectorQueryAuthority` owns operation admission and drain evidence without
-depending on metadata. `.spi.metadata.ConnectorMetadataScope` adds retained metadata
+depending on metadata. `.api.metadata.ConnectorMetadataScope` adds retained metadata
 and cleanup to the same state-bound query owner. Metadata consumers require that
 capability from the exact session authority; they cannot derive it from a query ID
 or a raw task-issuance authority. Cleanup retains failed resources for retry and
@@ -261,67 +260,24 @@ state so an external drop or recreation is visible immediately.
 
 ### 2.2 PluginClassLoader Implementation
 
-The runtime classes live in `pangrova-connector-runtime`:
-`org.pangrova.connector.runtime.classloader` (`PluginClassLoader`,
-`ConnectorClassLoaderFactory`, `DefaultConnectorClassLoaderFactory`,
-`SharedPackagePolicy`), `.discovery` (`ConnectorFactoryRegistry`), and
-`.lifecycle` (`PluginManager`). `ConnectorFactoryRegistry` is the single
-ServiceLoader entry point used by both the Coordinator catalog factory and the
-Worker catalog runtime.
+The connector runtime owns class loading, connector factory discovery and plugin
+lifecycle. `PluginClassLoader` delegates public contract packages and selected
+signature types to the host. `SharedPackagePolicy` in
+`org.pangrova.connector.runtime.enums` lists these boundaries. The same
+`ConnectorFactoryRegistry` validates providers for the Coordinator and Worker.
 
-```java
-/**
- * Plugin ClassLoader that implements class isolation.
- *
- * Loading order:
- * 1. Check whether it is an SPI package (connector-spi/common/protocol) -> delegate to the parent loader
- * 2. Check whether it is the resolved shared package set -> try parent, then plugin
- * 3. Try to load from the plugin JAR
- * 4. Delegate to the parent loader
- */
-public class PluginClassLoader extends URLClassLoader {
+The host owns engine `types`, batch, connector, function and streaming contracts.
+Protocol sharing covers the AI task lifecycle port, generated v2 wire messages and
+their Protobuf runtime. Query exposes its execution identity, trace context and the
+governance column derivation enum. Those types retain host identity when a plugin
+bundles its own copy. Shared Common classes are limited to API annotations, the
+types used by contract signatures, and their causal exceptions. Common algorithms,
+HTTP DTOs and persistence implementations retain plugin-first resolution.
 
-    // Resolved once by DefaultConnectorClassLoaderFactory from SharedPackagePolicy
-    // (BROAD/NARROW/CUSTOM). SPI_PACKAGES and BASELINE_SHARED_PACKAGES live in
-    // SharedPackagePolicy; do not hard-code package names here.
-    private final Set<String> sharedPackages;
-
-    private final String pluginName;
-    private final ClassLoader spiClassLoader;
-
-    @Override
-    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        synchronized (getClassLoadingLock(name)) {
-            Class<?> c = findLoadedClass(name);
-            if (c != null) return c;
-
-            //
-            // SPI_PACKAGES: MANDATORY parent-first, no fallback.
-            //   Ensures SPI interface identity — without this, instanceof checks
-            //   and proxy casts across ClassLoader boundaries would fail.
-            if (isSpiPackage(name)) return spiClassLoader.loadClass(name);
-            // SHARED_PACKAGES: PREFERRED parent-first, fallback to plugin JAR.
-            //   Allows plugins to bundle a newer compatible version (e.g., Arrow 15
-            //   when Core ships Arrow 14) while preferring the Core version for
-            //   cross-ClassLoader object passing. Risk: if plugin bundles an
-            //   incompatible version, runtime LinkageError may occur. Consider
-            //   enforcing parent-first (no fallback) for safety — matches Trino behavior.
-            if (isSharedPackage(name)) {
-                try { return spiClassLoader.loadClass(name); }
-                catch (ClassNotFoundException e) { /* fallback to plugin JAR */ }
-            }
-
-            try {
-                c = findClass(name);
-                if (resolve) resolveClass(c);
-                return c;
-            } catch (ClassNotFoundException e) {
-                return spiClassLoader.loadClass(name);
-            }
-        }
-    }
-}
-```
+`BROAD`, `NARROW` and `CUSTOM` select additional packages searched on the host
+first. `NARROW` includes the data-plane and logging packages. `BROAD` also shares
+Guava, Hadoop, Parquet, ORC and Jackson. Package matching honors Java package
+boundaries. An unlisted plugin class is loaded from its own JAR when available.
 
 ### 2.3 Plugin Manager Implementation
 
@@ -677,7 +633,7 @@ pangrova-connector/pangrova-connector-iceberg/
 │   ├── write/                           # page sink and write support
 │   └── type/                            # type mapping
 ├── src/main/resources/META-INF/services/
-│   └── org.pangrova.connector.spi.plugin.ConnectorFactory
+│   └── org.pangrova.connector.api.plugin.ConnectorFactory
 └── pom.xml
 ```
 

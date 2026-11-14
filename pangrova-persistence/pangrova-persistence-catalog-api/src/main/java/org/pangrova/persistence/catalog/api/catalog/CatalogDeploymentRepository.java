@@ -1,5 +1,7 @@
 package org.pangrova.persistence.catalog.api.catalog;
 
+import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
+
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 
@@ -28,8 +30,12 @@ public interface CatalogDeploymentRepository {
      */
     Optional<CatalogDescriptor> findCatalogDescriptorRevision(String name, String incarnationId, long revision);
 
-    /** Deletes the current deployment and publishes its invalidation atomically. */
-    void deleteCatalogDescriptor(String name);
+    /**
+     * Deletes only the captured deployment and appends its invalidation in the same transaction.
+     * Returns false if the revision is no longer current or already absent. Storage and
+     * unconfirmed commit failures propagate. History remains available to pinned tasks.
+     */
+    boolean deleteCatalogDescriptor(CatalogDeploymentIdentity expected);
 
     List<CatalogDescriptor> listAllCatalogDescriptors();
 }

@@ -3,14 +3,14 @@ package org.pangrova.testing.integration.e2e.module;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageBackend;
 import org.pangrova.governance.api.lineage.LineageEvent;
-import org.pangrova.governance.core.lineage.LineageEventEmitter;
+import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.coordinator.resilience.breaker.CircuitBreaker;
 import org.pangrova.common.resilience.policy.CircuitBreakerConfig;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
+import org.pangrova.security.api.enums.TenantStatus;
+import org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -376,8 +376,6 @@ class ModuleIntegrationE2ETest extends SqlE2ETestBase {
         }
 
         @Override
-        public boolean isAvailable() {
-            return true;
-        }
+        public void close() {}
     }
 }

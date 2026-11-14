@@ -1,13 +1,13 @@
 package org.pangrova.protocol.descriptor;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.DescriptorProtos.FieldDescriptorProto;
 import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
 import com.google.protobuf.Descriptors.FileDescriptor;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -71,11 +71,7 @@ public final class CanonicalProtocolDescriptors {
     }
 
     private static byte[] sha256(byte[] descriptorBytes) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(descriptorBytes);
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("JVM does not provide SHA-256", impossible);
-        }
+        return DigestUtils.sha256().digest(descriptorBytes);
     }
 
     private static void collect(

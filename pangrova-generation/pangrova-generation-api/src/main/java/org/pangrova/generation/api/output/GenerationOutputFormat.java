@@ -1,10 +1,12 @@
 package org.pangrova.generation.api.output;
 
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+
 import java.util.Objects;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 
 /** Immutable role layout for every page kind of one current format. */
 public record GenerationOutputFormat(

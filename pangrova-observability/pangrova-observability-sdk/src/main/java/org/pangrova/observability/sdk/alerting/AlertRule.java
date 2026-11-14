@@ -1,6 +1,11 @@
 package org.pangrova.observability.sdk.alerting;
 
+import org.pangrova.observability.sdk.enums.AlertCondition;
+import org.pangrova.observability.sdk.enums.AlertSeverity;
+
 import java.time.Duration;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Immutable definition of a single alert rule.
@@ -24,17 +29,11 @@ public record AlertRule(
         AlertSeverity severity
 ) {
     public AlertRule {
-        requireNonBlank(name, "name");
-        requireNonBlank(metricName, "metricName");
+        requireText(name, "name");
+        requireText(metricName, "metricName");
         requireNonNull(condition, "condition");
         requirePositiveWindow(evaluationWindow);
         requireNonNull(severity, "severity");
-    }
-
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
     }
 
     private static void requireNonNull(Object value, String fieldName) {

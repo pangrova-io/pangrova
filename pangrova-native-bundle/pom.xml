@@ -26,7 +26,7 @@
       The release workflow:
         1. Builds libpangrova_native.{so,dylib} on each platform via CMake
         2. Stages the library into the bridge-owned resource root
-           pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/{os}/{arch}/
+           pangrova-worker/src/main/resources/META-INF/native/{os}/{arch}/
         3. Runs: mvn package -pl pangrova-native-bundle -Dnative.resource.dir=...
         4. Installs/deploys the JAR with classifier matching the build platform
 

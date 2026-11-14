@@ -1,7 +1,7 @@
 package org.pangrova.persistence.table.postgresql.governancebinding;
 
-import org.pangrova.table.api.policybinding.GovernanceBinding;
-import org.pangrova.table.api.policybinding.GovernanceBindingType;
+import org.pangrova.table.api.policy.GovernanceBinding;
+import org.pangrova.table.api.enums.GovernanceBindingType;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -10,7 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pangrova.testing.testkit.postgres.JdbcMutationFault;
-import org.pangrova.persistence.table.api.control.TableControlException;
+import org.pangrova.table.api.exception.TableControlException;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.ContainerTestBase;
 

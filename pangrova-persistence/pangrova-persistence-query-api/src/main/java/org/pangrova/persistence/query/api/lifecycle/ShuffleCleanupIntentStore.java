@@ -1,8 +1,11 @@
 package org.pangrova.persistence.query.api.lifecycle;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 import java.util.List;
 
 /** Durable responsibility to clean up remote Shuffle scopes of a terminal query. */
+@Experimental
 public interface ShuffleCleanupIntentStore {
 
     /** Records cleanup responsibility before a terminal query state is published. */

@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
+
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.junit.jupiter.api.Test;
@@ -10,18 +12,17 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.result.QueryCacheService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
-import org.pangrova.planner.core.analysis.SqlCompiler;
-import org.pangrova.security.core.secret.SecretResolverRegistry;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.security.secret.resolution.SecretResolverRegistry;
+import org.pangrova.connector.api.plugin.ConnectorFactory;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -55,18 +56,16 @@ class PlannerWiringSessionIntegrationTest {
                                 ignored -> { throw new IllegalStateException("No write execution in this read fixture"); },
                                 new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
                                 ModelAuthorityFixtures.models(),
-                                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent)));
-        MetadataBootstrap metadata = MetadataBootstrap.initialize(store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), factory);
+                                CoordinatorTableWriteAuthority.create()::requireCurrent)));
+        MetadataBootstrap metadata = MetadataBootstrap.initialize(memoryTableStores(), store, new PostgresTableProjectionRepository(dataSource), new PostgresMetadataProjectionTransactions(dataSource), new PostgresMetadataSyncRepository(dataSource), factory);
         try {
             SqlCompiler template = new PlannerWiring(CoordinatorBootstrapConfig.withDefaults("scope-test", 0),
-                    metadata, null, null).buildSqlCompiler(new org.pangrova.planner.core.runtimefilter.RuntimeFilterRegistry());
-            assertThat(QueryCacheService.resolveCache(template)).isSameAs(template.queryResultCache());
+                    metadata, null, null).buildSqlCompiler(new org.pangrova.planner.runtimefilter.RuntimeFilterRegistry());
             assertThatThrownBy(() -> template.compileToResult("SELECT 1"))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("forSession");
             assertDispatcherStartup(metadata, template);
             assertDynamicTenantSchemas(metadata, template);
             assertRealBackendErrorsPropagate(dataSource, metadata);
-            template.queryResultCache().close();
         } finally {
             metadata.shutdown();
             factory.shutdown();
@@ -76,7 +75,7 @@ class PlannerWiringSessionIntegrationTest {
     private static void assertDispatcherStartup(
             MetadataBootstrap metadata, SqlCompiler template) {
         var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        try (var scheduling = new QuerySchedulingWiring(null);
+        try (var scheduling = new QuerySchedulingWiring(null, "load-balanced");
              var dispatcher = new RemoteTaskDispatcher(
                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                 org.pangrova.testing.testkit.TestObservability.TRACING)) {
@@ -105,7 +104,6 @@ class PlannerWiringSessionIntegrationTest {
         var alphaCompiler = template.forSession(alpha);
         var betaCompiler = template.forSession(beta);
         assertThat(alphaCompiler.planner()).isNotSameAs(betaCompiler.planner());
-        assertThat(alphaCompiler.queryResultCache()).isSameAs(betaCompiler.queryResultCache());
         assertThat(alphaCompiler.forSession(alpha)).isSameAs(alphaCompiler);
         assertThatThrownBy(() -> alphaCompiler.forSession(beta))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another session");
@@ -139,12 +137,12 @@ class PlannerWiringSessionIntegrationTest {
             }
             statement.execute("ALTER TABLE managed_source_heads RENAME TO temporarily_unavailable_tables");
             try {
-                var collector = new org.pangrova.planner.core.statistics.StatisticsCollector(
-                        new org.pangrova.coordinator.metadata.read.CatalogStatisticsProvider(
-                                new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
+                var collector = new org.pangrova.planner.statistics.StatisticsCollector(
+                        new org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider(
+                                new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
                                         metadata.catalogRegistry(), session)));
                 assertThatThrownBy(() -> collector.getStatistics(new QualifiedTableName("scoped_lance", "alpha_only", "items")))
-                        .isInstanceOf(org.pangrova.metadata.api.error.MetadataResolutionException.class)
+                        .isInstanceOf(org.pangrova.metadata.api.exception.MetadataResolutionException.class)
                         .hasRootCauseInstanceOf(java.sql.SQLException.class);
             } finally {
                 statement.execute("ALTER TABLE temporarily_unavailable_tables RENAME TO managed_source_heads");

@@ -106,7 +106,7 @@ class JdbcCoordinatorRegistryIntegrationTest extends ContainerTestBase {
         CoordinatorSnapshot coordinator = newCoordinator("c-role", "STANDBY", now);
         registry.register(coordinator);
 
-        registry.updateRole("c-role", org.pangrova.coordination.api.membership.CoordinatorRole.LEADER);
+        registry.updateRole("c-role", org.pangrova.coordination.api.enums.CoordinatorRole.LEADER);
 
         CoordinatorSnapshot got = registry.getCoordinator("c-role").orElseThrow();
         assertThat(got.role()).isEqualTo("LEADER");

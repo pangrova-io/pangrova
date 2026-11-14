@@ -1,10 +1,10 @@
 package org.pangrova.persistence.table.postgresql.control;
 
-import org.pangrova.table.api.ownership.OwnershipMode;
-import org.pangrova.table.api.ownership.TableControlProvenance;
+import org.pangrova.table.api.enums.OwnershipMode;
+import org.pangrova.table.api.enums.TableControlProvenance;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.rename.TableControlRenameIntent;
-import org.pangrova.table.api.ownership.TableControlState;
+import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.observation.TableVersionObservation;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -181,6 +181,33 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
     }
 
     @Test
+    void replacementFailureRestoresThePriorRegistrationNameAndInvalidations() throws SQLException {
+        var current = managed("orders").toBuilder().createdAt(NOW.plusNanos(123)).build();
+        var other = managed("elsewhere");
+        store.save(current);
+        store.save(other);
+        var persisted = store.findById(current.tableId()).orElseThrow();
+        assertThat(persisted.createdAt()).isNotEqualTo(current.createdAt());
+        var conflicting = managed("orders").toBuilder().tableId(other.tableId()).metadataRevision(1).build();
+        long before = countTableInvalidations("cat", "db", "orders");
+        assertThatThrownBy(() -> store.replaceRegistration(current, conflicting, NOW))
+                .isInstanceOf(org.pangrova.table.api.exception.TableControlException.class);
+        assertThat(store.find("cat", "db", "orders")).contains(persisted);
+        assertThat(store.find("cat", "db", "elsewhere")).contains(other);
+        assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(before);
+
+        var replacement = managed("orders").toBuilder().metadataRevision(1).build();
+        store.replaceRegistration(current, replacement, NOW);
+        assertThat(store.findById(current.tableId())).contains(persisted.retiredAt(NOW));
+        assertThat(store.find("cat", "db", "orders")).contains(replacement);
+        var stale = managed("orders").toBuilder().metadataRevision(1).build();
+        assertThatThrownBy(() -> store.replaceRegistration(current, stale, NOW))
+                .isInstanceOf(org.pangrova.table.api.exception.TableControlException.class);
+        assertThat(store.findById(stale.tableId())).isEmpty();
+        assertThat(store.find("cat", "db", "orders")).contains(replacement);
+    }
+
+    @Test
     void observationFailureRollsBackRevisionAndInvalidation() throws SQLException {
         TableControlRecord record = managed("orders");
         store.save(record);
@@ -191,7 +218,7 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
         assertThatThrownBy(() -> store.saveWithObservation(updated,
                 new TableVersionObservation(record.tableId(), "next", record.versionToken(),
                         "x".repeat(33), NOW.plusSeconds(30))))
-                .isInstanceOf(org.pangrova.persistence.table.api.control.TableControlException.class);
+                .isInstanceOf(org.pangrova.table.api.exception.TableControlException.class);
         assertThat(store.findById(record.tableId())).contains(record);
         assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(invalidations);
         assertThat(store.listVersionObservations(record.tableId(), 10)).isEmpty();
@@ -209,7 +236,7 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
                 .metadataRevision(4).version("next", NOW).build(),
                 new TableVersionObservation(record.tableId(), "next", record.versionToken(),
                         "PERIODIC", NOW)))
-                .isInstanceOf(org.pangrova.persistence.table.api.control.TableControlException.class);
+                .isInstanceOf(org.pangrova.table.api.exception.TableControlException.class);
         assertThat(store.findById(record.tableId()).orElseThrow().state())
                 .isEqualTo(TableControlState.QUARANTINED);
         assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(invalidations);
@@ -228,7 +255,7 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
         assertThat(peer.find("cat", "db", "orders")).contains(moved);
         assertThat(peer.find("cat", "db", "renamed")).contains(moved);
         assertThatThrownBy(() -> peer.save(managed("orders")))
-                .isInstanceOf(org.pangrova.persistence.table.api.control.TableControlException.class);
+                .isInstanceOf(org.pangrova.table.api.exception.TableControlException.class);
         assertThat(peer.find("cat", "db", "orders")).contains(moved);
         peer.save(moved.toBuilder().state(TableControlState.ACTIVE)
                 .properties(TableControlRenameIntent.complete(moved)).metadataRevision(5).build());

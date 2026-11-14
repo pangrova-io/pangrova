@@ -22,6 +22,7 @@ struct ShuffleProducerIdentity {
   uint64_t plan_epoch;
   uint32_t attempt_id;
   uint64_t fencing_token;
+  bool disk_only = false;
   bool operator==(const ShuffleProducerIdentity&) const = default;
 };
 

@@ -1,7 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildDescriptor;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

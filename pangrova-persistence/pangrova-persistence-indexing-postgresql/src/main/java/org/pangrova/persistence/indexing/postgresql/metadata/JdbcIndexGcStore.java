@@ -8,7 +8,7 @@ import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 
 import java.sql.Timestamp;
 import java.sql.SQLException;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;

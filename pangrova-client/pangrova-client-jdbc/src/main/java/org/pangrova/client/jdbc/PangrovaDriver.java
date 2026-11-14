@@ -1,10 +1,10 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.transport.client.http.PangrovaRestClient;
-import org.pangrova.transport.client.authentication.ClientAuthentication;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.client.http.authentication.ClientAuthentication;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
-import org.pangrova.client.session.ConnectionPoolConfig;
-import org.pangrova.client.session.RetryPolicy;
+import org.pangrova.common.client.session.ConnectionPoolConfig;
+import org.pangrova.common.client.session.RetryPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

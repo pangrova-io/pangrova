@@ -3,10 +3,10 @@ package org.pangrova.persistence.generation.postgresql.execution;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
+import org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
-import org.pangrova.query.api.ownership.ExecutionOwnerLostException;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import org.pangrova.query.api.exception.ExecutionOwnerLostException;
 import org.pangrova.persistence.jdbc.api.query.ExecutionTransactionFence;
 
 import java.sql.Connection;

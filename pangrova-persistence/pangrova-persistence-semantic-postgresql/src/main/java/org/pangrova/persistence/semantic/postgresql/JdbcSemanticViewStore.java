@@ -17,14 +17,13 @@
  */
 package org.pangrova.persistence.semantic.postgresql;
 
-import org.pangrova.semantic.api.view.SemanticStoreException;
-import org.pangrova.semantic.api.view.SemanticViewId;
-import org.pangrova.semantic.api.view.SemanticViewPublication;
-import org.pangrova.semantic.api.view.SemanticViewStore;
-import org.pangrova.semantic.api.view.SemanticViewValidation;
-import org.pangrova.semantic.api.view.SemanticViewValidationState;
-import org.pangrova.semantic.api.view.SemanticViewVersion;
-import org.pangrova.semantic.api.view.SemanticViewVersionStatus;
+import org.pangrova.semantic.api.exception.SemanticStoreException;
+import org.pangrova.semantic.api.identity.SemanticViewId;
+import org.pangrova.semantic.api.publication.SemanticViewPublication;
+import org.pangrova.semantic.api.version.SemanticViewStore;
+import org.pangrova.semantic.api.enums.SemanticViewValidationState;
+import org.pangrova.semantic.api.version.SemanticViewVersion;
+import org.pangrova.semantic.api.version.SemanticViewVersionStatus;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -39,6 +38,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static org.pangrova.common.util.Preconditions.requireText;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
@@ -121,9 +121,9 @@ public final class JdbcSemanticViewStore implements SemanticViewStore {
     @Override
     public List<SemanticViewVersionStatus> listVersionStatuses(
             String tenantId, String catalogName, String schemaName, int limit) {
-        SemanticViewValidation.requireText(tenantId, "tenantId");
-        SemanticViewValidation.requireText(catalogName, "catalogName");
-        SemanticViewValidation.requireText(schemaName, "schemaName");
+        requireText(tenantId, "tenantId");
+        requireText(catalogName, "catalogName");
+        requireText(schemaName, "schemaName");
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
         }
@@ -215,7 +215,7 @@ public final class JdbcSemanticViewStore implements SemanticViewStore {
         if (expectedPublicationEpoch.isPresent()) {
             requireVersion(expectedPublicationEpoch.getAsLong());
         }
-        SemanticViewValidation.requireText(publishedBy, "publishedBy");
+        requireText(publishedBy, "publishedBy");
         Objects.requireNonNull(publishedAt, "publishedAt must not be null");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);

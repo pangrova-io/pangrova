@@ -38,10 +38,10 @@ the exact connector, query shape, deployment, and failure scenario still need va
 | Catalog YAML auto-registration | Documented format, automatic startup loading remains planned | Use SQL `CREATE CATALOG` for the documented registration path |
 
 Source evidence: [statement bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java),
-[plan dispatch](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java),
-[maintenance executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceExecutor.java),
-[DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java),
-and [Worker connector write bridge](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write/NativeWriteExecutor.java).
+[plan dispatch](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java),
+[maintenance executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceExecutor.java),
+[DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java),
+and [Worker connector write bridge](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/src/main/java/org/pangrova/worker/write/NativeWriteExecutor.java).
 See [DML](../sql-reference/dml.md), [maintenance](../sql-reference/maintenance.md),
 [session context](../sql-reference/session.md), and [catalog management](catalogs/catalog-management.md).
 
@@ -58,8 +58,8 @@ See [DML](../sql-reference/dml.md), [maintenance](../sql-reference/maintenance.m
 | `FILE` values | Governed claim-check references | The stored URI is an opaque `pangrova-blob://` reference, not a public storage credential or an unrestricted URL |
 | Feature Store / training datasets / embodied workflows | Partial components or product direction | Complete serving, training-export, and operational lifecycles are not established |
 
-Source evidence: [vector rewriter](https://github.com/pangrova/pangrova/blob/main/pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/planner/vector/VectorSearchRewriter.java),
-[retrieval intent collection](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java),
+Source evidence: [vector rewriter](https://github.com/pangrova/pangrova/blob/main/pangrova-indexing/pangrova-indexing-lifecycle/src/main/java/org/pangrova/indexing/planner/vector/VectorSearchRewriter.java),
+[retrieval intent collection](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-control/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java),
 and [HTTPS importer](https://github.com/pangrova/pangrova/blob/main/pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/blob/HttpsBlobImporter.java).
 Read the [vector reference](../sql-reference/functions/vector-search.md),
 [AI functions](../sql-reference/functions/ai-functions.md), and [FILE type](../data-types/ai-native/file.md)

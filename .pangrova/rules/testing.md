@@ -84,7 +84,7 @@ inputs are unchanged; rebuild/repackage after native runtime or packaging change
 cmake --preset dev-release -S pangrova-worker-native
 cmake --build pangrova-worker-native/build --parallel
 ./pangrova-worker-native/bin/package-native-lib.sh
-java -version && mvn -version && mvn -q -pl pangrova-worker/pangrova-worker-core -am test -Dtest="*NativeLoader*" -Dsurefire.failIfNoSpecifiedTests=false
+java -version && mvn -version && mvn -q -pl pangrova-worker -am test -Dtest="*NativeLoader*" -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 Treat `UnsatisfiedLinkError` as a real failure: diagnose the library, symbols, and

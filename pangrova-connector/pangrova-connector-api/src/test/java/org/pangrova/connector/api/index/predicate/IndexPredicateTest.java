@@ -1,5 +1,9 @@
 package org.pangrova.connector.api.index.predicate;
 
+import org.pangrova.connector.api.enums.ContainmentMode;
+import org.pangrova.connector.api.enums.SpatialOp;
+import org.pangrova.connector.api.enums.TextMatchMode;
+
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 

@@ -43,7 +43,7 @@ add_custom_command(OUTPUT "${PANGROVA_STRUCTURAL_CONTRACT_HEADER}" "${PANGROVA_P
     "${PANGROVA_FUNCTION_TOOLS}/binding_manifest.py"
     "${PANGROVA_FUNCTION_TOOLS}/registration_catalog.py"
     "${PANGROVA_FUNCTION_TOOLS}/registered_signature.py"
-    "${PANGROVA_FUNCTION_TOOLS}/physical_type_bridge.py"
+    "${PANGROVA_FUNCTION_TOOLS}/physical_type_mapping.py"
     "${PANGROVA_FUNCTION_TOOLS}/physical_type_manifest.py"
     "${PANGROVA_FUNCTION_TOOLS}/type_formula.py"
   VERBATIM)

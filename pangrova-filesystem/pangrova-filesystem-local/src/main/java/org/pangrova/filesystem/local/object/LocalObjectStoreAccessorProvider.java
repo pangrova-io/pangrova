@@ -4,9 +4,9 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import org.pangrova.filesystem.api.object.ObjectStoreAccessor;
 import org.pangrova.filesystem.api.object.ObjectStoreAccessorProvider;
 import org.pangrova.filesystem.api.profile.StorageProfile;

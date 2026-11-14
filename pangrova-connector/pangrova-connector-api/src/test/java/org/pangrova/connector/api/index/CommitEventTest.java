@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.index;
 
+import org.pangrova.connector.api.enums.CommitEventType;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;

@@ -2,7 +2,7 @@ package org.pangrova.generation.codec.execution;
 
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.util.DigestUtils;
 
 import java.io.ByteArrayOutputStream;

@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-#include "bridge/command/NativeCommandDispatcher.h"
+#include "command/NativeCommandDispatcher.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 
 namespace pangrova::test {

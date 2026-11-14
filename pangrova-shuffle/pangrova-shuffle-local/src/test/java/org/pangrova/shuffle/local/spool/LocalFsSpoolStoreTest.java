@@ -15,10 +15,10 @@ import java.util.concurrent.TimeUnit;
 
 import org.pangrova.shuffle.api.ShuffleDurability;
 import org.pangrova.shuffle.api.spool.SpoolReadSelection;
-import org.pangrova.shuffle.spi.spool.SpoolStore;
-import org.pangrova.shuffle.spi.spool.SpoolStoreContext;
-import org.pangrova.shuffle.spi.spool.SpoolStoreFactory;
-import org.pangrova.shuffle.spi.spool.SpoolWriter;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolStoreContext;
+import org.pangrova.shuffle.api.spool.SpoolStoreFactory;
+import org.pangrova.shuffle.api.spool.SpoolWriter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,15 +1,17 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.error.PangrovaClientException;
-import org.pangrova.client.error.PangrovaConnectionException;
-import org.pangrova.client.error.PangrovaProtocolException;
-import org.pangrova.transport.client.http.PangrovaRestClient;
-import org.pangrova.client.error.PangrovaServerException;
-import org.pangrova.client.protocol.QueryStatusResponse;
-import org.pangrova.client.protocol.SubmitQueryResponse;
+import org.pangrova.common.client.enums.CancelOutcome;
+
+import org.pangrova.common.client.exception.PangrovaClientException;
+import org.pangrova.common.client.exception.PangrovaConnectionException;
+import org.pangrova.common.client.exception.PangrovaProtocolException;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.common.client.exception.PangrovaServerException;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.transport.client.ArrowBatchDecoder;
 import org.pangrova.transport.client.ResultBatch;
-import org.pangrova.transport.client.TransportException;
+import org.pangrova.transport.client.exception.TransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,7 +150,7 @@ public final class PangrovaStatement implements java.sql.Statement {
 
     private void cancelOnFailure(PangrovaRestClient client, String queryId, Exception failure) {
         try {
-            if (client.cancelQuery(queryId) == PangrovaRestClient.CancelOutcome.NOT_FOUND) {
+            if (client.cancelQuery(queryId) == CancelOutcome.NOT_FOUND) {
                 throw new SQLException("Coordinator did not find active query queryId=" + queryId);
             }
             currentQueryId.compareAndSet(queryId, null);
@@ -424,8 +426,8 @@ public final class PangrovaStatement implements java.sql.Statement {
         String qid = currentQueryId.get();
         if (qid != null) {
             try {
-                PangrovaRestClient.CancelOutcome outcome = connection.restClient().cancelQuery(qid);
-                if (outcome == PangrovaRestClient.CancelOutcome.NOT_FOUND) {
+                CancelOutcome outcome = connection.restClient().cancelQuery(qid);
+                if (outcome == CancelOutcome.NOT_FOUND) {
                     throw new SQLException("Coordinator did not find active query queryId=" + qid);
                 }
                 // Confirmed logical intent/terminal status is not physical resource-drain proof.

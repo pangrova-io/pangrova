@@ -59,6 +59,11 @@ class SecurityPostureSummaryTest {
     }
 
     @Test
+    void explicitNoopReportsAnonymousAccessEvenWithSecurityEnabled() {
+        assertThat(render(true, "noop", false)).contains("Authentication            : BYPASSED (type=noop)");
+    }
+
+    @Test
     @DisplayName("tracing flag is reflected independently of security")
     void tracingFlagReflected() {
         assertThat(render(true, "LDAP", false)).contains("Distributed tracing (OTel): DISABLED");

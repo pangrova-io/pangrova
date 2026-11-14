@@ -7,12 +7,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.filesystem.api.object.ObjectStoreAccessor;
 import org.pangrova.filesystem.api.object.ObjectStoreAccessorProvider;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -128,6 +128,7 @@ public final class S3ObjectStoreAccessorProvider implements ObjectStoreAccessorP
         if (!profile.endpoint().isEmpty()) {
             builder.endpointOverride(URI.create(profile.endpoint()));
         }
+        ObjectStoreS3ClientPolicy.configure(builder);
         return builder.build();
     }
 

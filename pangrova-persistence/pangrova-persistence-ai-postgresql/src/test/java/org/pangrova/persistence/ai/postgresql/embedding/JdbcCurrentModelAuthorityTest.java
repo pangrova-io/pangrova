@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 import org.pangrova.security.api.policy.Role;
@@ -48,7 +48,7 @@ class JdbcCurrentModelAuthorityTest extends ContainerTestBase {
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_ROLE));
         roles.grantRoleToUser(UserRoleAssignment.of(PRINCIPAL, USAGE_ROLE));
         registry = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_ROLE, USAGE_ROLE);
-        registry.initSchema();
+        registry.validateSchema();
         registry.create(model("model-a", new EmbeddingModelDescriptor.DeploymentFence("model-v7", SIGNATURE)), ADMIN);
     }
 

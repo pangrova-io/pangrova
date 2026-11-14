@@ -1,5 +1,7 @@
 package org.pangrova.security.api.tenant;
 
+import org.pangrova.security.api.enums.TenantStatus;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Instant;

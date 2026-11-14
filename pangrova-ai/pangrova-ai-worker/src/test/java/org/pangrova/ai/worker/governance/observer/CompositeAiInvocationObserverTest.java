@@ -36,7 +36,7 @@ class CompositeAiInvocationObserverTest {
             @Override
             public void onFailure(
                     org.pangrova.ai.api.invocation.AiInvocationRequest request,
-                    org.pangrova.ai.api.error.AiInvocationException failure) {
+                    org.pangrova.ai.api.exception.AiInvocationException failure) {
                 throw new IllegalStateException("first failure");
             }
         };
@@ -51,7 +51,7 @@ class CompositeAiInvocationObserverTest {
             @Override
             public void onFailure(
                     org.pangrova.ai.api.invocation.AiInvocationRequest request,
-                    org.pangrova.ai.api.error.AiInvocationException failure) {
+                    org.pangrova.ai.api.exception.AiInvocationException failure) {
                 delivered.incrementAndGet();
             }
         };

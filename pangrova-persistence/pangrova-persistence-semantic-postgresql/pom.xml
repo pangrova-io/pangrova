@@ -21,7 +21,7 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-semantic-api</artifactId>
+            <artifactId>pangrova-semantic</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

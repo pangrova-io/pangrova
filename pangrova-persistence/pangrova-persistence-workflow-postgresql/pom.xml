@@ -17,6 +17,31 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-generation-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-generation-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-generation-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-query-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-jdbc-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-security-api</artifactId>
+        </dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-access</artifactId></dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-persistence-workflow-api</artifactId>
         </dependency>
         <dependency>
@@ -37,7 +62,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-table-api</artifactId>
+            <artifactId>pangrova-table</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -58,6 +83,11 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
 
         <dependency>

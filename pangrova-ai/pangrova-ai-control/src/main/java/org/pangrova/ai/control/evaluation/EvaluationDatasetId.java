@@ -17,11 +17,13 @@
  */
 package org.pangrova.ai.control.evaluation;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Tenant-scoped identity of an immutable-versioned evaluation dataset. */
 public record EvaluationDatasetId(String tenantId, String datasetId) {
 
     public EvaluationDatasetId {
-        EvaluationValidation.requireText(tenantId, "tenantId");
-        EvaluationValidation.requireText(datasetId, "datasetId");
+        requireText(tenantId, "tenantId");
+        requireText(datasetId, "datasetId");
     }
 }

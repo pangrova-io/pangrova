@@ -1,7 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import java.util.Map;
-import org.pangrova.observability.core.metrics.MetricsScope;
+import org.pangrova.observability.metrics.MetricsScope;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.observability.sdk.config.ObservabilityConfig;
 import org.pangrova.observability.sdk.config.TelemetryInitializer;
@@ -11,9 +11,9 @@ import org.pangrova.observability.noop.NoOpLoggingProvider;
 import org.pangrova.observability.noop.NoOpMetricsProvider;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
-import org.pangrova.observability.spi.logging.LoggingProvider;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.observability.api.logging.LoggingProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

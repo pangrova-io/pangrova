@@ -9,7 +9,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.coordinator.resilience.breaker.CircuitBreaker;
 import org.pangrova.coordinator.resilience.checkpoint.CheckpointManager;
 import org.pangrova.coordinator.resilience.checkpoint.CheckpointManager.CheckpointEntry;

@@ -5,6 +5,8 @@ import org.pangrova.common.api.annotation.Experimental;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Durable identity of one coordinator-owned distributed catalog commit.
  *
@@ -27,9 +29,9 @@ public record DistributedWriteCommitContext(
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
 
     public DistributedWriteCommitContext {
-        requireNonBlank(executionId, "executionId");
-        requireNonBlank(tenantId, "tenantId");
-        requireNonBlank(principal, "principal");
+        requireText(executionId, "executionId");
+        requireText(tenantId, "tenantId");
+        requireText(principal, "principal");
         Objects.requireNonNull(authorizationReceipt, "authorizationReceipt");
         if (baseSnapshotId < -1) {
             throw new IllegalArgumentException("baseSnapshotId must be -1 or non-negative");
@@ -49,11 +51,5 @@ public record DistributedWriteCommitContext(
     @Override
     public byte[] writeOutputBinding() {
         return writeOutputBinding.clone();
-    }
-
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
     }
 }

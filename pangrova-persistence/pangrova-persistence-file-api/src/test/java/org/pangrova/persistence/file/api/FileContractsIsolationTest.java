@@ -14,7 +14,7 @@ class FileContractsIsolationTest {
     @Test
     void persistenceContractsLoadWithOnlyTheDomainContractClosure() throws Exception {
         URL[] artifacts = {
-                org.pangrova.query.api.ownership.ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation(),
+                org.pangrova.execution.api.ownership.ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation(),
                 FileSpaceRegistry.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.file.api.space.FileSpace.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.filesystem.api.profile.StorageProfile.class.getProtectionDomain().getCodeSource().getLocation(),
@@ -32,9 +32,9 @@ class FileContractsIsolationTest {
                     "org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions$FrozenInput",
                     "org.pangrova.persistence.file.api.space.FileSpaceRegistry",
                     "org.pangrova.persistence.file.api.profile.StorageProfileRegistry",
-                    "org.pangrova.persistence.file.api.profile.StorageProfileRevision",
+                    "org.pangrova.file.api.profile.StorageProfileRevision",
                     "org.pangrova.persistence.file.api.directory.FileDirectoryIndex",
-                    "org.pangrova.persistence.file.api.directory.FileDirectoryIndex$RefreshToken",
+                    "org.pangrova.file.api.directory.DirectoryRefresh$RefreshToken",
                     "org.pangrova.persistence.file.api.claim.CopyFileClaim",
                     "org.pangrova.persistence.file.api.claim.CopyFileClaimStore",
                     "org.pangrova.persistence.file.api.claim.CopyFileClaimStore$ClaimResult")) {
@@ -67,7 +67,6 @@ class FileContractsIsolationTest {
                     "version-1", uri.replace("/copy/", "/copy/../"), checksum, 1L, tenant))
                     .hasCauseInstanceOf(IllegalArgumentException.class);
             for (String name : List.of("org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry",
-                    "org.pangrova.file.core.access.FileUrlService",
                     "org.pangrova.metadata.catalog.registry.CatalogRegistry",
                     "org.pangrova.testing.testkit.file.InMemoryStorageProfileRegistry",
                     "org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap",

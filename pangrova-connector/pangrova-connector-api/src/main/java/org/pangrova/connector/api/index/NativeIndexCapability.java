@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.index;
 
+import org.pangrova.connector.api.enums.NativeIndexType;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;

@@ -12,8 +12,8 @@
 
 #include "lance_c_ffi.h"
 
-#include "bridge/RuntimeInitializer.h"
-#include "bridge/registry/HandleRegistry.h"
+#include "jni/RuntimeInitializer.h"
+#include "command/resource/HandleRegistry.h"
 #include "capabilities/artifact/ImmutableArtifactCache.h"
 #include "capabilities/capability/BuiltinFunctionRegistration.h"
 #include "capabilities/capability/FunctionCatalogPublication.h"
@@ -429,12 +429,16 @@ void NativeEngineLifecycle::initAsyncDataCache(
 
   if (config.ssd_cache_bytes > 0 && !config.ssd_cache_path.empty()) {
     std::filesystem::create_directories(config.ssd_cache_path);
+    // A zero checkpoint interval disables checkpointing entirely, so the SSD
+    // index was lost on every restart and previously cached blocks could not be
+    // reused. Checkpoint as the cache grows instead.
+    constexpr uint64_t kSsdCheckpointIntervalBytes = 64ULL * 1024 * 1024;
     facebook::velox::cache::SsdCache::Config ssdConfig(
         config.ssd_cache_path,
         config.ssd_cache_bytes,
         /*numShards=*/4,
         /*executor=*/executor_.get(),
-        /*checkpointIntervalBytes=*/0);
+        kSsdCheckpointIntervalBytes);
     ssd_cache_ =
         std::make_unique<facebook::velox::cache::SsdCache>(ssdConfig);
   }
@@ -452,10 +456,23 @@ void NativeEngineLifecycle::initAsyncDataCache(
     velox_memory_governor_->setAsyncDataCache(async_data_cache_);
   }
 
+  // AsyncDataCache draws from the supplied allocator, so ram_cache_bytes is not
+  // an independent quota; the allocator capacity is the real bound. Report both
+  // so an operator can see when the configured value is not the effective one.
+  const auto allocator_capacity =
+      static_cast<uint64_t>(allocator->capacity());
   std::cerr << "level=INFO event=velox_async_data_cache_initialized"
             << " ram_cache_bytes=" << config.ram_cache_bytes
+            << " effective_allocator_capacity_bytes=" << allocator_capacity
             << " ssd_cache_bytes=" << config.ssd_cache_bytes
             << std::endl;
+  if (config.ram_cache_bytes > 0
+      && static_cast<uint64_t>(config.ram_cache_bytes) > allocator_capacity) {
+    std::cerr << "level=WARN event=ram_cache_bytes_exceeds_allocator"
+              << " ram_cache_bytes=" << config.ram_cache_bytes
+              << " allocator_capacity_bytes=" << allocator_capacity
+              << " effective_bound=allocator_capacity" << std::endl;
+  }
 #else
   (void)config;
 #endif

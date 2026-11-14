@@ -1,5 +1,7 @@
 package org.pangrova.connector.runtime.classloader;
 
+import org.pangrova.connector.runtime.enums.SharedPackagePolicy;
+
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Objects;
@@ -19,8 +21,6 @@ import java.util.Set;
  * so operators can trade compatibility against version independence.
  */
 public class PluginClassLoader extends URLClassLoader {
-
-    private static final Set<String> SPI_PACKAGES = SharedPackagePolicy.SPI_PACKAGES;
 
     private final String pluginName;
     private final ClassLoader spiClassLoader;
@@ -93,10 +93,16 @@ public class PluginClassLoader extends URLClassLoader {
     }
 
     private boolean isSpiPackage(String name) {
-        return SPI_PACKAGES.stream().anyMatch(name::startsWith);
+        int nested = name.indexOf('$');
+        String topLevel = nested >= 0 ? name.substring(0, nested) : name;
+        return SharedPackagePolicy.SPI_TYPES.contains(topLevel) || belongsTo(name, SharedPackagePolicy.SPI_PACKAGES);
     }
 
     private boolean isSharedPackage(String name) {
-        return sharedPackages.stream().anyMatch(name::startsWith);
+        return belongsTo(name, sharedPackages);
+    }
+
+    private static boolean belongsTo(String className, Set<String> packages) {
+        return packages.stream().anyMatch(prefix -> className.startsWith(prefix.endsWith(".") ? prefix : prefix + "."));
     }
 }

@@ -1041,7 +1041,7 @@ a torn unpublished startup tail, and corruption of a complete ledger record.
 
 ## Appendix: Distributed Correctness PR Checklist
 
-CI enforces this checklist when PRs modify `pangrova-coordination/pangrova-coordination-core/`, `pangrova-worker/pangrova-worker-core/`, `pangrova-shuffle/`, or `pangrova-metadata/`.
+CI enforces this checklist when PRs modify `pangrova-coordination/pangrova-coordination-control/`, `pangrova-worker/`, `pangrova-shuffle/`, or `pangrova-metadata/`.
 
 ### 1. Network Partition Behavior
 

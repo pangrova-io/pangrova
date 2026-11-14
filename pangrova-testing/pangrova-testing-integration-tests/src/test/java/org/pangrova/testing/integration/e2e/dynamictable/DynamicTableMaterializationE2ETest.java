@@ -8,16 +8,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.materialization.domain.AttemptState;
-import org.pangrova.materialization.domain.GenerationState;
-import org.pangrova.materialization.domain.InternalNamespace;
-import org.pangrova.materialization.domain.MaterializationId;
-import org.pangrova.materialization.domain.MaterializationObject;
-import org.pangrova.materialization.domain.QualifiedName;
-import org.pangrova.materialization.domain.RefreshKind;
-import org.pangrova.materialization.domain.TenantId;
-import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.materialization.api.domain.AttemptState;
+import org.pangrova.materialization.api.domain.GenerationState;
+import org.pangrova.materialization.api.domain.InternalNamespace;
+import org.pangrova.materialization.api.domain.MaterializationId;
+import org.pangrova.materialization.api.domain.MaterializationObject;
+import org.pangrova.materialization.api.domain.QualifiedName;
+import org.pangrova.materialization.api.domain.RefreshKind;
+import org.pangrova.materialization.api.domain.TenantId;
+import org.pangrova.materialization.api.port.PublishedMaterialization;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
@@ -109,7 +109,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
             String admittedQuery = queryId;
             Awaitility.await("logical query completion before physical drain").atMost(Duration.ofSeconds(20))
                     .untilAsserted(() -> assertThat(state.getState())
-                            .isEqualTo(org.pangrova.query.api.lifecycle.QueryState.FINISHED));
+                            .isEqualTo(org.pangrova.query.api.enums.QueryState.FINISHED));
             assertThat(queryManager.getActiveQueryIds()).contains(admittedQuery);
             assertThat(authority.repository().findReaderPins(published.generation()))
                     .singleElement().satisfies(pin -> {
@@ -347,7 +347,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + full + " REFRESH");
             sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + incremental + " REFRESH");
             assertThat(published(incremental).refreshKind())
-                    .isEqualTo(org.pangrova.materialization.domain.RefreshKind
+                    .isEqualTo(org.pangrova.materialization.api.domain.RefreshKind
                             .IncrementalAppendOnly.INSTANCE);
             assertThat(sqlRunner.execute("SELECT id FROM " + incremental + " ORDER BY id"))
                     .extracting(row -> row.getLong("id"))
@@ -496,6 +496,11 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + logical
                 + " REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + source);
         String originalHead = published(logical).physicalTable().qualifiedName();
+        String privateName = CATALOG + "." + SCHEMA + ".dt_private_" + suffix;
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + privateName
+                + " REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + logical);
+        assertThat(sqlRunner.execute("SHOW MATERIALIZATION DEPENDENCIES FOR " + logical))
+                .anyMatch(row -> privateName.equals(row.getString("downstream")));
 
         String role = "dt_scoped_" + suffix;
         var roles = new JdbcRoleStore(stateStoreDataSource());
@@ -511,6 +516,17 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         restrictDefaultSqlAuthority();
         restrictedAuthority = true;
         authority = installDurableDynamicTableRuntime();
+
+        assertThat(sqlRunner.execute("SHOW MATERIALIZATIONS"))
+                .extracting(row -> row.getString("name")).contains(logical).doesNotContain(privateName);
+        assertThat(sqlRunner.execute("SHOW MATERIALIZATION REFRESH HISTORY"))
+                .extracting(row -> row.getString("object")).contains(logical).doesNotContain(privateName);
+        assertThat(sqlRunner.execute("SHOW MATERIALIZATION DEPENDENCIES FOR " + logical))
+                .noneMatch(row -> privateName.equals(row.getString("downstream")));
+        for (String surface : List.of("REFRESH HISTORY", "GC HISTORY", "DEPENDENCIES")) {
+            assertThat(sqlRunner.executeExpectingError("SHOW MATERIALIZATION " + surface + " FOR " + privateName)
+                    .message()).contains("SECURITY-0002");
+        }
 
         assertThat(sqlRunner.executeExpectingError("ALTER DYNAMIC TABLE " + logical + " REFRESH")
                 .message()).contains("HTTP 403", "SECURITY-0002");

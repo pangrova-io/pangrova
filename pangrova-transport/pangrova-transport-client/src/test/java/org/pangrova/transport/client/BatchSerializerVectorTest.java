@@ -17,7 +17,7 @@ import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.batch.api.page.NativePage;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;

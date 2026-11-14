@@ -1,14 +1,16 @@
 package org.pangrova.server.coordinator.assembly.security.audit;
 
-import org.pangrova.security.core.audit.LoggingAuditEventWriter;
-import org.pangrova.security.core.audit.CompositeAuditEventWriter;
+import org.pangrova.server.coordinator.enums.AuditWriterConfig;
+
+import org.pangrova.security.audit.LoggingAuditEventWriter;
+import org.pangrova.security.audit.CompositeAuditEventWriter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.util.List;
-import org.pangrova.security.spi.audit.AuditEventWriter;
+import org.pangrova.security.api.audit.AuditEventWriter;
 import org.pangrova.persistence.security.postgresql.audit.JdbcAuditEventWriter;
 
 /**

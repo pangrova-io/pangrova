@@ -2,7 +2,6 @@ package org.pangrova.testing.integration.e2e.connector;
 
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
-import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.junit.jupiter.api.AfterEach;
@@ -12,28 +11,28 @@ import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetId;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetVersion;
 import org.pangrova.ai.control.evaluation.EvaluationMetric;
-import org.pangrova.ai.control.evaluation.EvaluationMetricDirection;
+import org.pangrova.ai.control.enums.EvaluationMetricDirection;
 import org.pangrova.ai.control.evaluation.EvaluationMetricPolicy;
 import org.pangrova.ai.control.evaluation.EvaluationMetricRule;
 import org.pangrova.ai.control.evaluation.EvaluationReleaseDecision;
 import org.pangrova.ai.control.evaluation.EvaluationRun;
-import org.pangrova.ai.control.evaluation.EvaluationRunState;
-import org.pangrova.ai.control.evaluation.EvaluationSubjectType;
+import org.pangrova.ai.control.enums.EvaluationRunState;
+import org.pangrova.ai.control.enums.EvaluationSubjectType;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
 import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.E2ETest;
@@ -152,11 +151,11 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         var grants = new JdbcGrantStore(stateStoreDataSource());
         grants.addGrant(PrivilegeGrant.of(role, Privilege.ALL, "SCHEMA", CATALOG, "default", null, null));
         grants.addGrant(PrivilegeGrant.of(role, Privilege.SELECT, "TABLE", CATALOG, sourceSchema, "customers", null));
-        policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
-                new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()),
+        policies = new org.pangrova.metadata.security.TableControlRowPolicyStore(
+                metadataBootstrap.catalogRegistry().tableGovernance(),
                 new JdbcRowPolicyStore(stateStoreDataSource()));
         masks = new org.pangrova.metadata.security.TableControlColumnMaskStore(
-                new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()),
+                metadataBootstrap.catalogRegistry().tableGovernance(),
                 new JdbcColumnMaskStore(stateStoreDataSource()));
         replacePolicies(minimum, mask);
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,

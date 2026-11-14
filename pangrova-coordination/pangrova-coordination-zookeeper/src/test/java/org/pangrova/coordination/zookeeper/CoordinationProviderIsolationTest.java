@@ -1,7 +1,7 @@
 package org.pangrova.coordination.zookeeper;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.coordination.spi.provider.CoordinationProvider;
+import org.pangrova.persistence.coordination.api.provider.CoordinationProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

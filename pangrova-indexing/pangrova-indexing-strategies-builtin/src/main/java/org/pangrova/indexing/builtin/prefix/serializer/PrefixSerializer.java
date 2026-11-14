@@ -5,7 +5,7 @@ import org.pangrova.indexing.api.data.text.PrefixIndexData;
 
 import java.util.ArrayList;
 import org.pangrova.indexing.codec.data.SerdeCodec;
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
 /**
  * Serializer for {@link PrefixIndexData}.

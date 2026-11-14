@@ -1,22 +1,19 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.common.lifecycle.BootstrapFailedException;
-import org.pangrova.security.core.authentication.AuthenticationManager;
-import org.pangrova.security.spi.authentication.Authenticator;
-import org.pangrova.security.auth.builtin.BypassAuthenticator;
-import org.pangrova.security.auth.ldap.LdapAuthenticator;
-import org.pangrova.security.auth.oauth2.OAuth2Authenticator;
+import org.pangrova.common.exception.BootstrapFailedException;
+import org.pangrova.security.authentication.AuthenticationManager;
+import org.pangrova.security.api.authentication.Authenticator;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots;
 import org.pangrova.persistence.coordination.postgresql.admission.JdbcClusterConcurrencySlots;
-import org.pangrova.scheduler.core.admission.TenantQuotaAdmissionController;
+import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
 import org.pangrova.persistence.security.api.tenant.TenantStore;
 import org.pangrova.scheduler.api.quota.GlobalTenantUsageView;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +24,7 @@ import javax.sql.DataSource;
 
 /**
  * Bootstraps the security subsystem (authentication, authorization, access control).
- * Supports NoOp, OAuth2, and LDAP authenticator types.
+ * Discovers the configured authenticator through the security API.
  */
 final class SecurityBootstrap {
 
@@ -61,29 +58,10 @@ final class SecurityBootstrap {
             return;
         }
         try {
-            Authenticator authenticator = buildAuthenticator();
-            Map<String, String> authnConfig;
-            if (authenticator.bypassesAuthentication()) {
-                // F-SEC-04: NOOP maps to BypassAuthenticator, which DISABLES authentication.
-                // This injection is scoped strictly to the explicit AuthenticatorType.NOOP
-                // path — any other accidental wiring of BypassAuthenticator receives an empty
-                // config and is stopped by the authenticator's own opt-in guard (preserving
-                // defense-in-depth). Because a coordinator with security ENABLED but auth
-                // bypassed is a dangerous posture, emit an unmissable CRITICAL alarm so it can
-                // never happen silently in production.
-                LOG.error("event=security_alarm severity=CRITICAL component=authentication "
-                        + "message=\"Authentication is DISABLED (authenticator=NOOP/bypass): ALL "
-                        + "requests are accepted without authentication. This MUST NOT be used in "
-                        + "production. Configure OAUTH2/LDAP, or disable the security feature flag "
-                        + "for an explicitly unsecured deployment.\"");
-                authnConfig = Map.of("bypass.enabled", "true");
-            } else {
-                authnConfig = config.securityConfig().authenticatorProperties();
-            }
-            authenticator.init(authnConfig);
-            authenticationManager = new AuthenticationManager(List.of(authenticator));
+            authenticationManager = startAuthentication(config.securityConfig());
             accessControl = buildAccessControl();
-            LOG.info("Phase: security — initialized (authenticator={})", authenticator.getName());
+            LOG.info("Phase: security — initialized (authenticator={})",
+                    config.securityConfig().requireAuthenticator().providerId());
         } catch (Exception e) {
             try {
                 shutdown();
@@ -103,19 +81,35 @@ final class SecurityBootstrap {
         }
     }
 
-    private Authenticator buildAuthenticator() {
-        CoordinatorBootstrapConfig.SecurityConfig secCfg = config.securityConfig();
-        if (secCfg == null) {
-            throw new BootstrapFailedException(
-                    "Security enabled but no authenticator configured",
-                    new IllegalStateException("securityConfig is null while security is enabled"));
+    static AuthenticationManager startAuthentication(CoordinatorBootstrapConfig.SecurityConfig config) {
+        if (config == null) {
+            throw new IllegalStateException("Security enabled but no authenticator configured");
         }
-        Authenticator authenticator = switch (secCfg.authenticatorType()) {
-            case OAUTH2 -> new OAuth2Authenticator();
-            case LDAP -> new LdapAuthenticator();
-            case NOOP -> new BypassAuthenticator();
-        };
-        return authenticator;
+        Authenticator authenticator = java.util.Objects.requireNonNull(config.requireAuthenticator().create(),
+                "authenticator");
+        try {
+            boolean bypass = config.bypassesAuthentication();
+            if (bypass != authenticator.bypassesAuthentication()) {
+                throw new IllegalStateException("Authenticator bypass capability conflicts with configured provider "
+                        + config.requireAuthenticator().providerId());
+            }
+            if (bypass) {
+                LOG.error("event=security_alarm severity=CRITICAL component=authentication "
+                        + "message=\"Authentication is DISABLED (authenticator=NOOP/bypass): ALL "
+                        + "requests are accepted without authentication. This MUST NOT be used in production.\"");
+            }
+            authenticator.init(bypass ? Map.of("bypass.enabled", "true") : config.authenticatorProperties());
+            return new AuthenticationManager(List.of(authenticator));
+        } catch (RuntimeException | Error failure) {
+            try {
+                authenticator.close();
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) {
+                    failure.addSuppressed(cleanup);
+                }
+            }
+            throw failure;
+        }
     }
 
     private AccessControl buildAccessControl() {

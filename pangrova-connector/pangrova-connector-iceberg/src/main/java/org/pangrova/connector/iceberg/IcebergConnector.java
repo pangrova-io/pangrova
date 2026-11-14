@@ -3,17 +3,17 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.iceberg.write.IcebergPageSinkProvider;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.api.error.ConnectorException;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.plugin.Connector;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.api.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
 import org.pangrova.connector.api.metadata.HealthCheckResult;
-import org.pangrova.connector.spi.metadata.IncrementalScanCapability;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.IncrementalScanCapability;
+import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.io.FileIO;
@@ -83,12 +83,12 @@ public class IcebergConnector implements Connector {
     }
 
     @Override
-    public Optional<org.pangrova.connector.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
+    public Optional<org.pangrova.connector.api.materialization.SourceProvider> getMaterializationSourceProvider() {
         return Optional.of(materializationSourceProvider);
     }
 
     @Override
-    public void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
+    public void registerCommitListener(org.pangrova.connector.api.index.CommitListener listener) {
         metadata.registerCommitListener(listener);
     }
 

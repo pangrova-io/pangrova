@@ -1,9 +1,9 @@
 package org.pangrova.ai.api.model;
 
 import org.pangrova.ai.api.capability.AiRequestConstraints;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;

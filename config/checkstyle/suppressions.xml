@@ -106,7 +106,7 @@
         grammar rule. These can be long and have high cyclomatic complexity by
         design; the grammar is the source of truth, not the visitor size.
     -->
-    <suppress files="[\\/]pangrova-parser[\\/]pangrova-parser-core[\\/]src[\\/]main[\\/]"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]"
               checks="MethodLength|CyclomaticComplexity|NestedIfDepth"/>
 
     <!--
@@ -114,19 +114,19 @@
         Keep generated-shaped dispatch layout and dense AST imports readable while
         continuing to enforce correctness, braces, Javadoc, and unused imports.
     -->
-    <suppress files="[\\/]pangrova-parser[\\/]pangrova-parser-core[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]build[\\/]AstBuilder\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]build[\\/]AstBuilder\.java$"
               checks="AnnotationLocation|LeftCurly|EmptyLineSeparator|LineLength|FileLength|AvoidStarImport"/>
 
     <!-- Grammar/AST dispatch and printer classes intentionally enumerate many node types. -->
-    <suppress files="[\\/]pangrova-parser[\\/]pangrova-parser-core[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]format[\\/](AstPrinter|StatementPrinter)\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]format[\\/](AstPrinter|StatementPrinter)\.java$"
               checks="FileLength|AvoidStarImport|LineLength|EmptyLineSeparator"/>
-    <suppress files="[\\/]pangrova-parser[\\/]pangrova-parser-core[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]build[\\/]Ast(DdlDml|Expression|ExtendedDdl|Dml)Builder\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]build[\\/]Ast(DdlDml|Expression|ExtendedDdl|Dml)Builder\.java$"
               checks="FileLength|AvoidStarImport|EmptyLineSeparator"/>
-    <suppress files="[\\/]pangrova-parser[\\/]pangrova-parser-core[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]parse[\\/]AntlrSqlParser\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]core[\\/]parse[\\/]AntlrSqlParser\.java$"
               checks="FileLength"/>
 
     <!-- Immutable AST aggregate constructors preserve the public parser model contract. -->
-    <suppress files="[\\/]pangrova-parser[\\/]pangrova-parser-api[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]api[\\/]ast[\\/](Query|TableRef)\.java$"
+    <suppress files="[\\/]pangrova-parser[\\/]src[\\/]main[\\/]java[\\/]org[\\/]pangrova[\\/]parser[\\/]api[\\/]ast[\\/](Query|TableRef)\.java$"
               checks="ParameterNumber"/>
 
     <!--
@@ -134,7 +134,7 @@
         inherently complex. The rewriting rules often require long switch blocks
         that exceed branch limits.
     -->
-    <suppress files="[\\/]pangrova-planner[\\/]pangrova-planner-core[\\/]src[\\/]main[\\/]"
+    <suppress files="[\\/]pangrova-planner[\\/]src[\\/]main[\\/]"
               checks="CyclomaticComplexity|NestedIfDepth|MagicNumber"/>
 
     <!--

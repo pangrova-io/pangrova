@@ -15,8 +15,8 @@
 #include <utility>
 #include <vector>
 
-#include "bridge/JniBridge.h"
-#include "bridge/registry/HandleRegistry.h"
+#include "jni/JniEntryPoints.h"
+#include "command/resource/HandleRegistry.h"
 #include "pangrova/protocol/v2/common.pb.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/expression/DecodedArgs.h"
@@ -160,7 +160,7 @@ class JvmFunctionCallbacks {
       if (!callback_) {
         throw std::runtime_error("Failed to retain JVM function callback");
       }
-      callbackClass_ = globalClass(env, "org/pangrova/worker/nativebridge/jni/NativeFunctionBridge");
+      callbackClass_ = globalClass(env, "org/pangrova/worker/function/NativeFunctionCallbacks");
       objectClass_ = globalClass(env, "java/lang/Object");
       objectArrayClass_ = globalClass(env, "[Ljava/lang/Object;");
       stringClass_ = globalClass(env, "java/lang/String");

@@ -88,6 +88,55 @@ class AiEmbedFunctionTest {
         assertThat(function.getMetadata().returnType()).isEqualTo("VECTOR");
     }
 
+    @Test
+    void providerFailureNamesTheOffendingRowInsteadOfTheWholeBatch() {
+        var failing = new org.pangrova.ai.api.embedding.EmbeddingProvider() {
+            @Override
+            public org.pangrova.ai.api.embedding.EmbeddingBatchResult embed(
+                    org.pangrova.ai.api.embedding.EmbeddingBatchRequest request) {
+                boolean bad = request.inputs().stream().anyMatch(input ->
+                        input instanceof org.pangrova.ai.api.embedding.EmbeddingBatchRequest.TextInput t
+                                && "bad".equals(t.text()));
+                if (bad) {
+                    throw new org.pangrova.ai.api.exception.AiInvocationException(
+                            org.pangrova.ai.api.exception.AiInvocationException.Category.CONTENT_REJECTED,
+                            false, "provider rejected content");
+                }
+                java.util.List<float[]> vectors = request.inputs().stream()
+                        .map(ignored -> new float[]{1, 2, 3, 4, 5, 6, 7, 8})
+                        .toList();
+                return new org.pangrova.ai.api.embedding.EmbeddingBatchResult(vectors, "req-1");
+            }
+
+            @Override
+            public java.util.Set<org.pangrova.ai.api.enums.EmbeddingPurpose> supportedPurposes() {
+                return java.util.Set.of(org.pangrova.ai.api.enums.EmbeddingPurpose.RAW);
+            }
+
+            @Override public int dimensions() { return 8; }
+            @Override public String modelName() { return "local"; }
+            @Override public int maxBatchSize() { return 4; }
+        };
+        var underTest = new AiEmbedFunction(name -> "local".equals(name) ? failing : null);
+        var binding = new BoundAiInvocation("ai-embed-test", "local", "v1", new byte[32],
+                AiCapabilityDescriptor.Operation.EMBEDDING, "query:stage:task:ai-embed-test",
+                new org.pangrova.ai.api.capability.AiRequestConstraints(1000, 0, 262144, 1048576),
+                8, 100, 400, 1048576, 4194304, 0, 8);
+
+        var batch = java.util.List.of(
+                arguments(new ColumnValue.StringValue("local"), new ColumnValue.StringValue("ok-0"), "RAW"),
+                arguments(new ColumnValue.StringValue("local"), new ColumnValue.StringValue("ok-1"), "RAW"),
+                arguments(new ColumnValue.StringValue("local"), new ColumnValue.StringValue("bad"), "RAW"),
+                arguments(new ColumnValue.StringValue("local"), new ColumnValue.StringValue("ok-3"), "RAW"));
+
+        assertThatThrownBy(() -> AiExecutionContext.callWithBoundInvocation(binding,
+                () -> underTest.invokeBatch(batch)))
+                .isInstanceOf(org.pangrova.ai.api.exception.AiInvocationException.class)
+                .hasMessageContaining("batch row 2")
+                .hasMessageContaining("bad")
+                .hasMessageContaining("provider rejected content");
+    }
+
     private static List<ColumnValue> arguments(ColumnValue model, ColumnValue input, String purpose) {
         return List.of(model, input, new ColumnValue.StringValue(purpose));
     }

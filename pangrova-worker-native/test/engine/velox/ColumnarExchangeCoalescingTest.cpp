@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "TestMemoryHelper.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/ByteStream.h"
 #include "velox/core/PlanFragment.h"

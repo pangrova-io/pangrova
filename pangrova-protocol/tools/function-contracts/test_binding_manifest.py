@@ -17,8 +17,8 @@ class BindingManifestTest(unittest.TestCase):
 
     def test_all_declared_bindings_have_exact_urn_and_name_without_inventory_claims(self):
         rendered = "\n".join(render_binding_manifest(self.declaration))
-        self.assertEqual(107, rendered.count("manifest->add_definitions()"))
-        self.assertEqual(107, rendered.count("FUNCTION_NULLABILITY_CANONICAL_DECLARED_OUTPUT"))
+        self.assertEqual(111, rendered.count("manifest->add_definitions()"))
+        self.assertEqual(111, rendered.count("FUNCTION_NULLABILITY_CANONICAL_DECLARED_OUTPUT"))
         for entry in self.declaration["bindings"]:
             self.assertIn(f'reference->set_urn("{entry["canonicalUrn"]}")', rendered)
             self.assertIn(f'reference->set_name("{entry["name"]}")', rendered)

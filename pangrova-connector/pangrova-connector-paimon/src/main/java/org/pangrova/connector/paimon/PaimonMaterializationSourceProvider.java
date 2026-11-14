@@ -1,12 +1,10 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import org.apache.paimon.Snapshot;
@@ -17,14 +15,16 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.utils.SnapshotManager;
 import org.pangrova.connector.api.materialization.ChangeProof;
-import org.pangrova.connector.api.materialization.ChangeSetMode;
+import org.pangrova.connector.api.enums.ChangeSetMode;
 import org.pangrova.connector.api.materialization.ChangeSetPlan;
 import org.pangrova.connector.api.materialization.MaterializationCapabilities;
-import org.pangrova.connector.api.materialization.MaterializationSourceException;
+import org.pangrova.connector.api.exception.MaterializationSourceException;
 import org.pangrova.connector.api.materialization.PinnedSource;
-import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.api.materialization.SourceProvider;
 import org.pangrova.connector.api.materialization.SourceRef;
 import org.pangrova.connector.api.materialization.SourceSnapshotRef;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Paimon materialization source contract.
@@ -344,18 +344,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
                         + " does not support change-set mode " + mode);
     }
 
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
-        }
-    }
-
     private static String sha256(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is required by the Java runtime", failure);
-        }
+        return DigestUtils.sha256Hex(value);
     }
 }

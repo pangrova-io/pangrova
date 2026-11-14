@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.ai.spi.invocation.PhysicalAttempt;
+import org.pangrova.ai.api.invocation.PhysicalAttempt;
 
 import com.google.protobuf.ByteString;
 import io.substrait.proto.Type;
@@ -18,11 +18,11 @@ import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
-import org.pangrova.ai.api.capability.Modality;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.enums.Modality;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
-import org.pangrova.ai.spi.invocation.AiProviderCallContext;
+import org.pangrova.ai.api.invocation.AiProviderCallContext;
 import org.pangrova.ai.worker.context.AiTestTaskAuthority;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 import org.pangrova.ai.worker.context.GovernedAiBindings;

@@ -1,11 +1,11 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.indexing.core.descriptor.IndexDescriptorCache;
-import org.pangrova.indexing.core.evaluation.IndexEvalMetrics;
-import org.pangrova.coordinator.indexing.filter.IndexEvalConfig;
-import org.pangrova.coordinator.indexing.filter.IndexSplitFilter;
+import org.pangrova.indexing.descriptor.IndexDescriptorCache;
+import org.pangrova.indexing.evaluation.IndexEvalMetrics;
+import org.pangrova.indexing.pruning.IndexEvalConfig;
+import org.pangrova.indexing.pruning.IndexSplitFilter;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,6 +1,6 @@
 package org.pangrova.indexing.codec.predicate;
 
-import org.pangrova.connector.api.index.predicate.ContainmentMode;
+import org.pangrova.connector.api.enums.ContainmentMode;
 import org.pangrova.connector.api.index.predicate.ContainsElement;
 import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.connector.api.index.predicate.InList;
@@ -9,10 +9,10 @@ import org.pangrova.connector.api.index.predicate.IsNotNull;
 import org.pangrova.connector.api.index.predicate.IsNull;
 import org.pangrova.connector.api.index.predicate.LikePattern;
 import org.pangrova.connector.api.index.predicate.RangeQuery;
-import org.pangrova.connector.api.index.predicate.SpatialOp;
+import org.pangrova.connector.api.enums.SpatialOp;
 import org.pangrova.connector.api.index.predicate.SpatialQuery;
 import org.pangrova.connector.api.index.predicate.TextMatch;
-import org.pangrova.connector.api.index.predicate.TextMatchMode;
+import org.pangrova.connector.api.enums.TextMatchMode;
 
 import java.util.ArrayList;
 import java.util.List;

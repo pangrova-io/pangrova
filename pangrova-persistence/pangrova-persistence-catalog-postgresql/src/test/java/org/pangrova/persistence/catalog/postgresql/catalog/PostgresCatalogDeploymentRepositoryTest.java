@@ -3,8 +3,8 @@ package org.pangrova.persistence.catalog.postgresql.catalog;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
 
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
@@ -72,9 +72,33 @@ class PostgresCatalogDeploymentRepositoryTest {
         insertCatalog("to_delete", CatalogType.INTERNAL, "iceberg",
                 CatalogState.ACTIVE, "{}", "", "[]");
 
-        store.deleteCatalogDescriptor("to_delete");
+        store.deleteCatalogDescriptor(store.getCatalogDescriptor("to_delete").orElseThrow().identity());
 
         assertThat(store.getCatalogDescriptor("to_delete")).isEmpty();
+    }
+
+    @Test
+    void conditionalDropRejectsBothOldRevisionAndOldIncarnation() {
+        var first = new CatalogDescriptor("drop_fence", CatalogType.INTERNAL, "test",
+                CatalogState.ACTIVE, Map.of(), "", Set.of());
+        var second = new CatalogDescriptor(first.name(), first.type(), first.provider(), first.state(),
+                first.properties(), first.comment(), first.allowedTenants(), first.incarnationId(), 2);
+        store.saveCatalogDescriptor(first);
+        store.saveCatalogDescriptor(second);
+        assertThat(store.deleteCatalogDescriptor(first.identity())).isFalse();
+        assertThat(store.getCatalogDescriptor(first.name())).contains(second);
+        assertThat(store.deleteCatalogDescriptor(second.identity())).isTrue();
+        var staleUpdate = new CatalogDescriptor(first.name(), first.type(), first.provider(), first.state(),
+                first.properties(), first.comment(), first.allowedTenants(), first.incarnationId(), 3);
+        assertThatThrownBy(() -> store.saveCatalogDescriptor(staleUpdate)).hasMessageContaining("revision fence");
+        assertThat(store.getCatalogDescriptor(first.name())).isEmpty();
+        assertThat(store.findCatalogDescriptorRevision(first.name(), first.incarnationId(), 3)).isEmpty();
+
+        var replacement = new CatalogDescriptor(first.name(), first.type(), first.provider(),
+                first.state(), Map.of(), "", Set.of());
+        store.saveCatalogDescriptor(replacement);
+        assertThat(store.deleteCatalogDescriptor(first.identity())).isFalse();
+        assertThat(store.getCatalogDescriptor(first.name())).contains(replacement);
     }
 
     @Test
@@ -112,7 +136,7 @@ class PostgresCatalogDeploymentRepositoryTest {
                 "recreated_catalog", CatalogType.INTERNAL, "iceberg",
                 CatalogState.ACTIVE, Map.of("endpoint", "old"), "", Set.of("tenant-a"));
         store.saveCatalogDescriptor(old);
-        store.deleteCatalogDescriptor(old.name());
+        store.deleteCatalogDescriptor(old.identity());
 
         CatalogDescriptor replacement = new CatalogDescriptor(
                 old.name(), CatalogType.INTERNAL, "iceberg",
@@ -139,7 +163,7 @@ class PostgresCatalogDeploymentRepositoryTest {
                 Map.of("endpoint", "forged"), "", Set.of(), first.incarnationId(), 1);
 
         assertThatThrownBy(() -> store.saveCatalogDescriptor(conflicting))
-                .isInstanceOf(org.pangrova.persistence.catalog.api.error.MetastoreException.class)
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetastoreException.class)
                 .hasMessageContaining("revision fence");
         assertThat(store.getCatalogDescriptor(first.name())).contains(first);
         assertThat(store.findCatalogDescriptorRevision(

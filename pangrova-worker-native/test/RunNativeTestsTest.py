@@ -122,6 +122,23 @@ class RunNativeTestsTest(unittest.TestCase):
         self.assertNotIn(b"passing-diagnostic",
                          (self.root / "Testing/Temporary/LastTest.log").read_bytes())
 
+    def test_zero_exit_with_recoverable_sanitizer_finding_is_rejected(self):
+        diagnostic = "fixture.cc:14:7: runtime error: signed integer overflow"
+        (self.root / "CTestTestfile.cmake").write_text(
+            f'add_test(recoverable "{sys.executable}" "-c" "print(\\"{diagnostic}\\")")\n')
+        logs = self.root / "owned"
+        logs.mkdir()
+        started = time.time_ns()
+        subprocess.run(["ctest", "--test-dir", str(self.root)], capture_output=True, check=True)
+        RUNNER.retain_ctest_log(self.root, logs, started)
+        with self.assertRaisesRegex(RuntimeError, "Native sanitizer finding.*signed integer overflow"):
+            RUNNER.require_clean_sanitizers(logs / "ctest.log")
+
+    def test_clean_per_test_log_is_accepted(self):
+        log = self.root / "clean.log"
+        log.write_text("[ RUN ] Errors.HandleRuntimeError\n[ OK ] Errors.HandleRuntimeError\n")
+        RUNNER.require_clean_sanitizers(log)
+
     def test_old_per_test_log_cannot_be_attributed_to_a_new_invocation(self):
         source = self.root / "Testing/Temporary/LastTest.log"
         source.parent.mkdir(parents=True)

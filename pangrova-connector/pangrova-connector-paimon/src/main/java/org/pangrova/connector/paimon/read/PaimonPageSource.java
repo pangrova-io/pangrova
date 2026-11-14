@@ -1,12 +1,12 @@
 package org.pangrova.connector.paimon.read;
 
 import java.io.Closeable;
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.batch.api.page.Page;
-import org.pangrova.connector.spi.data.ConnectorPageSource;
-import org.pangrova.connector.api.data.PageOutputFormat;
+import org.pangrova.connector.api.data.ConnectorPageSource;
+import org.pangrova.connector.api.enums.PageOutputFormat;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.NativePage;
 import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;

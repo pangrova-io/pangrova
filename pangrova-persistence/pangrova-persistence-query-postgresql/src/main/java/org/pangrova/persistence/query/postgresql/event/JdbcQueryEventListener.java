@@ -12,11 +12,11 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
-import org.pangrova.query.api.lifecycle.QueryState;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.event.QueryCompletedEvent;
 import org.pangrova.query.api.event.QueryStatistics;
 import org.pangrova.query.api.event.SplitCompletedEvent;
-import org.pangrova.query.spi.event.QueryEventListener;
+import org.pangrova.query.api.event.QueryEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

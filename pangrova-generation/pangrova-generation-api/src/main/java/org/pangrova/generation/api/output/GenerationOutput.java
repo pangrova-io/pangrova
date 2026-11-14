@@ -1,5 +1,9 @@
 package org.pangrova.generation.api.output;
 
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Immutable object metadata emitted directly by a Native background task. */
 public record GenerationOutput(
         String objectId,
@@ -30,12 +34,6 @@ public record GenerationOutput(
         }
         if (encryptionKeyRef == null) {
             throw new IllegalArgumentException("encryptionKeyRef must not be null");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 }

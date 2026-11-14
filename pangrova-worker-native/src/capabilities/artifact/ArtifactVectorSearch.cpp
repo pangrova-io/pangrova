@@ -38,17 +38,27 @@ double rescore(
   }
   input.clear();
   input.seekg(static_cast<std::streamoff>(node * row_bytes));
-  for (float& value : scratch) {
-    std::array<unsigned char, 4> bytes{};
-    input.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
-    uint32_t bits = 0;
-    for (size_t byte = 0; byte < bytes.size(); ++byte) {
-      bits |= static_cast<uint32_t>(bytes[byte]) << (byte * 8);
-    }
-    value = std::bit_cast<float>(bits);
-    if (!input || !std::isfinite(value)) {
+  // One bulk read per candidate instead of one per dimension. Rescoring runs for
+  // every candidate, so at dimension 1536 the per-float loop dominated the exact
+  // rerank cost. The file stores little-endian floats, so decode explicitly.
+  const size_t vector_bytes = scratch.size() * sizeof(float);
+  std::vector<unsigned char> raw(vector_bytes);
+  input.read(reinterpret_cast<char*>(raw.data()),
+             static_cast<std::streamsize>(vector_bytes));
+  if (input.gcount() != static_cast<std::streamsize>(vector_bytes)) {
+    throw std::runtime_error("ANN raw vector is truncated or non-finite");
+  }
+  for (size_t index = 0; index < scratch.size(); ++index) {
+    const auto* word = raw.data() + index * 4;
+    const uint32_t bits = static_cast<uint32_t>(word[0]) |
+        (static_cast<uint32_t>(word[1]) << 8) |
+        (static_cast<uint32_t>(word[2]) << 16) |
+        (static_cast<uint32_t>(word[3]) << 24);
+    const float value = std::bit_cast<float>(bits);
+    if (!std::isfinite(value)) {
       throw std::runtime_error("ANN raw vector is truncated or non-finite");
     }
+    scratch[index] = value;
   }
   const double result = vector::l2Distance(query.data(), scratch.data(), query.size());
   if (!std::isfinite(result)) {
@@ -311,8 +321,13 @@ pangrova::resource::OwnerVector<uint64_t> ArtifactVectorSearch::search(
         }
       });
   usage.expanded += stats.expanded;
-  if (heap.size() != std::min(work.output_limit, state_->eligible_count)) {
-    throw std::runtime_error("ANN graph search could not fill the eligible result population");
+  const auto wanted = static_cast<size_t>(
+      std::min<uint64_t>(work.output_limit, state_->eligible_count));
+  if (heap.size() < wanted) {
+    // Deleted nodes and selective allowlists can make part of the eligible
+    // population unreachable from the graph. Return what exists and surface the
+    // gap to the operator instead of failing an otherwise valid query.
+    usage.recall_shortfall += wanted - heap.size();
   }
   std::sort(heap.begin(), heap.end(), better);
   for (const auto& candidate : heap) {

@@ -1,9 +1,12 @@
 package org.pangrova.ai.control.config;
 
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
+import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -13,8 +16,26 @@ final class AiCapabilityConfigParser {
 
     private AiCapabilityConfigParser() {}
 
+    static Set<Operation> operations(String raw, String modelName) {
+        var operations = EnumSet.noneOf(Operation.class);
+        for (String token : csv(raw)) {
+            operations.add(switch (token.toLowerCase(Locale.ROOT)) {
+                case "inference" -> Operation.TEXT_GENERATION;
+                case "multimodal" -> Operation.MULTIMODAL_GENERATION;
+                case "embedding" -> Operation.EMBEDDING;
+                case "reranking" -> Operation.RERANKING;
+                default -> throw configurationFailure(
+                        "Unknown capability '" + token + "' for AI model '" + modelName + "'");
+            });
+        }
+        if (operations.isEmpty()) {
+            throw configurationFailure("AI model '" + modelName + "' has no capabilities");
+        }
+        return Collections.unmodifiableSet(operations);
+    }
+
     static List<AiCapabilityDescriptor> parse(
-            String raw,
+            Set<Operation> operations,
             String modelName,
             String version,
             int maxBatchSize,
@@ -22,10 +43,10 @@ final class AiCapabilityConfigParser {
             AiCapabilityDescriptor.ResourceLimits resourceLimits,
             boolean governedBlobLoaderAvailable) {
         List<AiCapabilityDescriptor> result = new ArrayList<>();
-        for (String value : csv(raw)) {
-            CapabilitySpec spec = switch (value.toLowerCase(Locale.ROOT)) {
-                case "inference" -> inference(modelName, maxBatchSize);
-                case "multimodal" -> {
+        for (Operation operation : operations) {
+            CapabilitySpec spec = switch (operation) {
+                case TEXT_GENERATION -> inference(modelName, maxBatchSize);
+                case MULTIMODAL_GENERATION -> {
                     if (!governedBlobLoaderAvailable) {
                         throw configurationFailure(
                                 "AI model '" + modelName + "' cannot advertise multimodal: "
@@ -33,15 +54,10 @@ final class AiCapabilityConfigParser {
                     }
                     yield multimodal(modelName, modalities);
                 }
-                case "embedding" -> embedding(modelName, maxBatchSize, modalities);
-                case "reranking" -> reranking(modelName, maxBatchSize);
-                default -> throw configurationFailure(
-                        "Unknown capability '" + value + "' for AI model '" + modelName + "'");
+                case EMBEDDING -> embedding(modelName, maxBatchSize, modalities);
+                case RERANKING -> reranking(modelName, maxBatchSize);
             };
             result.add(capability(version, resourceLimits, spec));
-        }
-        if (result.isEmpty()) {
-            throw configurationFailure("AI model '" + modelName + "' has no capabilities");
         }
         return List.copyOf(result);
     }
@@ -144,7 +160,9 @@ final class AiCapabilityConfigParser {
                 resourceLimits,
                 spec.deterministic(),
                 AiCapabilityDescriptor.RetryPolicy.noRetry(),
-                Set.of("AI_MODEL_USAGE"));
+                spec.modalities().stream().anyMatch(modality -> modality != Modality.TEXT)
+                        ? Set.of("AI_MODEL_USAGE", "AI_MEDIA_EGRESS")
+                        : Set.of("AI_MODEL_USAGE"));
     }
 
     private static IllegalArgumentException configurationFailure(String message) {

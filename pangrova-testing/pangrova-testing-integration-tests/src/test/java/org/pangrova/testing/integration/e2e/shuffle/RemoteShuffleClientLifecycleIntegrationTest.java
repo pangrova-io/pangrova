@@ -5,7 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.shuffle.pangrova.client.PangrovaShuffleClient;
-import org.pangrova.shuffle.pangrova.client.RemoteShuffleClientException;
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleExchangeSource;
 
 import java.nio.file.Path;
@@ -100,6 +100,30 @@ class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
                     assertThat(frame.getTerminal().getTotalBytes()).isZero();
                     assertThat(frame.getTerminal().getCommittedProducerCount()).isEqualTo(1);
                 });
+            }
+        }
+    }
+
+    @Test void refusesOversizedActualBatchBeforeReturningAnyDataAndRetainsFailure() throws Exception {
+        try (var service = new ActualShuffleService(directory, 1, 1);
+             var pool = service.clientPool()) {
+            var producer = ActualShufflePublication.publish(service);
+            var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
+            var actual = ActualShuffleService.partitionRead(binding);
+            var published = actual.publication();
+            var limited = new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(
+                    published.lastSequence(), published.bytes() - 1, published.rows(), published.manifestSha256());
+            var read = new org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead(
+                    actual.shuffleId(), actual.context(), actual.planEpoch(), actual.expectedProducerPartitions(),
+                    actual.expectedProducerSetChecksum(), limited);
+            try (var source = new RemoteShuffleExchangeSource(
+                    read, binding.readAccess(), pool.borrow(binding.selectedEndpoint()))) {
+                assertThatThrownBy(source::nextVerifiedChunk).isInstanceOf(RemoteShuffleClientException.class)
+                        .hasMessageContaining("exceeds coordinator publication");
+                assertThat(source.lastCompletedSequence()).isEqualTo(-1);
+                assertThatThrownBy(source::nextVerifiedChunk).isInstanceOf(RemoteShuffleClientException.class)
+                        .hasMessageContaining("exceeds coordinator publication");
+                assertThat(source.isFinished()).isFalse();
             }
         }
     }

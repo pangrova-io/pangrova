@@ -5,8 +5,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import org.junit.jupiter.api.Test;
 import org.pangrova.server.coordinator.testinfra.SignedOidcCoordinatorTestBase;
-import org.pangrova.scheduler.core.resource.QueueType;
-import org.pangrova.scheduler.core.resource.WeightedFairScheduler;
+import org.pangrova.scheduler.enums.QueueType;
+import org.pangrova.scheduler.resource.WeightedFairScheduler;
 import org.slf4j.LoggerFactory;
 
 import java.util.Set;
@@ -25,7 +25,7 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
         var before = liveDispatchers();
         var acquired = new AtomicReference<Set<Thread>>();
         var failure = new IllegalStateException("provider initialization failed");
-        var factory = new org.pangrova.scheduler.spi.placement.WorkerSelectionStrategyFactory() {
+        var factory = new org.pangrova.scheduler.api.placement.WorkerSelectionStrategyFactory() {
             @Override
             public String providerId() { return "failing-test-provider"; }
 
@@ -33,18 +33,18 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
             public int apiVersion() { return API_VERSION; }
 
             @Override
-            public org.pangrova.scheduler.spi.placement.WorkerSelectionStrategy create() {
+            public org.pangrova.scheduler.api.placement.WorkerSelectionStrategy create() {
                 acquired.set(newlyCreatedDispatchers(before));
                 throw failure;
             }
         };
-        assertThatThrownBy(() -> new QuerySchedulingWiring(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), factory)).isSameAs(failure);
+        assertThatThrownBy(() -> new QuerySchedulingWiring(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), factory.providerId(), java.util.List.of(factory))).isSameAs(failure);
         assertThat(acquired.get()).hasSize(1).allMatch(thread -> !thread.isAlive());
     }
 
     @Test
     void querySchedulingWiringOwnsAndJoinsTheActualScheduler() throws Exception {
-        try (var scheduling = new QuerySchedulingWiring(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore())) {
+        try (var scheduling = new QuerySchedulingWiring(new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore(), "load-balanced")) {
             var owner = scheduling.tenantScheduler();
             assertThat(scheduling.scheduler()).isNotNull();
             var executed = new CountDownLatch(1);
@@ -61,7 +61,7 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
 
     @Test
     void tenantDisabledCreatesNoFairSchedulerOwner() {
-        try (var scheduling = new QuerySchedulingWiring(null)) {
+        try (var scheduling = new QuerySchedulingWiring(null, "load-balanced")) {
             assertThat(scheduling.scheduler()).isNotNull();
             assertThat(scheduling.tenantScheduler()).isNull();
         }
@@ -116,7 +116,7 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
 
     private CoordinatorBootstrapConfig tenantConfig(CoordinatorBootstrapConfig.QueryConfig query) {
         return withControlAuthentication(new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("tenant-scheduler-lifecycle", 0, 30_000, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("tenant-scheduler-lifecycle", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, true, false),
                 query, CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(), null, null, null));

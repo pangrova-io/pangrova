@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Coordinates C++ fuzzer execution from the Java side via a native bridge.
+ * Coordinates C++ fuzzer execution from the Java side using a supplied runner.
  */
 public final class FuzzerCoordinator {
 
@@ -26,17 +26,17 @@ public final class FuzzerCoordinator {
     }
 
     @FunctionalInterface
-    public interface NativeFuzzerBridge {
+    public interface NativeFuzzerRunner {
         FuzzerResult run(FuzzerType type, int iterations);
     }
 
-    private final NativeFuzzerBridge bridge;
+    private final NativeFuzzerRunner runner;
 
-    public FuzzerCoordinator(NativeFuzzerBridge bridge) {
-        this.bridge = Objects.requireNonNull(bridge);
+    public FuzzerCoordinator(NativeFuzzerRunner runner) {
+        this.runner = Objects.requireNonNull(runner);
     }
 
     public FuzzerResult runFuzzer(FuzzerType type, int iterations) {
-        return bridge.run(type, iterations);
+        return runner.run(type, iterations);
     }
 }

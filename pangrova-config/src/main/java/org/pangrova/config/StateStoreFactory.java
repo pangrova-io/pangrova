@@ -1,5 +1,7 @@
 package org.pangrova.config;
 
+import org.pangrova.config.enums.StateStoreType;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;

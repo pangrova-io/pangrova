@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.catalog;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 import org.pangrova.governance.api.classification.ColumnTagStore;
 
 import java.util.List;
@@ -16,6 +18,7 @@ import java.util.Map;
  * <p>Design mirrors the column-level {@link ColumnTagStore} to maintain API consistency
  * across the governance tag hierarchy (catalog/schema/table/column).</p>
  */
+@Experimental
 public interface CatalogTagStore {
 
     /**

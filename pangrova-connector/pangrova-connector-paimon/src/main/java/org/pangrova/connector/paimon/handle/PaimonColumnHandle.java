@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.handle;
 
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
 
 /**

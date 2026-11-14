@@ -2,25 +2,24 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.generation.core.submission.GenerationDispatchSpecFactory;
+import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.coordinator.generation.DurableGenerationPublisher;
-import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
+import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.generation.core.submission.GenerationPublicationFactory;
+import org.pangrova.generation.publication.GenerationPublicationRouter;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
@@ -44,23 +43,29 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
     }
 
     @Test
-    void registersEveryDurableArtifactTypeForPublication() {
-        GenerationPublicationStore store = (claim, owner, epoch, now) ->
-                new GenerationManifest(
-                        claim.tenantId(), claim.jobId(), claim.artifactId(), claim.artifactType(),
-                        claim.stagingGeneration(), claim.sourceId(), claim.sourceSnapshot(),
-                        claim.executionKind(), claim.dependencySet(), claim.emptyPartitionPolicy(),
-                        claim.formatId(), claim.formatMajor(), claim.formatMinor(),
-                        claim.schemaSha256(), claim.writerBuildId(), claim.stagingUri(),
-                        "a".repeat(64), 0, 0, 0, now);
+    void registersEachArtifactFamilyWithItsOwningAdapter() {
+        var called = new java.util.ArrayList<String>();
+        GenerationPublicationStore indexes = (claim, owner, epoch, now) -> { called.add("indexes"); return null; };
+        GenerationPublicationStore values = (claim, owner, epoch, now) -> { called.add("values"); return null; };
+        GenerationPublicationStore exports = (claim, owner, epoch, now) -> { called.add("exports"); return null; };
+        var router = IndexingBootstrap.publicationRouter(indexes, values, exports);
+        for (String type : List.of(GenerationOutputTypeIds.VECTOR_INDEX, GenerationOutputTypeIds.TEXT_INDEX,
+                GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, GenerationOutputTypeIds.TABULAR_EXPORT)) {
+            var job = exportJobWithType(type);
+            router.publishClaimed(job, "test-owner", 1, job.createdAt());
+        }
+        assertThat(called).containsExactly("indexes", "indexes", "values", "exports");
+    }
 
-        assertThat(IndexingBootstrap.artifactPublicationStores(store))
-                .containsOnlyKeys(
-                        GenerationOutputTypeIds.VECTOR_INDEX,
-                        GenerationOutputTypeIds.TEXT_INDEX,
-                        GenerationOutputTypeIds.TABULAR_EXPORT,
-                        GenerationOutputTypeIds.GENERATED_COLUMN_VALUES)
-                .allSatisfy((type, registered) -> assertThat(registered).isSameAs(store));
+    @Test
+    void unknownClaimTypeIsRejectedByThePublicationRouter() {
+        GenerationPublicationStore unused = (claim, owner, epoch, now) -> {
+            throw new AssertionError("invoked wrong publication adapter");
+        };
+        var router = GenerationPublicationRouter.route(Map.of(GenerationOutputTypeIds.TEXT_INDEX, unused));
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> router.publishClaimed(emptyExportJob(), "owner", 1, Instant.now()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining(GenerationOutputTypeIds.TABULAR_EXPORT);
     }
 
     @Test
@@ -68,7 +73,7 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
         var dataSource = SharedPostgresContainer.migratedDataSource("bootstrap_export_publication");
         var scope = DeferredAuthorizationScope.raw(new QualifiedTableName("lake", "raw", "events"),
                 Set.of("value"), new QualifiedTableName("lake", "features", "event_features"));
-        CoordinatorGenerationAuthorityFixtures.provision(dataSource, "export-tenant", "alice", scope);
+        GenerationAuthorityFixtures.provision(dataSource, "export-tenant", "alice", scope);
         var builds = ModelAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures(dataSource);
         var job = emptyExportJob();
@@ -76,12 +81,12 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
                 new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
                         GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
                         List.of(GenerationStageGraph.StagePlan.of(0, 1,
-                                org.pangrova.generation.api.execution.GenerationPageKind.RELATIONAL_PARTITION,
+                                org.pangrova.generation.api.enums.GenerationPageKind.RELATIONAL_PARTITION,
                                 new byte[] {1}, GenerationStageTemplate.of(new byte[] {2}, List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),
                 job.tenantId(), "alice", scope, new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
         builds.createJob(job, spec, List.of(new org.pangrova.generation.api.page.GenerationPage(
                 job.jobId(), "terminal-0", 0, 0, 0,
-                org.pangrova.generation.api.execution.GenerationPageKind.RELATIONAL_PARTITION,
+                org.pangrova.generation.api.enums.GenerationPageKind.RELATIONAL_PARTITION,
                 List.of(), List.of(), 3)));
         var lease = builds.claimNextPage(job.tenantId(), job.jobId(), executions.takeOwnership(job.tenantId(), job.jobId(), "dispatcher", 1), 1,
                 Duration.ofSeconds(30), job.createdAt()).orElseThrow();
@@ -91,16 +96,15 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
                 org.pangrova.common.util.DigestUtils.sha256Hex(report),
                 List.of(new org.pangrova.generation.api.output.GenerationOutput("object-terminal-0",
                         job.stagingUri() + "/terminal-0", "TABULAR_DATA", "terminal-0", 0,
-                        org.pangrova.generation.api.output.GenerationOutputScope.WORK_UNIT, 7, 0,
+                        org.pangrova.generation.api.enums.GenerationOutputScope.WORK_UNIT, 7, 0,
                         "a".repeat(64), "")), Instant.now(), executions.reportedOwner(job.tenantId(), job.jobId(), lease.ownerEpoch())))).isTrue();
-        var router = GenerationPublicationFactory.route(Map.of(
-                GenerationOutputTypeIds.VECTOR_INDEX, ModelAuthorityFixtures.artifacts().indexPublications(dataSource),
-                GenerationOutputTypeIds.TEXT_INDEX, ModelAuthorityFixtures.artifacts().indexPublications(dataSource),
-                GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, ModelAuthorityFixtures.artifacts().generatedPublications(dataSource),
-                GenerationOutputTypeIds.TABULAR_EXPORT, ModelAuthorityFixtures.artifacts().tabularPublications(dataSource)));
+        var router = IndexingBootstrap.publicationRouter(
+                ModelAuthorityFixtures.artifacts().indexPublications(dataSource),
+                ModelAuthorityFixtures.artifacts().generatedPublications(dataSource),
+                ModelAuthorityFixtures.artifacts().tabularPublications(dataSource));
         executions.takeOwnership(job.tenantId(), job.jobId(), "coordinator-publication", 1);
         try (var publisher = new DurableGenerationPublisher(builds,
-                IndexingBootstrap.artifactPublicationStores(router), executions.ownership("coordinator-publication"))) {
+                router, executions.ownership("coordinator-publication"))) {
             publisher.start();
             await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
                     assertThat(builds.findJob(job.tenantId(), job.jobId()).orElseThrow().state())
@@ -116,9 +120,13 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
     }
 
     private static GenerationJob emptyExportJob() {
+        return exportJobWithType(GenerationOutputTypeIds.TABULAR_EXPORT);
+    }
+
+    private static GenerationJob exportJobWithType(String type) {
         var now = Instant.now();
         return new GenerationJob("export-tenant", "export-job", "feature-view/event_features",
-                GenerationOutputTypeIds.TABULAR_EXPORT, "generation-empty", "lake.raw.events", "snapshot-empty",
+                type, "generation-empty", "lake.raw.events", "snapshot-empty",
                 GenerationExecutionKind.EXPORT, GenerationDependencySet.sourceSnapshot("lake.raw.events", "snapshot-empty"),
                 GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS, "s3://warehouse/staging/export-job",
                 "pangrova.tabular-export.arrow-stream", 1, 0, "a".repeat(64), "native-build", "", "export-job",

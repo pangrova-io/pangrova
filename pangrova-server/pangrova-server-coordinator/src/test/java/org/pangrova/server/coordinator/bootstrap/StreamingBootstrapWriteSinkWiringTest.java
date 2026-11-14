@@ -1,31 +1,35 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
+
+import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
+
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.metadata.api.catalog.CatalogState;
-import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.api.enums.CatalogState;
+import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
-import org.pangrova.metadata.spi.catalog.ConnectorHandleFactory;
-import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
+import org.pangrova.metadata.api.catalog.ConnectorHandleFactory;
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
-import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.api.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.api.data.ConnectorPageSourceProvider;
 import org.pangrova.batch.api.page.Page;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.api.metadata.ConnectorSplitManager;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
-import org.pangrova.streaming.api.cdc.CdcOperation;
+import org.pangrova.streaming.api.enums.CdcOperation;
 import org.pangrova.streaming.api.cdc.CdcRow;
 import org.pangrova.streaming.api.cdc.CdcWriteResult;
 import org.pangrova.streaming.api.cdc.CdcWriteSink;
@@ -138,7 +142,7 @@ class StreamingBootstrapWriteSinkWiringTest {
 
     private StreamState buildStreamState(String targetTable) {
         Instant now = Instant.now();
-        return StreamState.builder()
+        return StreamState.builder().sourceProvider("kafka")
                 .streamName("test-stream")
                 .tenantId("test-tenant")
                 .lifecycleState(StreamLifecycleState.RUNNING)
@@ -159,7 +163,7 @@ class StreamingBootstrapWriteSinkWiringTest {
         ConnectorHandleFactory chf = desc ->
                 new ConnectorCatalogHandle(desc, new TestConnector());
         TestCatalogDeployments store = new TestCatalogDeployments();
-        CatalogRegistry registry = new CatalogRegistry(store, chf, null, null);
+        CatalogRegistry registry = new CatalogRegistry(memoryTableStores(), store, chf, null, null);
         registry.register(new CatalogDescriptor(
                 "iceberg", CatalogType.CONNECTOR, "iceberg",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -297,8 +301,8 @@ class StreamingBootstrapWriteSinkWiringTest {
         }
 
         @Override
-        public void deleteCatalogDescriptor(String name) {
-            catalogs.removeIf(d -> d.name().equals(name));
+        public boolean deleteCatalogDescriptor(CatalogDeploymentIdentity expected) {
+            return catalogs.removeIf(d -> d.identity().equals(expected));
         }
 
         @Override

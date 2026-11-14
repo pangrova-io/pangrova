@@ -1,8 +1,8 @@
 package org.pangrova.persistence.table.memory.governancebinding;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.table.api.policybinding.GovernanceBinding;
-import org.pangrova.table.api.policybinding.GovernanceBindingType;
+import org.pangrova.table.api.policy.GovernanceBinding;
+import org.pangrova.table.api.enums.GovernanceBindingType;
 
 import java.time.Instant;
 import java.util.Map;

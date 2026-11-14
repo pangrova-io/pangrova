@@ -1,11 +1,12 @@
 package org.pangrova.protocol.shuffle.codec;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
 
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.nio.ByteBuffer;
 
 /** Creates bounded chunks for the canonical serialized-batch contract. */
@@ -97,26 +98,18 @@ public final class CanonicalBatchChunks {
     }
 
     private static Checksum sha256(byte[] data, int offset, int length) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(data, offset, length);
-            return Checksum.newBuilder()
-                    .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
-                    .setDigest(ByteString.copyFrom(digest.digest()))
-                    .build();
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
+        MessageDigest digest = DigestUtils.sha256();
+        digest.update(data, offset, length);
+        return Checksum.newBuilder()
+                .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
+                .setDigest(ByteString.copyFrom(digest.digest()))
+                .build();
     }
 
     private static Checksum sha256Remaining(ByteBuffer data) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(data);
-            return checksum(digest.digest());
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
+        MessageDigest digest = DigestUtils.sha256();
+        digest.update(data);
+        return checksum(digest.digest());
     }
 
     private static Checksum checksum(byte[] digest) {

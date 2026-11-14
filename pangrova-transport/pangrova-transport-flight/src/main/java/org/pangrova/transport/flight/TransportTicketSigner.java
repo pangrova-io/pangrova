@@ -1,13 +1,15 @@
 package org.pangrova.transport.flight;
 
+import org.pangrova.transport.flight.exception.TicketValidationException;
+
+import org.pangrova.common.util.DigestUtils;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -209,10 +211,6 @@ public final class TransportTicketSigner {
         // derived the identical key). Derive a well-diffused 32-byte key via SHA-256 instead.
         // This does not manufacture entropy — a short secret is still weak, so production
         // callers should supply >= 32 random bytes (enforced by the byte[] constructors).
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(raw);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available for key derivation", e);
-        }
+        return DigestUtils.sha256().digest(raw);
     }
 }

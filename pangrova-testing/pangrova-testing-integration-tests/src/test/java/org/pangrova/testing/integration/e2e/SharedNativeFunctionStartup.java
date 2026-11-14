@@ -7,8 +7,8 @@ import org.pangrova.testing.integration.e2e.file.S3FileDeployment;
 import org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
-import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
+import org.pangrova.worker.function.NativeFunctionConfig;
+import org.pangrova.worker.jni.NativeRuntime;
 
 /** One deployment, registration and publication owner for the shared E2E Native runtime. */
 final class SharedNativeFunctionStartup implements AutoCloseable {

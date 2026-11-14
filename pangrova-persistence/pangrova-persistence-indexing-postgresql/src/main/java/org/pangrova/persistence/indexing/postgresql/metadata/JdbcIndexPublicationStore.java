@@ -1,9 +1,10 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -15,12 +16,12 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
@@ -196,23 +197,19 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
 
     private static String manifestDigest(
             IndexPublicationRequest request, List<IndexFileMapping> mappings) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            update(digest, request.indexId());
-            update(digest, request.sourceId());
-            update(digest, Integer.toString(request.generation()));
-            update(digest, request.sourceSnapshot());
-            update(digest, request.artifactType());
-            update(digest, request.format().formatId());
-            update(digest, Integer.toString(request.format().majorVersion()));
-            update(digest, Integer.toString(request.format().minorVersion()));
-            update(digest, request.format().schemaSha256());
-            mappings.stream().sorted(Comparator.comparing(IndexFileMapping::dataFilePath))
-                    .forEach(mapping -> updateMapping(digest, mapping));
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 digest is unavailable", failure);
-        }
+        MessageDigest digest = DigestUtils.sha256();
+        update(digest, request.indexId());
+        update(digest, request.sourceId());
+        update(digest, Integer.toString(request.generation()));
+        update(digest, request.sourceSnapshot());
+        update(digest, request.artifactType());
+        update(digest, request.format().formatId());
+        update(digest, Integer.toString(request.format().majorVersion()));
+        update(digest, Integer.toString(request.format().minorVersion()));
+        update(digest, request.format().schemaSha256());
+        mappings.stream().sorted(Comparator.comparing(IndexFileMapping::dataFilePath))
+                .forEach(mapping -> updateMapping(digest, mapping));
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     private static void updateMapping(MessageDigest digest, IndexFileMapping mapping) {

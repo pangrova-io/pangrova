@@ -48,7 +48,7 @@ class FileFromBytesFunctionTest {
         assertThat(fields.get(2)).isEqualTo(3L);
         assertThat(fields.get(3)).asString().hasSize(64);
         assertThat(governed(() -> store.read(
-                FileStructHelper.extractBlobReference((ColumnValue) result))))
+                FileStruct.decodeReference((ColumnValue) result))))
                 .containsExactly(1, 2, 3);
     }
 

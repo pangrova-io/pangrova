@@ -22,11 +22,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
-import org.pangrova.security.spi.authentication.Authenticator;
+import org.pangrova.security.api.authentication.Authenticator;
 
 /**
  * Authenticator that accepts all requests with a default anonymous identity.
- * Used when security is enabled but no real authentication backend is configured.
+ * Selected by the explicit development-only NOOP authentication configuration.
  */
 public class BypassAuthenticator implements Authenticator {
 

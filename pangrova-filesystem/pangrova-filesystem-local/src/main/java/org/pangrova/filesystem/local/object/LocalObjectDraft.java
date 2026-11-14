@@ -11,12 +11,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.common.util.DigestUtils;
 import org.pangrova.filesystem.api.object.FileStat;
 
 /** Owns one private, forced publication candidate and its byte-derived immutable receipt. */
@@ -24,7 +24,7 @@ final class LocalObjectDraft implements AutoCloseable {
     private static final int BUFFER_BYTES = 64 * 1024;
     private final Path path;
     private final FileChannel channel;
-    private final MessageDigest digest = sha256();
+    private final MessageDigest digest = DigestUtils.sha256();
     private final OutputStream output;
 
     private LocalObjectDraft(Path path, FileChannel channel) {
@@ -86,14 +86,6 @@ final class LocalObjectDraft implements AutoCloseable {
         output.close();
         return new Content(size, HexFormat.of().formatHex(digest.digest()),
                 Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant());
-    }
-
-    static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
     }
 
     @Override

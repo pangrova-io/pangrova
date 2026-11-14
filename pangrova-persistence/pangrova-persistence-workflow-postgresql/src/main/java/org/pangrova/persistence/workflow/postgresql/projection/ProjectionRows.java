@@ -2,9 +2,9 @@ package org.pangrova.persistence.workflow.postgresql.projection;
 
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.metadata.codec.json.MetadataJsonMapper;
+import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.metadata.codec.table.TableMetadataSerializer;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -95,7 +95,7 @@ final class ProjectionRows {
 
     private static String json(Object value) {
         try {
-            return MetadataJsonMapper.writeValueAsString(value);
+            return CanonicalJsonMapper.writeValueAsString(value);
         } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
             throw new MetastoreException("Cannot encode projection value", failure);
         }

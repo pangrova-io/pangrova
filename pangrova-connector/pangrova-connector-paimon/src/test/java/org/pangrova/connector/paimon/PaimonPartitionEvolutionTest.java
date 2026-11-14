@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.apache.paimon.catalog.Catalog;

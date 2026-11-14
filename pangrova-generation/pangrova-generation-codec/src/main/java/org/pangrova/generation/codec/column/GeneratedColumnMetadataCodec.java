@@ -1,18 +1,21 @@
 package org.pangrova.generation.codec.column;
 
+import org.pangrova.common.util.DigestUtils;
+
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Canonical connector-property codec for generated-column catalog metadata.
@@ -44,7 +47,7 @@ public final class GeneratedColumnMetadataCodec {
         }
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put(PAYLOAD_PROPERTY, Base64.getEncoder().encodeToString(payload));
-        properties.put(SHA256_PROPERTY, Base64.getEncoder().encodeToString(sha256(payload)));
+        properties.put(SHA256_PROPERTY, Base64.getEncoder().encodeToString(DigestUtils.sha256().digest(payload)));
         return Map.copyOf(properties);
     }
 
@@ -92,7 +95,7 @@ public final class GeneratedColumnMetadataCodec {
 
     private static void validateDigest(byte[] expectedDigest, byte[] payload) {
         if (expectedDigest.length != 32
-                || !MessageDigest.isEqual(expectedDigest, sha256(payload))) {
+                || !MessageDigest.isEqual(expectedDigest, DigestUtils.sha256().digest(payload))) {
             throw new IllegalArgumentException(
                     "generated-column metadata SHA-256 mismatch");
         }
@@ -215,20 +218,6 @@ public final class GeneratedColumnMetadataCodec {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(
                     "generated-column " + field + " is not valid Base64", e);
-        }
-    }
-
-    private static byte[] sha256(byte[] payload) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(payload);
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
-        }
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
         }
     }
 }

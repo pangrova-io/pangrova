@@ -14,14 +14,14 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import org.pangrova.file.api.error.FileStorageException;
+import org.pangrova.file.api.exception.FileStorageException;
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.file.api.space.FileSpace;
 import org.pangrova.file.api.space.FileSpaceDefinition;
 import org.pangrova.file.api.space.FileSpaceMutation;
 import org.pangrova.persistence.file.api.space.FileSpaceRegistry;
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 
 /** PostgreSQL authority for Volume and Stage namespace definitions. */
 public final class JdbcFileSpaceRegistry implements FileSpaceRegistry {

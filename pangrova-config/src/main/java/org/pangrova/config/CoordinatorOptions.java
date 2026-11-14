@@ -1,5 +1,8 @@
 package org.pangrova.config;
 
+import org.pangrova.config.enums.ShuffleMode;
+import org.pangrova.config.enums.StateStoreType;
+
 import java.time.Duration;
 
 /**
@@ -106,6 +109,28 @@ public final class CoordinatorOptions {
                     .withDescription("Certificate DNS identity expected from shuffle servers")
                     .build();
 
+    public static final ConfigOption<ShuffleMode> SHUFFLE_MODE =
+            ConfigOptions.key("coordinator.shuffle.mode")
+                    .enumType(ShuffleMode.class)
+                    .defaultValue(ShuffleMode.NATIVE)
+                    .withDescription("NATIVE uses Arrow Flight shuffle; LOCAL pins disk-backed exchanges to one Worker; REMOTE delegates to the "
+                            + "external shuffle service so a dead Worker's output can be re-read instead of "
+                            + "recomputed. REMOTE requires endpoints, shared PostgreSQL execution authority "
+                            + "and mutual TLS.")
+                    .build();
+
+    public static final ConfigOption<String> SHUFFLE_PROVIDER =
+            ConfigOptions.key("coordinator.shuffle.provider").stringType().defaultValue("pangrova")
+                    .withDescription("External shuffle coordinator factory ID for REMOTE exchanges.").build();
+
+    public static final ConfigOption<String> SHUFFLE_ENDPOINTS =
+            ConfigOptions.key("coordinator.shuffle.endpoints")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("Comma-separated host:port list of external shuffle servers. "
+                            + "Pangrova requires endpoints here or in its scoped provider settings.")
+                    .build();
+
     // ---- Feature Flags (all default true except security) ----
 
     public static final ConfigOption<Boolean> METADATA_ENABLED = ConfigOptions.key("metadata.enabled")
@@ -156,7 +181,7 @@ public final class CoordinatorOptions {
 
     public static final ConfigOption<String> SECURITY_AUTH_TYPE = ConfigOptions.key("security.auth.type")
             .stringType()
-            .withDescription("Authenticator type when security is enabled: OAUTH2 or LDAP (NOOP only for dev)")
+            .withDescription("ID of an installed Coordinator authenticator factory (NOOP is reserved for development)")
             .build();
 
     // ---- High Availability ----
@@ -165,11 +190,6 @@ public final class CoordinatorOptions {
             .booleanType()
             .defaultValue(false)
             .withDescription("Enable coordinator high-availability mode")
-            .build();
-
-    public static final ConfigOption<String> HIGH_AVAILABILITY_JDBC_URL = ConfigOptions.key("coordinator.ha.jdbc-url")
-            .stringType()
-            .withDescription("JDBC URL for high-availability coordination state store")
             .build();
 
     public static final ConfigOption<Boolean> DDL_LEADER_ROUTING_ENABLED =
@@ -191,6 +211,12 @@ public final class CoordinatorOptions {
                     .withDescription("Enable speculative copies of straggling tasks with exact-attempt drain cleanup")
                     .build();
 
+    public static final ConfigOption<String> PLACEMENT_PROVIDER = ConfigOptions.key("coordinator.query.placement-provider")
+            .stringType()
+            .defaultValue("load-balanced")
+            .withDescription("Installed worker placement strategy used to rank eligible workers")
+            .build();
+
     public static final ConfigOption<Duration> QUERY_TIMEOUT = ConfigOptions.key("coordinator.query.timeout")
             .durationType()
             .defaultValue(Duration.ofMinutes(5))
@@ -208,7 +234,7 @@ public final class CoordinatorOptions {
     public static final ConfigOption<Long> TASK_SPILL_MAX_BYTES =
             ConfigOptions.key("coordinator.task.spill.max-bytes")
                     .longType()
-                    .defaultValue(0L)
+                    .defaultValue(8L * 1024 * 1024 * 1024)
                     .withDescription("Maximum spill bytes per task; zero disables task spilling. "
                             + "Requires worker.spill.directory and is bounded by Worker-local policy.")
                     .build();

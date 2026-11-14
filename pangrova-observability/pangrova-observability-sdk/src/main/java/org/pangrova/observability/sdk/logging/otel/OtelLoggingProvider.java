@@ -5,10 +5,10 @@ import io.opentelemetry.api.trace.SpanContext;
 import org.pangrova.observability.sdk.tracing.otel.OtelContextWrapper;
 import org.pangrova.observability.api.tracing.Context;
 import org.pangrova.observability.api.logging.Logger;
-import org.pangrova.observability.spi.logging.LoggingProvider;
+import org.pangrova.observability.api.logging.LoggingProvider;
 import org.slf4j.LoggerFactory;
-import org.pangrova.observability.core.logging.StructuredLogger;
-import org.pangrova.observability.core.logging.LogContext;
+import org.pangrova.observability.logging.StructuredLogger;
+import org.pangrova.observability.logging.LogContext;
 
 /**
  * OpenTelemetry-aware {@link LoggingProvider} that returns {@link StructuredLogger} instances.

@@ -1,6 +1,6 @@
 package org.pangrova.metadata.api.resolution;
 
-import org.pangrova.table.api.ownership.OwnershipMode;
+import org.pangrova.table.api.enums.OwnershipMode;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;

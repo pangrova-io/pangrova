@@ -1,15 +1,15 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.batch.api.reader.ReadableBatch;
-import org.pangrova.connector.spi.data.ColumnarPageSink;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.data.ColumnarPageSink;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.NativePage;
 import org.pangrova.connector.runtime.codec.ConnectorBinaryPageCodec;
 import org.pangrova.batch.api.page.Page;
-import org.pangrova.connector.api.index.CommitEventType;
+import org.pangrova.connector.api.enums.CommitEventType;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;

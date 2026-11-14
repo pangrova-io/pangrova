@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e.runner;
 
+import org.pangrova.testing.integration.exception.SqlExecutionException;
+
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 
@@ -41,7 +43,7 @@ public final class SqlTestRunner {
         Objects.requireNonNull(sql, "sql must not be null");
         E2ETestFramework.QueryResult result = framework.executeQuery(sql);
         if (!result.success()) {
-            throw new SqlExecutionException(sql, result);
+            throw new SqlExecutionException(sql, result.errorMessage());
         }
         return result.rows();
     }

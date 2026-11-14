@@ -356,7 +356,7 @@ public class QueryExecutor {
 │     └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                                  │
 │  3. Register SPI                                                                 │
-│     META-INF/services/org.pangrova.connector.spi.plugin.ConnectorFactory                │
+│     META-INF/services/org.pangrova.connector.api.plugin.ConnectorFactory                │
 │                                                                                  │
 │  4. Write tests                                                                 │
 │     Use TestContainers for integration testing                                 │
@@ -643,7 +643,7 @@ Refer to the CSV Connector example in §3.2 for implementation patterns.
 ```bash
 # Create SPI registration file
 echo "org.pangrova.connector.mydb.MyDbConnectorFactory" > \
-  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.connector.spi.plugin.ConnectorFactory
+  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.connector.api.plugin.ConnectorFactory
 ```
 
 ### Step 6: Write Integration Test
@@ -809,11 +809,11 @@ Closes #123
 ```bash
 # Start Coordinator (debug mode)
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 \
-     -jar pangrova-coordination/pangrova-coordination-core/target/pangrova-coordination-core-0.1.0-SNAPSHOT.jar
+     -jar pangrova-coordination/pangrova-coordination-control/target/pangrova-coordination-control-0.1.0-SNAPSHOT.jar
 
 # Start Worker (debug mode)
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5006 \
-     -jar pangrova-worker/pangrova-worker-core/target/pangrova-worker-core-0.1.0-SNAPSHOT.jar
+     -jar pangrova-worker/target/pangrova-worker-0.1.0-SNAPSHOT.jar
 
 # Native debugging (GDB)
 gdb --args ./pangrova-worker-native/build/pangrova_worker_native
@@ -902,7 +902,7 @@ Use a fresh receipt path when building another artifact. See the
 for offline model imports, fixture integrity checks and the focused Q9 command.
 
 ```bash
-mvn test -pl pangrova-coordination/pangrova-coordination-core -am                  # Unit tests
+mvn test -pl pangrova-coordination/pangrova-coordination-control -am                  # Unit tests
 mvn test -pl pangrova-testing/pangrova-testing-integration-tests -am -Pnative-runtime \
   -Dpangrova.e2e.ai.image-id="$ai_fixture_id"           # Real E2E tests
 mvn test -pl pangrova-testing/pangrova-testing-benchmark -am # TPC-H benchmark

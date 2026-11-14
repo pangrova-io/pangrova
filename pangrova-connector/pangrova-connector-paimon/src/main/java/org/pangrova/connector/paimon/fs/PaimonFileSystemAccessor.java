@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.fs;
 
-import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 

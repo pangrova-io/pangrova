@@ -1,12 +1,14 @@
 package org.pangrova.testing.integration.e2e.index;
 
+import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import java.util.ServiceLoader;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.indexing.api.data.BTreeIndexData;
 import org.pangrova.indexing.api.data.CompositeIndexKey;
-import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -342,7 +344,7 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
                     + " (user_id, description, amount, status) VALUES (5, 'partial null', 500.0, NULL)");
             sqlRunner.executeDdl("CREATE INDEX idx_mc_btree ON " + fqn() + "(user_id, status) USING BTREE");
             awaitReadyIndex("idx_mc_btree");
-            var serializer = new IndexSerializer(BuiltinIndexSerializers.createRegistry());
+            var serializer = new IndexSerializer(TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class)));
             var keys = new java.util.ArrayList<Comparable<?>>();
             try (var connection = stateStoreDataSource().getConnection();
                     var statement = connection.prepareStatement("""

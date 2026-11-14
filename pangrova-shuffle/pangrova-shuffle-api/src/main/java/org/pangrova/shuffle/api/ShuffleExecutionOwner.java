@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.api;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Fenced identity of the Coordinator process that owns a shuffle lifecycle. */
 public record ShuffleExecutionOwner(
         String ownerId,
@@ -11,12 +13,6 @@ public record ShuffleExecutionOwner(
         requireText(ownerIncarnation, "ownerIncarnation");
         if (fencingToken <= 0) {
             throw new IllegalArgumentException("fencingToken must be positive");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 }

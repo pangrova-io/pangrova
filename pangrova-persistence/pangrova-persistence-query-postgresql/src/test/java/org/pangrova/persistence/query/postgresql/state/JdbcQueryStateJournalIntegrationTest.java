@@ -37,6 +37,15 @@ class JdbcQueryStateJournalIntegrationTest {
     private JdbcQueryStateJournal journal;
     private boolean stickyConflict;
 
+    @org.junit.jupiter.api.BeforeAll
+    static void initializeJournalDatabase() {
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         var source = new PGSimpleDataSource();
@@ -44,7 +53,6 @@ class JdbcQueryStateJournalIntegrationTest {
         source.setUser(POSTGRES.getUsername());
         source.setPassword(POSTGRES.getPassword());
         dataSource = source;
-        initSchema(dataSource);
         cleanTables(dataSource);
         var config = new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000);
         journal = new JdbcQueryStateJournal(dataSource, config);
@@ -54,7 +62,7 @@ class JdbcQueryStateJournalIntegrationTest {
     void tearDown() {
         if (journal != null) {
             if (stickyConflict) {
-                assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class, journal::close);
+                assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class, journal::close);
                 assertTrue(journal.isDrained());
             } else { journal.close(); }
         }
@@ -140,7 +148,7 @@ class JdbcQueryStateJournalIntegrationTest {
             var restrictedSource = restrictedSource(POSTGRES.getJdbcUrl(), role, password);
             try (var restricted = new JdbcQueryStateJournal(restrictedSource,
                     new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000))) {
-                var failure = assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+                var failure = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                         () -> restricted.purgeQuery("q-owned"));
                 assertTrue(failure.getMessage().contains("q-owned"));
                 assertInstanceOf(java.sql.SQLException.class, failure.getCause());
@@ -164,7 +172,7 @@ class JdbcQueryStateJournalIntegrationTest {
     void closedJournalCannotAcknowledgePurgeWithoutRemovingRows() throws Exception {
         seedPurgeQueries();
         journal.close();
-        assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class, () -> journal.purgeQuery("q-owned"));
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class, () -> journal.purgeQuery("q-owned"));
         assertEquals(1, countQueryRows("task_state_journal", "q-owned"));
         assertEquals(1, countQueryRows("query_state_journal", "q-owned"));
     }
@@ -261,41 +269,6 @@ class JdbcQueryStateJournalIntegrationTest {
                 "Terminal query q-2 should not be replayed");
     }
 
-    private static void initSchema(DataSource source) {
-        try (Connection conn = source.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS query_state_journal (
-                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        event_id UUID NOT NULL UNIQUE,
-                        query_id VARCHAR(64) NOT NULL,
-                        sql_text TEXT,
-                        session_json TEXT,
-                        state VARCHAR(32) NOT NULL,
-                        timestamp_ms BIGINT NOT NULL,
-                        coordinator_id VARCHAR(128),
-                        epoch BIGINT NOT NULL DEFAULT 0,
-                        lineage_payload JSONB
-                    )""");
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS task_state_journal (
-                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        event_id UUID NOT NULL UNIQUE,
-                        query_id VARCHAR(64) NOT NULL,
-                        task_id VARCHAR(64) NOT NULL,
-                        worker_id VARCHAR(64),
-                        state VARCHAR(32) NOT NULL,
-                        stage_id INT NOT NULL,
-                        report_sequence BIGINT NOT NULL DEFAULT 0,
-                        timestamp_ms BIGINT NOT NULL,
-                        coordinator_id VARCHAR(128),
-                        epoch BIGINT NOT NULL DEFAULT 0
-                    )""");
-        } catch (java.sql.SQLException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
     @Test
     void exactEventRetryReconcilesOriginalPayloadWithoutCreatingAnotherOrderedRow() throws Exception {
         var event = new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(123, "issuer"),
@@ -314,18 +287,18 @@ class JdbcQueryStateJournalIntegrationTest {
         var event = new QueryStateEvent(context, "q-conflict", "SELECT 1", "{}", "QUEUED");
         journal.appendQueryEventSync(event);
         var changed = new QueryStateEvent(context, "q-conflict", "SELECT 2", "{}", "QUEUED");
-        assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                 () -> journal.appendQueryEventSync(changed));
         stickyConflict = true;
         assertEquals(event, journal.latestQueryEvent("q-conflict").orElseThrow());
         assertEquals(1, countQueryRows("query_state_journal", "q-conflict"));
-        assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                 () -> journal.appendQueryEvent(new QueryStateEvent(
                         org.pangrova.query.api.journal.JournalEventContext.create(999, "issuer"),
                         "q-after-conflict", "SELECT 1", "{}", "QUEUED")));
-        assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class, journal::close);
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class, journal::close);
         assertTrue(journal.isDrained(), "Actual writer and SQL owners have exited, not a successful commit claim");
-        assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class, journal::close);
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class, journal::close);
         assertEquals(0, countQueryRows("query_state_journal", "q-after-conflict"));
     }
 
@@ -343,7 +316,7 @@ class JdbcQueryStateJournalIntegrationTest {
             }
             journal.appendQueryEvent(event);
             await().atMost(5, SECONDS).until(this::actualJournalInsertWaitsForTableLock);
-            assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEvent(new QueryStateEvent(
                             org.pangrova.query.api.journal.JournalEventContext.create(701, "issuer"),
                             "q-overflow", "SELECT 2", "{}", "QUEUED")));
@@ -375,9 +348,9 @@ class JdbcQueryStateJournalIntegrationTest {
                 denied.queryId(), "t-bad", "worker", "FINISHED", 0, 2);
         installQueryIsolationFault();
         try {
-            var failure = assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            var failure = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEventSync(denied));
-            assertEquals(org.pangrova.persistence.query.api.commit.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
+            assertEquals(org.pangrova.persistence.query.api.exception.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
                     failure.admissionOutcome());
             requireQueryIsolationFault(failure);
             journal.appendTaskEvent(later);
@@ -394,7 +367,7 @@ class JdbcQueryStateJournalIntegrationTest {
             assertEquals(0, countQueryRows("query_state_journal", denied.queryId()));
             assertEquals(0, countQueryRows("task_state_journal", denied.queryId()),
                     "A later task must not bypass its query's uncommitted earlier event");
-            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.purgeQuery(denied.queryId())));
             removeQueryIsolationFault();
             journal.appendQueryEventSync(denied);
@@ -428,21 +401,21 @@ class JdbcQueryStateJournalIntegrationTest {
                 denied.queryId(), "t-bad", "worker", "FINISHED", 0, 2);
         installQueryIsolationFault();
         try {
-            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEventSync(denied)));
-            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEventSync(denied)));
             // Exact retries join one resident owner; the second distinct event still fits.
             journal.appendTaskEvent(later);
             var overflow = new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(812, "issuer"),
                     "q-overflow", "SELECT 44", "{}", "QUEUED");
-            var rejected = assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            var rejected = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEvent(overflow));
-            assertEquals(org.pangrova.persistence.query.api.commit.JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER,
+            assertEquals(org.pangrova.persistence.query.api.exception.JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER,
                     rejected.admissionOutcome());
-            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.purgeQuery(denied.queryId())));
-            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class, journal::close));
+            requireQueryIsolationFault(assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class, journal::close));
             assertFalse(journal.isDrained());
             assertEquals(0, countQueryRows("query_state_journal", denied.queryId()));
             assertEquals(0, countQueryRows("task_state_journal", denied.queryId()));
@@ -521,8 +494,8 @@ class JdbcQueryStateJournalIntegrationTest {
             }
             journal.appendQueryEvent(event);
             await().atMost(5, SECONDS).until(this::actualJournalInsertWaitsForTableLock);
-            assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class, journal::close);
-            assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+            assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class, journal::close);
+            assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                     () -> journal.appendQueryEvent(event));
             blocker.commit();
         }
@@ -585,16 +558,16 @@ class JdbcQueryStateJournalIntegrationTest {
                     "q-lost-commit", "SELECT 222", "{\"original\":true}", "QUEUED");
             wire.armCommitResponseLoss();
             try {
-                var failed = assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class,
+                var failed = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                         () -> journal.appendQueryEventSync(event));
-                assertEquals(org.pangrova.persistence.query.api.commit.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
+                assertEquals(org.pangrova.persistence.query.api.exception.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
                         failed.admissionOutcome());
                 assertTrue(wire.awaitActualCommit());
                 assertEquals(1, countQueryRows("query_state_journal", event.queryId()));
                 long originalRow = eventRowId(event.context().eventId());
                 Thread.currentThread().interrupt();
                 try {
-                    assertThrows(org.pangrova.persistence.query.api.commit.JournalWriteException.class, journal::close);
+                    assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class, journal::close);
                     assertTrue(Thread.currentThread().isInterrupted());
                     assertFalse(journal.isDrained());
                 } finally { Thread.interrupted(); }

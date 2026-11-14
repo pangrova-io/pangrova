@@ -26,6 +26,9 @@ struct VectorSearchUsage {
   uint64_t downloaded_bytes = 0;
   uint64_t expanded = 0;
   uint64_t rescored = 0;
+  // Rows the graph could not reach under deletions or a selective allowlist.
+  // Reported instead of failing the query; zero means the full population was found.
+  uint64_t recall_shortfall = 0;
 };
 
 /** One real checksum-verified DiskANN source bundle and its physical locators. */

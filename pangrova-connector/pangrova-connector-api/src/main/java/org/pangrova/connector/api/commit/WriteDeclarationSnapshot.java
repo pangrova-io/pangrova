@@ -1,5 +1,7 @@
 package org.pangrova.connector.api.commit;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
@@ -8,9 +10,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Objects;
 
 /** Exact connector schema and declaration content admitted before allocation, including declaration absence. */
@@ -39,7 +38,7 @@ public record WriteDeclarationSnapshot(QualifiedTableName table, String schemaSh
 
     /** Hashes the validated GeneratedColumnSet protobuf bytes, including its explicit empty declaration. */
     public static String generatedColumnsDigest(byte[] canonicalDefinitions) {
-        return sha256(Objects.requireNonNull(canonicalDefinitions, "canonicalDefinitions"));
+        return DigestUtils.sha256Hex(Objects.requireNonNull(canonicalDefinitions, "canonicalDefinitions"));
     }
 
     private static String schemaDigest(ConnectorTableMetadata metadata) {
@@ -52,7 +51,7 @@ public record WriteDeclarationSnapshot(QualifiedTableName table, String schemaSh
                 writeText(output, column.parameterizedType() == null
                         ? "" : column.parameterizedType().getDisplayName());
             }
-            return sha256(bytes.toByteArray());
+            return DigestUtils.sha256Hex(bytes.toByteArray());
         } catch (IOException impossible) {
             throw new IllegalStateException("Cannot encode in-memory connector schema", impossible);
         }
@@ -62,14 +61,6 @@ public record WriteDeclarationSnapshot(QualifiedTableName table, String schemaSh
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
         output.writeInt(bytes.length);
         output.write(bytes);
-    }
-
-    private static String sha256(byte[] bytes) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("JDK SHA-256 unavailable", impossible);
-        }
     }
 
     private static void requireDigest(String digest) {

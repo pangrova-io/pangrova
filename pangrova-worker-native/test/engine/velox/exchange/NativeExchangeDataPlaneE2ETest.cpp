@@ -13,7 +13,7 @@
 #include <openssl/evp.h>
 
 #include "engine/executor/queue/OutputQueue.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "pangrova/protocol/v2/plan_extension.pb.h"
 #include "engine/shuffle/FlightShuffleServer.h"
 #include "engine/shuffle/ShuffleBatchSerializer.h"

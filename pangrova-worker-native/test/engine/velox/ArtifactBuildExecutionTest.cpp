@@ -18,7 +18,7 @@
 #include "capabilities/artifact/ImmutableArtifactWriter.h"
 #include "capabilities/artifact/RowLocatorSidecar.h"
 #include "capabilities/capability/NativeCapabilityCatalog.h"
-#include "bridge/RuntimeInitializer.h"
+#include "jni/RuntimeInitializer.h"
 #include "indexing/text/bm25/Bm25Analyzer.h"
 #include "indexing/text/bm25/Bm25CorpusStats.h"
 #include "indexing/text/bm25/Bm25Segment.h"

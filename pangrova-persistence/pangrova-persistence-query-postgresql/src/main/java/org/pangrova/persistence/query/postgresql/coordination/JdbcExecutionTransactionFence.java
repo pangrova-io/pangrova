@@ -1,13 +1,15 @@
 package org.pangrova.persistence.query.postgresql.coordination;
 
-import org.pangrova.query.api.ownership.ExecutionAnchor;
-import org.pangrova.query.api.ownership.ExecutionOwnerLostException;
-import org.pangrova.query.api.ownership.ExecutionOwnerLostException.Reason;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import org.pangrova.query.api.exception.ExecutionOwnerLostException;
+import org.pangrova.query.api.exception.ExecutionOwnerLostException.Reason;
 import org.pangrova.persistence.jdbc.api.query.ExecutionTransactionFence;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** PostgreSQL execution ownership check using only the supplied transaction and its database clock. */
 public final class JdbcExecutionTransactionFence implements ExecutionTransactionFence {
@@ -54,11 +56,5 @@ public final class JdbcExecutionTransactionFence implements ExecutionTransaction
             }
         }
         return anchor;
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
     }
 }

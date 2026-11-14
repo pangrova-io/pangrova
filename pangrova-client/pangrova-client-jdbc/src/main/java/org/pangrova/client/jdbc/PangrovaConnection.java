@@ -1,6 +1,6 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.transport.client.http.PangrovaRestClient;
+import org.pangrova.client.http.PangrovaRestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

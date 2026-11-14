@@ -76,16 +76,23 @@ merge-on-read path.
 
 ```
 DDL (StatementDispatcher)
-  └─ MaterializationDdlRegistration
+  └─ MaterializationDdlRegistration (Server Coordinator)
         ├─ KernelDynamicTableService        (DYNAMIC_TABLE)
         └─ KernelMaterializedViewService    (MATERIALIZED_VIEW)
-              └─ MaterializationService (pangrova-materialization)
+              └─ MaterializationService (pangrova-materialization-lifecycle)
                     ├─ repository: objects, definitions, attempts, generations
                     ├─ catalog:    published head read model
                     ├─ planner:    AST -> planned definition in the query cluster
                     ├─ execution:  native CTAS into __pg_mat_<32 hex>
                     └─ publication: commit evidence + CAS head swap
 ```
+
+Server Coordinator constructs the refresh strategy registry when it registers the
+DDL handlers. Each statement uses that registry with its own identity, planner,
+executor and fence. The production registry supplies full, append-only and
+partition-replace refresh strategies. The kind-handler, policy-evaluator and
+rewrite-guard extension lists are currently empty; their interfaces in
+`pangrova-materialization-api` are available to implementers.
 
 Lifecycle:
 

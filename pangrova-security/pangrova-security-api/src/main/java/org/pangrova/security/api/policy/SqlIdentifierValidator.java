@@ -2,7 +2,7 @@ package org.pangrova.security.api.policy;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 
 import java.util.Locale;
 import java.util.Set;

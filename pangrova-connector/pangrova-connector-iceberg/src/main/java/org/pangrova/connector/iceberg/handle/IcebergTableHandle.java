@@ -6,6 +6,8 @@ import java.util.Optional;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.SnapshotRange;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Immutable handle referencing an Iceberg table by schema, name, and metadata snapshot.
  *
@@ -74,20 +76,14 @@ public record IcebergTableHandle(
      * Compact constructor with defensive copies and null safety.
      */
     public IcebergTableHandle {
-        requireNonBlank(schemaName, "schemaName");
-        requireNonBlank(tableName, "tableName");
-        requireNonBlank(tableLocation, "tableLocation");
-        requireNonBlank(schemaJson, "schemaJson");
+        requireText(schemaName, "schemaName");
+        requireText(tableName, "tableName");
+        requireText(tableLocation, "tableLocation");
+        requireText(schemaJson, "schemaJson");
         partitionSpecJson = partitionSpecJson == null ? "{}" : partitionSpecJson;
         snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
         properties = properties == null ? Map.of() : Map.copyOf(properties);
         readMode = readMode == null ? READ_MODE_FULL : readMode;
-    }
-
-    private static void requireNonBlank(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
     }
 
     @Override

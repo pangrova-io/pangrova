@@ -1,8 +1,8 @@
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.ai.spi.invocation.PhysicalAttempt;
-import org.pangrova.ai.spi.invocation.ClientExchange;
-import org.pangrova.ai.spi.invocation.ExchangeRegistration;
+import org.pangrova.ai.api.invocation.PhysicalAttempt;
+import org.pangrova.ai.api.invocation.ClientExchange;
+import org.pangrova.ai.api.invocation.ExchangeRegistration;
 
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 

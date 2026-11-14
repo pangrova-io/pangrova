@@ -1,10 +1,10 @@
 package org.pangrova.persistence.table.postgresql.maintenance;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
-import org.pangrova.persistence.table.api.control.TableControlException;
-import org.pangrova.table.api.maintenance.MaintenanceOperation;
-import org.pangrova.table.api.maintenance.MaintenanceRunState;
-import org.pangrova.persistence.table.api.maintenance.TableControlMaintenanceStore;
+import org.pangrova.table.api.exception.TableControlException;
+import org.pangrova.table.api.enums.MaintenanceOperation;
+import org.pangrova.table.api.enums.MaintenanceRunState;
+import org.pangrova.table.api.maintenance.TableControlMaintenanceStore;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 import org.pangrova.common.concurrent.ThreadSafe;

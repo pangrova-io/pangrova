@@ -1,10 +1,12 @@
 package org.pangrova.generation.api.publication;
 
 import org.pangrova.generation.api.dependency.GenerationDependencySet;
-import org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
 
 import java.time.Instant;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /** Canonical immutable publication view shared by every artifact consumer. */
 public record GenerationManifest(
@@ -60,12 +62,6 @@ public record GenerationManifest(
         }
         if (publishedAt == null) {
             throw new IllegalArgumentException("publishedAt must not be null");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 

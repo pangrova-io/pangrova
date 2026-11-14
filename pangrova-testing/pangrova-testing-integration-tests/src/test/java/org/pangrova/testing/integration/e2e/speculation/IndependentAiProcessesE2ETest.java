@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.speculation;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
-import org.pangrova.client.protocol.ResultProtocol;
+import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;

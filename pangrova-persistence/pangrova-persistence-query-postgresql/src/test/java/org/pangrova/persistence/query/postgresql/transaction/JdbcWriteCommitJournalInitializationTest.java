@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
-import org.pangrova.persistence.query.api.commit.JournalWriteException;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

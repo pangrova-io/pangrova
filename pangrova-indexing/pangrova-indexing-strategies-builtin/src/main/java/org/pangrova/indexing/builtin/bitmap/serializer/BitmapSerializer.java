@@ -4,7 +4,7 @@ import org.pangrova.indexing.api.data.bitmap.BitmapIndexData;
 
 import java.util.LinkedHashMap;
 import org.pangrova.indexing.codec.data.SerdeCodec;
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
 /**
  * Serializer for {@link BitmapIndexData}.

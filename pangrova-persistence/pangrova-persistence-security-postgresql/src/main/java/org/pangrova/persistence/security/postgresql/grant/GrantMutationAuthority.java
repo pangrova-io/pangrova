@@ -1,9 +1,9 @@
 package org.pangrova.persistence.security.postgresql.grant;
 
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.grant.PrivilegeScope;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentGrantReader;
 

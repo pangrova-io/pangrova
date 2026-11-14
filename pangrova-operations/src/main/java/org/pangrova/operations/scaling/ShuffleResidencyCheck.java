@@ -53,11 +53,4 @@ public interface ShuffleResidencyCheck {
             return new ScaleDownAdvice(adjustedTarget, false, reason);
         }
     }
-
-    /**
-     * Returns a residency check that always allows scale-down without drain.
-     */
-    static ShuffleResidencyCheck alwaysAllow() {
-        return (currentWorkers, proposedTarget) -> ScaleDownAdvice.allow(proposedTarget);
-    }
 }

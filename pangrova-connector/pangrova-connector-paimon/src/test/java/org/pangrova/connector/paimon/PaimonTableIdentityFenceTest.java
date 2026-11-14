@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSink;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.Page;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;

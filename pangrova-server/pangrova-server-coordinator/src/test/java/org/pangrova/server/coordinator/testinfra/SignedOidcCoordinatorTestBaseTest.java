@@ -58,8 +58,8 @@ class SignedOidcCoordinatorTestBaseTest extends SignedOidcCoordinatorTestBase {
         assertThat(secured.tenantEnabled()).isFalse();
         assertThat(secured.streamingEnabled()).isFalse();
         assertThat(secured.resilienceEnabled()).isFalse();
-        assertThat(secured.securityConfig().authenticatorType())
-                .isEqualTo(CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2);
+        assertThat(secured.securityConfig().requireAuthenticator().providerId())
+                .isEqualTo("OAUTH2");
         coordinator = new CoordinatorBootstrap(secured);
         coordinator.start();
         assertThat(submit(false).statusCode()).isEqualTo(401);

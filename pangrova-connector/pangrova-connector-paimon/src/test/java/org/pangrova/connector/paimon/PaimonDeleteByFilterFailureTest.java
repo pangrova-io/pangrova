@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.DeleteFilter;
 import org.apache.paimon.metrics.MetricRegistry;
 import org.apache.paimon.stats.Statistics;

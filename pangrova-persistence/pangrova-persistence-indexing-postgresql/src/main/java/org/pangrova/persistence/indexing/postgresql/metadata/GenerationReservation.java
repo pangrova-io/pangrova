@@ -1,6 +1,6 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 
 import java.time.Instant;
 

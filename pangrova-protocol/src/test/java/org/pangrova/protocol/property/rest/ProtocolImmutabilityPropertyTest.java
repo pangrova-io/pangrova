@@ -2,7 +2,7 @@ package org.pangrova.protocol.property.rest;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.common.client.result.ResultEndpoint;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -22,8 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Exhaustive test verifying immutability of all REST DTO classes
  * in {@code org.pangrova.protocol.rest}, the shared execution identity package,
  * and the public client DTO packages
- * {@code org.pangrova.client.protocol} and {@code org.pangrova.client.api}
- * and Transport API result addresses, including their sub-packages.
+ * {@code org.pangrova.common.client.query} and {@code org.pangrova.common.client.metadata}
+ * and shared result addresses, including their sub-packages.
  *
  * <p>Uses reflection to discover all classes at test time, ensuring
  * newly added DTOs are automatically covered without manual updates.</p>
@@ -34,23 +34,23 @@ class ProtocolImmutabilityPropertyTest {
 
     /** Packages scanned for DTO classes. */
     private static final List<String> DTO_PACKAGES = List.of(
-            "org.pangrova.transport.api.result",
+            "org.pangrova.common.client.result",
             "org.pangrova.protocol.rest",
             "org.pangrova.protocol.execution.identity",
-            "org.pangrova.client.protocol",
-            "org.pangrova.client.api");
+            "org.pangrova.common.client.query",
+            "org.pangrova.common.client.metadata");
 
     /**
      * Packages whose record types count as immutable DTO components. The public
      * error package is scanned only by reference (its exception types are not DTOs).
      */
     private static final List<String> DTO_TYPE_ROOTS = List.of(
-            "org.pangrova.transport.api.result",
+            "org.pangrova.common.client.result",
             "org.pangrova.protocol.rest",
             "org.pangrova.protocol.execution.identity",
-            "org.pangrova.client.protocol",
-            "org.pangrova.client.api",
-            "org.pangrova.client.error");
+            "org.pangrova.common.client.query",
+            "org.pangrova.common.client.metadata",
+            "org.pangrova.common.client.error");
 
     /**
      * Immutable types allowed as record component types.

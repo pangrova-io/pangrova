@@ -58,7 +58,7 @@ public final class ImmutableFilterBoundary {
         command(command, runner, "run", "(Ljava/util/List;)Ljava/lang/Process;", "COMMAND_INJECTION", false);
         command(command, runner, "run", "(Ljava/util/List;)V", "OVERLY_PERMISSIVE_FILE_PERMISSION", false);
         Filter jitter = Filter.parseFilter(args[3]);
-        String policy = "org.pangrova.client.session.RetryPolicy";
+        String policy = "org.pangrova.common.client.session.RetryPolicy";
         command(jitter, policy, "delayForAttemptWithJitter", "(I)Ljava/time/Duration;", "PREDICTABLE_RANDOM", true);
         command(jitter, policy + "Other", "delayForAttemptWithJitter", "(I)Ljava/time/Duration;",
                 "PREDICTABLE_RANDOM", false);
@@ -139,15 +139,15 @@ public final class ImmutableFilterBoundary {
     private static void verifyQueryOwnership(String fullFilterPath) throws Exception {
         Filter full = Filter.parseFilter(fullFilterPath);
         String[][] cases = {
-            {"org.pangrova.query.core.lifecycle.QueryTerminalCleanup$Context", "state", "", "org.pangrova.query.core.lifecycle.QueryStateMachine", "state", "org.pangrova.query.core.lifecycle.QueryStateMachine", "EI_EXPOSE_REP"},
-            {"org.pangrova.query.core.lifecycle.QueryTerminalCleanup$Context", "<init>", "java.lang.String,org.pangrova.query.core.lifecycle.QueryStateMachine,java.lang.String", "void", "state", "org.pangrova.query.core.lifecycle.QueryStateMachine", "EI_EXPOSE_REP2"},
-            {"org.pangrova.query.core.retention.QueryRetentionScheduler", "<init>", "java.util.concurrent.ConcurrentHashMap,java.util.function.Predicate,java.lang.Runnable", "void", "queries", "java.util.concurrent.ConcurrentHashMap", "EI_EXPOSE_REP2"},
-            {"org.pangrova.query.core.stage.binding.RerankIntent", "modelLimits", "", "org.pangrova.protocol.v2.CapabilityLimits", "modelLimits", "org.pangrova.protocol.v2.CapabilityLimits", "EI_EXPOSE_REP"},
-            {"org.pangrova.query.core.stage.binding.RerankIntent", "<init>", "int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String", "void", "modelLimits", "org.pangrova.protocol.v2.CapabilityLimits", "EI_EXPOSE_REP2"},
-            {"org.pangrova.query.core.stage.binding.RerankIntent", "modelOutputType", "", "org.pangrova.protocol.v2.LogicalType", "modelOutputType", "org.pangrova.protocol.v2.LogicalType", "EI_EXPOSE_REP"},
-            {"org.pangrova.query.core.stage.binding.RerankIntent", "<init>", "int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String", "void", "modelOutputType", "org.pangrova.protocol.v2.LogicalType", "EI_EXPOSE_REP2"},
-            {"org.pangrova.query.core.stage.binding.RetrievalGenerationIntent", "capability", "", "org.pangrova.protocol.v2.CapabilityRef", "capability", "org.pangrova.protocol.v2.CapabilityRef", "EI_EXPOSE_REP"},
-            {"org.pangrova.query.core.stage.binding.RetrievalGenerationIntent", "<init>", "java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,org.pangrova.protocol.v2.CapabilityRef,java.util.List,int", "void", "capability", "org.pangrova.protocol.v2.CapabilityRef", "EI_EXPOSE_REP2"}
+            {"org.pangrova.query.lifecycle.QueryTerminalCleanup$Context", "state", "", "org.pangrova.query.lifecycle.QueryStateMachine", "state", "org.pangrova.query.lifecycle.QueryStateMachine", "EI_EXPOSE_REP"},
+            {"org.pangrova.query.lifecycle.QueryTerminalCleanup$Context", "<init>", "java.lang.String,org.pangrova.query.lifecycle.QueryStateMachine,java.lang.String", "void", "state", "org.pangrova.query.lifecycle.QueryStateMachine", "EI_EXPOSE_REP2"},
+            {"org.pangrova.query.retention.QueryRetentionScheduler", "<init>", "java.util.concurrent.ConcurrentHashMap,java.util.function.Predicate,java.lang.Runnable", "void", "queries", "java.util.concurrent.ConcurrentHashMap", "EI_EXPOSE_REP2"},
+            {"org.pangrova.execution.stage.binding.RerankIntent", "modelLimits", "", "org.pangrova.protocol.v2.CapabilityLimits", "modelLimits", "org.pangrova.protocol.v2.CapabilityLimits", "EI_EXPOSE_REP"},
+            {"org.pangrova.execution.stage.binding.RerankIntent", "<init>", "int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String", "void", "modelLimits", "org.pangrova.protocol.v2.CapabilityLimits", "EI_EXPOSE_REP2"},
+            {"org.pangrova.execution.stage.binding.RerankIntent", "modelOutputType", "", "org.pangrova.protocol.v2.LogicalType", "modelOutputType", "org.pangrova.protocol.v2.LogicalType", "EI_EXPOSE_REP"},
+            {"org.pangrova.execution.stage.binding.RerankIntent", "<init>", "int,int,java.lang.String,java.lang.String,byte[],org.pangrova.protocol.v2.LogicalType,org.pangrova.protocol.v2.CapabilityLimits,java.lang.String,java.lang.String", "void", "modelOutputType", "org.pangrova.protocol.v2.LogicalType", "EI_EXPOSE_REP2"},
+            {"org.pangrova.execution.stage.binding.RetrievalGenerationIntent", "capability", "", "org.pangrova.protocol.v2.CapabilityRef", "capability", "org.pangrova.protocol.v2.CapabilityRef", "EI_EXPOSE_REP"},
+            {"org.pangrova.execution.stage.binding.RetrievalGenerationIntent", "<init>", "java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String,org.pangrova.protocol.v2.CapabilityRef,java.util.List,int", "void", "capability", "org.pangrova.protocol.v2.CapabilityRef", "EI_EXPOSE_REP2"}
         };
         for (String[] c : cases) {
             String sig = SignatureUtil.createMethodSignature(c[2], c[3]);
@@ -165,7 +165,7 @@ public final class ImmutableFilterBoundary {
             check(full, c[0], c[1], params, result, c[4], type,
                     c[6].equals("EI_EXPOSE_REP") ? "EI_EXPOSE_REP2" : "EI_EXPOSE_REP", false);
         }
-        String rerank = "org.pangrova.query.core.stage.binding.RerankIntent";
+        String rerank = "org.pangrova.execution.stage.binding.RerankIntent";
         check(full, rerank, "modelSignature", "", "[B", "modelSignature", "[B", "EI_EXPOSE_REP", false);
         check(full, "org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RerankIntent",
                 "modelLimits", "", "Lorg/pangrova/protocol/v2/CapabilityLimits;", "modelLimits",
@@ -177,11 +177,11 @@ public final class ImmutableFilterBoundary {
         String tree = "Lorg/antlr/v4/runtime/tree/ParseTree;";
         String tokens = "Lorg/antlr/v4/runtime/CommonTokenStream;";
         String[][] cases = {
-            {"org.pangrova.parser.core.diagnostic.RecoveryParseDetails", "partialTree", "", tree,
+            {"org.pangrova.parser.diagnostic.RecoveryParseDetails", "partialTree", "", tree,
                 "partialTree", tree, "EI_EXPOSE_REP"},
-            {"org.pangrova.parser.core.diagnostic.RecoveryParseDetails", "<init>",
+            {"org.pangrova.parser.diagnostic.RecoveryParseDetails", "<init>",
                 "Lorg/pangrova/parser/api/parse/ParseResult;" + tree, "V", "partialTree", tree, "EI_EXPOSE_REP2"},
-            {"org.pangrova.parser.core.build.AstBuilder", "<init>",
+            {"org.pangrova.parser.build.AstBuilder", "<init>",
                 tokens + "Lorg/pangrova/parser/api/parse/SqlDialect;", "V", "tokenStream", tokens, "EI_EXPOSE_REP2"}
         };
         for (String[] c : cases) {
@@ -202,7 +202,7 @@ public final class ImmutableFilterBoundary {
         Filter full = Filter.parseFilter(fullFilterPath);
         String type = "Lorg/pangrova/protocol/v2/StageResourceGrant;";
         for (String record : new String[]{"LeafTask", "DmlWriteTask"}) {
-            String owner = "org.pangrova.execution.core.binding.TaskRequestFactory$" + record;
+            String owner = "org.pangrova.execution.binding.TaskRequestFactory$" + record;
             check(full, owner, "resourceGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP", true);
             check(full, owner + "Other", "resourceGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP", false);
             check(full, owner, "otherGrant", "", type, "resourceGrant", type, "EI_EXPOSE_REP", false);
@@ -219,14 +219,16 @@ public final class ImmutableFilterBoundary {
 
     private static void verifyManagedSourceBorrowed(String fullFilterPath) throws Exception {
         Filter full = Filter.parseFilter(fullFilterPath);
-        String owner = "org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog";
+        String owner = "org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog";
         String oldParams = "Ljavax/sql/DataSource;"
                 + "Lorg/pangrova/connector/api/metadata/SourceCatalogDeployment;"
                 + "Ljava/util/function/Function;";
         String previousParams = oldParams + "Lorg/pangrova/persistence/jdbc/api/query/ExecutionTransactionFence;";
-        String params = previousParams + "Lorg/pangrova/persistence/jdbc/api/security/model/CurrentModelAuthority;";
+        String modelParams = previousParams + "Lorg/pangrova/persistence/jdbc/api/security/model/CurrentModelAuthority;";
+        String params = modelParams + "Lorg/pangrova/persistence/workflow/api/security/TableControlWriteAuthority;";
         String sourceType = "Ljavax/sql/DataSource;";
         check(full, owner, "<init>", params, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", true);
+        check(full, owner, "<init>", modelParams, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
         check(full, owner, "<init>", oldParams, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
         check(full, owner, "<init>", previousParams, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
         check(full, owner, "<init>", params + "I", "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
@@ -241,22 +243,22 @@ public final class ImmutableFilterBoundary {
         Filter full = Filter.parseFilter(fullFilterPath);
         String manager = "org.pangrova.indexing.storage.IndexStorageManager";
         String context = "org.pangrova.indexing.build.IndexBuildContext";
-        String evaluation = "org.pangrova.indexing.eval.IndexEvaluationService";
+        String evaluation = "org.pangrova.indexing.evaluation.IndexEvaluationService";
         String cached = "org.pangrova.indexing.builtin.bloom.data.CachedBloomFilterIndexData";
         String bloom = "org.pangrova.common.bloom.SplitBlockBloomFilter";
         verifyIndexingMatch(full, context, "storageManager", "", manager,
                 "storageManager", manager, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, context, "<init>",
-                "org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.registry.IndexEngineRegistry,"
+                "org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.strategy.IndexEngineRegistry,"
                 + manager + ",org.pangrova.indexing.codec.data.IndexSerializer,"
                 + "org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository,"
                 + "org.pangrova.indexing.build.GenerationChecker,"
-                + "org.pangrova.connector.spi.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
+                + "org.pangrova.connector.api.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
                 "void", "storageManager", manager, "EI_EXPOSE_REP2");
-        String evaluationParams = "org.pangrova.indexing.registry.IndexEngineRegistry,"
+        String evaluationParams = "org.pangrova.indexing.strategy.IndexEngineRegistry,"
                 + "org.pangrova.indexing.storage.IndexCache," + manager + ","
                 + "org.pangrova.indexing.codec.data.IndexSerializer,"
-                + "org.pangrova.indexing.eval.IndexEvalCircuitBreaker";
+                + "org.pangrova.indexing.evaluation.IndexEvalCircuitBreaker";
         verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
                 "storageManager", manager, "EI_EXPOSE_REP2");
         verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
@@ -444,7 +446,7 @@ def main():
         ET.ElementTree(runner_filter).write(runner_classification, encoding='utf-8', xml_declaration=True)
         jitter_matches = [match for match in full_filter.getroot()
                           if any(child.tag.endswith('Class') and child.get('name') ==
-                                 'org.pangrova.client.session.RetryPolicy' for child in match)
+                                 'org.pangrova.common.client.session.RetryPolicy' for child in match)
                           and any(child.tag.endswith('Method') and child.get('name') ==
                                   'delayForAttemptWithJitter' for child in match)]
         if len(jitter_matches) != 1:
@@ -455,19 +457,61 @@ def main():
             element.tag = element.tag.rsplit('}', 1)[-1]
         jitter_classification = temporary / 'jitter-classification.xml'
         ET.ElementTree(jitter_filter).write(jitter_classification, encoding='utf-8', xml_declaration=True)
-        borrowed_matches = [match for match in full_filter.getroot()
-                            if any(child.tag.endswith('Class') and child.get('name', '').startswith(
-                                'org.pangrova.connector.paimon.') for child in match)
-                            and any(child.tag.endswith('Field') for child in match)]
-        if len(borrowed_matches) != 19:
-            raise RuntimeError('Expected 19 exact borrowed Paimon service classifications')
+        paimon = 'org.pangrova.connector.paimon.'
+        catalog = 'org.apache.paimon.catalog.Catalog'
+        splits = paimon + 'PaimonSplitRegistry'
+        table = 'org.apache.paimon.table.Table'
+        io = 'org.apache.paimon.fs.FileIO'
+        metadata_params = ','.join((catalog, 'java.lang.String', splits))
+        split_params = ','.join((catalog, splits))
+        borrowed_constructors = [
+            ('PaimonIncrementalScanCapability', catalog, 'catalog', catalog),
+            ('PaimonMetadata', metadata_params, 'catalog', catalog),
+            ('PaimonMetadata', metadata_params, 'splitRegistry', splits),
+            ('PaimonPageSourceProvider', splits, 'splitRegistry', splits),
+            ('PaimonSplitManager', split_params, 'catalog', catalog),
+            ('PaimonSplitManager', split_params, 'splitRegistry', splits),
+            ('write.PaimonPageSinkProvider', catalog + ',java.lang.String', 'catalog', catalog),
+            ('fs.PaimonFileSystemAccessor', io, 'fileIO', io),
+            ('fs.PaimonColumnValueReader', table, 'table', table),
+        ]
+        borrowed_constructors += [
+            ('system.Paimon' + kind + 'SystemTable', table, 'table', table)
+            for kind in ('AuditLog', 'Branches', 'Consumers', 'Manifests', 'Options', 'Schemas', 'Snapshots', 'Tags')
+        ]
+        expected_paimon = {(paimon + owner, '<init>', params, 'void', name, field_type, 'EI_EXPOSE_REP2')
+                           for owner, params, name, field_type in borrowed_constructors}
+        expected_paimon.add((paimon + 'PaimonConnector', 'getMetadata',
+                             'org.pangrova.connector.api.session.ConnectorSession',
+                             'org.pangrova.connector.api.metadata.ConnectorMetadata', 'metadata',
+                             paimon + 'PaimonMetadata', 'EI_EXPOSE_REP'))
+        borrowed_matches = []
+        actual_paimon = set()
+        for match in full_filter.getroot():
+            fields = {child.tag.rsplit('}', 1)[-1]: child.attrib for child in match}
+            if not fields.get('Class', {}).get('name', '').startswith(paimon):
+                continue
+            if fields.get('Bug', {}).get('pattern') not in ('EI_EXPOSE_REP', 'EI_EXPOSE_REP2'):
+                continue
+            if len(match) != 4 or set(fields) != {'Class', 'Method', 'Field', 'Bug'}:
+                raise RuntimeError('Paimon borrowed-service classifications require an exact method and field')
+            method, field = fields['Method'], fields['Field']
+            case = (fields['Class']['name'], method['name'], method['params'], method['returns'],
+                    field['name'], field['type'], fields['Bug']['pattern'])
+            if case in actual_paimon or case not in expected_paimon:
+                raise RuntimeError(f'Unexpected or duplicate Paimon borrowed-service classification: {case}')
+            actual_paimon.add(case)
+            borrowed_matches.append(match)
+        if expected_paimon != actual_paimon:
+            raise RuntimeError(f'Missing Paimon borrowed-service classifications: {expected_paimon - actual_paimon}')
         deployment = 'org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository'
         dispatcher = 'org.pangrova.metadata.event.MetadataEventDispatcher'
         cache = 'org.pangrova.metadata.api.cache.MetadataCache'
-        registry_params = ','.join((deployment, 'org.pangrova.metadata.spi.catalog.ConnectorHandleFactory',
-                                    'org.pangrova.metadata.spi.catalog.FederationHandleFactory', dispatcher))
+        registry_params = ','.join(('org.pangrova.persistence.table.api.provider.TableStores',
+                                    deployment, 'org.pangrova.metadata.api.catalog.ConnectorHandleFactory',
+                                    'org.pangrova.metadata.api.catalog.FederationHandleFactory', dispatcher))
         sync_params = ','.join(('org.pangrova.persistence.catalog.api.projection.TableProjectionRepository',
-                               'org.pangrova.persistence.catalog.api.projection.MetadataProjectionTransactions',
+                               'org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions',
                                'org.pangrova.persistence.catalog.api.synchronization.MetadataSyncRepository',
                                cache, dispatcher))
         registry = 'org.pangrova.metadata.catalog.registry.CatalogRegistry'
@@ -646,7 +690,7 @@ def main():
                                            field.attrib['name'], field.attrib['type']]))
         metadata_manifest = temporary / 'metadata-collection-cases.txt'
         metadata_manifest.write_text('\n'.join(metadata_cases), encoding='utf-8')
-        vector_owner = 'org.pangrova.planner.core.type.StorageVectorRelDataType'
+        vector_owner = 'org.pangrova.planner.type.StorageVectorRelDataType'
         vector_matches = [match for match in full_filter.getroot()
                           if any(child.tag.endswith('Class') and child.get('name') == vector_owner
                                  for child in match)]
@@ -683,7 +727,7 @@ def main():
     print('PASS: exact immutable hash classified; this Match rejects 8 changed-type/method/field/class/bug cases.')
     print('PASS: exact keytool runner classified; this Match rejects 7 class/method/signature/bug changes.')
     print('PASS: exact non-security retry jitter classified; this Match rejects 7 owner/method/signature/bug changes.')
-    print('PASS: 19 exact borrowed Paimon services classified; each Match rejects 9 signature/field/type/bug changes.')
+    print('PASS: Exact Paimon borrowed-service declarations verified; each Match rejects 9 signature/field/type/bug changes.')
     print('PASS: five migrated catalog ownership classifications match current constructors and reject 9 changed boundaries.')
     print('PASS: 21 exact JDBC forwarding/Artifact methods classified; each rejects 7 changed boundaries, Artifact also in full filter.')
     print('PASS: complete filter does not exclude PreparedStatement SQL construction or Boolean-null finding.')

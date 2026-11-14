@@ -433,7 +433,7 @@ FROM contracts;
 
 **Notes:**
 - The built-in Responses dialect admits PDF, DOCX, PPTX, plain text, and Markdown;
-  the table/Worker MIME policy may narrow this set further
+  the Worker FILE MIME allowlist can narrow this set further
 - The model must advertise DOCUMENT; image-only chat models are not treated as document providers
 
 **See Also:** [AI_DESCRIBE_IMAGE](#ai_describe_image), [AI_OCR](#ai_ocr)

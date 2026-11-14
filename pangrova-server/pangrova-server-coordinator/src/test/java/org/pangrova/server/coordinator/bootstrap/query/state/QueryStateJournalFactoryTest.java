@@ -4,12 +4,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
-import org.postgresql.ds.PGSimpleDataSource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.pangrova.query.api.journal.JournalEventContext;
-import org.pangrova.persistence.query.api.commit.JournalWriteException;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
@@ -17,12 +13,8 @@ import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Factory routing uses actual instance-owned NONE and production-migrated PostgreSQL owners. */
-@Testcontainers
 class QueryStateJournalFactoryTest {
 
-    @Container
-    private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine").withDatabaseName("pangrova_test");
     @Test void noneTypeProducesIndependentInMemoryJournal() {
         try (QueryStateJournal journal = QueryStateJournalFactory.create(StateJournalConfig.NONE, null);
                 QueryStateJournal other = QueryStateJournalFactory.create(StateJournalConfig.NONE, null)) {
@@ -36,26 +28,7 @@ class QueryStateJournalFactoryTest {
     }
 
     @Test @Tag("testcontainers") void jdbcTypeProducesActualJdbcJournal() throws Exception {
-        var source = new PGSimpleDataSource();
-        source.setURL(POSTGRES.getJdbcUrl());
-        source.setUser(POSTGRES.getUsername());
-        source.setPassword(POSTGRES.getPassword());
-        var dataSource = (javax.sql.DataSource) source;
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("""
-                    CREATE TABLE IF NOT EXISTS query_state_journal (
-                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        event_id UUID NOT NULL UNIQUE,
-                        query_id VARCHAR(64) NOT NULL,
-                        sql_text TEXT,
-                        session_json TEXT,
-                        state VARCHAR(32) NOT NULL,
-                        timestamp_ms BIGINT NOT NULL,
-                        coordinator_id VARCHAR(128),
-                        epoch BIGINT NOT NULL DEFAULT 0,
-                        lineage_payload JSONB
-                    )""");
-        }
+        var dataSource = org.pangrova.testing.testkit.postgres.MigratedPostgres.create();
         StateJournalConfig config = new StateJournalConfig("JDBC", "postgresql-production-schema", 10, 2, 24, 4);
         try (QueryStateJournal journal = QueryStateJournalFactory.create(config, dataSource)) {
             assertInstanceOf(JdbcQueryStateJournal.class, journal);

@@ -3,5 +3,5 @@
     <modelVersion>4.0.0</modelVersion>
     <parent><groupId>org.pangrova</groupId><artifactId>pangrova-bom</artifactId><version>0.1.0-SNAPSHOT</version></parent>
     <artifactId>pangrova-transport</artifactId><packaging>pom</packaging><name>Pangrova Transport</name>
-    <modules><module>pangrova-transport-api</module><module>pangrova-transport-http</module><module>pangrova-transport-client</module><module>pangrova-transport-flight</module></modules>
+    <modules><module>pangrova-transport-http</module><module>pangrova-transport-client</module><module>pangrova-transport-flight</module></modules>
 </project>

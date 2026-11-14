@@ -2,7 +2,7 @@ package org.pangrova.indexing.builtin.ngram.serializer;
 
 import org.pangrova.indexing.api.data.text.NGramBloomIndexData;
 import org.pangrova.indexing.codec.data.SerdeCodec;
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
 /**
  * Serializer for {@link NGramBloomIndexData}.

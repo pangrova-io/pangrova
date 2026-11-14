@@ -4,7 +4,7 @@ import org.pangrova.common.api.annotation.Experimental;
 
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.enums.TenantRole;
 
 import java.util.List;
 import java.util.Optional;

@@ -2,7 +2,7 @@ package org.pangrova.testing.testkit.security.policy;
 
 import java.util.List;
 import org.pangrova.persistence.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 
 /**

@@ -1,5 +1,9 @@
 package org.pangrova.streaming.api.checkpoint;
 
+import org.pangrova.streaming.api.enums.StreamLifecycleState;
+
+import org.pangrova.common.api.annotation.Experimental;
+
 import org.pangrova.common.exception.StaleEpochException;
 
 import java.util.List;
@@ -11,6 +15,7 @@ import java.util.Optional;
  * <p>Implementations must be thread-safe. State is keyed by
  * {@link StreamState#streamName()}.</p>
  */
+@Experimental
 public interface StreamStateStore {
 
     /**

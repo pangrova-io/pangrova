@@ -97,7 +97,7 @@ class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
                     return false;
                 });
         var descriptor = findIndex(indexName, fqn);
-        if (descriptor.indexType() == org.pangrova.indexing.api.descriptor.IndexType.VECTOR) {
+        if (descriptor.indexType() == org.pangrova.indexing.api.enums.IndexType.VECTOR) {
             awaitPublishedVectorIndex(indexName, fqn);
         }
     }

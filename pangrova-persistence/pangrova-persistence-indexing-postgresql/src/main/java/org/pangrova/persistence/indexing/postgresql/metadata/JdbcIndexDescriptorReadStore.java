@@ -1,9 +1,9 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.lifecycle.IndexState;
+import org.pangrova.indexing.api.enums.IndexState;
 
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.util.HashMap;
@@ -49,7 +49,7 @@ final class JdbcIndexDescriptorReadStore extends JdbcStoreSupport {
 
     List<IndexDescriptor> findIndexesByStatePaginated(IndexState state, int offset, int limit) {
         String sql = "SELECT * FROM index_descriptors WHERE state=? "
-                + "ORDER BY updated_at OFFSET ? LIMIT ?";
+                + "ORDER BY updated_at, index_id OFFSET ? LIMIT ?";
         return executeQuery(sql, ps -> {
             ps.setString(1, state.name());
             ps.setInt(2, offset);

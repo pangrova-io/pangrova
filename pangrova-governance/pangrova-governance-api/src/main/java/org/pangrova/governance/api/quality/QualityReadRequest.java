@@ -1,14 +1,16 @@
 package org.pangrova.governance.api.quality;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /** A rule read is structured data; only the query adapter may parse its expression and construct SQL. */
-public record QualityReadRequest(String catalog, String schema, String table, String expression,
+public record QualityReadRequest(String catalog, String schema, String table, UUID tableId, String expression,
                                  GovernanceQueryRunner.QueryType type) {
     public QualityReadRequest {
         requireName(catalog, "catalog");
         requireName(schema, "schema");
         requireName(table, "table");
+        Objects.requireNonNull(tableId, "Stable table ID is required");
         if (expression == null || expression.isBlank()) {
             throw new IllegalArgumentException("Quality expression is required");
         }

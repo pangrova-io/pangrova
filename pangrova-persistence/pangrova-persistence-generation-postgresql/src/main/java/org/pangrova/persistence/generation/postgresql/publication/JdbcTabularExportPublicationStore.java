@@ -17,26 +17,27 @@
  */
 package org.pangrova.persistence.generation.postgresql.publication;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs;
 import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.output.GenerationOutput;
-import org.pangrova.generation.api.output.GenerationOutputScope;
-import org.pangrova.generation.api.execution.GenerationExecutionKind;
+import org.pangrova.generation.api.enums.GenerationOutputScope;
+import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.api.output.GenerationOutputTypeIds;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import javax.sql.DataSource;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -50,6 +51,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
@@ -156,7 +158,7 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
                         inputs.loadJobDependencies(
                                 connection, tenantId, jobId),
                         result.getString("dependency_set_sha256")),
-                org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy.valueOf(
+                org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.valueOf(
                         result.getString("empty_partition_policy")),
                 result.getString("format_id"), result.getInt("format_major"),
                 result.getInt("format_minor"), result.getString("schema_sha256"),
@@ -314,41 +316,37 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
 
     private static String manifestDigest(
             GenerationPublicationJob job, List<GenerationOutput> outputs) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            update(digest, job.tenantId());
-            update(digest, job.artifactId());
-            update(digest, job.artifactType());
-            update(digest, job.generation());
-            update(digest, job.sourceId());
-            update(digest, job.sourceSnapshot());
-            update(digest, job.executionKind().name());
-            update(digest, job.dependencySet().sha256());
-            update(digest, job.emptyPartitionPolicy().name());
-            update(digest, job.formatId());
-            update(digest, Integer.toString(job.formatMajor()));
-            update(digest, Integer.toString(job.formatMinor()));
-            update(digest, job.schemaSha256().toLowerCase(Locale.ROOT));
-            update(digest, job.writerBuildId());
-            outputs.stream().sorted(Comparator
-                            .comparing(GenerationOutput::sourceObjectId)
-                            .thenComparingInt(GenerationOutput::ordinal)
-                            .thenComparing(GenerationOutput::objectId))
-                    .forEach(output -> {
-                        update(digest, output.sourceObjectId());
-                        update(digest, output.objectRole());
-                        update(digest, output.objectId());
-                        update(digest, output.opaqueUri());
-                        update(digest, output.checksumSha256().toLowerCase(Locale.ROOT));
-                        update(digest, Long.toString(output.sizeBytes()));
-                        update(digest, Long.toString(output.rowCount()));
-                        update(digest, Integer.toString(output.ordinal()));
-                        update(digest, output.scope().name());
-                    });
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 unavailable", impossible);
-        }
+        MessageDigest digest = DigestUtils.sha256();
+        update(digest, job.tenantId());
+        update(digest, job.artifactId());
+        update(digest, job.artifactType());
+        update(digest, job.generation());
+        update(digest, job.sourceId());
+        update(digest, job.sourceSnapshot());
+        update(digest, job.executionKind().name());
+        update(digest, job.dependencySet().sha256());
+        update(digest, job.emptyPartitionPolicy().name());
+        update(digest, job.formatId());
+        update(digest, Integer.toString(job.formatMajor()));
+        update(digest, Integer.toString(job.formatMinor()));
+        update(digest, job.schemaSha256().toLowerCase(Locale.ROOT));
+        update(digest, job.writerBuildId());
+        outputs.stream().sorted(Comparator
+                        .comparing(GenerationOutput::sourceObjectId)
+                        .thenComparingInt(GenerationOutput::ordinal)
+                        .thenComparing(GenerationOutput::objectId))
+                .forEach(output -> {
+                    update(digest, output.sourceObjectId());
+                    update(digest, output.objectRole());
+                    update(digest, output.objectId());
+                    update(digest, output.opaqueUri());
+                    update(digest, output.checksumSha256().toLowerCase(Locale.ROOT));
+                    update(digest, Long.toString(output.sizeBytes()));
+                    update(digest, Long.toString(output.rowCount()));
+                    update(digest, Integer.toString(output.ordinal()));
+                    update(digest, output.scope().name());
+                });
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     private static void update(MessageDigest digest, String value) {
@@ -365,18 +363,12 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
         }
     }
 
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
-    }
-
     private record JobRow(
             String tenantId, String jobId, String artifactId, String artifactType,
             String generation, String sourceId, String sourceSnapshot,
             GenerationExecutionKind executionKind,
             org.pangrova.generation.api.dependency.GenerationDependencySet dependencySet,
-            org.pangrova.generation.api.output.GenerationEmptyPartitionPolicy emptyPartitionPolicy,
+            org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy emptyPartitionPolicy,
             String formatId, int formatMajor, int formatMinor, String schemaSha256,
             String writerBuildId, String encryptionKeyRef, int expectedPages,
             int completedPages, long publicationFence,

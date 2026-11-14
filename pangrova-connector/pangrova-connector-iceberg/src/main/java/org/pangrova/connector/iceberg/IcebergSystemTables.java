@@ -4,7 +4,7 @@ import org.pangrova.connector.iceberg.system.IcebergFilesSystemTable;
 import org.pangrova.connector.iceberg.system.IcebergHistorySystemTable;
 import org.pangrova.connector.iceberg.system.IcebergManifestsSystemTable;
 import org.pangrova.connector.iceberg.system.IcebergRefsSystemTable;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
+import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.apache.iceberg.Table;
 
 import java.util.Optional;

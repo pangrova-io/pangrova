@@ -10,15 +10,14 @@ import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptRequest;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.spi.worker.ShuffleByteEgress;
+import org.pangrova.shuffle.api.worker.ShuffleByteEgress;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
-import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
 import org.pangrova.worker.execution.NativeTaskExecutor;
-import org.pangrova.worker.nativebridge.jni.NativeRuntime;
+import org.pangrova.worker.jni.NativeRuntime;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -38,9 +37,10 @@ class NativeShuffleEgressContractIntegrationTest extends ContainerTestBase {
     @Test void nativeCallbacksReachTheProductionContractAndPublishReadableBytes() throws Exception {
         try (var service = new ActualShuffleService(directory, 1, 1);
              var runtime = new ActualNativeTaskFixture();
-             var egress = new RemoteShuffleByteEgress(service.clientPool());
+             var worker = new org.pangrova.worker.bootstrap.ownership.WorkerTaskOwnership(service.workerShuffle());
+             var egress = worker.shuffle().producers();
              var producerExecutor = new NativeTaskExecutor(egress);
-             var consumerTransport = new NativeExchangeTransport(runtime.executor(), service.clientPool())) {
+             var consumerTransport = new NativeExchangeTransport(runtime.executor(), worker.shuffle().readers())) {
             ShuffleByteEgress callbacks = egress;
             NativeRuntime.nativeRegisterEgress(callbacks);
             var producer = service.registerProducer(base -> runtime.bindWorker(withActualExchangeSink(base)));

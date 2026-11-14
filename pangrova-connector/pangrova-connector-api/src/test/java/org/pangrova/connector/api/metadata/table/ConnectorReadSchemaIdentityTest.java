@@ -1,7 +1,7 @@
 package org.pangrova.connector.api.metadata.table;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 
 import java.util.ArrayList;
 import java.util.List;

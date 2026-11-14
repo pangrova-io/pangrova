@@ -4,7 +4,7 @@ import org.pangrova.common.api.annotation.Experimental;
 
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.api.audit.AuditEventQuery;
-import org.pangrova.security.spi.audit.AuditEventWriter;
+import org.pangrova.security.api.audit.AuditEventWriter;
 
 import java.util.List;
 

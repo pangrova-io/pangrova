@@ -7,7 +7,7 @@ import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
@@ -52,6 +52,37 @@ class IcebergSplitManagerTest {
         assertThat(mappings).hasSize(2);
         assertThat(mappings.get(1).sourceFieldId()).isEqualTo(-1);
         assertThat(mappings.get(1).targetName()).isEqualTo("future");
+    }
+
+    /**
+     * This runs once per file. With no UNKNOWN columns the table-level list is
+     * already complete, so every split must share one instance rather than each
+     * allocating a copy — at 8.4M files that was ~2.3GB of duplicate list headers.
+     */
+    @Test
+    void splitsShareTheTableLevelMappingListWhenNoUnknownColumns() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+        List<org.pangrova.connector.api.metadata.table.ColumnMapping> tableLevel =
+                List.of(new org.pangrova.connector.api.metadata.table.ColumnMapping(1, 1, "id", "id"));
+
+        var first = IcebergTaskToSplit.withNullOnlyColumns(schema, tableLevel);
+        var second = IcebergTaskToSplit.withNullOnlyColumns(schema, tableLevel);
+        assertThat(first).isSameAs(tableLevel);
+        assertThat(second).isSameAs(first);
+    }
+
+    /** A mutable input must still be snapshotted so later mutation cannot leak in. */
+    @Test
+    void mutableMappingInputIsStillCopied() {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
+        var mutable = new java.util.ArrayList<org.pangrova.connector.api.metadata.table.ColumnMapping>();
+        mutable.add(new org.pangrova.connector.api.metadata.table.ColumnMapping(1, 1, "id", "id"));
+
+        var snapshot = IcebergTaskToSplit.withNullOnlyColumns(schema, mutable);
+        mutable.clear();
+        assertThat(snapshot).hasSize(1);
     }
 
     @TempDir
@@ -139,7 +170,7 @@ class IcebergSplitManagerTest {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> drainSplits(handleFor("db", "equality_delete", table)))
-                .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasMessageContaining("equality deletes are not supported")
                 .hasMessageContaining("db.equality_delete")
                 .hasMessageContaining(Long.toString(table.currentSnapshot().snapshotId()))

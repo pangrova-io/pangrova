@@ -1,36 +1,37 @@
 package org.pangrova.testing.integration.e2e;
 
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
-import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.pangrova.coordinator.ai.embedding.DurableGeneratedValueBuildService;
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
 import org.pangrova.scheduler.api.resource.SpillBudget;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
-import org.pangrova.security.spi.authorization.AccessControl;
+import org.pangrova.security.api.authorization.AccessControl;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -81,10 +82,10 @@ final class E2eCurrentAuthority {
                     "STORAGE_PROFILE", "*", null, null, null));
         }
         return new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new org.pangrova.metadata.service.TableControlRowPolicyStore(
-                        new RegistryTablePolicyAuthority(catalogs), new JdbcRowPolicyStore(dataSource))),
+                new RowLevelSecurityFilter(new org.pangrova.metadata.security.TableControlRowPolicyStore(
+                        catalogs.tableGovernance(), new JdbcRowPolicyStore(dataSource))),
                 new ColumnMaskingProcessor(new org.pangrova.metadata.security.TableControlColumnMaskStore(
-                        new RegistryTablePolicyAuthority(catalogs),
+                        catalogs.tableGovernance(),
                         new JdbcColumnMaskStore(dataSource))));
     }
 
@@ -116,7 +117,7 @@ final class E2eCurrentAuthority {
         return new GeneratedValueMaterializationCoordinator(services.catalogs(), builds,
                 services.dataSource(), services.journal(), ModelAuthorityFixtures.models(),
                 new org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority(),
-                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication);
+                org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate::lockPublication, TableWriteAuthorityFixture.create());
     }
 
     private static JdbcRoleStore roles(DataSource dataSource) {

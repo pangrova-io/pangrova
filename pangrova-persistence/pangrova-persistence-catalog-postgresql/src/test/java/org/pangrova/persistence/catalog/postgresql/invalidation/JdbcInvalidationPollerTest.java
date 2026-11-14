@@ -7,7 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.cache.InvalidationEntry.InvalidationType;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
-import org.pangrova.metadata.spi.cache.InvalidationProgressRegistry;
+import org.pangrova.metadata.api.cache.InvalidationProgressRegistry;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -40,7 +40,7 @@ class JdbcInvalidationPollerTest {
         dataSource = MigratedPostgres.create();
         cache = new RecordingMetadataCache();
         poller = new PostgresInvalidationPoller(dataSource, cache, 1);
-        poller.initSchema();
+        poller.validateSchema();
     }
 
     @AfterEach
@@ -62,7 +62,7 @@ class JdbcInvalidationPollerTest {
     @Test
     void initSchemaIsIdempotent() {
         // Second call should not throw
-        poller.initSchema();
+        poller.validateSchema();
     }
 
     @Test
@@ -223,7 +223,7 @@ class JdbcInvalidationPollerTest {
             stmt.execute("ALTER TABLE unavailable_invalidation_log RENAME TO invalidation_log");
         }
         // Recover the canonical table and write another entry.
-        poller.initSchema();
+        poller.validateSchema();
         poller.writeInvalidation("c2\u001Fs2\u001Ft2", InvalidationType.TABLE);
 
         poller.poll();
@@ -237,26 +237,122 @@ class JdbcInvalidationPollerTest {
              Statement statement = connection.createStatement()) {
             statement.execute("ALTER TABLE invalidation_log DISABLE TRIGGER invalidation_append_commit_gate");
         }
-        assertThatThrownBy(poller::initSchema)
-                .isInstanceOf(org.pangrova.persistence.catalog.api.error.MetastoreException.class)
+        assertThatThrownBy(poller::validateSchema)
+                .isInstanceOf(org.pangrova.persistence.catalog.api.exception.MetastoreException.class)
                 .hasRootCauseMessage("Canonical invalidation commit-order trigger is missing or disabled");
     }
 
-    @Test
-    void readsBoundedPagesWithoutDroppingBacklog() throws SQLException {
+    /** Inserts n distinct CATALOG invalidations. */
+    private void insertCatalogInvalidations(int n) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute("INSERT INTO invalidation_log(cache_key, invalidation_type) "
-                    + "SELECT 'catalog_' || n, 'CATALOG' FROM generate_series(1, 1001) AS n");
+                    + "SELECT 'catalog_' || n, 'CATALOG' FROM generate_series(1, " + n + ") AS n");
         }
+    }
+
+    /**
+     * A single tick drains the whole backlog. Draining one page per tick capped
+     * throughput at page-size/interval and let the watermark lag indefinitely.
+     */
+    @Test
+    void onePollDrainsTheWholeBacklogWithoutDroppingEntries() throws SQLException {
+        insertCatalogInvalidations(1001);
+
         poller.poll();
-        assertThat(cache.catalogInvalidations).hasSize(PostgresInvalidationPoller.POLL_PAGE_SIZE);
-        assertThat(poller.getLastProcessedId()).isEqualTo(1000);
-        poller.poll();
+
         assertThat(cache.catalogInvalidations).hasSize(1001);
         assertThat(poller.getLastProcessedId()).isEqualTo(1001);
+        // A further tick must be a no-op rather than re-applying anything.
         poller.poll();
         assertThat(cache.catalogInvalidations).hasSize(1001);
+    }
+
+    /**
+     * The drain loop stays bounded so a continuously-writing producer cannot
+     * occupy the scheduler thread; the following tick resumes from the watermark.
+     */
+    @Test
+    void onePollIsBoundedSoASteadyWriterCannotStarveTheScheduler() throws SQLException {
+        final int bound = PostgresInvalidationPoller.MAX_PAGES_PER_POLL
+                * PostgresInvalidationPoller.POLL_PAGE_SIZE;
+        insertCatalogInvalidations(bound + 1);
+
+        poller.poll();
+
+        assertThat(cache.catalogInvalidations).hasSize(bound);
+        assertThat(poller.getLastProcessedId()).isEqualTo(bound);
+        poller.poll();
+        assertThat(cache.catalogInvalidations).hasSize(bound + 1);
+        assertThat(poller.getLastProcessedId()).isEqualTo(bound + 1);
+    }
+
+    /**
+     * A restart must resume from this coordinator's durable watermark. Replaying
+     * from zero re-evicted every cached entry and pinned the cleanup floor at zero
+     * until the backlog drained.
+     */
+    @Test
+    void startResumesFromThisCoordinatorsReportedWatermark() throws SQLException {
+        insertCatalogInvalidations(3);
+        poller.poll();
+        long reported = poller.getLastProcessedId();
+        assertThat(reported).isEqualTo(3);
+
+        var registry = new RecordingInvalidationProgressRegistry();
+        registry.register("local");
+        registry.updateLastProcessedInvalidationId("local", reported);
+
+        // A fresh poller stands in for the restarted process.
+        var restarted = new PostgresInvalidationPoller(dataSource, new RecordingMetadataCache(),
+                1, registry, Optional.of("local"));
+        restarted.start();
+        try {
+            assertThat(restarted.getLastProcessedId()).isEqualTo(reported);
+        } finally {
+            restarted.close();
+        }
+    }
+
+    @Test
+    void unavailableWatermarkFailsStartAndCanRetryFromItsStoredPosition() throws SQLException {
+        insertCatalogInvalidations(2);
+        var unavailable = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var registry = new RecordingInvalidationProgressRegistry() {
+            @Override public long lastProcessedInvalidationId(String id) {
+                if (unavailable.get()) throw new IllegalStateException("registry offline");
+                return super.lastProcessedInvalidationId(id);
+            }
+        };
+        registry.register("local");
+        registry.updateLastProcessedInvalidationId("local", 1);
+        var resumedCache = new RecordingMetadataCache();
+        try (var reader = new PostgresInvalidationPoller(dataSource, resumedCache, 1, registry, Optional.of("local"))) {
+            assertThatThrownBy(reader::start).isInstanceOf(IllegalStateException.class).hasMessage("registry offline");
+            assertThat(registry.lastProcessed("local")).isEqualTo(1);
+            unavailable.set(false);
+            reader.start();
+            await().atMost(5, SECONDS).until(() -> reader.getLastProcessedId() == 2);
+            assertThat(resumedCache.catalogInvalidations).hasSize(1);
+        }
+    }
+
+    @Test
+    void startWithoutAWatermarkBeginsAtZero() throws SQLException {
+        insertCatalogInvalidations(2);
+        var registry = new RecordingInvalidationProgressRegistry();
+        registry.register("local");
+
+        var freshCache = new RecordingMetadataCache();
+        var fresh = new PostgresInvalidationPoller(dataSource, freshCache,
+                1, registry, Optional.of("local"));
+        fresh.start();
+        try {
+            await().atMost(5, SECONDS).until(() -> fresh.getLastProcessedId() == 2);
+            assertThat(freshCache.catalogInvalidations).hasSize(2);
+        } finally {
+            fresh.close();
+        }
     }
 
     @Test
@@ -358,7 +454,8 @@ class JdbcInvalidationPollerTest {
         var registry = new RecordingInvalidationProgressRegistry();
         registry.register("local");
         registry.register("remote");
-        poller.setInvalidationProgressRegistry(registry, "local");
+        poller.close();
+        poller = new PostgresInvalidationPoller(dataSource, cache, 1, registry, Optional.of("local"));
         poller.writeInvalidation("first", InvalidationType.CATALOG);
         poller.writeInvalidation("second", InvalidationType.CATALOG);
         backdateAllEntries(48);
@@ -395,7 +492,7 @@ class JdbcInvalidationPollerTest {
     }
 
     /** In-memory progress double: the poller only needs peer watermarks from the composition layer. */
-    private static final class RecordingInvalidationProgressRegistry implements InvalidationProgressRegistry {
+    private static class RecordingInvalidationProgressRegistry implements InvalidationProgressRegistry {
 
         private final Map<String, Long> watermarks = new LinkedHashMap<>();
 
@@ -417,6 +514,11 @@ class JdbcInvalidationPollerTest {
         @Override
         public long minimumReportedInvalidationId() {
             return watermarks.values().stream().mapToLong(Long::longValue).min().orElse(Long.MAX_VALUE);
+        }
+
+        @Override
+        public long lastProcessedInvalidationId(String coordinatorId) {
+            return lastProcessed(coordinatorId);
         }
     }
 }

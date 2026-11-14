@@ -11,8 +11,8 @@
 
 #include <gtest/gtest.h>
 
-#include "bridge/RuntimeInitializer.h"
-#include "bridge/registry/HandleRegistry.h"
+#include "jni/RuntimeInitializer.h"
+#include "command/resource/HandleRegistry.h"
 #include "engine/executor/driver/TaskExecutor.h"
 
 namespace pangrova::jni {

@@ -48,6 +48,16 @@ public final class DigestUtils {
     }
 
     /**
+     * Requires exactly 64 ASCII hexadecimal characters, accepting either case.
+     * Does not normalize the value or verify the content it identifies.
+     */
+    public static void requireSha256(String value, String name) {
+        if (value == null || !value.matches("[0-9a-fA-F]{64}")) {
+            throw new IllegalArgumentException(name + " must be a SHA-256 hex digest");
+        }
+    }
+
+    /**
      * Verifies a public SHA-256 integrity digest using constant-time binary comparison.
      *
      * @param data bytes whose integrity is checked; must not be null

@@ -31,8 +31,8 @@ class GenerationSourceSplitCodecTest {
 
     @Test
     void codecLoadsWithoutDomainCoreOrProviders() {
-        for (String absent : List.of("org.pangrova.generation.core.submission.GenerationDispatchSpecFactory",
-                "org.pangrova.generation.core.publication.read.PublishedGenerationBindingResolver",
+        for (String absent : List.of("org.pangrova.generation.submission.GenerationDispatchSpecFactory",
+                "org.pangrova.generation.publication.read.PublishedGenerationBindingResolver",
                 "org.pangrova.persistence.generation.api.job.GenerationJobStore",
                 "org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine",
                 "org.postgresql.Driver")) {

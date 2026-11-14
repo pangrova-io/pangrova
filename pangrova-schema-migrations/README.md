@@ -41,3 +41,5 @@ V109 and V110 own immutable projection/completion intents. They survive Catalog 
 current-deployment fencing determines obsolete-request rejection. Each workflow permits only one
 pending intent per Catalog. Applied state commits with the original effect and receipt. These are
 canonical empty-database initialization resources, not a historical-data conversion workflow.
+
+V112 records the selected CDC source factory on a stream. The provider identifier is required during creation and retained across recovery.

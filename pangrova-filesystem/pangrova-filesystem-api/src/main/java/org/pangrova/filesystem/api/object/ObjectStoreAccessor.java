@@ -5,7 +5,7 @@ import java.io.InputStream;
 import java.util.List;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 
 /**
  * Byte-level access to one object storage backend.
@@ -90,7 +90,7 @@ public interface ObjectStoreAccessor {
     default PresignedObjectUrl presign(ObjectLocation location, String path, java.time.Duration ttl,
             boolean read) {
         throw new org.pangrova.common.exception.PangrovaException(
-                org.pangrova.common.exception.PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
+                org.pangrova.common.enums.PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
                 storageType() + " storage cannot issue signed URLs");
     }
 }

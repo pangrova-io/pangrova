@@ -2,8 +2,8 @@
 # Enforces the Native source layout and the JNI boundary.
 #
 # - Sources live only in the declared per-target directories under src/.
-# - Java_* / JNI_OnLoad entry points are defined only in src/bridge/.
-# - jni.h is included only by the bridge and the registered Native->Java upcall
+# - Java_* / JNI_OnLoad entry points are defined only in src/jni/.
+# - jni.h is included only by JNI owners and the registered Native->Java upcall
 #   adapters, so any new producer of JNI types is an explicit, reviewed change.
 #
 # Usage:  .pangrova/scripts/check-native-boundaries.sh
@@ -17,7 +17,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NATIVE_DIR="${ROOT_DIR}/pangrova-worker-native"
 SRC_DIR="${NATIVE_DIR}/src"
 
-TARGET_DIRS=(bridge capabilities engine indexing lance udf vector)
+TARGET_DIRS=(command jni capabilities engine indexing lance udf vector)
 JNI_UPCALL_ADAPTERS=(
     "engine/memory/PangrovaAllocationListener.h"
     "engine/shuffle/ShuffleEgressExecutor.h"
@@ -68,18 +68,18 @@ while IFS= read -r entry; do
 done < <(find "${SRC_DIR}" -mindepth 1 -maxdepth 1 -type d | sort)
 
 while IFS= read -r hit; do
-    echo "FAIL: JNI entry point defined outside src/bridge: ${hit#"${NATIVE_DIR}/"}" >&2
+    echo "FAIL: JNI entry point defined outside src/jni: ${hit#"${NATIVE_DIR}/"}" >&2
     fail=1
 done < <(grep -rlnE '(^|[^A-Za-z0-9_])(Java_[A-Za-z0-9_]+|JNI_OnLoad)[[:space:]]*\(' \
     "${SRC_DIR}" --include='*.cpp' --include='*.h' --include='*.cc' \
-    | grep -v "^${SRC_DIR}/bridge/" | sort || true)
+    | grep -v "^${SRC_DIR}/jni/" | sort || true)
 
 allowlist="$(printf '%s\n' "${JNI_UPCALL_ADAPTERS[@]}" | sort)"
 while IFS= read -r hit; do
     relative="${hit#"${SRC_DIR}/"}"
-    [[ "${relative}" == bridge/* ]] && continue
+    [[ "${relative}" == jni/* ]] && continue
     if ! grep -qxF "${relative}" <<< "${allowlist}"; then
-        echo "FAIL: jni.h included outside the bridge/upcall boundary: ${hit#"${NATIVE_DIR}/"}" >&2
+        echo "FAIL: jni.h included outside the JNI entry and callback boundary: ${hit#"${NATIVE_DIR}/"}" >&2
         fail=1
     fi
 done < <(grep -rlE '^[[:space:]]*#include[[:space:]]*[<"]jni\.h[>"]' \

@@ -13,9 +13,9 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.testing.integration.e2e.write.NativeWriteBatchStreams.InvalidFrame;
-import org.pangrova.worker.nativebridge.jni.NativeRuntimeException;
+import org.pangrova.worker.exception.NativeRuntimeException;
 
 import java.io.IOException;
 import java.math.BigDecimal;

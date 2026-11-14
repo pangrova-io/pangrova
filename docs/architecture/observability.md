@@ -84,14 +84,14 @@ still pending.
 
 | Artifact | Owns |
 |---|---|
-| `pangrova-observability-api` | `.api` tracing/metric/logging values and profiling configuration/errors; `.spi` providers, task wrapping and profiler contracts |
-| `pangrova-observability-core` | MDC capture/restore, metric registration scopes and profiling delegation |
+| `pangrova-observability-api` | `.api` tracing/metric/logging values and profiling configuration/errors; `.api` providers, task wrapping and profiler contracts |
+| `pangrova-observability-instrumentation` | MDC capture/restore, metric registration scopes and profiling delegation |
 | `pangrova-observability-noop` | Explicit disabled telemetry instruments/providers and `UnavailableProfiler` |
 | `pangrova-observability-sdk` | Existing OpenTelemetry implementation, configuration and transport/native adapters pending their planned split |
 
 The API depends only on Common. Query observations and listener contracts belong to
-`pangrova-query-api` (`api.event` / `spi.event`); their process-local dispatcher belongs
-to `pangrova-query-core` (`core.event`). Observability API and Core do not depend on
+`pangrova-query` (`api.event` / `spi.event`); their process-local dispatcher belongs
+to `pangrova-query` (`core.event`). Observability API and Core do not depend on
 Query API/Core. Core and Noop do not depend on the central SPI, OpenTelemetry SDK,
 Coordinator or Worker. Query observer callbacks remain fault-isolated; durable
 audit/publication authority remains with the owning workflow, not the in-memory
@@ -562,33 +562,11 @@ void TableScanOperator::getOutput(RowVectorPtr& output) {
 }
 ```
 
-```java
-// NativeTraceBridge.java - Java-side Trace Context propagation
-public class NativeTraceBridge {
-
-    /**
-     * Submit a Native task, propagating the Trace Context (Pull mode: no callback parameter)
-     */
-    public long submitWithTrace(long executorHandle) {
-        Span currentSpan = Span.current();
-        SpanContext ctx = currentSpan.getSpanContext();
-
-        // Submit task with trace context, returns task handle
-        return nativeSubmitWithTrace(
-            executorHandle,
-            ctx.getTraceId(),      // 32 char hex
-            ctx.getSpanId(),       // 16 char hex
-            ctx.getTraceFlags().asByte()
-        );
-    }
-
-    private static native long nativeSubmitWithTrace(
-        long executorHandle,
-        String traceId,
-        String parentSpanId,
-        byte traceFlags);
-}
-```
+Worker HTTP handlers read the active OpenTelemetry identifiers through `CurrentSpanIds`
+when populating `LogContext`. Outside an active span the standard W3C invalid trace and
+span identifiers are all zeroes. At task startup, `NativeTaskExecutor.startTask` obtains
+the trace ID captured on that executor's admitted request. It holds the handle lease
+while calling `NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId)`.
 
 ### 4.4 Native-Layer Profiling
 
@@ -731,10 +709,10 @@ public class ProfilerEndpoint {
 
 ### Resource audit admission and shutdown
 
-Query audit values and the admission sink live in `pangrova-query-api` under
-`org.pangrova.query.api.audit` and `org.pangrova.query.spi.audit`; the storage port lives in `pangrova-persistence-query-api`
+Query audit values and the admission sink live in `pangrova-query` under
+`org.pangrova.query.api.audit`; the storage port lives in `pangrova-persistence-query-api`
 under `org.pangrova.persistence.query.api.audit`. The runtime service remains
-`org.pangrova.query.core.audit.QueryAuditService`. Each Coordinator composes its own
+`org.pangrova.query.audit.QueryAuditService`. Each Coordinator composes its own
 `QueryAuditServices`: admission and profile lookup
 share one `org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore` instance.
 Independent Coordinators do not share a global cache.
@@ -957,7 +935,7 @@ observability:
 ```text
 pangrova-observability/
 ├── pangrova-observability-api/    # org.pangrova.observability.api.* and spi.* contracts
-├── pangrova-observability-core/   # MDC logging/profiling runtime under org.pangrova.observability.core.*
+├── pangrova-observability-instrumentation/   # MDC logging/profiling runtime under org.pangrova.observability.*
 ├── pangrova-observability-noop/   # Explicit disabled telemetry implementations
 └── pangrova-observability-sdk/    # OpenTelemetry providers, SDK config, transport adapters
 ```

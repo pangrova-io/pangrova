@@ -1,8 +1,8 @@
 package org.pangrova.connector.api.metadata.table;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.connector.api.error.ConnectorException;
+import org.pangrova.connector.api.exception.ConnectorException;
 
 import java.util.Objects;
 

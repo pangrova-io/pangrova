@@ -116,7 +116,9 @@ server's advertised bound port at this hostname.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `worker.spill.directory` | string | `data/worker-spill` | Directory for spilling intermediate data to disk. Leaving it empty disables spill, which forces memory-denied joins and aggregations to fail instead of spilling |
-| `worker.shuffle.mode` | enum | `NATIVE` | Must match `coordinator.shuffle.mode`. `REMOTE` writes shuffle output to the external service so a dead Worker's output can be re-read; requires `worker.transport.tls.*` |
+| `worker.shuffle.provider` | string | `pangrova` | Selects the Worker factory for REMOTE exchanges. Use a factory compatible with the Coordinator binding and the Native protocol. Readers and producers share this Worker generation’s channel limits. |
+| `worker.shuffle.provider.pangrova.rpc-timeout-ms` | positive integer | `30000` | Upper bound for access renewal and producer commit RPCs. Streaming reads and writes use the task deadline. The selected factory rejects unknown properties. |
+| `worker.shuffle.mode` | enum | `NATIVE` | Must match `coordinator.shuffle.mode`. `NATIVE` uses direct Native exchange. In `REMOTE`, readers require the Coordinator's committed partition receipt and a current grant. Configure `worker.transport.tls.*` for mTLS. |
 
 Native Flight shuffle has a separate, process-wide service reservation. The Worker refuses to start without an existing, writable, absolute `worker.shuffle.service.spill-directory`; it never uses the system temporary directory implicitly. Ensure the volume has at least the configured service spill quota plus 10% or 64 MiB free headroom, whichever is larger. The service memory quotas are reserved in both the NodePool and shared MemoryArbitrator before task admission.
 
@@ -229,15 +231,15 @@ token, cost or billing statistics.
 | `worker.ai.authorization.mode` | string | `deny` | `deny` or the built-in `authenticated` admission policy |
 | `worker.ai.authorization.allowed-models` | CSV | empty | Exact SQL-visible model names allowed on this worker |
 | `worker.ai.authorization.allowed-capabilities` | CSV | empty | Exact capability IDs such as `inference:chat` |
-| `worker.ai.authorization.granted-permissions` | CSV | empty | Permissions available to trusted task identities; built-ins require `AI_MODEL_USAGE` |
+| `worker.ai.authorization.granted-permissions` | CSV | empty | Permissions available to trusted task identities; built-ins require `AI_MODEL_USAGE`, and any non-text modality additionally requires `AI_MEDIA_EGRESS` |
 | `worker.ai.authorization.max-batch-size` | int | `128` | Worker admission ceiling for one model invocation |
 | `worker.ai.authorization.max-input-bytes` | long | `8388608` | Aggregate input-byte ceiling for one invocation |
 | `worker.ai.models.<id>.name` | string | `<id>` | Exact SQL/provider model name; use this field when the name contains `/`, `:` or `.` |
-| `worker.ai.models.<id>.provider` | string | — | Exact wire dialect: `openai-compatible` (chat/embedding/rerank), `openai-responses` (text/image/document), or `openai-transcription` (audio multipart) |
+| `worker.ai.models.<id>.provider` | string | — | Exact wire dialect: `openai-compatible` (chat/embedding/rerank), `openai-responses` (text/image/document), `openai-transcription` (audio multipart), or `qwen` (Model Studio text chat) |
 | `worker.ai.models.<id>.provider-model` | string | — | Exact upstream provider model identifier; never inferred from the SQL-visible name |
 | `worker.ai.models.<id>.version` | string | — | Immutable, exact model/config version used in dispatch and audit |
 | `worker.ai.models.<id>.endpoint` | URI | — | Absolute HTTP(S) endpoint without URI user-info, query, or fragment; Responses and transcription require their exact canonical paths |
-| `worker.ai.models.<id>.secret-reference` | string | — | Opaque secret reference. Built-in resolver accepts only `env://VARIABLE`; plugins may add Vault/KMS |
+| `worker.ai.models.<id>.secret-reference` | string | — | Opaque secret reference. The standard Worker includes the ENV provider for `env://VARIABLE`. Other schemes require an installed `SecretProvider`. |
 | `worker.ai.models.<id>.authentication` | string | `bearer` | `bearer` requires `secret-reference`; `none` forbids it and is intended only for explicitly trusted endpoints |
 | `worker.ai.models.<id>.capabilities` | CSV | — | `inference`, `embedding`, `reranking`, or `multimodal`; binary modalities require the governed FILE loader and their matching explicit provider dialect |
 | `worker.ai.models.<id>.modalities` | CSV | `text` | Exact accepted modalities. Chat: `text,image`; Responses: subset of `text,image,document`; transcription: exactly `text,audio` |
@@ -250,12 +252,20 @@ token, cost or billing statistics.
 | `worker.ai.models.<id>.max-concurrency` | int | — | Required positive per-worker upstream concurrency limit |
 | `worker.ai.models.<id>.max-provider-items-per-task` | long | — | Required positive cumulative logical input-item limit per exact task attempt and model |
 | `worker.ai.models.<id>.max-provider-attempts-per-task` | long | — | Required positive cumulative application HTTP-send limit, including failed retries |
+| `worker.ai.models.<id>.authorization.egress-hosts` | CSV | empty | Exact external hosts a blob-capable model may reach (wildcard prefix `*.` supported). Empty denies every remote endpoint; loopback is always allowed |
 | `worker.ai.models.<id>.max-request-bytes` | long | — | Required positive limit on one fully encoded request entity |
 | `worker.ai.models.<id>.max-response-bytes` | long | — | Required positive limit on one received response entity before accumulation |
 | `worker.ai.models.<id>.embedding-dimension` | int | — | Required positive dimension when `embedding` is declared |
 | `worker.ai.models.<id>.query-prefix` | string | empty | Prefix only for explicit `QUERY` embedding purpose, regardless of batch size |
 | `worker.ai.models.<id>.document-prefix` | string | empty | Prefix only for explicit `DOCUMENT` embedding purpose, regardless of batch size; `RAW` is unchanged |
 | `worker.ai.models.<id>.enabled` | bool | `true` | Publishes or suppresses this descriptor at startup |
+
+For Qwen, select `provider: qwen`, `capabilities: inference`, and `modalities: text`.
+Set `provider-model` to the deployed Model Studio identifier, for example `qwen-plus`.
+Use the HTTPS endpoint for your workspace and region, including the complete
+`/compatible-mode/v1/chat/completions` path. Supply the Model Studio API key via
+the model's `secret-reference`. The same task budgets and model-version checks
+apply to each HTTP request. [Model Studio HTTP reference](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions)
 
 ### worker.ai.file
 
@@ -276,7 +286,7 @@ a refreshing official OSS `CredentialsProvider` directly to the provider.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `worker.ai.file.storage-backend` | string | — | Explicit FILE enablement switch: `s3`, `local` or `oss`. Unsupported values or incomplete configuration fail Worker function registration |
+| `worker.ai.file.storage-backend` | string | — | ID of the installed FILE `BlobStorageFactory`. The standard Worker includes `s3`, `local` and `oss`. Unknown IDs, duplicate factories and invalid backend settings fail function registration |
 | `worker.ai.file.storage.local.root` | path | — | Required for `local`: persistent administrator-controlled object root. Workers resolving the same FILE references must share this filesystem namespace. The COPY stage listener still requires managed S3 |
 | `worker.ai.file.storage-staging-root` | path | — | Required Worker-local bounded staging directory; incomplete writes are never published and abandoned files are age/count scavenged |
 | `worker.ai.file.capability-secret-reference` | string | — | Required external secret reference resolved at startup. The value must be canonical base64 decoding to at least 32 bytes and must be identical across Workers; it is never persisted locally |
@@ -309,6 +319,11 @@ a refreshing official OSS `CredentialsProvider` directly to the provider.
 | `worker.ai.file.url.connection-ttl-ms` | long | `60000` | Maximum lifetime of a pooled connection before re-establishment |
 | `worker.ai.file.url.idle-eviction-ms` | long | `30000` | Idle time after which a pooled connection is evicted |
 
+SQL file spaces discover their own `ObjectStoreAccessorProvider` implementations.
+The standard Worker installs LOCAL and S3 file-space accessors. OSS currently
+implements governed FILE blob storage only. Duplicate file-space backend types
+fail initialization. A profile requesting an uninstalled type fails on access.
+
 The S3 key is derived directly from tenant scope and SHA-256; reads issue an
 exact GET and never list a bucket or prefix. PUT uses `If-None-Match: *`, then
 HEAD verifies size, SHA-256 metadata, SSE mode and KMS key. Bucket lifecycle
@@ -322,9 +337,10 @@ worker:
   ai:
     authorization:
       mode: authenticated
-      allowed-models: "gpt-4o-mini,text-embedding-3-small"
-      allowed-capabilities: "inference:gpt-4o-mini,embedding:text-embedding-3-small"
-      granted-permissions: "AI_MODEL_USAGE"
+      allowed-models: "gpt-4o-mini,text-embedding-3-small,gpt-4o-transcribe"
+      allowed-capabilities: "inference:gpt-4o-mini,embedding:text-embedding-3-small,multimodal:gpt-4o-transcribe"
+      # AI_MEDIA_EGRESS is mandatory for every non-text modality.
+      granted-permissions: "AI_MODEL_USAGE,AI_MEDIA_EGRESS"
     file:
       storage-backend: "s3"
       storage-staging-root: "/var/lib/pangrova/ai-file-staging"
@@ -378,6 +394,8 @@ worker:
         secret-reference: "env://PANGROVA_RESPONSES_API_KEY"
         capabilities: "multimodal"
         modalities: "text,image,document"
+        authorization:
+          egress-hosts: "api.example"
         max-media-bytes: 16777216
         max-input-tokens: 128000
         max-output-tokens: 16384
@@ -394,6 +412,8 @@ worker:
         secret-reference: "env://PANGROVA_TRANSCRIPTION_API_KEY"
         capabilities: "multimodal"
         modalities: "text,audio"
+        authorization:
+          egress-hosts: "api.example"
         max-batch-size: 1
         max-media-bytes: 26214400
         max-input-tokens: 128000

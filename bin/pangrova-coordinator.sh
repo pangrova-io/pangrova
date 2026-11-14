@@ -110,8 +110,8 @@ fi
 
 # --- Parse arguments ---
 CONFIG_FILE="${PANGROVA_CONF_DIR}/coordinator.yml"
-CONFIG_ARGS=""
-[[ -f "$CONFIG_FILE" ]] && CONFIG_ARGS="--config $CONFIG_FILE"
+CONFIG_ARGS=()
+[[ -f "$CONFIG_FILE" ]] && CONFIG_ARGS=(--config "$CONFIG_FILE")
 
 DAEMON=false
 EXTRA_ARGS=()
@@ -119,7 +119,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --help)   usage ;;
         --daemon) DAEMON=true; shift ;;
-        --config) CONFIG_ARGS="--config $2"; shift 2 ;;
+        --config)
+            [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --config requires a YAML path" >&2; exit 1; }
+            CONFIG_ARGS=(--config "$2"); shift 2 ;;
         *)        EXTRA_ARGS+=("$1"); shift ;;
     esac
 done
@@ -146,11 +148,11 @@ echo "  JAVA:            $JAVA (version $JAVA_VERSION)"
 echo "  JVM_CONFIG:      ${JVM_CONFIG_FILE}$([ -f "$JVM_CONFIG_FILE" ] && echo ' (loaded)' || echo ' (not found, using defaults)')"
 
 if [[ "$DAEMON" == "true" ]]; then
-    nohup "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" $CONFIG_ARGS "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" \
+    nohup "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" "${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" \
         > "$PANGROVA_LOG_DIR/${ROLE}.out" 2>&1 &
     echo $! > "$PID_FILE"
     echo "  PID:             $(cat "$PID_FILE") (daemon)"
     echo "  Log:             $PANGROVA_LOG_DIR/${ROLE}.out"
 else
-    exec "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" $CONFIG_ARGS "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
+    exec "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" "${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 fi

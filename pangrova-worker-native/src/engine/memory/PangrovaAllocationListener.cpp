@@ -4,7 +4,7 @@
 
 #include <stdexcept>
 
-#include "bridge/JniExceptionScope.h"
+#include "jni/JniExceptionScope.h"
 #include "engine/memory/PangrovaArbitrator.h"
 #include "engine/observability/PangrovaLog.h"
 #include "velox/common/base/Exceptions.h"
@@ -15,7 +15,7 @@ namespace {
 
 // Java class name for AllocationListener interface.
 constexpr const char* kAllocationListenerClass =
-    "org/pangrova/worker/nativebridge/memory/AllocationListener";
+    "org/pangrova/worker/memory/AllocationListener";
 
 }  // namespace
 

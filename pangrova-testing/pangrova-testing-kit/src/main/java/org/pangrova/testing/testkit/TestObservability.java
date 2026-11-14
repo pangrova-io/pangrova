@@ -4,9 +4,9 @@ import org.pangrova.observability.noop.NoOpLoggingProvider;
 import org.pangrova.observability.noop.NoOpMetricsProvider;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
-import org.pangrova.observability.spi.logging.LoggingProvider;
-import org.pangrova.observability.spi.metrics.MetricsProvider;
-import org.pangrova.observability.spi.tracing.TracingProvider;
+import org.pangrova.observability.api.logging.LoggingProvider;
+import org.pangrova.observability.api.metrics.MetricsProvider;
+import org.pangrova.observability.api.tracing.TracingProvider;
 
 /**
  * Centralized NoOp observability singletons for test code.

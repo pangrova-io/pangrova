@@ -21,6 +21,12 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-client-http</artifactId></dependency>
         <!-- JMH -->
         <dependency>
             <groupId>org.openjdk.jmh</groupId>
@@ -41,11 +47,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-parser-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-parser-core</artifactId>
+            <artifactId>pangrova-parser</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -120,7 +122,9 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
-                            <finalName>${uberjar.name}</finalName>
+                            <!-- CI launches this standalone JMH file; the reactor installs the thin module. -->
+                            <outputFile>${project.build.directory}/${uberjar.name}.jar</outputFile>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>org.openjdk.jmh.Main</mainClass>

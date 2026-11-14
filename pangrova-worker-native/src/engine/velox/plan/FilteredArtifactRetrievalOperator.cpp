@@ -139,6 +139,10 @@ void FilteredArtifactRetrievalOperator::searchSources() {
   }
   addRuntimeStat("filteredAnnExpandedNodes", facebook::velox::RuntimeCounter(usage_.expanded));
   addRuntimeStat("filteredAnnRescoredRows", facebook::velox::RuntimeCounter(usage_.rescored));
+  if (usage_.recall_shortfall > 0) {
+    addRuntimeStat("filteredAnnRecallShortfall",
+        facebook::velox::RuntimeCounter(usage_.recall_shortfall));
+  }
   searched_ = true;
 }
 

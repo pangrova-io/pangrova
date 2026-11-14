@@ -1,5 +1,7 @@
 package org.pangrova.persistence.generation.api.generated;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Exact immutable generated-value generation selected for a source snapshot. */
 public record GeneratedValueGenerationReference(
         String tenantId,
@@ -16,11 +18,5 @@ public record GeneratedValueGenerationReference(
         requireText(sourceId, "sourceId");
         requireText(sourceSnapshot, "sourceSnapshot");
         requireText(targetColumn, "targetColumn");
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
     }
 }

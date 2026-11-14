@@ -1,16 +1,14 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Map;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.ConfigValidator;
 import org.pangrova.config.CoordinatorOptions;
 import org.pangrova.scheduler.api.resource.SpillBudget;
-import org.pangrova.config.YamlConfigLoader;
+import org.pangrova.server.bootstrap.ServerConfigurationLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +37,7 @@ public final class PangrovaCoordinatorMain {
     /** Starts the coordinator from its command-line configuration. */
     public static void main(String[] args) {
         try {
-            PangrovaConfiguration pangrovaConfig = loadPangrovaConfiguration(args);
+            PangrovaConfiguration pangrovaConfig = ServerConfigurationLoader.load(args, CLASSPATH_DEFAULT);
             coordinatorValidator().validate(pangrovaConfig);
             CoordinatorBootstrapConfig config = buildBootstrapConfig(pangrovaConfig);
             validateProductionInternalAuth(config);
@@ -86,50 +84,13 @@ public final class PangrovaCoordinatorMain {
     }
 
     /**
-     * Parses CLI args for {@code --config <path>} and builds an {@link PangrovaConfiguration}.
-     *
-     * <p>Priority (highest → lowest):
-     * <ol>
-     *   <li>CLI YAML file (if {@code --config} provided)</li>
-     *   <li>{@code PANGROVA_*} environment variables</li>
-     *   <li>Classpath default {@code coordinator.yml}</li>
-     *   <li>{@link org.pangrova.config.ConfigOption#defaultValue()}</li>
-     * </ol>
-     */
-    static PangrovaConfiguration loadPangrovaConfiguration(String[] args) throws IOException {
-        String configPath = parseConfigPath(args);
-        Map<String, String> flatMap;
-        if (configPath != null) {
-            LOG.info("event=config_loading source=cli_yaml path={}",
-                    configPath.replace('\r', '_').replace('\n', '_'));
-            flatMap = YamlConfigLoader.loadWithDefaults(Path.of(configPath), CLASSPATH_DEFAULT);
-        } else {
-            LOG.info("event=config_loading source=classpath_default resource={}", CLASSPATH_DEFAULT);
-            flatMap = YamlConfigLoader.loadFromClasspath(CLASSPATH_DEFAULT);
-        }
-        return PangrovaConfiguration.fromYamlWithEnvOverride(flatMap);
-    }
-
-    /**
-     * Scans CLI args for {@code --config <path>}. Returns the path or {@code null} if absent.
-     */
-    static String parseConfigPath(String[] args) {
-        for (int i = 0; i < args.length - 1; i++) {
-            if ("--config".equals(args[i])) {
-                return args[i + 1];
-            }
-        }
-        return null;
-    }
-
-    /**
      * Translates an {@link PangrovaConfiguration} into the existing {@link CoordinatorBootstrapConfig}
      * record hierarchy, bridging the new typed config system with the current bootstrap flow.
      */
     public static CoordinatorBootstrapConfig buildBootstrapConfig(PangrovaConfiguration config) {
         String coordinatorId = config.getString(CoordinatorOptions.COORDINATOR_ID);
         int httpPort = config.getInt(CoordinatorOptions.COORDINATOR_PORT);
-        org.pangrova.server.coordinator.bootstrap.CoordinatorRole role = parseRole(
+        org.pangrova.server.coordinator.enums.CoordinatorRole role = parseRole(
                 config.getString(CoordinatorOptions.COORDINATOR_ROLE));
         var core = new CoordinatorBootstrapConfig.CoreConfig(
                 coordinatorId, httpPort,
@@ -142,13 +103,21 @@ public final class PangrovaCoordinatorMain {
                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_QUERY_RETENTION_SECONDS,
                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_QUERY_CLEANUP_INTERVAL_SECONDS,
                 new SpillBudget(
-                        config.getLong(CoordinatorOptions.TASK_SPILL_MAX_BYTES)));
-        return new CoordinatorBootstrapConfig(
+                        config.getLong(CoordinatorOptions.TASK_SPILL_MAX_BYTES)),
+                config.getInt(CoordinatorOptions.WORKER_MAX_RETRY),
+                config.getString(CoordinatorOptions.PLACEMENT_PROVIDER));
+        var bootstrap = new CoordinatorBootstrapConfig(
                 core, buildFeatureFlags(config), queryConfig,
                 loadTransportConfig(config),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 loadMetadataJdbcConfig(config), SecurityConfigurationLoader.load(config),
                 loadObservabilityConfig(config));
+        try {
+            CoordinatorShuffleProviders.validate(bootstrap);
+        } catch (IllegalArgumentException invalid) {
+            throw new PangrovaException(PangrovaErrorCode.CONFIG_INVALID_VALUE, invalid.getMessage(), invalid);
+        }
+        return bootstrap;
     }
 
     private static CoordinatorBootstrapConfig.TransportConfig loadTransportConfig(
@@ -203,6 +172,14 @@ public final class PangrovaCoordinatorMain {
             throw new PangrovaException(PangrovaErrorCode.CONFIG_INVALID_VALUE,
                     "tenant.enabled=true cannot use the NOOP authenticator");
         }
+        var shuffleMode = config.get(CoordinatorOptions.SHUFFLE_MODE);
+        var shuffleEndpoints = parseShuffleEndpoints(config.getString(CoordinatorOptions.SHUFFLE_ENDPOINTS));
+        String provider = config.getString(CoordinatorOptions.SHUFFLE_PROVIDER);
+        String prefix = "coordinator.shuffle.provider." + provider + ".";
+        var settings = new java.util.HashMap<String, String>();
+        config.toMap().forEach((key, value) -> {
+            if (key.startsWith(prefix)) settings.put(key.substring(prefix.length()), value);
+        });
         return new CoordinatorBootstrapConfig.FeatureFlags(
                 config.getBoolean(CoordinatorOptions.OBSERVABILITY_ENABLED),
                 config.getBoolean(CoordinatorOptions.SECURITY_ENABLED),
@@ -213,7 +190,18 @@ public final class PangrovaCoordinatorMain {
                 config.getBoolean(CoordinatorOptions.TENANT_ENABLED),
                 config.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED),
                 config.getBoolean(CoordinatorOptions.SPECULATION_ENABLED),
-                false, false, false);
+                false, false, false, false, false,
+                shuffleMode, shuffleEndpoints, provider, settings);
+    }
+
+    private static java.util.List<String> parseShuffleEndpoints(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return java.util.List.of();
+        }
+        return java.util.Arrays.stream(csv.split(","))
+                .map(String::trim)
+                .filter(entry -> !entry.isEmpty())
+                .toList();
     }
 
     private static CoordinatorBootstrapConfig.MetadataJdbcConfig loadMetadataJdbcConfig(
@@ -255,15 +243,15 @@ public final class PangrovaCoordinatorMain {
         }
     }
 
-    private static org.pangrova.server.coordinator.bootstrap.CoordinatorRole parseRole(String value) {
+    private static org.pangrova.server.coordinator.enums.CoordinatorRole parseRole(String value) {
         if (value == null || value.isBlank()) {
-            return org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED;
+            return org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED;
         }
         try {
-            return org.pangrova.server.coordinator.bootstrap.CoordinatorRole.valueOf(value.trim().toUpperCase());
+            return org.pangrova.server.coordinator.enums.CoordinatorRole.valueOf(value.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
             LOG.warn("event=invalid_coordinator_role value={} fallback=COMBINED", value);
-            return org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED;
+            return org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED;
         }
     }
 }

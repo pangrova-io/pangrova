@@ -4,8 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
@@ -74,7 +74,7 @@ class SignedOidcSecurityBootstrapIntegrationTest extends ContainerTestBase {
 
     private static CoordinatorBootstrapConfig configWith(CoordinatorBootstrapConfig.SecurityConfig security) {
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("signed-oidc", 0, 30_000, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                new CoordinatorBootstrapConfig.CoreConfig("signed-oidc", 0, 30_000, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(), CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(), null, security, null);

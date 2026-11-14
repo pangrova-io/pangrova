@@ -111,7 +111,14 @@ facebook::velox::dwio::common::FileFormat resolveFileFormat(
     case split::FileFormatType::PARQUET:
       return facebook::velox::dwio::common::FileFormat::PARQUET;
     case split::FileFormatType::ORC:
-      return facebook::velox::dwio::common::FileFormat::DWRF;
+      // Velox's orc::OrcReaderFactory::createReader delegates to
+      // DwrfReader::create, so it cannot read Apache ORC. Mapping ORC to DWRF
+      // here silently handed Apache ORC files to a DWRF parser. Reject until a
+      // real Apache ORC reader is linked.
+      throw pangrova::executor::NativeUnsupportedFeatureException(
+          "file_format:apache_orc", "orc",
+          "Apache ORC is not readable: the linked Velox ORC factory delegates to "
+          "DWRF. Convert the table to Parquet.");
     case split::FileFormatType::LANCE:
       throw pangrova::executor::NativeUnsupportedFeatureException(
           "file_format:lance_via_dwio", "lance",

@@ -1,12 +1,15 @@
 package org.pangrova.indexing.builtin.gin.provider;
 
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.gin.serializer.GinSerializer;
+
 import org.pangrova.indexing.builtin.gin.serializer.ElementExtractor;
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.text.GinIndexData;
 import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.connector.api.index.predicate.ContainmentMode;
+import org.pangrova.connector.api.enums.ContainmentMode;
 import org.pangrova.connector.api.index.predicate.ContainsElement;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
 
@@ -27,6 +30,11 @@ import java.util.Map;
 public final class GinStrategyProvider implements IndexStrategyProvider {
 
     private static final String PROP_STORE_POSITIONS = "gin.store_positions";
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new GinSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

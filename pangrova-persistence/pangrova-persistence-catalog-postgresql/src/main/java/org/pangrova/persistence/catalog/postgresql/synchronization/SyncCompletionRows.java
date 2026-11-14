@@ -2,8 +2,8 @@ package org.pangrova.persistence.catalog.postgresql.synchronization;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.metadata.codec.json.MetadataJsonMapper;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.common.json.CanonicalJsonMapper;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
@@ -52,7 +52,7 @@ final class SyncCompletionRows {
             statement.setInt(10, result.errors());
             try {
                 statement.setString(ERROR_MESSAGES_PARAMETER,
-                        MetadataJsonMapper.writeValueAsString(result.errorMessages()));
+                        CanonicalJsonMapper.writeValueAsString(result.errorMessages()));
             } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
                 throw new MetastoreException("Cannot encode metadata sync diagnostics", failure);
             }
@@ -83,7 +83,7 @@ final class SyncCompletionRows {
                 rows.getString("incarnation_id"), rows.getLong("revision"));
         List<String> errors;
         try {
-            errors = MetadataJsonMapper.readValue(rows.getString("error_messages"), new TypeReference<>() {});
+            errors = CanonicalJsonMapper.readValue(rows.getString("error_messages"), new TypeReference<>() {});
         } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
             throw new MetastoreException("Cannot decode metadata sync diagnostics", failure);
         }

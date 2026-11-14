@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.connector.api.metadata.NativePhysicalFileReceipt;
@@ -8,7 +10,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 /** Checks immutable object bytes through the catalog SDK FileIO, without decoding any rows. */
 final class PaimonPhysicalObjectVerifier {
@@ -26,7 +27,7 @@ final class PaimonPhysicalObjectVerifier {
             byte[] footer = input.readNBytes(8);
             verifyFooter(footer, receipt);
             input.seek(0);
-            var digest = MessageDigest.getInstance("SHA-256");
+            var digest = DigestUtils.sha256();
             byte[] buffer = new byte[64 * 1024];
             long bytes = 0;
             for (int count; (count = input.read(buffer)) != -1;) {
@@ -42,8 +43,6 @@ final class PaimonPhysicalObjectVerifier {
             }
         } catch (IOException failure) {
             throw new IllegalStateException("SDK physical object verification failed", failure);
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
 

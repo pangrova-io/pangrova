@@ -1,6 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;

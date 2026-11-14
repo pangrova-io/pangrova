@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.pangrova.client;
 
+import org.pangrova.shuffle.pangrova.client.exception.RemoteShuffleClientException;
+
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
@@ -7,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
+import io.grpc.Context;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptResponse;
@@ -22,6 +25,7 @@ final class RemoteShuffleTaskEgress {
 
     private static final long CLEANUP_GRACE_NANOS = TimeUnit.SECONDS.toNanos(5);
 
+    private final Context.CancellableContext rpcScope;
     private final String shuffleId;
     private final List<ShuffleServerEndpoint> endpoints;
     private final ShuffleServiceAddress commitAddress;
@@ -64,6 +68,7 @@ final class RemoteShuffleTaskEgress {
                             taskAttempt,
                             ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE,
                             accessCapability);
+            this.rpcScope = Context.current().fork().withCancellation();
         } catch (RuntimeException | Error failure) {
             try {
                 releaseClientLeases();
@@ -100,7 +105,7 @@ final class RemoteShuffleTaskEgress {
     void write(int partitionId, long rowCount, ByteBuffer data) {
         beginWrite();
         try {
-            writePartition(partitionId, rowCount, data);
+            rpcScope.run(() -> writePartition(partitionId, rowCount, data));
         } finally {
             endWrite();
         }
@@ -133,7 +138,7 @@ final class RemoteShuffleTaskEgress {
             awaitWritesBeforeFinish();
             streams.values().forEach(RemoteShuffleProducerStream::finish);
             requireFinishing();
-            commitProducer();
+            rpcScope.run(this::commitProducer);
             markFinished();
         } finally {
             synchronized (lifecycleMonitor) {
@@ -143,6 +148,7 @@ final class RemoteShuffleTaskEgress {
         }
         // This runs after activeFinish is cleared and all actual stream terminal
         // callbacks and the blocking commit RPC have completed successfully.
+        rpcScope.close();
         releaseClientLeases();
     }
 
@@ -181,6 +187,9 @@ final class RemoteShuffleTaskEgress {
             }
             lifecycleMonitor.notifyAll();
         }
+        // Cancel the blocking renewal and commit calls as well as the streaming RPCs.
+        // A cancelled commit may already have taken effect on the server.
+        rpcScope.cancel(null);
         long cleanupDeadline = System.nanoTime() + CLEANUP_GRACE_NANOS;
         Throwable failure = finished ? null : abortStreams(reason);
         boolean drained = false;

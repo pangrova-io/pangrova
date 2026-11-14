@@ -13,7 +13,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.value.MemoryPressure;
+import org.pangrova.common.enums.MemoryPressure;
+import org.pangrova.config.CoordinatorOptions;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.config.YamlConfigLoader;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
@@ -21,10 +22,10 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.scheduler.api.placement.HealthState;
+import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.scheduler.api.resource.SpillBudget;
 import org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy;
-import org.pangrova.scheduler.core.placement.TaskScheduler;
+import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain;
 
@@ -78,13 +79,18 @@ class SpillBudgetPropagationPropertyTest {
     }
 
     @Test
-    void defaultsAndExplicitZeroDisableTaskSpilling() {
-        for (var values : List.of(Map.<String, String>of(),
-                Map.of("coordinator.task.spill.max-bytes", "0"),
-                Map.of("worker.spill.directory", "/worker-owned/local-spill"))) {
-            var config = PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(values));
-            assertThat(grant(config).getSpillBytes()).isZero();
-        }
+    void defaultsEnableTaskSpillingAndExplicitZeroDisablesIt() {
+        // A zero default silently disabled spill for every deployment, so large
+        // joins/aggregations hit VELOX_MEM_POOL_CAP_EXCEEDED instead of spilling.
+        var defaults = PangrovaCoordinatorMain.buildBootstrapConfig(
+                PangrovaConfiguration.fromYaml(Map.<String, String>of()));
+        assertThat(grant(defaults).getSpillBytes())
+                .isEqualTo(CoordinatorOptions.TASK_SPILL_MAX_BYTES.defaultValue());
+        assertThat(grant(defaults).getSpillBytes()).isPositive();
+
+        var disabled = PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(
+                Map.of("coordinator.task.spill.max-bytes", "0")));
+        assertThat(grant(disabled).getSpillBytes()).isZero();
     }
 
     @Test

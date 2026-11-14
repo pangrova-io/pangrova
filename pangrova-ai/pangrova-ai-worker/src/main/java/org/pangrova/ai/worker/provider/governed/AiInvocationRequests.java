@@ -1,9 +1,11 @@
 package org.pangrova.ai.worker.provider.governed;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.invocation.AiInvocationRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
@@ -11,7 +13,6 @@ import org.pangrova.ai.worker.context.BoundAiInvocation;
 import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -153,29 +154,25 @@ final class AiInvocationRequests {
     }
 
     private static String fingerprint(AiExecutionContext context, RequestDefinition definition) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            update(digest, "pangrova.ai.invocation.v2");
-            update(digest, context.tenantId());
-            update(digest, context.principal());
-            update(digest, context.taskAttempt().toByteArray());
-            AiCapabilityDescriptor capability = definition.capability();
-            update(digest, definition.modelName());
-            update(digest, definition.modelVersion());
-            update(digest, definition.modelSignatureSha256());
-            update(digest, capability.capabilityId());
-            update(digest, capability.version());
-            update(digest, capability.operation().name());
-            update(digest, definition.mode().name());
-            update(digest, definition.embeddingPurpose().map(Enum::name).orElse(""));
-            updateParameters(digest, definition.parameters());
-            for (AiInvocationRequest.Input input : definition.inputs()) {
-                updateInput(digest, input);
-            }
-            return HexFormat.of().formatHex(digest.digest());
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        MessageDigest digest = DigestUtils.sha256();
+        update(digest, "pangrova.ai.invocation.v2");
+        update(digest, context.tenantId());
+        update(digest, context.principal());
+        update(digest, context.taskAttempt().toByteArray());
+        AiCapabilityDescriptor capability = definition.capability();
+        update(digest, definition.modelName());
+        update(digest, definition.modelVersion());
+        update(digest, definition.modelSignatureSha256());
+        update(digest, capability.capabilityId());
+        update(digest, capability.version());
+        update(digest, capability.operation().name());
+        update(digest, definition.mode().name());
+        update(digest, definition.embeddingPurpose().map(Enum::name).orElse(""));
+        updateParameters(digest, definition.parameters());
+        for (AiInvocationRequest.Input input : definition.inputs()) {
+            updateInput(digest, input);
         }
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     private static void update(MessageDigest digest, String value) {

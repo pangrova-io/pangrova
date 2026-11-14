@@ -2,7 +2,7 @@ package org.pangrova.indexing.builtin.hash.serializer;
 
 import org.pangrova.indexing.api.data.HashIndexData;
 import org.pangrova.indexing.codec.data.SerdeCodec;
-import org.pangrova.indexing.spi.codec.TypeSerializer;
+import org.pangrova.indexing.api.codec.TypeSerializer;
 
 /**
  * Serializer for {@link HashIndexData}.

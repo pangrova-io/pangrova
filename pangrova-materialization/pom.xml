@@ -17,8 +17,7 @@
 
     <modules>
         <module>pangrova-materialization-api</module>
-        <module>pangrova-materialization-spi</module>
-        <module>pangrova-materialization-core</module>
+        <module>pangrova-materialization-lifecycle</module>
         <module>pangrova-materialization-strategies-builtin</module>
     </modules>
 </project>

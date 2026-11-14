@@ -10,7 +10,7 @@ import java.util.List;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
-import org.pangrova.transport.api.result.ResultEndpoint;
+import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.TaskAttemptId;

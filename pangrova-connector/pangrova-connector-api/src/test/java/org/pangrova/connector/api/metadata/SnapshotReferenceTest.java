@@ -1,6 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
-import org.pangrova.connector.spi.metadata.ConnectorSnapshotMetadata;
+import org.pangrova.connector.api.metadata.ConnectorSnapshotMetadata;
 
 import org.junit.jupiter.api.Test;
 

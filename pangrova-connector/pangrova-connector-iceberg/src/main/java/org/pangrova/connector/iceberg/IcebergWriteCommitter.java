@@ -3,7 +3,7 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
-import org.pangrova.connector.api.index.CommitEventType;
+import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.metadata.DeleteFilter;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.apache.iceberg.DataFile;

@@ -1,5 +1,7 @@
 package org.pangrova.ai.control.embedding;
 
+import org.pangrova.ai.control.exception.VersionConflictException;
+
 import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
 
 import java.util.Objects;

@@ -2,9 +2,11 @@ package org.pangrova.indexing.api.evaluation;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
 
+import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -19,7 +21,9 @@ import java.util.Objects;
  * @param indexType     index type (for engine lookup)
  * @param predicate     predicate to evaluate
  * @param indexFilePath path to the index file for this data file
- * @param generation    index generation (for cache key)
+ * @param generation    published index generation
+ * @param indexSizeBytes size of the complete published artifact
+ * @param checksum SHA-256 of the complete published artifact, as 64 hex digits
  */
 @Experimental
 public record IndexEvalHint(
@@ -27,12 +31,21 @@ public record IndexEvalHint(
         IndexType indexType,
         IndexPredicate predicate,
         String indexFilePath,
-        int generation) {
+        int generation,
+        long indexSizeBytes,
+        String checksum) {
 
     public IndexEvalHint {
         Objects.requireNonNull(indexId, "indexId");
         Objects.requireNonNull(indexType, "indexType");
         Objects.requireNonNull(predicate, "predicate");
         Objects.requireNonNull(indexFilePath, "indexFilePath");
+        if (generation < 0 || indexSizeBytes < 0) {
+            throw new IllegalArgumentException("generation and indexSizeBytes must be non-negative");
+        }
+        if (checksum == null || checksum.length() != 64 || !checksum.chars().allMatch(HexFormat::isHexDigit)) {
+            throw new IllegalArgumentException("checksum must be a SHA-256 hex digest");
+        }
+        checksum = checksum.toLowerCase(Locale.ROOT);
     }
 }

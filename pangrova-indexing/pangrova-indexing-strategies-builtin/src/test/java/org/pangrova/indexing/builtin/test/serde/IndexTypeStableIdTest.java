@@ -1,11 +1,12 @@
 package org.pangrova.indexing.builtin.test.serde;
 
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import java.util.ServiceLoader;
 import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
 
-import org.pangrova.indexing.builtin.codec.BuiltinIndexSerializers;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.BloomFilterIndexData;
 import org.pangrova.indexing.api.data.IndexData;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class IndexTypeStableIdTest {
 
-    private static final TypeSerializerRegistry REGISTRY = BuiltinIndexSerializers.createRegistry();
+    private static final TypeSerializerRegistry REGISTRY = TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class));
 
     @Test
     void stableIdIsIndependentOfOrdinal() {

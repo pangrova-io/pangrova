@@ -1,10 +1,10 @@
 package org.pangrova.connector.api.data.write;
 
-import org.pangrova.connector.spi.write.TableWriter;
+import org.pangrova.connector.api.write.TableWriter;
 
-import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.api.data.ConnectorPageSink;
 import org.pangrova.connector.api.write.WriteContext;
-import org.pangrova.connector.api.write.WriteMode;
+import org.pangrova.connector.api.enums.WriteMode;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;

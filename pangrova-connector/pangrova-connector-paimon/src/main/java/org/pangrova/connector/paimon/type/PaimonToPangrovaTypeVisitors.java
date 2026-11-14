@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.type;
 
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.mapping.PangrovaTypeMapping;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;

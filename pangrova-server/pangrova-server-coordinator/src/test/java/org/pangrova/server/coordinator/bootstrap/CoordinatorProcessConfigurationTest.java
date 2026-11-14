@@ -78,6 +78,7 @@ class CoordinatorProcessConfigurationTest {
         String secret = "a-cluster-secret-with-at-least-32-bytes";
         var bootstrap = configured(secret);
         assertThat(bootstrap.securityEnabled()).isFalse();
+        assertThat(bootstrap.securityConfig().clientAuthenticator()).isEmpty();
         assertThat(bootstrap.internalAuthSecret()).isEqualTo(secret);
         assertThat(bootstrap.speculationEnabled()).isFalse();
         assertThatCode(() -> PangrovaCoordinatorMain.validateProductionInternalAuth(bootstrap))

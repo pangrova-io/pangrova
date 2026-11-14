@@ -1,10 +1,12 @@
 package org.pangrova.server.coordinator.assembly.security.audit;
 
+import org.pangrova.server.coordinator.enums.AuditWriterConfig;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
-import org.pangrova.security.core.audit.LoggingAuditEventWriter;
-import org.pangrova.security.core.audit.CompositeAuditEventWriter;
+import org.pangrova.security.audit.LoggingAuditEventWriter;
+import org.pangrova.security.audit.CompositeAuditEventWriter;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -17,8 +19,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.pangrova.security.api.audit.AccessedObject;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.api.audit.AuditEventQuery;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.spi.audit.AuditEventWriter;
+import org.pangrova.security.api.enums.AuditEventType;
+import org.pangrova.security.api.audit.AuditEventWriter;
 import org.pangrova.persistence.security.postgresql.audit.JdbcAuditEventWriter;
 
 /**

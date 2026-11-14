@@ -1,8 +1,12 @@
 package org.pangrova.security.kms.aws;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.security.api.crypto.EncryptedData;
+import org.pangrova.security.crypto.EncryptionManager;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -20,9 +24,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.KMS;
-import org.pangrova.security.api.crypto.EncryptedData;
-import org.pangrova.security.core.crypto.EncryptionManager;
 
 /**
  * Integration test for {@link AwsKmsKeyManager} using LocalStack KMS.
@@ -58,6 +61,15 @@ class AwsKmsKeyManagerIntegrationTest {
         keyManager = new AwsKmsKeyManager(kmsClient, masterKeyArn);
     }
 
+    @AfterAll
+    static void tearDown() {
+        if (keyManager != null) {
+            keyManager.close();
+        } else if (kmsClient != null) {
+            kmsClient.close();
+        }
+    }
+
     @Test
     void generateDataKeyReturnsValidAes256Key() {
         SecretKey dataKey = keyManager.getDataEncryptionKey(masterKeyArn);
@@ -86,7 +98,7 @@ class AwsKmsKeyManagerIntegrationTest {
         EncryptionManager encryptionManager = new EncryptionManager(keyManager);
         byte[] plaintext = "sensitive data for envelope encryption test".getBytes();
 
-        byte[] aad = "test-context".getBytes();
+        byte[] aad = EncryptionManager.buildAad("sales:eu", "orders");
         EncryptedData encrypted = encryptionManager.encrypt(plaintext, masterKeyArn, aad);
 
         assertThat(encrypted.ciphertext()).isNotEqualTo(plaintext);
@@ -96,6 +108,14 @@ class AwsKmsKeyManagerIntegrationTest {
 
         byte[] decrypted = encryptionManager.decrypt(encrypted, aad);
         assertThat(decrypted).isEqualTo(plaintext);
+        assertThatThrownBy(() -> encryptionManager.decrypt(encrypted,
+                EncryptionManager.buildAad("sales", "eu:orders")))
+                .isInstanceOf(PangrovaException.class).hasMessageContaining("Decryption failed");
+
+        var unknownFormat = new EncryptedData(encrypted.ciphertext(), encrypted.iv(), encrypted.encryptedKey(),
+                encrypted.masterKeyId(), encrypted.formatVersion() + 1);
+        assertThatThrownBy(() -> encryptionManager.decrypt(unknownFormat, aad))
+                .isInstanceOf(PangrovaException.class).hasMessageContaining("Unsupported envelope format version");
     }
 
     @Test

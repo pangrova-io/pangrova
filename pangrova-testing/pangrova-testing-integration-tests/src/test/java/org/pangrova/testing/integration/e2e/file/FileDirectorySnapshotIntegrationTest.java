@@ -22,7 +22,7 @@ import org.pangrova.filesystem.api.object.FileListing;
 import org.pangrova.file.api.space.FileSpace;
 import org.pangrova.file.api.space.FileSpaceDefinition;
 import org.pangrova.file.api.space.FileSpaceMutation;
-import org.pangrova.file.api.space.FileSpaceType;
+import org.pangrova.file.api.enums.FileSpaceType;
 import org.pangrova.filesystem.api.object.FileStat;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.worker.file.JdbcFileDirectoryPageSource;

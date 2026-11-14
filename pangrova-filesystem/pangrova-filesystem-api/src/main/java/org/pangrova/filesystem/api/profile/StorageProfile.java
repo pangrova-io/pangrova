@@ -1,7 +1,7 @@
 package org.pangrova.filesystem.api.profile;
 
 import org.pangrova.common.api.annotation.Experimental;
-import org.pangrova.common.storage.StorageType;
+import org.pangrova.common.enums.StorageType;
 
 import java.net.URI;
 import java.net.URISyntaxException;

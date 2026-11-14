@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.arch;
 
-import org.pangrova.scheduler.core.admission.StageScheduler;
-import org.pangrova.scheduler.core.admission.FairScheduler;
+import org.pangrova.scheduler.admission.StageScheduler;
+import org.pangrova.scheduler.admission.FairScheduler;
 
 
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -48,7 +48,7 @@ class BootstrapReachabilityTest {
     /** Top-level process entry points whose dependency graph defines "reachable". */
     private static final List<String> BOOTSTRAP_MAINS = List.of(
             "org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain",
-            "org.pangrova.worker.bootstrap.PangrovaWorkerMain",
+            "org.pangrova.server.worker.bootstrap.PangrovaWorkerMain",
             "org.pangrova.shuffle.deployment.PangrovaShuffleServer"
     );
 
@@ -84,20 +84,16 @@ class BootstrapReachabilityTest {
             // API surface, not a process started by a BootstrapMain.
             "org.pangrova.server.coordinator.embedding.EmbeddedCoordinator",
             "org.pangrova.coordinator.clustering.ClusteringScheduler",
-            "org.pangrova.coordinator.query.cache.CacheWarmupService",
-            "org.pangrova.scheduler.core.admission.StageScheduler",
-            "org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler",
-            "org.pangrova.scheduler.core.admission.FairScheduler",
-            "org.pangrova.governance.core.classification.CatalogTagService",
-            "org.pangrova.governance.core.lineage.LineageQueryService",
-            "org.pangrova.governance.core.quality.QualityCheckService",
+            "org.pangrova.scheduler.admission.StageScheduler",
+            "org.pangrova.scheduler.admission.FairScheduler",
+            "org.pangrova.governance.runtime.classification.CatalogTagService",
+            "org.pangrova.governance.runtime.lineage.LineageQueryService",
             "org.pangrova.metadata.relation.ObjectDependencyService",
-            "org.pangrova.metadata.service.MetadataCleanupScheduler",
             "org.pangrova.metadata.service.ModelCatalogService",
-            "org.pangrova.observability.core.logging.MdcPropagatingExecutorService",
-            "org.pangrova.planner.core.adaptive.StageReplanCoordinator",
+            "org.pangrova.observability.logging.MdcPropagatingExecutorService",
+            "org.pangrova.planner.adaptive.StageReplanCoordinator",
             "org.pangrova.worker.resource.memory.HeartbeatCrossDomainMemoryCoordinator",
-            "org.pangrova.security.core.tenant.QuotaAlertService",
+            "org.pangrova.security.tenant.QuotaAlertService",
             "org.pangrova.streaming.commit.TwoPhaseCommitCoordinator"
     );
 

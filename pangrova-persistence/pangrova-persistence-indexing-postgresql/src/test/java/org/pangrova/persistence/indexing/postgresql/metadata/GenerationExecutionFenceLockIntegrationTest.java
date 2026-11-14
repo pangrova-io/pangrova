@@ -1,9 +1,9 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
-import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
+import org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -101,10 +101,10 @@ class GenerationExecutionFenceLockIntegrationTest {
                 GenerationPublicationFenceLockIntegrationTest.Kind.INDEX);
         try (var connection = fixture.dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            assertThatThrownBy(() -> org.pangrova.metadata.assembly.generation.GenerationStores.executionFence().requireCurrent(connection, "tenant", "job",
+            assertThatThrownBy(() -> org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores.executionFence().requireCurrent(connection, "tenant", "job",
                     new GenerationExecutionOwner(fixture.anchor.ownerId(), "previous-process", fixture.anchor.fencingToken())))
                     .isInstanceOf(GenerationExecutionOwnerLostException.class);
-            assertThatThrownBy(() -> org.pangrova.metadata.assembly.generation.GenerationStores.executionFence().requireCurrent(connection, "other-tenant", "job",
+            assertThatThrownBy(() -> org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores.executionFence().requireCurrent(connection, "other-tenant", "job",
                     GenerationExecutionOwner.from(fixture.anchor)))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact durable routing");
             connection.rollback();
@@ -119,7 +119,7 @@ class GenerationExecutionFenceLockIntegrationTest {
                 statement.execute("SET LOCAL statement_timeout='10s'");
             }
             try {
-                var actual = org.pangrova.metadata.assembly.generation.GenerationStores.executionFence().requireCurrent(connection, "tenant", "job",
+                var actual = org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores.executionFence().requireCurrent(connection, "tenant", "job",
                         GenerationExecutionOwner.from(fixture.anchor));
                 connection.commit();
                 return actual;

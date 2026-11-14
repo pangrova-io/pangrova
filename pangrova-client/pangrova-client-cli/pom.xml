@@ -19,23 +19,23 @@
     </properties>
 
     <dependencies>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>
-        <!-- Public client contract -->
         <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-client-core</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <!-- REST client implementation -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-transport-client</artifactId>
+            <artifactId>pangrova-client-http</artifactId>
         </dependency>
-
-        <!-- Internal: protocol DTOs (QueryStatusResponse, SubmitQueryResponse, etc.) -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-protocol</artifactId>
+            <artifactId>pangrova-transport-client</artifactId>
         </dependency>
 
         <!-- Shared concurrency utilities used directly by SqlShell -->

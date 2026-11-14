@@ -26,7 +26,10 @@ public sealed interface ContentPart permits ContentPart.Text, ContentPart.FileRe
 
     /**
      * A file reference content part pointing to an externally stored blob.
-     * The provider will stream content from the URI or convert to base64/presigned URL.
+     *
+     * <p>The Coordinator-side provider resolves it through the governed blob store and
+     * currently sends the bytes inline as a base64 data URL; pass-by-reference
+     * (presigned URL or streamed body) is not implemented yet.
      *
      * @param reference the blob reference (must not be null)
      */

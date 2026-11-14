@@ -1,6 +1,6 @@
 package org.pangrova.persistence.query.api.coordination;
 
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import org.pangrova.common.api.annotation.Stable;
 

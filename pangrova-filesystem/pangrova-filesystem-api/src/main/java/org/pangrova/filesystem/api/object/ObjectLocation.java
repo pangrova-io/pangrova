@@ -2,7 +2,7 @@ package org.pangrova.filesystem.api.object;
 
 import java.util.Objects;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.filesystem.api.profile.StorageProfile;

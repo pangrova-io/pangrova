@@ -13,13 +13,12 @@
  */
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.worker.function.file.FileStructHelper;
 import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.spi.inference.InferenceProvider;
+import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.api.invocation.InferenceResult;
 import org.pangrova.ai.api.invocation.MultimodalPrompt;
 import org.pangrova.types.value.ColumnValue;
-import org.pangrova.function.spi.scalar.BatchableScalarFunction;
+import org.pangrova.function.api.scalar.BatchableScalarFunction;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
@@ -94,7 +93,7 @@ public final class AiCompletionFunction implements BatchableScalarFunction {
         // Check if third argument is a FILE (ROW) for multimodal completion
         if (arguments.size() >= 3 && arguments.get(2) instanceof ColumnValue.RowValue) {
             ColumnValue fileArg = arguments.get(2);
-            MultimodalPrompt multiPrompt = FileStructHelper.buildMultimodalPrompt(prompt, fileArg);
+            MultimodalPrompt multiPrompt = FilePrompt.from(prompt, fileArg);
             InferenceResult multiResult = provider.completeMultimodal(multiPrompt, buildParams(arguments));
             return new ColumnValue.StringValue(multiResult.text());
         }

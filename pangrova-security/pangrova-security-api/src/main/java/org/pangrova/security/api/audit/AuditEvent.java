@@ -1,5 +1,7 @@
 package org.pangrova.security.api.audit;
 
+import org.pangrova.security.api.enums.AuditEventType;
+
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Instant;

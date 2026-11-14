@@ -19,10 +19,10 @@ class JdbcApiClasspathTest {
         Path classes = Path.of(types.toURI());
         URL[] contracts = {
                 types,
-                org.pangrova.security.spi.authentication.Authenticator.class.getProtectionDomain().getCodeSource().getLocation(),
-                org.pangrova.connector.spi.plugin.ConnectorFactory.class.getProtectionDomain().getCodeSource().getLocation(),
+                org.pangrova.security.api.authentication.Authenticator.class.getProtectionDomain().getCodeSource().getLocation(),
+                org.pangrova.connector.api.plugin.ConnectorFactory.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.common.api.annotation.Experimental.class.getProtectionDomain().getCodeSource().getLocation(),
-                org.pangrova.query.api.ownership.ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation(),
+                org.pangrova.execution.api.ownership.ExecutionAnchor.class.getProtectionDomain().getCodeSource().getLocation(),
                 org.pangrova.generation.api.page.GenerationPage.class.getProtectionDomain().getCodeSource().getLocation()
         };
         try (var loader = new URLClassLoader(contracts, ClassLoader.getPlatformClassLoader());
@@ -52,7 +52,7 @@ class JdbcApiClasspathTest {
                 }
             }
             for (String excluded : List.of("org.pangrova.connector.runtime.scan.FixedSplitSource",
-                    "org.pangrova.security.core.authentication.AuthenticationManager",
+                    "org.pangrova.security.authentication.AuthenticationManager",
                     "org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore",
                     "org.apache.arrow.vector.VectorSchemaRoot", "com.fasterxml.jackson.databind.ObjectMapper",
                     "org.apache.calcite.rel.type.RelDataType", "org.postgresql.Driver",

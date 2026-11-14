@@ -4,6 +4,8 @@ import org.pangrova.generation.api.graph.GenerationStageGraph;
 
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /**
  * Immutable control-plane values for dispatching Native artifact work.
  * Encoding admission belongs to the submission factory and durable store boundary.
@@ -34,12 +36,6 @@ public record GenerationDispatchSpec(
         if (maxMemoryBytes <= 0 || maxThreads <= 0 || maxSpillBytes <= 0
                 || taskTimeoutMillis <= 0) {
             throw new IllegalArgumentException("artifact resource grants and timeout must be positive");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 

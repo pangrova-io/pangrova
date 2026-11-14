@@ -34,6 +34,7 @@ coordinator:
 
   # ---- Query ----
   query:
+    placement-provider: load-balanced
     timeout: "5m"
     max-concurrent: 100
 

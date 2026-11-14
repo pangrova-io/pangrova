@@ -12,7 +12,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.LinkOption;
 
-import org.pangrova.shuffle.spi.spool.SpoolWriter;
+import org.pangrova.shuffle.api.spool.SpoolWriter;
 
 /** One exclusive attempt. Completion publishes a complete framed segment, never a whole exchange. */
 final class LocalFsSpoolWriter implements SpoolWriter {

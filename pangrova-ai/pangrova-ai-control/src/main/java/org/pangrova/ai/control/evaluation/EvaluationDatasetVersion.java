@@ -20,6 +20,8 @@ package org.pangrova.ai.control.evaluation;
 import java.time.Instant;
 import java.util.Objects;
 
+import static org.pangrova.common.util.Preconditions.requireText;
+
 /** Immutable manifest and source snapshot for one evaluation dataset version. */
 public record EvaluationDatasetVersion(
         EvaluationDatasetId id,
@@ -37,14 +39,14 @@ public record EvaluationDatasetVersion(
         if (version <= 0) {
             throw new IllegalArgumentException("version must be positive");
         }
-        EvaluationValidation.requireText(ownerPrincipal, "ownerPrincipal");
-        EvaluationValidation.requireText(sourceSnapshot, "sourceSnapshot");
-        EvaluationValidation.requireText(manifestUri, "manifestUri");
-        EvaluationValidation.requireSha256(manifestSha256, "manifestSha256");
+        requireText(ownerPrincipal, "ownerPrincipal");
+        requireText(sourceSnapshot, "sourceSnapshot");
+        requireText(manifestUri, "manifestUri");
+        org.pangrova.common.util.DigestUtils.requireSha256(manifestSha256, "manifestSha256");
         if (itemCount < 0) {
             throw new IllegalArgumentException("itemCount must not be negative");
         }
-        EvaluationValidation.requireText(schemaJson, "schemaJson");
+        requireText(schemaJson, "schemaJson");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
     }
 }

@@ -7,7 +7,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Objects;
 import javax.sql.DataSource;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 
 /** PostgreSQL claim ownership; each operation owns its connection and borrows the pool. */

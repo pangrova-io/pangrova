@@ -1,8 +1,11 @@
 package org.pangrova.indexing.builtin.hash.provider;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.hash.serializer.HashSerializer;
+
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.HashIndexData;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.connector.api.index.predicate.EqualTo;
@@ -48,6 +51,11 @@ public final class HashStrategyProvider implements IndexStrategyProvider {
     private static final int MIX_SHIFT = 33;
     /** Independent seed for the fingerprint hash. */
     private static final long FINGERPRINT_SEED = 0x517cc1b727220a95L;
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new HashSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

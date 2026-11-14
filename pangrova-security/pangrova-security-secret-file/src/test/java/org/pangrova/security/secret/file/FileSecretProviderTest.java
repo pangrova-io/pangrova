@@ -102,6 +102,23 @@ class FileSecretProviderTest {
     }
 
     @Test
+    void projectedVolumeSymlinksCanResolveOnlyInsideTheSecretRoot(@TempDir Path elsewhere) throws IOException {
+        Path version = Files.createDirectory(secretsDir.resolve("version"));
+        Files.writeString(version.resolve("key"), "valid");
+        Files.createSymbolicLink(secretsDir.resolve("current"), Path.of("version"));
+        Files.createSymbolicLink(secretsDir.resolve("credential"), Path.of("current", "key"));
+        assertThat(resolve("credential")).isEqualTo("valid");
+
+        Files.writeString(elsewhere.resolve("key"), "never-disclose");
+        Files.createSymbolicLink(secretsDir.resolve("foreign-directory"), elsewhere);
+        Files.createSymbolicLink(secretsDir.resolve("foreign-file"), elsewhere.resolve("key"));
+        for (String path : java.util.List.of("foreign-directory/key", "foreign-file")) {
+            assertThatThrownBy(() -> resolve(path)).isInstanceOf(ConfigurationException.class)
+                    .hasMessageContaining("outside allowed directory").hasMessageNotContaining("never-disclose");
+        }
+    }
+
+    @Test
     void resolveEmptyFileReturnsEmptyString() throws IOException {
         Path emptyFile = secretsDir.resolve("empty.txt");
         Files.writeString(emptyFile, "");

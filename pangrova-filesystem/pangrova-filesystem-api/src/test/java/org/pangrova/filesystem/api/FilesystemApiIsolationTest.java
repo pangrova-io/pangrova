@@ -20,7 +20,7 @@ class FilesystemApiIsolationTest {
                 "com.fasterxml.jackson.databind.ObjectMapper", "org.postgresql.Driver",
                 "com.zaxxer.hikari.HikariDataSource", "org.pangrova.security.api.identity.UserIdentity",
                 "org.pangrova.persistence.security.api.policy.RoleStore",
-                "org.pangrova.file.core.access.FileSpaceAccessService",
+                "org.pangrova.file.access.FileSpaceAccessService",
                 "org.pangrova.protocol.execution.AiTaskLifecycle",
                 "org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry",
                 "software.amazon.awssdk.services.s3.S3Client", "com.aliyun.sdk.service.oss2.OSSClient",

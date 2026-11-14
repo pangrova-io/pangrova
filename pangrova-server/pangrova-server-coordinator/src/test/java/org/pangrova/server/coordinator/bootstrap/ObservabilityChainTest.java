@@ -8,10 +8,10 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPuller;
-import org.pangrova.observability.sdk.metrics.nativebridge.NativeMetricsPublisher;
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPuller;
+import org.pangrova.observability.sdk.metrics.runtime.NativeMetricsPublisher;
 import org.pangrova.observability.noop.NoOpTracingProvider;
-import org.pangrova.observability.sdk.tracing.nativebridge.NativeTraceExporter;
+import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
@@ -163,24 +163,24 @@ class ObservabilityChainTest extends org.pangrova.server.coordinator.testinfra.S
     // -- JUnit scenario tests --
 
     /**
-     * NativeTraceExporter.currentTraceId() returns a valid 32-char hex string.
+     * CurrentSpanIds.currentTraceId() returns a valid 32-char hex string.
      * With no active span, it returns all-zeros — proving the exporter is callable.
      */
     @Test
     void nativeTraceExporterReturnsValidTraceIds() {
-        String traceId = NativeTraceExporter.currentTraceId();
+        String traceId = CurrentSpanIds.currentTraceId();
 
         assertThat(traceId).hasSize(32);
         assertThat(traceId).matches("[0-9a-f]{32}");
     }
 
     /**
-     * NativeTraceExporter.currentSpanId() returns a valid 16-char hex string.
+     * CurrentSpanIds.currentSpanId() returns a valid 16-char hex string.
      * With no active span, it returns all-zeros.
      */
     @Test
     void nativeTraceExporterReturnsValidSpanIds() {
-        String spanId = NativeTraceExporter.currentSpanId();
+        String spanId = CurrentSpanIds.currentSpanId();
 
         assertThat(spanId).hasSize(16);
         assertThat(spanId).matches("[0-9a-f]{16}");

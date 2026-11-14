@@ -391,8 +391,10 @@ function(pangrova_add_object_target target)
   endif()
 endfunction()
 
-pangrova_add_object_target(pangrova_native_bridge_objects
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bridge/*.cpp)
+pangrova_add_object_target(pangrova_native_command_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/command/*.cpp)
+pangrova_add_object_target(pangrova_native_jni_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/jni/*.cpp)
 pangrova_add_object_target(pangrova_native_core_objects
   ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.cpp)
 pangrova_add_object_target(pangrova_native_capability_objects
@@ -407,7 +409,8 @@ pangrova_add_object_target(pangrova_native_lance_objects
   ${CMAKE_CURRENT_SOURCE_DIR}/src/lance/*.cpp)
 
 set(PANGROVA_OBJECT_TARGETS
-  pangrova_native_bridge_objects
+  pangrova_native_command_objects
+  pangrova_native_jni_objects
   pangrova_native_core_objects
   pangrova_native_capability_objects
   pangrova_native_index_objects

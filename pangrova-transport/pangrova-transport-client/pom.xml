@@ -15,24 +15,19 @@
     <properties>
         <module.name>org.pangrova.transport.client</module.name>
     </properties>
-    <description>Arrow IPC decoding and Arrow Flight result fetching for Pangrova clients.
-        Owns the existing REST and result client lifecycle; CLI/JDBC signatures remain Arrow-free.
-        The role-independent Flight server lives in pangrova-transport-flight.</description>
+    <description>Arrow IPC encoding, result decoding and Flight result transport.</description>
 
     <dependencies>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-transport-api</artifactId></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-batch-api</artifactId>
+            <artifactId>pangrova-batch</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-types</artifactId>
         </dependency>
 
-        <!-- SPI types: Page, TypedRow, NativePage, PangrovaType (used by BatchSerializer) -->
-
-        <!-- Protocol DTOs (ResultEndpoint) -->
+        <!-- Logical type metadata used by the Arrow decoder -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-protocol</artifactId>
@@ -42,12 +37,6 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
-        </dependency>
-
-        <!-- Public client wire values (ResultEndpoint, ResultProtocol) -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-client-core</artifactId>
         </dependency>
 
         <!-- Arrow Flight client for result streaming -->
@@ -73,12 +62,6 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
-        </dependency>
-
-        <!-- JSON mapping for the lightweight REST client implementation -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
         </dependency>
 
         <!-- Test dependencies -->

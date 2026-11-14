@@ -1,5 +1,7 @@
 package org.pangrova.protocol.substrait;
 
+import org.pangrova.protocol.exception.SubstraitVersionMismatchException;
+
 import io.substrait.proto.Plan;
 import io.substrait.proto.Version;
 

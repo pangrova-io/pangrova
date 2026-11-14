@@ -1,6 +1,8 @@
 package org.pangrova.connector.iceberg.handle;
 
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
+
+import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 
 import java.io.ByteArrayInputStream;

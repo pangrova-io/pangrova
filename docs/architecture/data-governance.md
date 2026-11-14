@@ -45,7 +45,7 @@ operation must assign that subject before re-enabling them. The store persists
 replacement identities across restarts. An identity is not an authorization grant:
 the execution adapter must recheck current privileges and policies.
 
-`QualityReadRequest` carries catalog, schema, table, predicate and COUNTS/SAMPLES
+`QualityReadRequest` carries catalog, schema, table, stable table UUID, predicate and COUNTS/SAMPLES
 separately. Governance does not build executable SQL. Coordinator's `QualityReadSql`
 uses Pangrova's production grammar and constructs an SQL AST from the parsed
 expression and exact identifier components. It rejects added statements, outer
@@ -338,9 +338,9 @@ SELECT * FROM system.lineage.path(
 > present in the parser and are not wired into SQL statement dispatch. The syntax
 > below is therefore target design rather than an available SQL surface.
 >
-> **Executor**: `check_expression` is executed as a sub-query under a dedicated `system` principal with read-only access to the target table. The execution uses the standard query pipeline ([02 §3](./query-execution.md)) with `ResourceQueue = SYSTEM` to avoid competing with user queries. Sub-queries (e.g., `customer_id IN (SELECT ...)`) are supported via normal Calcite planning.
+> The production coordinator uses `UnconfiguredQualityRuleExecutor`. An attempted evaluation fails and records its captured table UUID. Connecting the SQL executor requires a data-plane runner that authenticates the persisted principal and tenant and checks current access to every relation in the expression. The PostgreSQL oracle exercises SQL generation in tests.
 >
-> **Scheduler**: Quality rule scheduling uses a lightweight `CronScheduler` (single-threaded `ScheduledExecutorService`) that evaluates cron expressions from `data_quality_rules.schedule` and submits `RUN DATA QUALITY CHECK` as internal SQL statements. This is independent of `MaintenanceScheduler` ([10 §2.10](./streaming.md)) which handles table maintenance only.
+> `CronScheduler` invokes the governance handler from a leader-gated callback. The handler reloads the rule by ID before evaluating it. Scheduled checks use the same configured executor as the write gate.
 
 ```sql
 -- Create a quality rule
@@ -393,7 +393,7 @@ PostgreSQL `quality_rules` and `quality_check_results` tables; governance is the
 single owner of the store, while metadata decorates it with the stable
 table-identity projection (`org.pangrova.metadata.governance`). V53 converges the old
 CDC-prefixed tables into this authority. Rule definitions may be updated;
-execution results append history.
+execution results append history. During Coordinator assembly, the PostgreSQL provider checks that the canonical rule, identity and result relations resolve before exposing the store. The check reads no rows and creates no schema objects.
 
 A producer's `resultId=0` requests a new database-issued identity, including
 across processes and store restarts. Existing explicit result IDs are preserved;
@@ -463,10 +463,26 @@ write before durable commit intent or connector publication. Tables with no
 enabled rules continue through the gate, and `WARNING`/`INFO` keep their documented
 nonblocking severity while recording failure.
 
-Actual evaluation requires an authorized Native query runner and
-`SqlQualityRuleExecutor`. A scan of committed data cannot validate staged rows of
-the in-flight write: candidate/post-image validation, immutable source ownership
-and its durable recovery receipt remain separate acceptance work.
+The pre-commit callback currently receives only catalog, schema and table name.
+The connector has yet to publish the attempt's files. A second SELECT through
+ordinary query admission sees committed rows and competes with its waiting parent
+write for capacity. Evaluating a candidate requires its exact attempt, pinned inputs
+and readable post-image. Neither SQL-text construction nor an administrative JDBC
+connection supplies them.
+
+Scheduled checks have a separate requirement. A persisted principal and tenant must
+be resolved against current access at evaluation time. A runner must bind the rule's
+table UUID, authorize all subqueries and return counts and samples from the same
+authorized snapshot. The production SQL resource admits authenticated user requests.
+It exposes no scheduler grant for reconstructing the stored subject. Both triggers
+therefore record unavailable evaluations through the same explicit rejection today.
+
+The governance evaluator checks each returned rule ID, table UUID, table name,
+rule name, severity and row counts against the captured rule. A provider cannot
+convert an ERROR failure into a WARNING or supply another rule's pass. The scheduler
+admits one recurring registration per rule ID. Replacing or cancelling the registration
+lets an in-flight check finish and prevents it from scheduling another occurrence.
+Invalid cron expressions are rejected at registration.
 
 ### 4.4 Quality Alerting
 
@@ -615,7 +631,7 @@ captured control owner and cannot retarget to a replacement UUID. These admissio
 checks do not close concurrent external schema evolution after admission: durable
 field-bound policies and query-bound consumers remain required.
 
-`MetadataTagOperations` persists one `COLUMN_TAG` governance binding with stable table
+`governance.core.classification.ColumnTagBindings` persists one `COLUMN_TAG` governance binding with stable table
 identity and framed `(column, tag key)` reference. `TableControlColumnMaskStore` combines
 identity-bound authored masks with mandatory PII masks derived from these bindings.
 `ColumnMaskingProcessor` renders their SQL through the same typed operator contracts
@@ -746,4 +762,8 @@ See [14 §7](./observability.md) for structured logging format.
 > **FederatedCatalog SPI**: The authoritative FederatedCatalog SPI definition is in [metadata.md §3.8](./metadata.md). Former references to "11 §6.2" in this document and others have been corrected. §6 of this document contains configuration summaries only, not SPI definitions.
 
 
-> **LineageEventEmitter Error Handling (§3.2)**: Event emission failures are handled with: (1) try-catch around HTTP POST to OpenLineage backend; (2) failed events are buffered in a bounded queue (max 1000 events); (3) exponential backoff retry (initial: 1s, max: 60s); (4) if queue is full, oldest events are dropped with `pangrova.lineage.events_dropped_total` counter incremented. Lineage emission failures never block query execution.
+`LineageEventEmitter` closes its backend after the final physical send and reports a
+transport close failure to its owner. HTTP mode persists each accepted fact in the
+outbox before returning and acknowledges only confirmed sends. LOG mode keeps a
+bounded in-memory queue. When full, it retains queued events and counts the rejected
+incoming event. These delivery guarantees apply to their respective provider modes.

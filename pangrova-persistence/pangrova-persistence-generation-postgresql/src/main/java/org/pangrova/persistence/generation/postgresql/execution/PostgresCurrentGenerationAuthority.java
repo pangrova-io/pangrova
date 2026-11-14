@@ -7,7 +7,7 @@ import org.pangrova.persistence.generation.api.execution.CurrentGenerationAuthor
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
-import org.pangrova.query.api.ownership.ExecutionAnchor;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;

@@ -1,6 +1,6 @@
 package org.pangrova.indexing.builtin.test.engine.bitmap;
 
-import org.pangrova.connector.api.index.IndexEvalResult;
+import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.builtin.bitmap.provider.BitmapStrategyProvider;
 import org.pangrova.indexing.builtin.bitmap.serializer.RoaringBitmapCodec;
 import org.pangrova.indexing.api.data.bitmap.BitmapIndexData;

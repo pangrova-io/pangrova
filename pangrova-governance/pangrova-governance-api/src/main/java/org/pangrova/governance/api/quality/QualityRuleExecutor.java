@@ -1,5 +1,7 @@
 package org.pangrova.governance.api.quality;
 
+import org.pangrova.common.api.annotation.Experimental;
+
 /**
  * SPI for executing data quality rules against actual table data.
  *
@@ -7,6 +9,7 @@ package org.pangrova.governance.api.quality;
  * {@link DataQualityRule#checkExpression()} against the target table
  * and returning a {@link QualityCheckResult} with accurate metrics.</p>
  */
+@Experimental
 public interface QualityRuleExecutor {
 
     /**

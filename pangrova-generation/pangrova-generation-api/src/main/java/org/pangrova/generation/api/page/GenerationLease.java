@@ -2,7 +2,7 @@ package org.pangrova.generation.api.page;
 
 import org.pangrova.generation.api.identity.GenerationJobKey;
 
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 
 import java.time.Instant;
 import java.util.List;
@@ -23,7 +23,7 @@ public record GenerationLease(
         String leaseOwner,
         long ownerEpoch,
         Instant expiresAt,
-        org.pangrova.query.api.ownership.ExecutionAnchor executionAnchor) {
+        org.pangrova.execution.api.ownership.ExecutionAnchor executionAnchor) {
 
     public GenerationLease {
         requireIdentity(tenantId, jobId, pageId, leaseOwner);

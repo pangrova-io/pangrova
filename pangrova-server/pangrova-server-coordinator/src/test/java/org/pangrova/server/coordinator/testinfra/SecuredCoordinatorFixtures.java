@@ -20,16 +20,17 @@ public final class SecuredCoordinatorFixtures {
                 flags.metadata() || secureQuery,
                 flags.streaming(), flags.governance(), flags.resilience(), flags.tenant(), flags.operations(),
                 flags.speculation(), flags.pullModeSplitAssignment(), flags.cacheWriteback(), flags.indexing(),
-                flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints());
+                flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints(),
+                flags.shuffleProvider(), flags.shuffleProviderSettings());
         var security = config.securityConfig();
         if (secureQuery && security == null) {
             security = new CoordinatorBootstrapConfig.SecurityConfig(
-                    CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.NOOP,
+                    "NOOP",
                     "test-internal-service-secret", java.util.Map.of());
         } else if (secureQuery && (security.internalAuthSecret() == null
                 || security.internalAuthSecret().isBlank())) {
             security = new CoordinatorBootstrapConfig.SecurityConfig(
-                    security.authenticatorType(), "test-internal-service-secret",
+                    security.requireAuthenticator(), "test-internal-service-secret",
                     security.authenticatorProperties());
         }
         if (persistent.equals(flags) && security == config.securityConfig()) {

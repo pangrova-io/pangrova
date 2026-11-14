@@ -6,7 +6,7 @@ import org.pangrova.protocol.function.GovernedScalarValue;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.ai.api.capability.AiRequestConstraints;
 
 import java.util.Map;

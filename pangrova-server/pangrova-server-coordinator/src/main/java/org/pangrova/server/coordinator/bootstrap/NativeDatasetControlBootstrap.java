@@ -4,7 +4,7 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.coordinator.metadata.NativeDatasetControlClient;
 import org.pangrova.coordinator.metadata.WorkerNativeDatasetControl;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
 import java.util.Optional;
@@ -39,20 +39,20 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
         return Optional.of(new WorkerNativeDatasetControl(catalog, dependencies, client, sourceCatalog(catalog)));
     }
 
-    synchronized Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog> sourceForCatalog(
+    synchronized Optional<org.pangrova.connector.api.metadata.ManagedSourceCatalog> sourceForCatalog(
             CatalogDescriptor catalog) {
         if (closed) throw new IllegalStateException("Native metadata control bootstrap is closed");
         return Optional.of(sourceCatalog(catalog));
     }
 
-    private org.pangrova.connector.spi.metadata.ManagedSourceCatalog sourceCatalog(CatalogDescriptor catalog) {
+    private org.pangrova.connector.api.metadata.ManagedSourceCatalog sourceCatalog(CatalogDescriptor catalog) {
         return new org.pangrova.persistence.catalog.postgresql.source.JdbcManagedSourceCatalog(metadataDataSource,
                 new org.pangrova.connector.api.metadata.SourceCatalogDeployment(
                         catalog.name(), catalog.incarnationId(), catalog.revision()),
                 executionId -> requireStarted(dependencies.fencer().get()).currentAnchor(executionId),
                 new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence(),
                         modelAuthority,
-                org.pangrova.metadata.service.TableControlWriteAuthorities.postgres()::requireCurrent);
+                CoordinatorTableWriteAuthority.create()::requireCurrent);
     }
 
     private static <T> T requireStarted(T service) {

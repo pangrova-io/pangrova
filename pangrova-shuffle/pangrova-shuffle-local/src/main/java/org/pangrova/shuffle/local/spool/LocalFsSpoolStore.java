@@ -19,9 +19,9 @@ import java.util.Set;
 
 import org.pangrova.shuffle.api.ShuffleDurability;
 import org.pangrova.shuffle.api.spool.SpoolReadSelection;
-import org.pangrova.shuffle.spi.spool.SpoolReader;
-import org.pangrova.shuffle.spi.spool.SpoolStore;
-import org.pangrova.shuffle.spi.spool.SpoolWriter;
+import org.pangrova.shuffle.api.spool.SpoolReader;
+import org.pangrova.shuffle.api.spool.SpoolStore;
+import org.pangrova.shuffle.api.spool.SpoolWriter;
 
 /**
  * Exclusive local storage owner with bounded batch framing and exact attempt reads.

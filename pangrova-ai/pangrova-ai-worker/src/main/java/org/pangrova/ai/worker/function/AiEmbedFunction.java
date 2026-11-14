@@ -13,16 +13,16 @@
  */
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.worker.function.file.FileStructHelper;
+import org.pangrova.ai.worker.function.file.FileStruct;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.embedding.EmbeddingResultValidator;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
-import org.pangrova.ai.spi.embedding.EmbeddingProvider;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.enums.EmbeddingPurpose;
+import org.pangrova.ai.api.embedding.EmbeddingProvider;
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.types.value.ColumnValue;
-import org.pangrova.function.spi.scalar.BatchableScalarFunction;
+import org.pangrova.function.api.scalar.BatchableScalarFunction;
 import org.pangrova.function.api.metadata.FunctionMetadata;
 
 import java.util.ArrayList;
@@ -36,11 +36,14 @@ import java.util.function.Function;
  *
  * <p>Generates an embedding vector for the input text or FILE via {@link EmbeddingProvider}. When
  * the second argument is a ROW (FILE struct), uses the same ordered provider batch contract for
- * multimodal embedding. Returns a first-class dense vector. Example:
+ * multimodal embedding. Returns a first-class dense vector.
+ *
+ * <p>FILE input requires a provider that advertises a non-TEXT modality; the bundled
+ * OpenAI-compatible provider is text-only, so {@code ai_embed(model, photo)} raises
+ * CAPABILITY_MISMATCH until a multimodal provider is configured. Example:
  *
  * <pre>
  *   SELECT ai_embed('text-embedding-3-small', title) FROM articles
- *   SELECT ai_embed('clip-vit-large', photo) FROM products
  * </pre>
  *
  * <p>Thread-safe: delegates to thread-safe EmbeddingProvider.
@@ -136,7 +139,7 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
             return new EmbeddingBatchRequest.TextInput(text.value());
         }
         if (input instanceof ColumnValue.RowValue) {
-            var reference = FileStructHelper.extractBlobReference(input);
+            var reference = FileStruct.decodeReference(input);
             return reference == null ? null : new EmbeddingBatchRequest.BlobInput(reference);
         }
         throw new IllegalArgumentException("ai_embed input must be VARCHAR or FILE");
@@ -155,7 +158,19 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
         int maxBatchSize = provider.maxBatchSize();
         for (int offset = 0; offset < rows.size(); ) {
             int end = offset + Math.min(maxBatchSize, rows.size() - offset);
-            List<IndexedInput> chunk = rows.subList(offset, end);
+            embedChunk(key, provider, rows.subList(offset, end), results);
+            offset = end;
+        }
+    }
+
+    /**
+     * Embeds one provider-sized chunk. A provider failure is narrowed by bisection
+     * until the offending row is isolated, so the error names that row instead of
+     * failing the whole SQL batch anonymously. No value is ever synthesized.
+     */
+    private void embedChunk(BatchKey key, EmbeddingProvider provider,
+                            List<IndexedInput> chunk, ColumnValue[] results) {
+        try {
             var batch =
                     new EmbeddingBatchRequest(
                             key.purpose(), chunk.stream().map(IndexedInput::input).toList());
@@ -176,8 +191,33 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
             for (int index = 0; index < chunk.size(); index++) {
                 results[chunk.get(index).index()] = embeddings.get(index);
             }
-            offset = end;
+        } catch (AiInvocationException failure) {
+            if (chunk.size() == 1) {
+                throw rowFailure(failure, key, chunk.get(0));
+            }
+            int middle = chunk.size() / 2;
+            embedChunk(key, provider, chunk.subList(0, middle), results);
+            embedChunk(key, provider, chunk.subList(middle, chunk.size()), results);
         }
+    }
+
+    private static AiInvocationException rowFailure(
+            AiInvocationException failure, BatchKey key, IndexedInput row) {
+        return new AiInvocationException(failure.category(), failure.retryable(),
+                "ai_embed failed for batch row " + row.index() + " (model=" + key.model()
+                        + ", input=" + describe(row.input()) + "): " + failure.getMessage(),
+                failure);
+    }
+
+    private static String describe(EmbeddingBatchRequest.Input input) {
+        if (input instanceof EmbeddingBatchRequest.TextInput text) {
+            String value = text.text();
+            return value.length() <= 64 ? value : value.substring(0, 64) + "...";
+        }
+        if (input instanceof EmbeddingBatchRequest.BlobInput blob) {
+            return blob.reference().uri() + " checksum=" + blob.reference().checksum();
+        }
+        return input.getClass().getSimpleName();
     }
 
     private record BatchKey(String model, EmbeddingPurpose purpose, Class<?> inputRepresentation) {}

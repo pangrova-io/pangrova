@@ -37,6 +37,7 @@ coordinator:
 
   # ---- Query ----
   query:
+    placement-provider: load-balanced
     # Query timeout
     # Dev mode: can be more lenient
     timeout: "5m"

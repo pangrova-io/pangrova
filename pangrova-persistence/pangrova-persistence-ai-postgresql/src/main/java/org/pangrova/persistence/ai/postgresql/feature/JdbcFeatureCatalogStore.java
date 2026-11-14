@@ -20,9 +20,9 @@ package org.pangrova.persistence.ai.postgresql.feature;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.ai.control.api.AiControlException;
+import org.pangrova.ai.control.exception.AiControlException;
 import org.pangrova.ai.control.feature.FeatureCatalogStore;
-import org.pangrova.common.json.jackson.JsonMapperFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
 
 import javax.sql.DataSource;
@@ -40,6 +40,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static org.pangrova.common.util.Preconditions.requireText;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
@@ -375,12 +376,6 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
     private static void requireVersion(long version) {
         if (version <= 0) {
             throw new IllegalArgumentException("version must be positive");
-        }
-    }
-
-    private static void requireText(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
         }
     }
 }

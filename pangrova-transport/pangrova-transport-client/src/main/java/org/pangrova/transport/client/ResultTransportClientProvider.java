@@ -1,5 +1,7 @@
 package org.pangrova.transport.client;
 
+import org.pangrova.transport.client.exception.TransportConnectionException;
+
 import org.apache.arrow.flight.grpc.NettyClientBuilder;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.memory.BufferAllocator;

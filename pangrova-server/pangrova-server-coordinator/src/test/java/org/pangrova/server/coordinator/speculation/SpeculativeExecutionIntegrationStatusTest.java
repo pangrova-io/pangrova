@@ -2,13 +2,13 @@ package org.pangrova.server.coordinator.speculation;
 
 
 
-import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
-import org.pangrova.scheduler.core.speculation.StragglerDetector;
-import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
+import org.pangrova.scheduler.speculation.SpeculativeTaskLauncher;
+import org.pangrova.scheduler.speculation.StragglerDetector;
+import org.pangrova.scheduler.speculation.DuplicateTaskResolver;
 
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.scheduler.api.placement.TaskDuration;
+import org.pangrova.scheduler.api.speculation.TaskDuration;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -45,11 +45,11 @@ class SpeculativeExecutionIntegrationStatusTest {
     @Test
     void componentsAreInCorrectPackage() {
         assertThat(StragglerDetector.class.getPackageName())
-                .isEqualTo("org.pangrova.scheduler.core.speculation");
+                .isEqualTo("org.pangrova.scheduler.speculation");
         assertThat(SpeculativeTaskLauncher.class.getPackageName())
-                .isEqualTo("org.pangrova.scheduler.core.speculation");
+                .isEqualTo("org.pangrova.scheduler.speculation");
         assertThat(DuplicateTaskResolver.class.getPackageName())
-                .isEqualTo("org.pangrova.scheduler.core.speculation");
+                .isEqualTo("org.pangrova.scheduler.speculation");
     }
 
     // ── Component placement boundaries (not runtime support evidence) ──

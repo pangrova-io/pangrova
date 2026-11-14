@@ -1,16 +1,7 @@
 # File
 
-`pangrova-file` aggregates two artifacts:
-
-| Artifact | Responsibility |
-| --- | --- |
-| `pangrova-file-api` | Namespace values, grants, directory references, errors, path/origin validation, and typed extension ports |
-| `pangrova-file-core` | Current-tenant authorization, signed descriptor issuance, URL receipts, directory refresh, and the Worker HTTP client (`org.pangrova.file.worker`) |
-
-The API artifact owns both `org.pangrova.file.api` and `org.pangrova.file.spi`.
-Its SPI packages contain real access, audit and authority ports. The API depends on Common,
-Filesystem API and Security API; it does not depend on HTTP/Jackson, persistence, Core, a
-storage SDK or Worker implementation. FileSpaceType belongs to this domain rather than Common.
+`pangrova-file` builds one JAR. Its `.api` packages own namespace values, grants, access and authority ports.
+The `.core` packages implement authorization, signed URL issuance and directory refresh, and `.worker` implements the delegated HTTP operations. The File access service only requires space lookup and the current storage profile. The directory refresh service requires a fenced refresh attempt. The persistence registries implement these ports directly.
 The built-in Security Policy provider owns File-specific privilege matching; the Security
 API retains generic privilege values and does not depend back on File API.
 

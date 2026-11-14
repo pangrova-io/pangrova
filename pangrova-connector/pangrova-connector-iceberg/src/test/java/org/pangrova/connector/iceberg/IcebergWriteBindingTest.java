@@ -8,7 +8,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
+import org.pangrova.connector.iceberg.enums.IcebergOverwriteScope;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;

@@ -4,11 +4,11 @@ import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthori
 
 import org.pangrova.persistence.generation.postgresql.publication.JdbcGeneratedValueDescriptorStore;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmissionStore;
-import org.pangrova.persistence.catalog.api.error.MetastoreException;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationJobSubmissionTransactions;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildSubmission;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;

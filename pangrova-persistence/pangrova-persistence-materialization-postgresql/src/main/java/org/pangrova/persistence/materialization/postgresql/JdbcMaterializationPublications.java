@@ -9,19 +9,19 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.pangrova.materialization.domain.AttemptId;
-import org.pangrova.materialization.domain.ExecutionFence;
-import org.pangrova.materialization.domain.Generation;
-import org.pangrova.materialization.domain.GenerationId;
-import org.pangrova.materialization.domain.MaterializationException;
-import org.pangrova.materialization.domain.MaterializationId;
-import org.pangrova.materialization.domain.MaterializationObject;
-import org.pangrova.materialization.domain.ObjectState;
-import org.pangrova.materialization.port.CommandRecord;
-import org.pangrova.materialization.port.MaterializationEvent;
-import org.pangrova.materialization.port.MaterializationRepository;
-import org.pangrova.materialization.port.PublicationResult;
-import org.pangrova.materialization.port.PublishCommand;
+import org.pangrova.materialization.api.domain.AttemptId;
+import org.pangrova.materialization.api.domain.ExecutionFence;
+import org.pangrova.materialization.api.domain.Generation;
+import org.pangrova.materialization.api.domain.GenerationId;
+import org.pangrova.materialization.api.exception.MaterializationException;
+import org.pangrova.materialization.api.domain.MaterializationId;
+import org.pangrova.materialization.api.domain.MaterializationObject;
+import org.pangrova.materialization.api.domain.ObjectState;
+import org.pangrova.materialization.api.port.CommandRecord;
+import org.pangrova.materialization.api.port.MaterializationEvent;
+import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
+import org.pangrova.materialization.api.port.PublicationResult;
+import org.pangrova.materialization.api.port.PublishCommand;
 import org.pangrova.connector.api.materialization.CommitEvidence;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
@@ -145,7 +145,7 @@ final class JdbcMaterializationPublications {
             JdbcMaterializationRows.bindObjectId(statement, 1, command.object());
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw MaterializationException.notFound(command.object());
+                    throw MaterializationException.notFound(command.object().canonicalName());
                 }
                 MaterializationObject current = JdbcMaterializationRows.mapObject(result);
                 UUID publishedGeneration =
@@ -293,7 +293,7 @@ final class JdbcMaterializationPublications {
         GenerationId generationId = new GenerationId(
                 UUID.fromString(reference.path("generation").asText()));
         MaterializationObject header = repository.findObject(object)
-                .orElseThrow(() -> MaterializationException.notFound(object));
+                .orElseThrow(() -> MaterializationException.notFound(object.canonicalName()));
         Generation published = repository.findGeneration(generationId)
                 .orElseThrow(() -> MaterializationException.requestRejected(
                         "recorded publication generation is missing: " + generationId.value()));

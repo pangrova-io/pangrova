@@ -44,7 +44,7 @@ class PaimonSdkAggregationSemanticsTest {
                 .hasMessageContaining("count");
         assertThatThrownBy(() -> PaimonNativeMergeAdmission.validateAggregation("value", "COUNT",
                 DataTypes.BIGINT(), new CoreOptions(new Options())))
-                .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasMessageContaining("aggregate-function=COUNT");
     }
 }

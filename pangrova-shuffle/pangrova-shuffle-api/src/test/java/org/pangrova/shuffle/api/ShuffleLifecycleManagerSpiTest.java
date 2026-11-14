@@ -166,53 +166,33 @@ class ShuffleLifecycleManagerSpiTest {
         assertEquals(new ShuffleAccess(new byte[] {1, 2, 3}, 42L), first);
         assertArrayEquals(new byte[] {1, 2, 3}, first.token());
     }
-    // --- ShuffleCommitResult ---
 
     @Test
-    @DisplayName("ShuffleCommitResult: valid construction")
-    void commitResultValid() {
-        var stats = Map.of(0, new ShufflePartitionStats(0, 1024, 100));
-        var result = new ShuffleCommitResult(stats, 1024, 100);
-        assertEquals(1, result.partitionStats().size());
-        assertEquals(1024, result.totalBytes());
-        assertEquals(100, result.totalRows());
+    void receiptBindsExactAllocationAndImmutablePartitionContents() {
+        var key = new ShufflePublication("q", 0, 2, "allocation");
+        var partition = new ShuffleCommitReceipt.Partition(0, 1024, 100, "ab".repeat(32));
+        var partitions = new java.util.HashMap<Integer, ShuffleCommitReceipt.Partition>();
+        partitions.put(0, partition);
+        var receipt = new ShuffleCommitReceipt(key, 1, "cd".repeat(32), partitions);
+        partitions.clear();
+        assertEquals(Map.of(0, partition), receipt.partitions());
+        assertThrows(UnsupportedOperationException.class, () -> receipt.partitions().clear());
+        assertNotEquals(key, new ShufflePublication("q", 0, 3, "allocation"));
     }
 
     @Test
-    @DisplayName("ShuffleCommitResult: partitionStats map is immutable")
-    void commitResultStatsImmutable() {
-        var result = new ShuffleCommitResult(Map.of(), 0, 0);
-        assertThrows(UnsupportedOperationException.class,
-                () -> result.partitionStats().put(0, new ShufflePartitionStats(0, 0, 0)));
-    }
-
-    @Test
-    @DisplayName("ShuffleCommitResult: EMPTY sentinel")
-    void commitResultEmpty() {
-        assertTrue(ShuffleCommitResult.EMPTY.partitionStats().isEmpty());
-        assertEquals(0, ShuffleCommitResult.EMPTY.totalBytes());
-        assertEquals(0, ShuffleCommitResult.EMPTY.totalRows());
-    }
-
-    @Test
-    @DisplayName("ShuffleCommitResult: negative totalBytes rejected")
-    void commitResultNegativeBytes() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new ShuffleCommitResult(Map.of(), -1, 0));
-    }
-
-    @Test
-    @DisplayName("ShuffleCommitResult: negative totalRows rejected")
-    void commitResultNegativeRows() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new ShuffleCommitResult(Map.of(), 0, -1));
-    }
-
-    @Test
-    @DisplayName("ShuffleCommitResult: null partitionStats rejected")
-    void commitResultNullStats() {
-        assertThrows(NullPointerException.class,
-                () -> new ShuffleCommitResult(null, 0, 0));
+    void missingAndMalformedPublicationEvidenceCannotRepresentCompletion() {
+        var key = new ShufflePublication("q", 0, 2, "allocation");
+        String digest = "ab".repeat(32);
+        var empty = new ShuffleCommitReceipt.Partition(-1, 0, 0, digest);
+        assertThrows(IllegalArgumentException.class, () -> new ShuffleCommitReceipt(key, 1, digest, Map.of()));
+        assertThrows(IllegalArgumentException.class, () -> new ShuffleCommitReceipt(key, 0, digest, Map.of(0, empty)));
+        assertThrows(IllegalArgumentException.class, () -> new ShuffleCommitReceipt(key, 1, digest, Map.of(1, empty)));
+        assertThrows(NullPointerException.class, () -> new ShuffleCommitReceipt(key, 1, digest, null));
+        assertThrows(IllegalArgumentException.class, () -> new ShuffleCommitReceipt.Partition(-1, 0, 1, digest));
+        assertThrows(IllegalArgumentException.class, () -> new ShuffleCommitReceipt.Partition(0, -1, 1, digest));
+        assertThrows(IllegalArgumentException.class, () -> new ShuffleCommitReceipt.Partition(0, 1, -1, digest));
+        assertThrows(IllegalArgumentException.class, () -> new ShuffleCommitReceipt.Partition(0, 1, 1, "invalid"));
     }
 
     private static ShuffleHandle handle(

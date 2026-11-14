@@ -1,7 +1,7 @@
 package org.pangrova.generation.api.graph;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.generation.api.execution.GenerationPageKind;
+import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 

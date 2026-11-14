@@ -2,9 +2,9 @@ package org.pangrova.persistence.streaming.postgresql;
 
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
-import org.pangrova.streaming.api.cdc.CdcOperation;
+import org.pangrova.streaming.api.enums.CdcOperation;
 import org.pangrova.streaming.api.cdc.CdcRecordConverter;
-import org.pangrova.streaming.api.cdc.CdcSourceReader;
+import org.pangrova.streaming.api.source.CdcSourceReader;
 import org.pangrova.streaming.api.cdc.CdcWriteResult;
 import org.pangrova.streaming.api.cdc.CdcWriteSink;
 import org.pangrova.streaming.api.source.SourceRecord;
@@ -17,7 +17,7 @@ import org.pangrova.streaming.cdc.CdcPipelineLoopContext;
 import org.pangrova.streaming.cdc.CdcPipelineRuntimeHooks;
 import org.pangrova.streaming.cdc.CdcQuotaEnforcer;
 import org.pangrova.streaming.commit.CdcCommitCoordinator;
-import org.pangrova.streaming.api.commit.CdcCommitState;
+import org.pangrova.streaming.api.enums.CdcCommitState;
 import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
 import org.pangrova.streaming.api.commit.OffsetRange;
 import org.pangrova.streaming.api.commit.CdcBatchCheckpoint;
@@ -32,7 +32,10 @@ import org.pangrova.streaming.maintenance.OrphanCleanupResult;
 import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
 import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
 import org.pangrova.streaming.watermark.WatermarkTracker;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -66,52 +69,29 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>At-least-once fallback when no coordinator is provided</li>
  * </ul>
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class CdcPipelineExactlyOnceTest extends org.pangrova.testing.testkit.ContainerTestBase {
 
     private static final String STREAM_NAME = "cdc-orders";
     private static final String TARGET_TABLE = "catalog.schema.orders";
 
-    private javax.sql.DataSource dataSource;
+    private static javax.sql.DataSource dataSource;
     private JdbcCdcCommitStateStore stateStore;
     private TwoPhaseCommitCoordinator coordinator;
 
-    @BeforeEach
-    void setUp() throws Exception {
-        dataSource = CdcCheckpointDatabase.isolatedDataSource();
-
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS cdc_commit_state");
-        }
-
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS cdc_commit_state (
-                    id              VARCHAR(255)  NOT NULL PRIMARY KEY,
-                    source_id       VARCHAR(255)  NOT NULL,
-                    offset_ranges   JSONB         NOT NULL,
-                    state           VARCHAR(32)   NOT NULL,
-                    deadline        TIMESTAMP     NOT NULL,
-                    created_at      TIMESTAMP     NOT NULL,
-                    batch_key       VARCHAR(255)
-                )""");
-            stmt.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_cdc_commit_state_dedup
-                    ON cdc_commit_state (source_id, batch_key)
-                    WHERE state <> 'ROLLED_BACK'""");
-        }
-
-        stateStore = new JdbcCdcCommitStateStore(dataSource);
-        coordinator = new TwoPhaseCommitCoordinator(stateStore, Duration.ofMinutes(5));
+    @BeforeAll
+    static void initializeDatabase() throws Exception {
+        dataSource = MigratedPostgres.create();
     }
 
-    @AfterEach
-    void tearDown() throws Exception {
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DELETE FROM cdc_commit_state");
+    @BeforeEach
+    void setUp() throws Exception {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("TRUNCATE cdc_commit_state");
         }
+        stateStore = new JdbcCdcCommitStateStore(dataSource);
+        coordinator = new TwoPhaseCommitCoordinator(stateStore, Duration.ofMinutes(5));
     }
 
     private CdcPipelineConfig defaultConfig() {
@@ -197,7 +177,7 @@ class CdcPipelineExactlyOnceTest extends org.pangrova.testing.testkit.ContainerT
 
     static class FakeWatermarkStore implements WatermarkStore {
         @Override
-        public void save(String tableName, Instant watermark) {}
+        public Instant advance(String tableName, Instant watermark) { return watermark; }
 
         @Override
         public Optional<Instant> load(String tableName) { return Optional.empty(); }

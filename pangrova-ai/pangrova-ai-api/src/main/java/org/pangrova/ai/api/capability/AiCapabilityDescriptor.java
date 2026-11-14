@@ -13,13 +13,17 @@
  */
 package org.pangrova.ai.api.capability;
 
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.ai.api.enums.Modality;
+
+import org.pangrova.ai.api.exception.AiInvocationException;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+
+import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
  * Canonical description of an AI capability shared by planning, Worker dispatch
@@ -155,12 +159,6 @@ public record AiCapabilityDescriptor(
         requiredPermissions = requiredPermissions == null ? Set.of() : Set.copyOf(requiredPermissions);
         if (requiredPermissions.stream().anyMatch(value -> value == null || value.isBlank())) {
             throw new IllegalArgumentException("requiredPermissions must not contain blank values");
-        }
-    }
-
-    private static void requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " must not be blank");
         }
     }
 }

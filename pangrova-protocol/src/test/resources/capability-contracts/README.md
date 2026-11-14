@@ -8,12 +8,33 @@ the generated-values materializer, whose availability depends on the actual
 immutable-cache readiness gate. It is distinct from the cache-disabled function
 exporter catalogue used by function-contract tests.
 
+## Current capture
+
+On 2026-11-14 the macOS arm64 Worker handshake exported the current inventory
+from the packaged JNI runtime with the immutable cache, governed FILE callbacks
+and both configured models. The cache-disabled catalogue came from the
+`pangrova_function_export --catalogue` binary built alongside that runtime.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Native library | 322876581 | `a99793594d40a57aa2a1c025bb3920596ae4d23d148d5530921aea1a99fc3e1a` |
+| Worker inventory | 795600 | `b49a040ef5c0f3b3afbb03c27cc8b5661b0319b4a3eea9129dbb1d6b47c225db` |
+| Function exporter catalogue | 782981 | `8ae14ab54c5af7af34b3946c0e335ac44e15e28d666ae57cd0afe4c20153952e` |
+
+Both fixtures carry canonical descriptor SHA-256
+`ab4d05e056dea402e400916ba7b05144e5573108dc5e3ffa272de70062b23ed0`,
+including the Coordinator partition publication evidence in the external exchange binding.
+The Worker advertised 19 capabilities, 103 functions and two deployed models.
+The exporter reported nine capabilities, 87 functions and zero models.
+
+## October capture
+
 The complete cache-enabled snapshot was recaptured on **2026-10-25** through
 `NativeCapabilityHandshakeE2ETest`, after the worker-incarnation protocol change.
 The current-source Native target built successfully and the packaged library
 matched the build artifact. The real PostgreSQL/Ollama/JNI handshake passed 1/1
 with no skipped tests and retained all 19 capabilities, 103 functions (including
-the governed FILE callbacks), and two configured models. Current capture receipts:
+the governed FILE callbacks), and two configured models. October capture receipts:
 
 - Native library SHA-256: `6dbd54c01694177de9347cd9482121a1d91af95cc7ef3bbcfcc4ea1310942f38`.
 - Inventory: 795,600 bytes, SHA-256

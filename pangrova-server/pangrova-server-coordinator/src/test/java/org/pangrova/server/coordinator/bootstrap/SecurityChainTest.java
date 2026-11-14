@@ -1,8 +1,8 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.common.http.HttpClientFactory;
-import org.pangrova.common.http.ManagedHttpClient;
+import org.pangrova.transport.http.client.HttpClientFactory;
+import org.pangrova.transport.http.client.ManagedHttpClient;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.Arbitraries;
@@ -14,11 +14,11 @@ import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.security.api.error.AccessDeniedException;
-import org.pangrova.security.core.authentication.AuthenticationManager;
+import org.pangrova.security.api.exception.AccessDeniedException;
+import org.pangrova.security.authentication.AuthenticationManager;
 import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
-import org.pangrova.security.spi.authentication.Authenticator;
+import org.pangrova.security.api.authentication.Authenticator;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -202,7 +202,7 @@ class SecurityChainTest extends ContainerTestBase {
                 "coord-nosec", 0);
         bootstrap = new CoordinatorBootstrap(config);
         assertThatThrownBy(bootstrap::start)
-                .isInstanceOf(org.pangrova.common.lifecycle.BootstrapFailedException.class)
+                .isInstanceOf(org.pangrova.common.exception.BootstrapFailedException.class)
                 .hasMessageContaining("Worker control requires configured internal-service authentication");
     }
 
@@ -239,13 +239,13 @@ class SecurityChainTest extends ContainerTestBase {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         coordinatorId, 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, new SecurityConfig(SecurityConfig.AuthenticatorType.NOOP,
+                null, new SecurityConfig("NOOP",
                         "test-internal-service-secret", Map.of()), null);
         bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
@@ -296,12 +296,12 @@ class SecurityChainTest extends ContainerTestBase {
         var taskTracker = new org.pangrova.coordinator.task.CoordinatorTaskTracker();
         var deps = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies(
                 org.pangrova.coordinator.query.execution.QueryDispatcherContext.withDefaults(
-                new org.pangrova.planner.core.analysis.SqlCompiler(),
+                new org.pangrova.planner.analysis.SqlCompiler(),
                 null, null, null,
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                         new org.pangrova.observability.noop.NoOpTracingProvider()),
-                new org.pangrova.scheduler.core.placement.TaskScheduler(
+                new org.pangrova.scheduler.placement.TaskScheduler(
                         new org.pangrova.scheduler.builtin.placement.LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()),
                 workerManager, taskTracker, null, null, null, 0L));
         var orchestrator = new org.pangrova.coordinator.query.execution.QueryDispatcher(

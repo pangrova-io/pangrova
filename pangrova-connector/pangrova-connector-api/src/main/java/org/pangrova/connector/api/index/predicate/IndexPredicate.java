@@ -9,7 +9,7 @@ import org.pangrova.common.api.annotation.Experimental;
  * <p>Each predicate targets a specific column and carries the parameters
  * needed for the corresponding index evaluation strategy.
  *
- * @see org.pangrova.connector.api.index.IndexEvalResult
+ * @see org.pangrova.connector.api.enums.IndexEvalResult
  */
 @Experimental
 public sealed interface IndexPredicate

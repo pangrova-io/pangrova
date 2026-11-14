@@ -4,9 +4,9 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.pangrova.connector.api.metadata.view.ViewCreateMode;
+import org.pangrova.connector.api.enums.ViewCreateMode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.enums.PangrovaErrorCode;
 
 import java.util.Objects;
 import java.util.List;

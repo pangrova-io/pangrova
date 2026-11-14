@@ -6,7 +6,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 

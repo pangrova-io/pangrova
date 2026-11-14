@@ -3,7 +3,7 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.persistence.generation.postgresql.execution.PostgresGenerationExecutionRoutes;
-import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 

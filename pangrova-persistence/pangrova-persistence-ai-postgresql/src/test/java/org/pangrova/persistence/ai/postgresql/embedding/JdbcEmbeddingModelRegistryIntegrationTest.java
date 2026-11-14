@@ -13,15 +13,15 @@
  */
 package org.pangrova.persistence.ai.postgresql.embedding;
 
-import org.pangrova.ai.control.embedding.DimensionMismatchException;
+import org.pangrova.ai.control.exception.DimensionMismatchException;
 import org.pangrova.ai.control.embedding.EmbeddingModelAlterTarget;
-import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
+import org.pangrova.ai.control.exception.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.ai.control.embedding.EmbeddingModelRevision;
-import org.pangrova.ai.control.embedding.ModelAlreadyExistsException;
-import org.pangrova.ai.control.embedding.ModelDropUnavailableException;
-import org.pangrova.ai.control.embedding.ModelNotFoundException;
+import org.pangrova.ai.control.exception.ModelAlreadyExistsException;
+import org.pangrova.ai.control.exception.ModelDropUnavailableException;
+import org.pangrova.ai.control.exception.ModelNotFoundException;
 import org.pangrova.ai.control.embedding.ModelUpdateRequest;
-import org.pangrova.ai.control.embedding.VersionConflictException;
+import org.pangrova.ai.control.exception.VersionConflictException;
 import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.junit.jupiter.api.BeforeEach;
@@ -75,7 +75,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));
         roles.grantRoleToUser(UserRoleAssignment.of(USER.principal(), USAGE_GROUP));
         registry = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_GROUP, USAGE_GROUP);
-        registry.initSchema();
+        registry.validateSchema();
     }
 
     @Test
@@ -98,7 +98,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
         org.flywaydb.core.Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
                 .target("10").load().migrate();
         var unmigrated = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_GROUP, USAGE_GROUP);
-        assertThrows(IllegalStateException.class, unmigrated::initSchema);
+        assertThrows(IllegalStateException.class, unmigrated::validateSchema);
         try (var connection = dataSource.getConnection();
              var statement = connection.createStatement()) {
             statement.execute("INSERT INTO pangrova_embedding_models VALUES ("
@@ -112,7 +112,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
         roles.createRole(Role.of(ADMIN_GROUP));
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));
         registry = new JdbcEmbeddingModelRegistry(dataSource, ADMIN_GROUP, USAGE_GROUP);
-        registry.initSchema();
+        registry.validateSchema();
         assertThrows(EmbeddingRegistryAccessDeniedException.class, () -> registry.find("existing-model", ADMIN));
         try (var connection = dataSource.getConnection();
              var statement = connection.createStatement();
@@ -133,7 +133,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
     void schemaValidationDoesNotCreateOrUpgradeAnUnmigratedTable() throws Exception {
         var empty = org.pangrova.testing.testkit.postgres.SharedPostgres.isolatedDataSource();
         var uninitialized = new JdbcEmbeddingModelRegistry(empty, ADMIN_GROUP, USAGE_GROUP);
-        assertThrows(IllegalStateException.class, uninitialized::initSchema);
+        assertThrows(IllegalStateException.class, uninitialized::validateSchema);
         try (var connection = empty.getConnection(); var statement = connection.createStatement();
              var rows = statement.executeQuery("SELECT to_regclass('pangrova_embedding_models')")) {
             assertTrue(rows.next());
@@ -291,7 +291,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
 
         JdbcEmbeddingModelRegistry restarted = new JdbcEmbeddingModelRegistry(
                 dataSource, ADMIN_GROUP, USAGE_GROUP);
-        restarted.initSchema();
+        restarted.validateSchema();
         assertTrue(restarted.find("m", USER).isPresent());
     }
 

@@ -1,10 +1,13 @@
 package org.pangrova.indexing.builtin.ngram.provider;
 
+import org.pangrova.indexing.api.codec.TypeSerializer;
+import org.pangrova.indexing.builtin.ngram.serializer.NGramBloomSerializer;
+
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.indexing.builtin.ngram.serializer.NGramTokenizer;
-import org.pangrova.connector.api.index.IndexEvalResult;
-import org.pangrova.indexing.spi.strategy.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.connector.api.enums.IndexEvalResult;
+import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.data.IndexData;
 import org.pangrova.indexing.api.data.text.NGramBloomIndexData;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
@@ -32,6 +35,11 @@ public final class NGramBloomStrategyProvider implements IndexStrategyProvider {
     private static final int DEFAULT_NGRAM_SIZE = 3;
     private static final int DEFAULT_EXPECTED_ENTRIES = 50_000;
     private static final double DEFAULT_FPP = 0.01;
+
+    @Override
+    public TypeSerializer<?> payloadSerializer() {
+        return new NGramBloomSerializer();
+    }
 
     @Override
     public IndexType supportedType() {

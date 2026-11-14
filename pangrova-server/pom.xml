@@ -16,6 +16,8 @@
     <description>Process composition and lifecycle</description>
 
     <modules>
+        <module>pangrova-server-bootstrap</module>
         <module>pangrova-server-coordinator</module>
+        <module>pangrova-server-worker</module>
     </modules>
 </project>

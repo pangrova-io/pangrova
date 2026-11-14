@@ -15,10 +15,10 @@ package org.pangrova.transport.client;
 
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.batch.api.page.BatchFormat;
+import org.pangrova.batch.api.enums.BatchFormat;
 import org.pangrova.batch.api.page.NativePage;
 import org.pangrova.batch.api.page.Page;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;

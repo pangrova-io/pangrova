@@ -1,28 +1,30 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.server.coordinator.enums.CoordinatorRole;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext;
-import org.pangrova.query.core.dispatch.StatementExecutionContext;
+import org.pangrova.query.dispatch.StatementExecutionContext;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
-import org.pangrova.parser.core.parse.AntlrSqlParser;
+import org.pangrova.parser.parse.AntlrSqlParser;
 import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcGrantStore;
 import org.pangrova.persistence.security.postgresql.policy.JdbcRoleStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.planner.core.analysis.SqlCompiler;
+import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.security.api.error.AccessDeniedException;
-import org.pangrova.security.api.error.AuthorizationDeniedException;
+import org.pangrova.security.api.exception.AccessDeniedException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
@@ -155,9 +157,9 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
     void tenantSqlUsesTheProductionRegistrationAndCurrentMembershipAuthority() {
         var store = new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source);
         store.createTenant(new org.pangrova.security.api.tenant.Tenant("Tenant.One", "display",
-                org.pangrova.security.api.tenant.TenantStatus.ACTIVE, null, List.of("lake"), List.of("sales"),
+                org.pangrova.security.api.enums.TenantStatus.ACTIVE, null, List.of("lake"), List.of("sales"),
                 null, Map.of(), Instant.EPOCH, "admin"));
-        store.addUserToTenant("Tenant.One", "admin", org.pangrova.security.api.tenant.TenantRole.OWNER);
+        store.addUserToTenant("Tenant.One", "admin", org.pangrova.security.api.enums.TenantRole.OWNER);
         var dispatcher = dispatcher(factory);
         execute(dispatcher, "GRANT TENANT \"Tenant.One\" TO bob", "admin");
         assertThat(store.getTenantForUser("bob").orElseThrow().roleName()).isEqualTo("MEMBER");
@@ -198,7 +200,7 @@ class PrivilegeSqlExecutionTest extends ContainerTestBase {
     private static CoordinatorBootstrapConfig config(boolean bypass) {
         var security = bypass ? CoordinatorBootstrapConfig.SecurityConfig.noop()
                 : new CoordinatorBootstrapConfig.SecurityConfig(
-                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2, "test-secret",
+                        "OAUTH2", "test-secret",
                         Map.of("issuerUri", "https://issuer.example.test"));
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig("secured", 0, 30_000, CoordinatorRole.COMBINED, "0.0.0.0"),

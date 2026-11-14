@@ -21,7 +21,7 @@ import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.types.PangrovaType;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.VectorType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
@@ -127,17 +127,17 @@ class PaimonDeclarationMetadataIntegrationTest {
 
     private static void assertGeneratedAdmissionRejected(PaimonMetadata metadata, PaimonTableHandle handle) {
         assertThatThrownBy(() -> metadata.beginInsert(SESSION, handle))
-                .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasMessageContaining("atomic declaration-and-snapshot commit gate");
         assertThatThrownBy(() -> metadata.beginOverwrite(SESSION, handle))
-                .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasMessageContaining("atomic declaration-and-snapshot commit gate");
         var declared = metadata.getTableMetadata(SESSION, handle);
         var create = new org.pangrova.connector.api.metadata.table.ConnectorTableMetadata(
                 new SchemaTableName("db", "rejected"), declared.columns(), declared.typedColumns(),
                 declared.properties());
         assertThatThrownBy(() -> metadata.createTable(SESSION, create))
-                .isInstanceOf(org.pangrova.connector.api.error.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasMessageContaining("atomic declaration-and-snapshot commit gate");
         assertThat(metadata.getTableHandle(SESSION, new SchemaTableName("db", "rejected"))).isNull();
     }
