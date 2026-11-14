@@ -48,6 +48,17 @@ class ModuleManifestTest(unittest.TestCase):
         self.assertTrue(facts["leaf"])
         self.assertEqual("jar", facts["packaging"])
 
+    def test_merging_leaf_artifacts_reports_external_path_back_to_another_selected_leaf(self):
+        deps = {"core": ["api", "provider"], "provider": ["port"], "port": ["api"], "api": []}
+        artifacts = {name: {"leaf": True, "dependencies": dict.fromkeys(edges, "compile")}
+                     for name, edges in deps.items()}
+        self.assertEqual(["core", "provider", "port", "api"],
+                         BASELINE.merge_witness(artifacts, {"core", "api"}))
+        self.assertEqual([], BASELINE.merge_witness(artifacts, {"core", "provider"}))
+        self.assertEqual([], BASELINE.merge_witness(artifacts, set(deps)))
+        with self.assertRaisesRegex(ValueError, "Unknown or non-leaf"):
+            BASELINE.merge_witness(artifacts, {"api", "missing"})
+
     def test_invalid_source_pom_is_not_ignored(self):
         (self.root / "pom.xml").write_text("not valid XML")
         with self.assertRaises(BASELINE.ET.ParseError):

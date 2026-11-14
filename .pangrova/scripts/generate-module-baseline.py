@@ -19,7 +19,7 @@ import os
 import sys
 import subprocess
 import xml.etree.ElementTree as ET
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -111,7 +111,49 @@ def collect_descriptors(module_dir: Path) -> dict[str, list[str]]:
     return descriptors
 
 
-def main() -> int:
+def merge_witness(artifacts: dict, selected: set[str]) -> list[str]:
+    """Find a shortest original path that leaves and re-enters the proposed artifact."""
+    if len(selected) < 2:
+        raise ValueError("Select at least two distinct artifacts")
+    for name in sorted(selected):
+        if name not in artifacts or not artifacts[name]["leaf"]:
+            raise ValueError(f"Unknown or non-leaf artifact: {name}")
+    queue = deque(sorted(selected))
+    parents = dict.fromkeys(selected)
+    while queue:
+        source = queue.popleft()
+        for target in sorted(artifacts[source]["dependencies"]):
+            if target not in artifacts:
+                continue
+            if target in selected:
+                if source not in selected:
+                    path = [source]
+                    while parents[path[-1]] is not None:
+                        path.append(parents[path[-1]])
+                    return [*reversed(path), target]
+            elif target not in parents:
+                parents[target] = source
+                queue.append(target)
+    return []
+
+
+def check_merge(names: list[str]) -> int:
+    artifacts = pom_artifacts()
+    try:
+        path = merge_witness(artifacts, set(names))
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 2
+    if path:
+        print("Merging these artifacts closes a declared POM dependency cycle:")
+        for source, target in zip(path, path[1:]):
+            print(f"  {source} -> {target} ({artifacts[source]['dependencies'][target]}, {artifacts[source]['pom']})")
+        return 1
+    print("No declared POM dependency path leaves and re-enters the proposed artifact.")
+    return 0
+
+
+def main(check: bool = False) -> int:
     artifacts = pom_artifacts()
     leaves = {name: meta for name, meta in artifacts.items() if meta["leaf"]}
     aggregators = {name: meta for name, meta in artifacts.items() if not meta["leaf"]}
@@ -219,7 +261,7 @@ def main() -> int:
             lines.append("    []")
 
     rendered = "\n".join(lines) + "\n"
-    if "--check" in sys.argv:
+    if check:
         current = BASELINE.read_text() if BASELINE.exists() else ""
         if current != rendered:
             print("module baseline is stale; regenerate with "
@@ -234,4 +276,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="check the existing fact baseline")
+    parser.add_argument("--check-merge", nargs="+", metavar="ARTIFACT",
+                        help="simulate merging leaf artifacts using direct local POM edges, including test scope")
+    options = parser.parse_args()
+    if options.check_merge:
+        if options.check:
+            parser.error("--check-merge is a standalone inspection")
+        raise SystemExit(check_merge(options.check_merge))
+    raise SystemExit(main(options.check))

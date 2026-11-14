@@ -111,6 +111,14 @@ description: "Accepted decisions for domain contracts, implementations, and proc
 
 平铺之前，先在现有依赖图上把拟合并的制品视作一个节点。若存在一条从拟合并制品出发、经过仍独立发布的制品、再回到拟合并集合的路径，合并后就会成环。例如合并 Metadata Core 和 API，会把 `metadata-core → persistence-catalog-api → metadata-api` 变成 `metadata → persistence-catalog-api → metadata`。此时保留独立契约，或先按语义归属消除那条依赖，再重新检查。合并集合内部的直接依赖在制品图中消失，同一 JAR 内的包仍要逐个检查。
 
+可在改 POM 前对候选叶制品执行只读预检。例如在当前仓库运行：
+
+```bash
+.pangrova/scripts/generate-module-baseline.py --check-merge pangrova-metadata-core pangrova-metadata-api
+```
+
+工具沿本地 POM 的显式依赖（含 test、runtime）搜索一条离开再返回合并集合的最短路径，发现时打印各边的 scope 和 POM 并返回 1。该预检覆盖当前源码树的直接声明。继承、profile、插件、生成代码和运行时类加载仍按下列门禁核对。
+
 - 给出修改前后依赖路径和涉及的具体类型。主源码包图中包含两个或更多包的强连通分量必须清零。调整 `allowedImports`、`friendExports` 或生成 baseline 只能记录有依据的单向边。
 - 对默认及本次涉及的发行 profile 验证 reactor。运行 `PackageDependencyAcyclicityPropertyTest` 检查默认 reactor 主源码。报告针对每个包含环的强连通分量列出一条实际闭合路径，以及分量内部每条边的源码位置。`ModuleDependencyPropertyTest` 另行校验包归属、允许的边及服务注册。检查实际 JAR 与单角色运行 classpath，验证反射、生成代码和 JNI 入口。
 - 对变化的路径执行至少一条真实调用及相应失败场景。带事务的路径核对失败回滚和失主拒绝，资源边界核对失败清理与只关闭一次。每条路径记录实际结果，构建、包图和运行时证据分别给出。
