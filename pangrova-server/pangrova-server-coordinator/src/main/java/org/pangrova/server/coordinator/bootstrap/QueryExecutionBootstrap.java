@@ -563,10 +563,10 @@ final class QueryExecutionBootstrap {
             return;
         }
         var registry = new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry(source);
-        var audit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(auditOutput);
+        var audit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(auditOutput::emit);
         org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
                 factory, registry, authorization, audit);
-        var access = fileSpaceAccessService(registry, authorization, source, audit);
+        var access = fileSpaceAccessService(registry, authorization, source, auditOutput);
         var client = access == null ? null
                 : org.pangrova.file.worker.WorkerFileClient
                         .create(config.internalAuthSecret());
@@ -587,7 +587,7 @@ final class QueryExecutionBootstrap {
     private org.pangrova.file.access.FileSpaceAccessService fileSpaceAccessService(
             org.pangrova.persistence.file.api.space.FileSpaceRegistry registry, AccessControl authorization,
             javax.sql.DataSource source,
-            org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter audit) {
+            org.pangrova.security.audit.AuditEventEmitter auditOutput) {
         if (authorization == null || config.internalAuthSecret() == null
                 || config.internalAuthSecret().isBlank()) {
             return null;
@@ -599,7 +599,7 @@ final class QueryExecutionBootstrap {
                                         .map(worker -> "http://" + worker.host() + ":"
                                                 + worker.httpPort())
                                         .toList(),
-                        audit, config.internalAuthSecret(),
+                        new org.pangrova.file.access.FileGrantAudit(auditOutput::emit), config.internalAuthSecret(),
                         new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(source,
                                 new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source)));
         return new org.pangrova.file.access.FileSpaceAccessService(registry,

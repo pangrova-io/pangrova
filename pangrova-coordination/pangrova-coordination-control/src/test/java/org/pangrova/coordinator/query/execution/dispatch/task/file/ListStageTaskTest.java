@@ -16,7 +16,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.file.api.access.FileListingClient;
 import org.pangrova.file.access.FileSpaceAccessService;
 import org.pangrova.file.api.access.FileAccessGrant;
-import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
+import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.query.dispatch.StatementExecutionContext;
 import org.pangrova.query.dispatch.StatementResult;
 import org.pangrova.query.api.session.QuerySession;
@@ -113,7 +113,7 @@ class ListStageTaskTest {
                 Map.of("path-style-access", "true"));
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
-                new FileSpaceAuditEmitter(null), SECRET,
+                new FileGrantAudit(event -> {}), SECRET,
                 org.pangrova.coordinator.file.FileAuthorityTestFixture.authority());
         var profiles = new org.pangrova.testing.testkit.file.InMemoryStorageProfileRegistry();
         profiles.register(profile);

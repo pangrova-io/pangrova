@@ -434,3 +434,14 @@ Worker 与 Standalone 中的两份 Native 资源分别来自 Worker JAR 和平�
 | SQL 和 Metadata 的 CREATE TABLE | 两个入口向 TableRegistrations 传递实际执行 CREATE 的 Catalog handle 所属部署。登记失败只能在该部署记录孤立对象。目录被重新创建、表名被另一个身份占用或发生待完成改名时，都保留当前身份。PostgreSQL 在同一事务退休旧记录、插入新 UUID、更新名称并写失效事件。用持久化后的 revision 作为并发令牌，保留数据库时间精度。六组测试共 127 项通过，包括强制 INSERT 冲突后的回滚与外部 CREATE 期间 Catalog 替换。 |
 | Metadata 列标签与 Governance | ColumnTagBindings 在构造时绑定表策略仓储与事件源。Coordinator 使用同一事件源安装监听器并重放已有标签。治理关闭时移除自身注册的监听器。Paimon 联测使用同一个 PostgreSQL 权威构造控制记录、标签、遮蔽和元数据读取。 |
 | OpenTelemetry、Worker HTTP、任务状态与维护血缘 | 两份重复的 trace/span ID 读取合并到 CurrentSpanIds；Worker 访问日志读取当前 span，Native 执行使用提交时捕获的执行身份。TaskReportCompletion 将已接受的报告路由到逻辑任务。MaintenanceLineageListener 从元数据事件产生血缘通知。PhysicalTypeProjectionDeclaration 校验 Substrait 物理类型的投影规则。 |
+
+## File 授权与 Worker 操作审计
+
+| 原入口 | 真实职责与处置 |
+|---|---|
+| `file.api.audit.FileOperationAudit.fileOperation` 和 `coordinator.query.audit.FileSpaceAuditEmitter.fileOperation` | 原调用发生在签票之后。FileGrantAudit 通过安全域 AuditEventWriter 发出 FILE_ACCESS_GRANTED，FileOperation 明确区分 HEAD、LIST、READ、WRITE、DELETE。未识别的输入在签票或 Worker 解码时拒绝。 |
+| `FileSpaceAuditEmitter.Mutation` | 此枚举仅选择审计事件，现已删除。SQL 入口在真实成功的 namespace 操作后按 Volume 或 Stage 明确选择事件。文件属性变更继续使用 file.api.space.FileSpaceMutation 的既有 sealed 操作及 PostgreSQL 原子更新。 |
+| `worker.file.FileSpaceFileResource` | POST head 和 HTTP HEAD 产生 FILE_METADATA_READ；LIST 按页确认，PUT 和 multipart complete 于 provider 返回后确认，GET 在请求字节数匹配、写出、flush 和关闭源流后确认。DELETE 要求 provider 成功返回。认证或版本失败、取消和部分流写出不产生成功事件。对象存储不与审计 sink 共用事务。 |
+| `server.worker` 的独立及嵌入入口 | 将现有 LoggingAuditEventWriter 传给 Worker bootstrap。Worker 只持有 Security API 的 writer 并借用它，保持 Worker 与 Coordinator、JDBC 解耦。生产结构化日志为 Worker 侧完成证据；Coordinator 使用其既有日志或组合后端。 |
+
+以发布提交 7a374091f 为父提交，在独立检出中使用 JDK 17、Maven 3.9.16 和 Python 3.12 生成协议并编译 143 项 reactor，14 个 File、Worker、SQL 和 HTTP 测试类的 103 项测试全部通过，无跳过。PostgreSQL 测例核对 6 次签票和 7 次实际操作，覆盖同一 READ 票的 HEAD、Range GET、客户端写失败及条件删除失败。MinIO 测例核对 multipart 完成与跨 Worker 恢复。

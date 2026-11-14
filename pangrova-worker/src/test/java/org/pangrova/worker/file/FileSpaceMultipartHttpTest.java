@@ -85,7 +85,7 @@ class FileSpaceMultipartHttpTest {
 
     private Server server(ObjectStoreAccessorFactory factory) {
         ResourceConfig config = new ResourceConfig()
-                .register(new FileSpaceFileResource(factory, SECRET, mapper, now::get))
+                .register(new FileSpaceFileResource(factory, SECRET, mapper, now::get, event -> {}))
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class)
                 .register(JacksonFeature.class);
         ServletContextHandler handler = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);

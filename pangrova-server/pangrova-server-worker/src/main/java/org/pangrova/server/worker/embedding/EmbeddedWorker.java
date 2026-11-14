@@ -1,5 +1,6 @@
 package org.pangrova.server.worker.embedding;
 
+import org.pangrova.security.audit.LoggingAuditEventWriter;
 import org.pangrova.config.ConfigValidator;
 import org.pangrova.server.worker.bootstrap.WorkerConfiguration;
 import org.pangrova.config.PangrovaConfiguration;
@@ -37,7 +38,7 @@ public final class EmbeddedWorker implements AutoCloseable {
 
     /** Starts a worker from an already-built bootstrap configuration. */
     public static EmbeddedWorker start(WorkerBootstrapConfig config) {
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+        WorkerBootstrap bootstrap = new WorkerBootstrap(config, new LoggingAuditEventWriter());
         bootstrap.installProductionCatalogRuntime();
         bootstrap.start();
         return new EmbeddedWorker(config, bootstrap);

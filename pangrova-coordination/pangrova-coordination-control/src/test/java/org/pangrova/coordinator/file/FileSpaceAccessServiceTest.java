@@ -18,7 +18,7 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
+import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.authorization.FileSpaceAccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -260,7 +260,7 @@ class FileSpaceAccessServiceTest {
     private FileSpaceAccessService service(List<String> workers, String managedProfile) {
         var context = new FileSpaceAccessService.FileSpaceAccessContext(managedProfile,
                 Duration.ofMinutes(5), () -> NOW, () -> workers,
-                new FileSpaceAuditEmitter(null), SECRET,
+                new FileGrantAudit(event -> {}), SECRET,
                 org.pangrova.coordinator.file.FileAuthorityTestFixture.authority());
         return new FileSpaceAccessService(spaces, profiles, access, context);
     }

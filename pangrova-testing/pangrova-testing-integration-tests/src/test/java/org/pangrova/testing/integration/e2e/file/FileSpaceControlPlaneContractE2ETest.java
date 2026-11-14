@@ -1,6 +1,10 @@
 package org.pangrova.testing.integration.e2e.file;
 
 import org.pangrova.file.api.access.FileAccessGrant;
+import org.pangrova.persistence.security.postgresql.audit.JdbcAuditEventWriter;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.api.audit.AuditEventQuery;
+import org.pangrova.security.api.enums.AuditEventType;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -26,7 +30,7 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.file.access.FileSpaceAccessService;
-import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
+import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.enums.StorageType;
@@ -64,6 +68,7 @@ class FileSpaceControlPlaneContractE2ETest {
     private org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry profiles;
     private FileSpaceAccessService coordinator;
     private FileSpaceFileResource worker;
+    private JdbcAuditEventWriter audit;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -111,20 +116,29 @@ class FileSpaceControlPlaneContractE2ETest {
                         new org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore(source)),
                 new org.pangrova.security.mask.ColumnMaskingProcessor(
                         new org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore(source)));
+        audit = new JdbcAuditEventWriter(source);
         var context = new FileSpaceAccessService.FileSpaceAccessContext("local",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://worker:8080"),
-                new FileSpaceAuditEmitter(null), SECRET,
+                new FileGrantAudit(audit), SECRET,
                 new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(source,
                         new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source)));
         coordinator = new FileSpaceAccessService(spaces, profiles, authorization, context);
         worker = new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET, mapper,
-                () -> NOW);
+                () -> NOW, audit);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void closeWorker() {
+        if (worker != null) worker.close();
     }
 
     @Test
     void volumeTicketDrivesPutHeadRangeListAndDelete() throws IOException {
         FileAccessGrant write =
                 grant("volumes", "images/a.bin", "write");
+        assertThat(audit.query(AuditEventQuery.byPrincipal("alice")))
+                .extracting(AuditEvent::eventType).containsExactly(AuditEventType.FILE_ACCESS_GRANTED);
+        assertThat(write.toString()).doesNotContain(write.signature(), write.descriptor());
         FileStat written = worker.put(write.descriptor(), write.signature(), 5L, null,
                 "text/plain", stream("hello"));
         assertThat(written.size()).isEqualTo(5);
@@ -140,7 +154,19 @@ class FileSpaceControlPlaneContractE2ETest {
                 null, "bytes=1-3", '"' + head.etag() + '"', null);
         assertThat(range.getStatus()).isEqualTo(206);
         assertThat(range.getHeaderString("Content-Range")).isEqualTo("bytes 1-3/5");
+        assertThat(audit.query(AuditEventQuery.byType(AuditEventType.FILE_DOWNLOADED))).isEmpty();
         assertThat(content(range)).isEqualTo("ell");
+        assertThat(audit.query(AuditEventQuery.byType(AuditEventType.FILE_DOWNLOADED)))
+                .singleElement().satisfies(event -> assertThat(event.bytesRead()).isEqualTo(3));
+        try (var response = worker.headObject(read.descriptor(), read.signature(), null, null)) {
+            assertThat(response.getStatus()).isEqualTo(200);
+        }
+        try (var aborted = worker.get(read.descriptor(), read.signature(), null, null, null, null, null, null)) {
+            var stream = (StreamingOutput) aborted.getEntity();
+            assertThatThrownBy(() -> stream.write(new java.io.OutputStream() {
+                @Override public void write(int value) throws IOException { throw new IOException("client disconnected"); }
+            })).isInstanceOf(IOException.class);
+        }
         assertThatThrownBy(() -> worker.get(read.descriptor(), read.signature(), null, null,
                 null, null, "\"stale\"", null))
                 .isInstanceOfSatisfying(PangrovaException.class, failure ->
@@ -154,6 +180,10 @@ class FileSpaceControlPlaneContractE2ETest {
 
         FileAccessGrant delete =
                 grant("volumes", "images/a.bin", "delete");
+        assertThatThrownBy(() -> worker.delete(delete.descriptor(), delete.signature(),
+                new FileSpaceFileResource.DeleteRequest("stale-version")))
+                .isInstanceOf(PangrovaException.class);
+        assertThat(audit.query(AuditEventQuery.byType(AuditEventType.FILE_DELETED))).isEmpty();
         Response removed = worker.delete(delete.descriptor(), delete.signature(),
                 new FileSpaceFileResource.DeleteRequest(head.providerVersion()));
         assertThat(removed.getStatus()).isEqualTo(204);
@@ -161,6 +191,22 @@ class FileSpaceControlPlaneContractE2ETest {
         FileAccessGrant relist = grant("volumes", "images", "list");
         assertThat(worker.list(new FileSpaceFileResource.ListRequest(
                 relist.descriptor(), relist.signature(), null, 10)).files()).isEmpty();
+        var events = audit.query(AuditEventQuery.byPrincipal("alice"));
+        var spaceId = spaces.find(FileSpaceType.VOLUME, "media", "raw", "landing").orElseThrow().id();
+        assertThat(events).allSatisfy(event -> {
+            assertThat(event.properties()).containsEntry("tenant_id", "tenant-a")
+                    .containsEntry("space_id", spaceId.toString());
+            assertThat(event.toString()).doesNotContain(write.signature(), write.descriptor());
+        });
+        assertThat(events.stream().filter(event -> event.eventType() == AuditEventType.FILE_ACCESS_GRANTED))
+                .hasSize(6);
+        assertThat(events.stream().map(AuditEvent::eventType)
+                .filter(type -> type != AuditEventType.FILE_ACCESS_GRANTED))
+                .containsExactlyInAnyOrder(AuditEventType.FILE_UPLOADED, AuditEventType.FILE_METADATA_READ,
+                        AuditEventType.FILE_METADATA_READ, AuditEventType.FILE_DOWNLOADED, AuditEventType.FILE_LISTED,
+                        AuditEventType.FILE_DELETED, AuditEventType.FILE_LISTED);
+        assertThatThrownBy(() -> grant("volumes", "images", "peek")).isInstanceOf(PangrovaException.class);
+        assertThat(audit.query(AuditEventQuery.byPrincipal("alice"))).hasSameSizeAs(events);
     }
 
     @Test
@@ -182,15 +228,14 @@ class FileSpaceControlPlaneContractE2ETest {
     @Test
     void ticketStopsWorkingWhenItsDescriptorExpires() {
         FileAccessGrant write = grant("volumes", "images/a.bin", "write");
-        FileSpaceFileResource later = new FileSpaceFileResource(
-                ObjectStoreAccessorFactory.discover(), SECRET, mapper,
-                () -> NOW + Duration.ofMinutes(6).toMillis());
-
-        assertThatThrownBy(() -> later.put(write.descriptor(), write.signature(), 1L, null,
-                "text/plain", stream("x")))
-                .isInstanceOfSatisfying(PangrovaException.class, failure ->
-                        assertThat(failure.getErrorCode())
-                                .isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
+        try (var later = new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET, mapper,
+                () -> NOW + Duration.ofMinutes(6).toMillis(), audit)) {
+            assertThatThrownBy(() -> later.put(write.descriptor(), write.signature(), 1L, null,
+                    "text/plain", stream("x")))
+                    .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                            assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
+            assertThat(audit.query(AuditEventQuery.byType(AuditEventType.FILE_UPLOADED))).isEmpty();
+        }
     }
 
     private FileAccessGrant grant(String kind, String path,

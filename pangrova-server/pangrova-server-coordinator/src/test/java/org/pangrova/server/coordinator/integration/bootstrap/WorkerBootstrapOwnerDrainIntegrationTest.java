@@ -80,7 +80,7 @@ class WorkerBootstrapOwnerDrainIntegrationTest {
 
     @Test void nativeWriterConfigurationFailureKeepsFailedRollbackOwnersForShutdownRetry() throws Exception {
         var config = control.config("failed-start-owner");
-        var bootstrap = new WorkerBootstrap(config);
+        var bootstrap = new WorkerBootstrap(config, event -> {});
         var blocked = new AtomicBoolean(true);
         bootstrap.setCdcConsumer(() -> { if (blocked.get()) throw new IOException("rollback owner still active"); });
         try {

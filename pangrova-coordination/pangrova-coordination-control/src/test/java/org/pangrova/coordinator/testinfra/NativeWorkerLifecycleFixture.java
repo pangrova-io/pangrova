@@ -32,7 +32,7 @@ public final class NativeWorkerLifecycleFixture {
                 original.shuffleMode(), original.cacheConfig(), original.advertisedHost(),
                 original.shuffleAdvertisedHost(),
                 original.nativeFunctionConfig(), original.transportSecurityConfig(),
-                original.admissionStateDirectory()));
+                original.admissionStateDirectory()), event -> {});
         worker.setCatalogResourceResolver(new LifecycleCatalogGuard());
         return worker;
     }

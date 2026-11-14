@@ -15,7 +15,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
-import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
+import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
 import org.pangrova.security.api.enums.AuditEventType;
@@ -86,7 +86,8 @@ class FileUrlServiceTest {
         });
         assertThat(event.properties()).containsEntry("mode", "presigned-read")
                 .containsEntry("path", "images/a.jpg")
-                .containsEntry("ttl_seconds", "600")
+                .containsEntry("expires_at_ms", Long.toString(issued.expiresAtEpochMillis()))
+                .doesNotContainKey("ttl_seconds")
                 .doesNotContainKey("url")
                 .doesNotContainValue("https://storage.example/a.jpg?sig=x");
     }
@@ -154,7 +155,8 @@ class FileUrlServiceTest {
         assertThat(events).singleElement().satisfies(event -> {
             assertThat(event.eventType()).isEqualTo(AuditEventType.FILE_URL_ISSUED);
             assertThat(event.principal()).isEqualTo("alice");
-            assertThat(event.properties()).containsEntry("mode", "stage").containsEntry("path", "images/a.jpg");
+            assertThat(event.properties()).containsEntry("mode", "stage").containsEntry("path", "images/a.jpg")
+                    .doesNotContainKey("expires_at_ms");
         });
     }
 
@@ -182,7 +184,7 @@ class FileUrlServiceTest {
         emitters.add(emitter);
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
-                new FileSpaceAuditEmitter(emitter), SECRET,
+                new FileGrantAudit(emitter::emit), SECRET,
                 FileAuthorityTestFixture.authority());
         return new FileSpaceAccessService(spaces, profiles, access, context);
     }

@@ -37,7 +37,7 @@ import org.pangrova.file.worker.WorkerFileClient;
 import org.pangrova.server.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.server.coordinator.http.endpoint.CoordinatorExceptionMapper;
 import org.pangrova.server.coordinator.http.endpoint.file.FileSpaceFilesResource;
-import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
+import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
 import org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry;
 import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
@@ -134,10 +134,10 @@ class StageFileUrlHttpIntegrationTest {
         var profiles = new JdbcStorageProfileRegistry(source);
         assertThat(profiles.createIfAbsent(profile)).isTrue();
         accessors = ObjectStoreAccessorFactory.discover();
-        worker = start(new ResourceConfig().register(new FileSpaceFileResource(accessors, SECRET))
+        worker = start(new ResourceConfig().register(new FileSpaceFileResource(accessors, SECRET, event -> {}))
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class));
         var context = FileSpaceAccessService.FileSpaceAccessContext.of("local",
-                () -> List.of(base(worker).toString()), new FileSpaceAuditEmitter(null), SECRET,
+                () -> List.of(base(worker).toString()), new FileGrantAudit(event -> {}), SECRET,
                 new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(source,
                         new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(source)));
         var access = new FileSpaceAccessService(spaces, profiles, rbac, context);

@@ -74,7 +74,7 @@ final class WorkerBootstrapControlFixture implements AutoCloseable {
     }
 
     WorkerBootstrap bootstrap(String workerId) {
-        var worker = new WorkerBootstrap(config(workerId));
+        var worker = new WorkerBootstrap(config(workerId), event -> {});
         workers.add(worker);
         worker.installProductionCatalogRuntime();
         return worker;

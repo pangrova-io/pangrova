@@ -1183,7 +1183,6 @@ artifacts:
     mainPackages:
       - org.pangrova.file.access
       - org.pangrova.file.api.access
-      - org.pangrova.file.api.audit
       - org.pangrova.file.api.authority
       - org.pangrova.file.api.copy
       - org.pangrova.file.api.directory
@@ -1209,7 +1208,6 @@ artifacts:
     exportedPackages:
       - org.pangrova.file.access
       - org.pangrova.file.api.access
-      - org.pangrova.file.api.audit
       - org.pangrova.file.api.authority
       - org.pangrova.file.api.copy
       - org.pangrova.file.api.directory
@@ -4321,6 +4319,7 @@ artifacts:
       pangrova-filesystem-local: runtime
       pangrova-filesystem-oss: runtime
       pangrova-filesystem-s3: runtime
+      pangrova-security-access: compile
       pangrova-security-secret-env: runtime
       pangrova-server-bootstrap: compile
       pangrova-shuffle-api: compile
@@ -4329,6 +4328,7 @@ artifacts:
     imports:
       main:
         - pangrova-config
+        - pangrova-security-access
         - pangrova-server-bootstrap
         - pangrova-shuffle-api
         - pangrova-worker

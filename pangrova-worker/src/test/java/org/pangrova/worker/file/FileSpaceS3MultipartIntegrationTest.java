@@ -48,8 +48,8 @@ class FileSpaceS3MultipartIntegrationTest extends ContainerTestBase {
                 var originFactory = new ObjectStoreAccessorFactory(List.of(new S3ObjectStoreAccessorProvider(credentials)));
                 var nextFactory = new ObjectStoreAccessorFactory(List.of(new S3ObjectStoreAccessorProvider(credentials)))) {
             String bucket = bucket(client);
-            try (var origin = new FileSpaceFileResource(originFactory, SECRET_KEY, mapper, now::get);
-                    var next = new FileSpaceFileResource(nextFactory, SECRET_KEY, mapper, now::get)) {
+            try (var origin = new FileSpaceFileResource(originFactory, SECRET_KEY, mapper, now::get, event -> {});
+                    var next = new FileSpaceFileResource(nextFactory, SECRET_KEY, mapper, now::get, event -> {})) {
                 String endpoint = endpoint();
                 var initial = new FileAccessDescriptor("minio", StorageType.S3, bucket, "", endpoint,
                         "us-east-1", true, "landing", "video/resume.mov", "write", 2_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);

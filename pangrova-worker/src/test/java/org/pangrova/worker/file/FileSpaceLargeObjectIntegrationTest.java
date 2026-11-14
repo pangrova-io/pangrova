@@ -100,7 +100,7 @@ class FileSpaceLargeObjectIntegrationTest {
     }
 
     private Server server(ObjectStoreAccessorFactory factory) {
-        var config = new ResourceConfig().register(new FileSpaceFileResource(factory, SECRET))
+        var config = new ResourceConfig().register(new FileSpaceFileResource(factory, SECRET, event -> {}))
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class)
                 .register(JacksonFeature.class);
         var handler = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);

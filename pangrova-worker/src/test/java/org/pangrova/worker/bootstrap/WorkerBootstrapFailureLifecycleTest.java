@@ -22,7 +22,7 @@ class WorkerBootstrapFailureLifecycleTest {
     void missingCatalogRuntimeFailsClosedAndRollsBackOwnedResources() {
         WorkerBootstrapConfig defaults = WorkerBootstrapConfig.withDefaults("rollback-worker");
         WorkerBootstrap bootstrap = new WorkerBootstrap(
-                TestShuffleServiceConfig.config(withFunctions(defaults, NativeFunctionConfig.DEFAULT)));
+                TestShuffleServiceConfig.config(withFunctions(defaults, NativeFunctionConfig.DEFAULT)), event -> {});
         AtomicInteger closeCount = new AtomicInteger();
         bootstrap.setCdcConsumer(closeCount::incrementAndGet);
 
@@ -40,7 +40,7 @@ class WorkerBootstrapFailureLifecycleTest {
     void startupFailureAfterCatalogInstallationClosesCatalogRuntime() {
         WorkerBootstrapConfig defaults = WorkerBootstrapConfig.withDefaults("catalog-rollback-worker");
         WorkerBootstrap bootstrap = new WorkerBootstrap(
-                TestShuffleServiceConfig.config(withFunctions(defaults, NativeFunctionConfig.DEFAULT)));
+                TestShuffleServiceConfig.config(withFunctions(defaults, NativeFunctionConfig.DEFAULT)), event -> {});
         AtomicInteger closeCount = new AtomicInteger();
         bootstrap.setCatalogResourceResolver(new ClosingCatalogResolver(closeCount));
 

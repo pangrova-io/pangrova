@@ -66,7 +66,7 @@ class WorkerHttpStartupTest {
     @Test
     void stopAlsoClosesTheFileEndpointFactory() throws Exception {
         var factory = org.pangrova.worker.file.ObjectStoreAccessorFactory.discover();
-        var files = new org.pangrova.worker.file.FileSpaceFileResource(factory, SECRET);
+        var files = new org.pangrova.worker.file.FileSpaceFileResource(factory, SECRET, event -> {});
         var localTasks = TaskManager.forHttpWiringOnly();
         var withFiles = new WorkerHttpServer(
                 new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", 0, SECRET)

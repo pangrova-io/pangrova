@@ -14,15 +14,15 @@ The parent contains api/local/s3/oss artifacts and supplies no runtime JAR.
 | `pangrova-filesystem-local` | Confined LOCAL transfer, byte-derived receipts, durable multipart state and mutation locks | Filesystem API/Common only |
 | `pangrova-filesystem-s3` | S3 transfer, publication, cancellation, owned clients and presigners | Filesystem API/Common plus S3 SDK |
 | `pangrova-filesystem-oss` | OSS governed FILE publication | Filesystem API/Common plus OSS SDK; object transfer/COPY remains pending |
-| `pangrova-file` | FileSpace definitions, access grants, shared validation and typed authority/access/audit ports | Common, Filesystem API and Security API; no Protocol, HTTP/Jackson or implementation dependency |
-| `pangrova-file` | Authorization, URL issuance, directory refresh, and the Worker HTTP client (`org.pangrova.file.worker`) | Injected File ports and persistence contracts; no JDBC implementation or Worker Core dependency |
+| `pangrova-file` | Namespace definitions, grants, authorization, URL issuance, directory refresh and Worker HTTP client | Compiles against Filesystem and Security contracts. Jackson handles the signed descriptor in the implementation; the File API can be loaded on its own contract classpath. |
 | `pangrova-persistence-file-api` | File space/profile revision, directory attempts and COPY claim/admission ports | Control-plane contracts; no JDBC, backend SDK or Worker dependency |
 | `pangrova-persistence-file-postgresql` | File PostgreSQL implementations | Implements File persistence contracts; Security authority gates are supplied by `pangrova-persistence-security-postgresql`; initialization remains in `pangrova-schema-migrations` |
 
-`pangrova-file` is an aggregator with API and Core child artifacts; the former Worker Adapter was merged into Core on 2026-11-07.
-Server composition selects the Worker HTTP client in File Core, and Core consumes its typed ports. The access and
-URL services share `core.access` to keep their private authorization receipt together;
-directory orchestration lives in `core.directory`. Existing service behavior is preserved.
+`pangrova-file` publishes a single artifact. Server composition supplies its Worker HTTP
+client and audit writer. `file.access` owns signed grant and URL issuance;
+`file.directory` owns refresh orchestration. The Worker acknowledges storage operations
+and HTTP response writes using its own audit writer. A grant and an acknowledged
+operation may occur on different hosts and at different times.
 
 Object transfer types live in `org.pangrova.filesystem.api.object`, profiles in
 `org.pangrova.filesystem.api.profile`, domain File contracts in `org.pangrova.file.api`,

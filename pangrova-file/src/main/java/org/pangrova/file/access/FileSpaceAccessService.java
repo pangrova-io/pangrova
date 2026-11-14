@@ -7,7 +7,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
@@ -19,7 +18,7 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.file.api.audit.FileOperationAudit;
+import org.pangrova.file.api.enums.FileOperation;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.authorization.FileSpaceAccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -41,9 +40,6 @@ import org.pangrova.filesystem.api.object.ObjectLocation;
  * secret boundary.</p>
  */
 public final class FileSpaceAccessService {
-
-    /** Operations a descriptor may authorize. */
-    static final Set<String> OPERATIONS = Set.of("head", "list", "read", "write", "delete");
 
     private final FileSpaceLookup spaces;
     private final CurrentStorageProfile profiles;
@@ -70,11 +66,12 @@ public final class FileSpaceAccessService {
     public FileAccessGrant grant(UserIdentity user, String kind, String catalog, String schema,
             String name, String path, String operation) {
         return context.authority().read(() -> {
-            Resolved resolved = resolve(user, kind, catalog, schema, name, path, operation);
+            FileOperation requested = FileOperation.parse(operation);
+            Resolved resolved = resolve(user, kind, catalog, schema, name, path, requested);
             FileAccessGrant grant = resolved.grant();
-            context.audit().fileOperation(resolved.principal().principal(),
+            context.audit().granted(resolved.principal().principal(),
                     tenantId(resolved.principal()), resolved.space(), grant.path(),
-                    grant.operation(), grant.workerUrl());
+                    requested, grant.expiresAtEpochMillis(), grant.workerUrl());
             return grant;
         });
     }
@@ -86,32 +83,31 @@ public final class FileSpaceAccessService {
      * applies the same operation check as any other transfer.</p>
      */
     UrlGrant urlGrant(UserIdentity user, String kind, String catalog,
-            String schema, String name, String path, boolean read, long ttlSeconds) {
+            String schema, String name, String path, boolean read) {
         return context.authority().read(() -> {
             Resolved resolved = resolve(user, kind, catalog, schema, name, path,
-                    read ? "read" : "write");
+                    read ? FileOperation.READ : FileOperation.WRITE);
             return new UrlGrant(resolved.grant(), resolved.space(), resolved.principal());
         });
     }
 
-    void urlIssued(UrlGrant authorized, boolean read, long ttlSeconds) {
+    void urlIssued(UrlGrant authorized, boolean read, long expiresAtEpochMillis) {
         context.audit().urlIssued(authorized.principal().principal(), tenantId(authorized.principal()),
                 authorized.space(), authorized.grant().path(), read ? "presigned-read" : "presigned-write",
-                ttlSeconds, authorized.grant().workerUrl());
+                expiresAtEpochMillis, authorized.grant().workerUrl());
     }
 
     private Resolved resolve(UserIdentity user, String kind, String catalog, String schema,
-            String name, String path, String operation) {
+            String name, String path, FileOperation operation) {
         UserIdentity principal = requireUser(user);
         FileSpaceType type = parseKind(kind);
-        String normalizedOperation = normalizeOperation(operation);
         FileSpace space = spaces.find(type, catalog, schema, name)
                 .orElseThrow(() -> new PangrovaException(
                         PangrovaErrorCode.METADATA_FILE_SPACE_NOT_FOUND,
                         kind + " not found: " + catalog + "." + schema + "." + name));
         principal = subject(principal, space);
-        authorize(principal, space, normalizedOperation);
-        return descriptor(principal, space, path, normalizedOperation);
+        authorize(principal, space, operation);
+        return descriptor(principal, space, path, operation);
     }
 
     /** Resolves and authorizes a long-lived Stage link within the shared authority boundary. */
@@ -132,7 +128,7 @@ public final class FileSpaceAccessService {
 
     public void stageLinkIssued(StageLink authorized) {
         context.audit().urlIssued(authorized.principal().principal(), tenantId(authorized.principal()),
-                authorized.space(), authorized.path(), "stage", 0, "");
+                authorized.space(), authorized.path(), "stage", null, "");
     }
 
     /** Re-authorizes one immutable Stage ID before issuing its bounded transfer ticket. */
@@ -147,9 +143,9 @@ public final class FileSpaceAccessService {
                         "Stage link no longer exists"));
         principal = subject(principal, space);
         authorizeStageLink(principal, space);
-        Resolved resolved = descriptor(principal, space, requireObjectPath(path), "read");
-        context.audit().fileOperation(principal.principal(), tenantId(principal), space,
-                resolved.grant().path(), "read", resolved.grant().workerUrl());
+        Resolved resolved = descriptor(principal, space, requireObjectPath(path), FileOperation.READ);
+        context.audit().granted(principal.principal(), tenantId(principal), space,
+                resolved.grant().path(), FileOperation.READ, resolved.grant().expiresAtEpochMillis(), resolved.grant().workerUrl());
         return resolved.grant();
     }
 
@@ -172,7 +168,7 @@ public final class FileSpaceAccessService {
     }
 
     private Resolved descriptor(UserIdentity principal, FileSpace space, String path,
-            String normalizedOperation) {
+            FileOperation normalizedOperation) {
         var revision = profileFor(space);
         StorageProfile profile = revision.profile();
         String baseKey = space.external()
@@ -185,15 +181,15 @@ public final class FileSpaceAccessService {
         long expiresAt = context.clock().getAsLong() + context.ttl().toMillis();
         String encoded = encode(new FileAccessDescriptorPayload(profile.name(), profile.type(),
                 profile.bucket(), profile.prefix(), profile.endpoint(), profile.region(),
-                profile.isPathStyleAccess(), baseKey, normalizedPath, normalizedOperation,
+                profile.isPathStyleAccess(), baseKey, normalizedPath, normalizedOperation.wireName(),
                 expiresAt, space.id().toString(), principal.principal(), tenantId(principal),
                 revision.incarnationId(), revision.revision()));
         String signature = FileAccessSignature.sign(context.signingSecret(), encoded);
         return new Resolved(space, principal, new FileAccessGrant(workerUrl, encoded, signature,
-                normalizedOperation, normalizedPath, expiresAt));
+                normalizedOperation.wireName(), normalizedPath, expiresAt));
     }
 
-    private void authorize(UserIdentity user, FileSpace space, String operation) {
+    private void authorize(UserIdentity user, FileSpace space, FileOperation operation) {
         if (space.type() == FileSpaceType.VOLUME) {
             access.checkCanReadVolume(user, space.catalog(), space.schema(), space.name());
             if (writes(operation)) {
@@ -209,8 +205,11 @@ public final class FileSpaceAccessService {
         }
     }
 
-    private static boolean writes(String operation) {
-        return "write".equals(operation) || "delete".equals(operation);
+    private static boolean writes(FileOperation operation) {
+        return switch (operation) {
+            case WRITE, DELETE -> true;
+            case HEAD, READ, LIST -> false;
+        };
     }
 
     private org.pangrova.file.api.profile.StorageProfileRevision profileFor(FileSpace space) {
@@ -272,15 +271,6 @@ public final class FileSpaceAccessService {
         };
     }
 
-    private static String normalizeOperation(String operation) {
-        String normalized = operation == null ? "" : operation.trim().toLowerCase(Locale.ROOT);
-        if (!OPERATIONS.contains(normalized)) {
-            throw new PangrovaException(PangrovaErrorCode.VALIDATION_INVALID_ARGUMENT,
-                    "File operation must be one of head, list, read, write, delete");
-        }
-        return normalized;
-    }
-
     /** Returns the space-relative path kept in the descriptor after rejecting unsafe input. */
     private static String normalizeRelativePath(String path) {
         String relative = path == null ? "" : path.trim();
@@ -326,7 +316,7 @@ public final class FileSpaceAccessService {
      */
     public record FileSpaceAccessContext(String managedProfileName, Duration ttl,
             LongSupplier clock, Supplier<List<String>> workerEndpoints,
-            FileOperationAudit audit, String signingSecret,
+            FileGrantAudit audit, String signingSecret,
             org.pangrova.file.api.authority.FileSpaceAuthority authority) {
 
         public FileSpaceAccessContext {
@@ -346,7 +336,7 @@ public final class FileSpaceAccessService {
 
         /** Convenience factory with the standard five-minute descriptor lifetime. */
         public static FileSpaceAccessContext of(String managedProfileName,
-                Supplier<List<String>> workerEndpoints, FileOperationAudit audit,
+                Supplier<List<String>> workerEndpoints, FileGrantAudit audit,
                 String signingSecret, org.pangrova.file.api.authority.FileSpaceAuthority authority) {
             return new FileSpaceAccessContext(managedProfileName, Duration.ofMinutes(5),
                     System::currentTimeMillis, workerEndpoints, audit, signingSecret, authority);

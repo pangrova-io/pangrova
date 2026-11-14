@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
+import org.pangrova.file.access.FileGrantAudit;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.persistence.file.postgresql.directory.JdbcFileDirectoryIndex;
 import org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry;
@@ -60,7 +60,7 @@ class StageDirectoryRefreshServiceTest {
         index = new JdbcFileDirectoryIndex(source);
         access = new FileSpaceAccessService(spaces, profiles, authorization,
                 FileSpaceAccessService.FileSpaceAccessContext.of("",
-                        () -> List.of("http://worker.invalid"), new FileSpaceAuditEmitter(null), "test-secret", FileAuthorityTestFixture.provision(source)));
+                        () -> List.of("http://worker.invalid"), new FileGrantAudit(event -> {}), "test-secret", FileAuthorityTestFixture.provision(source)));
         var initial = index.begin(stage, "");
         index.append(initial, null, new FileListing(List.of(file("old.txt")), null));
         index.publish(initial);

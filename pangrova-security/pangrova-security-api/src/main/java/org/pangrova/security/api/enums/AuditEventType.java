@@ -54,6 +54,8 @@ public enum AuditEventType {
     STAGE_DROPPED,
 
     // File object operations
+    FILE_ACCESS_GRANTED,
+    FILE_METADATA_READ,
     FILE_UPLOADED,
     FILE_DOWNLOADED,
     FILE_DELETED,

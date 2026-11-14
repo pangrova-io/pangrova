@@ -10,7 +10,7 @@ public final class TestWorkerBootstrap {
     private TestWorkerBootstrap() {}
 
     public static WorkerBootstrap create(WorkerBootstrapConfig config) {
-        WorkerBootstrap worker = new WorkerBootstrap(TestShuffleServiceConfig.config(config));
+        WorkerBootstrap worker = new WorkerBootstrap(TestShuffleServiceConfig.config(config), event -> {});
         worker.setCatalogResourceResolver(new TestCatalogResourceResolver((taskId) -> {
             throw new AssertionError("bootstrap lifecycle fixture must not resolve catalog tasks");
         }));

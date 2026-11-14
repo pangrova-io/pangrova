@@ -54,7 +54,7 @@ public record FileAccessDescriptor(
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(bucket, "bucket must not be null");
         Objects.requireNonNull(baseKey, "baseKey must not be null");
-        Objects.requireNonNull(operation, "operation must not be null");
+        operation = org.pangrova.file.api.enums.FileOperation.parse(operation).wireName();
         prefix = prefix == null ? "" : prefix;
         endpoint = endpoint == null ? "" : endpoint;
         region = region == null ? "" : region;

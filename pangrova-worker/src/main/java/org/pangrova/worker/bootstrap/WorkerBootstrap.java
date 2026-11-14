@@ -6,6 +6,7 @@ import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.pangrova.security.api.audit.AuditEventWriter;
 import java.util.concurrent.CountDownLatch;
 
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
@@ -31,13 +32,15 @@ public final class WorkerBootstrap {
     private static final Logger LOG = LoggerFactory.getLogger(WorkerBootstrap.class);
 
     private final WorkerBootstrapConfig config;
+    private final AuditEventWriter fileAudit;
     private final WorkerBootstrapLifecycle lifecycle = new WorkerBootstrapLifecycle();
     private final AtomicBoolean started = lifecycle.readyFlag();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
     private final WorkerObservabilitySetup observability = new WorkerObservabilitySetup();
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
 
-    public WorkerBootstrap(WorkerBootstrapConfig config) {
+    public WorkerBootstrap(WorkerBootstrapConfig config, AuditEventWriter fileAudit) {
+        this.fileAudit = checkNotNull(fileAudit, "fileAudit");
         this.config = checkNotNull(config, "config must not be null");
     }
 
@@ -99,7 +102,7 @@ public final class WorkerBootstrap {
         WorkerResourceBootstrap.startWorkerMetrics(refs, observability);
         WorkerTaskBootstrap.startTaskManager(config, refs, observability);
         startCdc();
-        WorkerHttpBootstrap.startHttp(config, refs, observability, started);
+        WorkerHttpBootstrap.startHttp(config, refs, observability, started, fileAudit);
         WorkerHeartbeatBootstrap.register(config, refs);
         WorkerHeartbeatBootstrap.startHeartbeat(config, refs);
         LOG.info("event=worker_bootstrap_completed workerId={}", config.workerId());

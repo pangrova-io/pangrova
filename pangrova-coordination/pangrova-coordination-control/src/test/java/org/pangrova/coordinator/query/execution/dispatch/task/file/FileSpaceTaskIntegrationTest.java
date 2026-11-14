@@ -88,9 +88,9 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
         auditBackend = new AuditEventEmitter(events::add);
         factory = new MetadataExecutionFactory(Map.of());
         VolumeTasks.register(factory, registry, accessControl,
-                new FileSpaceAuditEmitter(auditBackend));
+                new FileSpaceAuditEmitter(auditBackend::emit));
         StageTasks.register(factory, registry, accessControl,
-                new FileSpaceAuditEmitter(auditBackend));
+                new FileSpaceAuditEmitter(auditBackend::emit));
     }
 
     @AfterEach
@@ -149,7 +149,7 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
         assertThat(events).allSatisfy(event -> {
             assertThat(event.queryId()).isEqualTo("file-space-query");
             assertThat(event.principal()).isEqualTo("alice");
-            assertThat(event.properties()).containsEntry("tenant_id", "tenant-a");
+            assertThat(event.properties()).containsEntry("tenant_id", "tenant-a").containsKey("space_id");
             assertThat(event.sql()).isNull();
             assertThat(event.toString()).doesNotContain("credential-that-must-not-be-audited");
         });

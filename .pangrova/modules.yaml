@@ -768,7 +768,7 @@ artifacts:
     moduleName: org.pangrova.server.worker
     packageRoots: [org.pangrova.server.worker]
     exports: [org.pangrova.server.worker]
-    allowedImports: [pangrova-server-bootstrap, pangrova-worker, pangrova-config, pangrova-shuffle-api]
+    allowedImports: [pangrova-security-access, pangrova-server-bootstrap, pangrova-worker, pangrova-config, pangrova-shuffle-api]
     forbiddenImports: [pangrova-coordination-control, pangrova-server-coordinator, pangrova-planner]
     providers: {}
 

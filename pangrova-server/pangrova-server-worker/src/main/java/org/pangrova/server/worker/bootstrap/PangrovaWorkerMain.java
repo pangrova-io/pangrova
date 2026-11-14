@@ -1,5 +1,6 @@
 package org.pangrova.server.worker.bootstrap;
 
+import org.pangrova.security.audit.LoggingAuditEventWriter;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.worker.bootstrap.config.WorkerBootstrapConfig;
 import org.pangrova.config.PangrovaConfiguration;
@@ -34,7 +35,7 @@ public final class PangrovaWorkerMain {
             PangrovaConfiguration pangrovaConfig = ServerConfigurationLoader.load(args, CLASSPATH_DEFAULT);
             WorkerBootstrapConfig config = buildBootstrapConfig(pangrovaConfig);
             validateProductionConfig(config);
-            WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+            WorkerBootstrap bootstrap = new WorkerBootstrap(config, new LoggingAuditEventWriter());
             bootstrap.installProductionCatalogRuntime();
             Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdown, "worker-shutdown"));
             bootstrap.start();

@@ -9,6 +9,11 @@ import java.time.Instant;
 public record FileAccessGrant(String workerUrl, String descriptor, String signature,
         String operation, String path, long expiresAtEpochMillis) {
 
+    @Override
+    public String toString() {
+        return "FileAccessGrant[operation=" + operation + ", expiresAtEpochMillis=" + expiresAtEpochMillis + "]";
+    }
+
     public Instant expiresAt() {
         return Instant.ofEpochMilli(expiresAtEpochMillis);
     }

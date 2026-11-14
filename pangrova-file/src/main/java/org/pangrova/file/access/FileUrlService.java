@@ -47,7 +47,7 @@ public final class FileUrlService {
             String name, String path, boolean read, long ttlSeconds) {
         long ttl = clamp(ttlSeconds);
         var authorized = access.urlGrant(user, kind, catalog,
-                schema, name, path, read, ttl);
+                schema, name, path, read);
         var grant = authorized.grant();
         FileUrlClient.FileUrl url = client.presign(grant, read, ttl);
         if (url.expiresAtEpochMillis() <= clock.getAsLong()
@@ -55,7 +55,7 @@ public final class FileUrlService {
             throw new org.pangrova.security.api.exception.AccessDeniedException(
                     "Worker URL expiry is outside its authorizing grant");
         }
-        access.urlIssued(authorized, read, ttl);
+        access.urlIssued(authorized, read, url.expiresAtEpochMillis());
         return new IssuedUrl(url.url(), url.expiresAtEpochMillis(), grant.path(),
                 read ? "presigned-read" : "presigned-write");
     }

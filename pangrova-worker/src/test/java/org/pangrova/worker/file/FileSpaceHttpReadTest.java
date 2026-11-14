@@ -50,7 +50,7 @@ class FileSpaceHttpReadTest {
     void start() throws Exception {
         accessors = ObjectStoreAccessorFactory.discover();
         ResourceConfig resources = new ResourceConfig()
-                .register(new FileSpaceFileResource(accessors, SECRET))
+                .register(new FileSpaceFileResource(accessors, SECRET, event -> {}))
                 .register(new InternalAuthFilter(SECRET))
                 .register(WorkerExceptionMapper.class)
                 .register(JacksonFeature.class);

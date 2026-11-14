@@ -196,8 +196,7 @@ public final class CoordinatorBootstrap {
                                 .map(worker -> "http://" + worker.host() + ":"
                                         + worker.httpPort())
                                 .toList(),
-                new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(
-                        query.auditEmitter()),
+                new org.pangrova.file.access.FileGrantAudit(query.auditEmitter()::emit),
                 config.internalAuthSecret(),
                 new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(metadataDataSource,
                         new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(metadataDataSource)));

@@ -2168,7 +2168,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
                 java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"),
                 null, new org.pangrova.worker.file.FileSpaceFileResource(
-                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET));
+                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -2555,14 +2555,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.DropTagTask(branchExecutor));
         var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
         var fileSpaces = new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceRegistry(stateStoreDataSource);
-        var fileAudit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(null);
+        var fileAudit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(event -> {});
         org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
                 metadataFactory, fileSpaces, currentAccessControl, fileAudit);
         var fileAccess = new org.pangrova.file.access.FileSpaceAccessService(fileSpaces, spRegistry,
                 currentAccessControl,
                 org.pangrova.file.access.FileSpaceAccessService.FileSpaceAccessContext.of(
                         "", () -> List.of("http://" + IN_PROCESS_WORKER_HOST + ":"
-                                + sharedWorkerHttpPort), fileAudit, E2E_INTERNAL_AUTH_SECRET,
+                                + sharedWorkerHttpPort), new org.pangrova.file.access.FileGrantAudit(event -> {}), E2E_INTERNAL_AUTH_SECRET,
                         new org.pangrova.persistence.file.postgresql.space.JdbcFileSpaceAuthority(stateStoreDataSource,
                                 new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(stateStoreDataSource))));
         var fileClient = org.pangrova.file.worker.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);

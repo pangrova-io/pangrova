@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Actual pre-start local owners; does not initialize or simulate Native/business execution. */
 class WorkerBootstrapPrestartOwnershipTest {
     @Test void shutdownBeforeStartClosesAnInstalledActualPipeAndSealsTheInstance() throws Exception {
-        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("prestart-pipe-owner"));
+        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("prestart-pipe-owner"), event -> {});
         var pipe = Pipe.open();
         try (var owned = pipe.source(); var sink = pipe.sink()) {
             bootstrap.setCdcConsumer(owned);
@@ -33,7 +33,7 @@ class WorkerBootstrapPrestartOwnershipTest {
     }
 
     @Test void failedPrestartOwnerRemainsOpenUntilActualCloseSucceedsOnRetry() throws Exception {
-        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("prestart-retry-owner"));
+        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("prestart-retry-owner"), event -> {});
         var pipe = Pipe.open();
         var blocked = new AtomicBoolean(true);
         var attempts = new AtomicInteger();
@@ -61,7 +61,7 @@ class WorkerBootstrapPrestartOwnershipTest {
     }
 
     @Test void concurrentPrestartShutdownSealsAdmissionWhileTheActualOwnerIsStillClosing() throws Exception {
-        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("prestart-active-owner"));
+        var bootstrap = new WorkerBootstrap(WorkerBootstrapConfig.withDefaults("prestart-active-owner"), event -> {});
         var pipe = Pipe.open();
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);

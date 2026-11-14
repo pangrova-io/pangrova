@@ -119,9 +119,27 @@ does not match is dropped. An invalid expression fails with
 
 The Coordinator pages through the Worker listing internally, so one statement can
 return more rows than a single page; it gives up with `FILE_STORAGE_UNAVAILABLE`
-after 10,000 pages instead of looping forever. The statement emits one
-file-operation audit event per `LIST`, and fails closed with
+after 10,000 pages. The Coordinator records the list grant once. The Worker records
+`FILE_LISTED` for each page the storage provider returns. The statement fails with
 `FILE_STORAGE_NOT_CONFIGURED` when the file plane has no signing secret.
+
+### File audit events
+
+| Event | Evidence recorded |
+|---|---|
+| `FILE_ACCESS_GRANTED` | The Coordinator signed a ticket for the authenticated principal, tenant, space ID, relative path, operation, selected Worker and expiry. A caller may let it expire unused. |
+| `FILE_METADATA_READ` | A Worker completed an explicit metadata lookup, including HTTP HEAD with a read ticket. The metadata probe necessary to serve GET is internal to that read. |
+| `FILE_LISTED` | A Worker received one successful listing page, including an empty final page. |
+| `FILE_UPLOADED` | The object store acknowledged a PUT or completed multipart upload. Begin, part and abort have no completed upload event. |
+| `FILE_DOWNLOADED` | The Worker wrote and flushed the requested byte count to HTTP output and closed its source stream. `bytesRead` is the full or range response length. This is a server-side observation; it cannot confirm remote application receipt. |
+| `FILE_DELETED` | The provider acknowledged the delete, subject to its version and absent-object semantics. |
+| `FILE_URL_ISSUED` | The Coordinator returned a verified provider URL or constructed a stage link. Subsequent direct use of a provider URL is visible to the storage provider. |
+
+Worker roles write completion events to structured `pangrova.audit` logs. Coordinator
+events use its configured audit writer. Events carry the namespace UUID and tenant for
+correlation. Signing material, signed URLs and contents are excluded. A Worker audit
+sink failure is logged separately after storage has completed. These events are
+observations of operations and have no atomic delivery guarantee with object storage.
 
 ## SQL stage removal
 
@@ -157,8 +175,8 @@ Behavior:
 - Each object is deleted with the provider version or ETag observed in the
   listing. An object that changed after the listing is reported as an error
   instead of being silently overwritten away.
-- One audit event is emitted for the listing and one for each deleted path, so a
-  bulk removal is attributable per object.
+- The Worker records each successful listing page and each provider-acknowledged
+  deletion. A failed version precondition produces no successful deletion event.
 - A single failed delete does not discard the results of the objects that were
   removed; the failure appears in that row.
 - The statement refuses to run with `FILE_LIMIT_EXCEEDED` when the match set
@@ -367,8 +385,8 @@ the URL:
   `USAGE_STAGE` + `WRITE_STAGE` for a stage.
 - A non-positive `ttlSeconds` takes the 3600-second default; values above seven
   days are clamped to seven days.
-- Issuance emits a `FILE_URL_ISSUED` audit event containing the mode, lifetime,
-  path, and Worker endpoint. The URL itself is a bearer credential and is never
+- Issuance emits a `FILE_URL_ISSUED` audit event containing the mode, exact provider-confirmed
+  expiry, path, and Worker endpoint. The URL itself is a bearer credential and is never
   written to the audit trail or the logs.
 
 The URL is **bearer** access: anyone who holds it can use it until it expires,

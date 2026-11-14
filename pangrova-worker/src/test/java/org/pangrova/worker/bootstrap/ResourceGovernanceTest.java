@@ -175,7 +175,7 @@ class ResourceGovernanceTest {
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
                 null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
-        workerBootstrap = new WorkerBootstrap(TestShuffleServiceConfig.config(config));
+        workerBootstrap = new WorkerBootstrap(TestShuffleServiceConfig.config(config), event -> {});
         workerBootstrap.setCatalogResourceResolver(new TestCatalogResourceResolver(
                 (taskId) -> {
                     throw new AssertionError("Resource governance test must not resolve a catalog");

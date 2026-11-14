@@ -100,7 +100,7 @@ class WorkerShutdownPropertyTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
                 null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+        WorkerBootstrap bootstrap = new WorkerBootstrap(config, event -> {});
 
         assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();
         assertThat(bootstrap.isStarted()).isFalse();

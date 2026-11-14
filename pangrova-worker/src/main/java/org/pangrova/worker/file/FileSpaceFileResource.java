@@ -2,6 +2,10 @@ package org.pangrova.worker.file;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.UUID;
+import org.pangrova.security.api.audit.AuditEventWriter;
+import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.security.api.enums.AuditEventType;
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -68,16 +72,17 @@ public final class FileSpaceFileResource implements AutoCloseable {
     private final ObjectMapper mapper;
     private final LongSupplier clock;
     private final FileReadWatchdog reads;
+    private final AuditEventWriter audit;
     private final Map<String, ActiveUpload> multipartUploads = new ConcurrentHashMap<>();
 
     /** Creates the endpoint, taking ownership of its factory; descriptors require the cluster secret. */
-    public FileSpaceFileResource(ObjectStoreAccessorFactory accessors, String signingSecret) {
-        this(accessors, signingSecret, JsonMapperFactory.create(), System::currentTimeMillis);
+    public FileSpaceFileResource(ObjectStoreAccessorFactory accessors, String signingSecret, AuditEventWriter audit) {
+        this(accessors, signingSecret, JsonMapperFactory.create(), System::currentTimeMillis, audit);
     }
 
     /** Creates the endpoint with explicit JSON mapping and clock, for tests and embedding. */
     public FileSpaceFileResource(ObjectStoreAccessorFactory accessors, String signingSecret,
-            ObjectMapper mapper, LongSupplier clock) {
+            ObjectMapper mapper, LongSupplier clock, AuditEventWriter audit) {
         if (signingSecret == null || signingSecret.isBlank()) {
             throw new IllegalArgumentException(
                     "File space endpoint requires a descriptor signing secret");
@@ -86,6 +91,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
         this.signingSecret = signingSecret;
         this.mapper = java.util.Objects.requireNonNull(mapper, "mapper").copy();
         this.clock = java.util.Objects.requireNonNull(clock, "clock");
+        this.audit = java.util.Objects.requireNonNull(audit, "audit");
         this.reads = new FileReadWatchdog();
     }
 
@@ -151,14 +157,20 @@ public final class FileSpaceFileResource implements AutoCloseable {
             @HeaderParam("Range") String range,
             @HeaderParam("If-Match") String ifMatch,
             @HeaderParam("If-Range") String ifRange) throws IOException {
-        RangeRead read = read(verified(descriptor, signature), offset, length, version,
+        FileAccessDescriptor checked = verified(descriptor, signature);
+        RangeRead read = read(checked, offset, length, version,
                 range, ifMatch, ifRange);
         Response.ResponseBuilder response = readMetadata(read.stat(),
                 read.partial() ? Response.Status.PARTIAL_CONTENT : Response.Status.OK)
                 .entity((jakarta.ws.rs.core.StreamingOutput) output -> {
                     try (InputStream in = read.stream()) {
-                        in.transferTo(output);
+                        long transferred = in.transferTo(output);
+                        if (transferred != read.stat().size()) {
+                            throw new IOException("Object read ended before its declared response length");
+                        }
+                        output.flush();
                     }
+                    completed(checked, AuditEventType.FILE_DOWNLOADED, read.stat().size());
                 });
         if (read.partial()) {
             long end = read.offset() + read.stat().size() - 1;
@@ -180,6 +192,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
         FileStat stat = accessor(checked).head(location(checked), checked.path());
         require(checked, "read");
         FileReadPreconditions.check(stat, version, ifMatch);
+        completed(checked, AuditEventType.FILE_METADATA_READ, 0);
         return readMetadata(stat, Response.Status.OK).build();
     }
 
@@ -297,19 +310,24 @@ public final class FileSpaceFileResource implements AutoCloseable {
 
     FileStat head(FileAccessDescriptor descriptor) {
         FileAccessDescriptor checked = require(descriptor, "head");
-        return accessor(checked).head(location(checked), checked.path());
+        FileStat stat = accessor(checked).head(location(checked), checked.path());
+        completed(checked, AuditEventType.FILE_METADATA_READ, 0);
+        return stat;
     }
 
     FileListing list(FileAccessDescriptor descriptor, String pageToken, int pageSize) {
         FileAccessDescriptor checked = require(descriptor, "list");
-        return accessor(checked).list(location(checked), checked.path(), pageToken, pageSize);
+        FileListing result = accessor(checked).list(location(checked), checked.path(), pageToken, pageSize);
+        completed(checked, AuditEventType.FILE_LISTED, 0);
+        return result;
     }
 
     FileStat put(FileAccessDescriptor descriptor, long contentLength, String contentType,
             InputStream body) throws IOException {
         FileAccessDescriptor checked = require(descriptor, "write");
-        return accessor(checked).put(location(checked), checked.path(),
-                body, contentLength, contentType);
+        FileStat stat = accessor(checked).put(location(checked), checked.path(), body, contentLength, contentType);
+        completed(checked, AuditEventType.FILE_UPLOADED, 0);
+        return stat;
     }
 
     RangeRead read(FileAccessDescriptor descriptor, long offset, long length, String version)
@@ -359,6 +377,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
     void delete(FileAccessDescriptor descriptor, String expectedVersion) {
         FileAccessDescriptor checked = require(descriptor, "delete");
         accessor(checked).delete(location(checked), checked.path(), expectedVersion);
+        completed(checked, AuditEventType.FILE_DELETED, 0);
     }
 
     MultipartUpload beginMultipart(FileAccessDescriptor descriptor, String contentType) {
@@ -382,6 +401,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
         MultipartUpload upload = requireUpload(descriptor, uploadId);
         FileStat stat = accessor(descriptor).completeMultipart(upload, parts);
         forget(uploadId, upload.uploadId());
+        completed(descriptor, AuditEventType.FILE_UPLOADED, 0);
         return stat;
     }
 
@@ -500,6 +520,21 @@ public final class FileSpaceFileResource implements AutoCloseable {
                 continue;
             }
             multipartUploads.remove(uploadId);
+        }
+    }
+
+    /** Reports confirmed provider operations and completed HTTP writes after their commit boundary. */
+    private void completed(FileAccessDescriptor grant, AuditEventType type, long bytesRead) {
+        var event = new AuditEvent(UUID.randomUUID().toString(), type,
+                java.time.Instant.ofEpochMilli(clock.getAsLong()), grant.subject(),
+                null, null, null, null, null, null, null, List.of(), true, null, 0, 0, bytesRead,
+                Map.of("tenant_id", grant.tenantId(), "space_id", grant.spaceId(), "path", grant.path(),
+                        "grant_operation", grant.operation(), "storage_profile", grant.profileName()));
+        try {
+            audit.write(event);
+        } catch (RuntimeException failure) {
+            LOG.error("event=file_audit_write_failed eventId={} eventType={} failureType={}",
+                    event.eventId(), type, failure.getClass().getSimpleName());
         }
     }
 

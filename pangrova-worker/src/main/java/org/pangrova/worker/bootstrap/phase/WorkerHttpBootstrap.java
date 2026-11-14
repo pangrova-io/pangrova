@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
+import org.pangrova.security.api.audit.AuditEventWriter;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.PangrovaWorker;
 import org.pangrova.worker.WorkerComponents;
@@ -39,7 +40,7 @@ public final class WorkerHttpBootstrap {
             WorkerBootstrapConfig config,
             WorkerComponentRefs refs,
             WorkerObservabilitySetup observability,
-            AtomicBoolean started) {
+            AtomicBoolean started, AuditEventWriter fileAudit) {
         try {
             int resultPort = refs.resultServerPort();
             String workerHost = resolveAdvertisedHost(config);
@@ -59,7 +60,7 @@ public final class WorkerHttpBootstrap {
             ExchangeTransport exchangeTransport = refs.exchangeTransport();
             var control = datasetControl(refs);
             var stageLeases = copyStageLeases(config);
-            var fileSpace = buildFileSpaceResource(config);
+            var fileSpace = buildFileSpaceResource(config, fileAudit);
             WorkerHttpServer server;
             try {
                 server = new WorkerHttpServer(
@@ -115,14 +116,14 @@ public final class WorkerHttpBootstrap {
      * shared secret there is no way to tell a coordinator-issued descriptor from a forged one.
      */
     private static org.pangrova.worker.file.FileSpaceFileResource buildFileSpaceResource(
-            WorkerBootstrapConfig config) {
+            WorkerBootstrapConfig config, AuditEventWriter fileAudit) {
         String secret = config.internalAuthSecret();
         if (secret == null || secret.isBlank()) {
             LOG.warn("event=file_space_disabled reason=internal_auth_secret_missing");
             return null;
         }
         return new org.pangrova.worker.file.FileSpaceFileResource(
-                org.pangrova.worker.file.ObjectStoreAccessorFactory.discover(), secret);
+                org.pangrova.worker.file.ObjectStoreAccessorFactory.discover(), secret, fileAudit);
     }
 
     private static org.pangrova.worker.copy.CopyStageLeases copyStageLeases(            WorkerBootstrapConfig config) {

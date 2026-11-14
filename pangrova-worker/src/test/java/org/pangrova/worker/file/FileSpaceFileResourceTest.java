@@ -49,10 +49,13 @@ class FileSpaceFileResourceTest {
         endpoints.forEach(FileSpaceFileResource::close);
     }
 
+    private final java.util.List<org.pangrova.security.api.audit.AuditEvent> completedEvents =
+            new java.util.ArrayList<>();
+
     @BeforeEach
     void setUp() {
         resource = owned(new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET,
-                mapper, () -> 1_000L));
+                mapper, () -> 1_000L, completedEvents::add));
     }
 
     @Test
@@ -142,13 +145,26 @@ class FileSpaceFileResourceTest {
         UploadedPart second = resource.uploadPart(write, upload.uploadId(), 2, 6,
                 stream(" world"));
 
+        assertThat(completedEvents).isEmpty();
         FileStat completed = resource.completeMultipart(write, upload.uploadId(),
                 java.util.List.of(first, second));
 
+        assertThat(completedEvents).singleElement().satisfies(event ->
+                assertThat(event.eventType()).isEqualTo(org.pangrova.security.api.enums.AuditEventType.FILE_UPLOADED));
         assertThat(completed.size()).isEqualTo(11);
         FileSpaceFileResource.RangeRead read =
                 resource.read(descriptor("videos/clip.bin", "read"), 0, -1, null);
         assertThat(readValue(read.stream())).isEqualTo("hello world");
+    }
+
+    @Test
+    void auditSinkFailureAfterProviderCommitDoesNotUndoUpload() throws IOException {
+        try (var endpoint = new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET,
+                mapper, () -> 1_000L, event -> { throw new IllegalStateException("sink unavailable"); })) {
+            var written = endpoint.put(descriptor("items/a", "write"), 3, "text/plain", stream("abc"));
+            assertThat(written.size()).isEqualTo(3);
+        }
+        assertThat(resource.head(descriptor("items/a", "head")).size()).isEqualTo(3);
     }
 
     @Test
@@ -186,7 +202,7 @@ class FileSpaceFileResourceTest {
         java.util.concurrent.atomic.AtomicLong now =
                 new java.util.concurrent.atomic.AtomicLong(1_000L);
         FileSpaceFileResource clocked = owned(new FileSpaceFileResource(
-                ObjectStoreAccessorFactory.discover(), SECRET, mapper, now::get));
+                ObjectStoreAccessorFactory.discover(), SECRET, mapper, now::get, event -> {}));
         FileAccessDescriptor expiring = new FileAccessDescriptor("local", StorageType.LOCAL,
                 root.toString(), "", "", "", false, "volumes/media/raw/landing",
                 "videos/stale.bin", "write", 2_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
@@ -213,7 +229,7 @@ class FileSpaceFileResourceTest {
                 new FileSpaceFileResource.BeginMultipartRequest(encoded,
                         FileAccessSignature.sign(SECRET, encoded), "video/mp4"));
         FileSpaceFileResource anotherWorker = owned(new FileSpaceFileResource(
-                ObjectStoreAccessorFactory.discover(), SECRET, mapper, () -> 1_000L));
+                ObjectStoreAccessorFactory.discover(), SECRET, mapper, () -> 1_000L, event -> {}));
 
         UploadedPart first = anotherWorker.uploadPart(upload, session.uploadId(), 1, 2,
                 stream("ab"));
@@ -371,7 +387,7 @@ class FileSpaceFileResourceTest {
     }
 
     private FileSpaceFileResource clocked(AtomicLong now) {
-        return owned(new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET, mapper, now::get));
+        return owned(new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET, mapper, now::get, event -> {}));
     }
 
     private FileAccessDescriptor writeGrant(long expiry) {
@@ -404,7 +420,7 @@ class FileSpaceFileResourceTest {
         try (var accessors = new ObjectStoreAccessorFactory(java.util.List.of(new org.pangrova.filesystem.s3.object.S3ObjectStoreAccessorProvider(
                 software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
                         software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))))) {
-            var worker = owned(new FileSpaceFileResource(accessors, SECRET, mapper, now::get));
+            var worker = owned(new FileSpaceFileResource(accessors, SECRET, mapper, now::get, event -> {}));
             java.util.function.LongFunction<FileAccessDescriptor> grantAt = expiry ->
                     new FileAccessDescriptor("s3", StorageType.S3, "test-bucket", "", "http://localhost:1",
                     "us-east-1", true, "stage", "private.bin", "read", expiry, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
@@ -471,7 +487,7 @@ class FileSpaceFileResourceTest {
     void descriptorDecodingUsesTheMapperConfigurationCapturedAtConstruction() throws IOException {
         var shared = JsonMapperFactory.create();
         shared.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        var worker = owned(new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET, shared, () -> 1_000L));
+        var worker = owned(new FileSpaceFileResource(ObjectStoreAccessorFactory.discover(), SECRET, shared, () -> 1_000L, event -> {}));
         shared.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
         var payload = shared.valueToTree(descriptor("private.bin", "read"));
         ((com.fasterxml.jackson.databind.node.ObjectNode) payload).put("futureMetadata", true);
@@ -482,7 +498,7 @@ class FileSpaceFileResourceTest {
     @Test
     void endpointWithoutSigningSecretIsRefused() {
         assertThatThrownBy(() -> new FileSpaceFileResource(
-                ObjectStoreAccessorFactory.discover(), " ", mapper, () -> 1_000L))
+                ObjectStoreAccessorFactory.discover(), " ", mapper, () -> 1_000L, event -> {}))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
