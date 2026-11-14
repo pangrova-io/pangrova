@@ -390,6 +390,7 @@ artifacts:
       - org.pangrova.common.api.annotation
       - org.pangrova.common.bloom
       - org.pangrova.common.concurrent
+      - org.pangrova.common.connector
       - org.pangrova.common.exception
       - org.pangrova.common.file
       - org.pangrova.common.http
@@ -415,6 +416,7 @@ artifacts:
       - org.pangrova.common.api.annotation
       - org.pangrova.common.bloom
       - org.pangrova.common.concurrent
+      - org.pangrova.common.connector
       - org.pangrova.common.exception
       - org.pangrova.common.file
       - org.pangrova.common.http

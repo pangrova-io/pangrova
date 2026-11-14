@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.common.connector.SnapshotPinTags;
+
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import org.apache.paimon.catalog.Catalog;
@@ -8,16 +10,11 @@ import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.connector.api.index.SnapshotExpiredException;
 import org.pangrova.connector.spi.index.SnapshotPinProvider;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
 /** Persists each index snapshot hold as a Paimon tag without an expiry time. */
 final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
-    private static final String TAG_PREFIX = "pangrova_index_";
     private final Catalog catalog;
 
     PaimonSnapshotPinProvider(Catalog catalog) {
@@ -28,7 +25,7 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
     public void pinSnapshot(String catalogName, String schemaName, String tableName,
                             long snapshotId, String pinnedByIndexId) {
         FileStoreTable table = load(schemaName, tableName);
-        String tag = tagName(pinnedByIndexId, snapshotId);
+        String tag = SnapshotPinTags.forSnapshot(pinnedByIndexId, snapshotId);
         Long existing = taggedSnapshot(table, tag);
         if (existing != null) {
             requireExact(existing, snapshotId, tag);
@@ -46,7 +43,7 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
     public void unpinSnapshot(String catalogName, String schemaName, String tableName,
                               long snapshotId, String pinnedByIndexId) {
         FileStoreTable table = load(schemaName, tableName);
-        String tag = tagName(pinnedByIndexId, snapshotId);
+        String tag = SnapshotPinTags.forSnapshot(pinnedByIndexId, snapshotId);
         Long existing = taggedSnapshot(table, tag);
         if (existing != null) {
             requireExact(existing, snapshotId, tag);
@@ -57,14 +54,14 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
     @Override
     public List<Long> getPinnedSnapshots(String catalogName, String schemaName, String tableName) {
         return load(schemaName, tableName).tagManager().tags().entrySet().stream()
-                .filter(entry -> entry.getValue().stream().anyMatch(name -> name.startsWith(TAG_PREFIX)))
+                .filter(entry -> entry.getValue().stream().anyMatch(name -> name.startsWith(SnapshotPinTags.PREFIX)))
                 .map(entry -> entry.getKey().id()).distinct().toList();
     }
 
     @Override
     public List<Long> getPinnedSnapshotsForIndex(
             String catalogName, String schemaName, String tableName, String indexId) {
-        String prefix = tagPrefix(indexId) + "_";
+        String prefix = SnapshotPinTags.indexPrefix(indexId) + "_";
         return load(schemaName, tableName).tagManager().tags().entrySet().stream()
                 .filter(entry -> entry.getValue().stream().anyMatch(name -> {
                     if (!name.startsWith(prefix)) {
@@ -113,23 +110,6 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
     private static void requireExact(Long actual, long expected, String tag) {
         if (actual == null || actual != expected) {
             throw new IllegalStateException("Paimon index pin " + tag + " differs from its snapshot");
-        }
-    }
-
-    private static String tagName(String indexId, long snapshotId) {
-        return tagPrefix(indexId) + "_" + snapshotId;
-    }
-
-    private static String tagPrefix(String indexId) {
-        if (indexId == null || indexId.isBlank()) {
-            throw new IllegalArgumentException("Index ID is required for snapshot pinning");
-        }
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(indexId.getBytes(StandardCharsets.UTF_8));
-            return TAG_PREFIX + HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 unavailable", failure);
         }
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.common.connector.SnapshotPinTags;
+
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -7,16 +9,11 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.pangrova.connector.api.index.SnapshotExpiredException;
 import org.pangrova.connector.spi.index.SnapshotPinProvider;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
 /** Persists one index's snapshot hold as an Iceberg tag in the source table metadata. */
 final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
-    private static final String TAG_PREFIX = "pangrova_index_";
     private final Catalog catalog;
 
     IcebergSnapshotPinProvider(Catalog catalog) {
@@ -27,7 +24,7 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
     public void pinSnapshot(String catalogName, String schemaName, String tableName,
                             long snapshotId, String pinnedByIndexId) {
         Table table = load(schemaName, tableName);
-        String tag = tagName(pinnedByIndexId, snapshotId);
+        String tag = SnapshotPinTags.forSnapshot(pinnedByIndexId, snapshotId);
         SnapshotRef existing = table.refs().get(tag);
         if (existing != null) {
             requireExactTag(existing, snapshotId, tag);
@@ -45,7 +42,7 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
     public void unpinSnapshot(String catalogName, String schemaName, String tableName,
                               long snapshotId, String pinnedByIndexId) {
         Table table = load(schemaName, tableName);
-        String tag = tagName(pinnedByIndexId, snapshotId);
+        String tag = SnapshotPinTags.forSnapshot(pinnedByIndexId, snapshotId);
         SnapshotRef existing = table.refs().get(tag);
         if (existing != null) {
             requireExactTag(existing, snapshotId, tag);
@@ -53,7 +50,7 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
             table.refresh();
         }
         // Ref names created before per-snapshot pins are still released on DROP.
-        String legacyTag = tagPrefix(pinnedByIndexId);
+        String legacyTag = SnapshotPinTags.indexPrefix(pinnedByIndexId);
         SnapshotRef legacy = table.refs().get(legacyTag);
         if (legacy != null && legacy.snapshotId() == snapshotId) {
             requireExactTag(legacy, snapshotId, legacyTag);
@@ -64,14 +61,14 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
     @Override
     public List<Long> getPinnedSnapshots(String catalogName, String schemaName, String tableName) {
         return load(schemaName, tableName).refs().entrySet().stream()
-                .filter(entry -> entry.getKey().startsWith(TAG_PREFIX) && entry.getValue().isTag())
+                .filter(entry -> entry.getKey().startsWith(SnapshotPinTags.PREFIX) && entry.getValue().isTag())
                 .map(entry -> entry.getValue().snapshotId()).distinct().toList();
     }
 
     @Override
     public List<Long> getPinnedSnapshotsForIndex(
             String catalogName, String schemaName, String tableName, String indexId) {
-        String prefix = tagPrefix(indexId);
+        String prefix = SnapshotPinTags.indexPrefix(indexId);
         return load(schemaName, tableName).refs().entrySet().stream()
                 .filter(entry -> entry.getKey().equals(prefix)
                         || entry.getKey().startsWith(prefix + "_"))
@@ -101,23 +98,6 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
     private static void requireExactTag(SnapshotRef ref, long snapshotId, String tag) {
         if (!ref.isTag() || ref.snapshotId() != snapshotId) {
             throw new IllegalStateException("Iceberg index pin " + tag + " differs from its snapshot");
-        }
-    }
-
-    private static String tagName(String indexId, long snapshotId) {
-        return tagPrefix(indexId) + "_" + snapshotId;
-    }
-
-    private static String tagPrefix(String indexId) {
-        if (indexId == null || indexId.isBlank()) {
-            throw new IllegalArgumentException("Index ID is required for snapshot pinning");
-        }
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(indexId.getBytes(StandardCharsets.UTF_8));
-            return TAG_PREFIX + HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 unavailable", failure);
         }
     }
 }
