@@ -25,6 +25,9 @@ import org.pangrova.security.api.secret.SecretResolver;
 import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.api.reranking.RerankingProvider;
 
+import org.pangrova.ai.worker.provider.VersionedAiProviders.VersionedInferenceProvider;
+import org.pangrova.ai.worker.provider.VersionedAiProviders.VersionedEmbeddingProvider;
+import org.pangrova.ai.worker.provider.VersionedAiProviders.VersionedRerankingProvider;
 import java.io.Closeable;
 import java.util.Collection;
 import java.util.Map;
@@ -58,11 +61,11 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
     private final AiProviderFactories factories;
     private final SecretResolver secretResolver;
     private final Optional<Function<BlobReference, byte[]>> blobLoader;
-    private final ConcurrentMap<String, InferenceProvider> inferenceProviders =
+    private final ConcurrentMap<String, VersionedInferenceProvider> inferenceProviders =
             new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, EmbeddingProvider> embeddingProviders =
+    private final ConcurrentMap<String, VersionedEmbeddingProvider> embeddingProviders =
             new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, RerankingProvider> rerankingProviders =
+    private final ConcurrentMap<String, VersionedRerankingProvider> rerankingProviders =
             new ConcurrentHashMap<>();
     private final AtomicInteger lifecycle = new AtomicInteger();
     private final CompletableFuture<Void> resolutionsDrained = new CompletableFuture<>();
@@ -139,21 +142,24 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
             closeComplete.join();
             return;
         }
-        RuntimeException failure = null;
         try {
             resolutionsDrained.join();
-            failure = closeAll(inferenceProviders.values(), failure);
-            failure = closeAll(embeddingProviders.values(), failure);
-            failure = closeAll(rerankingProviders.values(), failure);
+            var releases = java.util.stream.Stream.<Collection<? extends Closeable>>of(
+                            inferenceProviders.values(), embeddingProviders.values(),
+                            rerankingProviders.values())
+                    .flatMap(Collection::stream)
+                    .<Runnable>map(provider -> () -> closeProvider(provider))
+                    .toArray(Runnable[]::new);
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(null, releases);
+        } catch (RuntimeException | Error failure) {
+            closeComplete.completeExceptionally(failure);
+            throw failure;
         } finally {
             inferenceProviders.clear();
             embeddingProviders.clear();
             rerankingProviders.clear();
-            closeComplete.complete(null);
         }
-        if (failure != null) {
-            throw failure;
-        }
+        closeComplete.complete(null);
     }
 
     private <T> T resolveProvider(
@@ -206,7 +212,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
         }
     }
 
-    private InferenceProvider createInference(AiModelDescriptor model) {
+    private VersionedInferenceProvider createInference(AiModelDescriptor model) {
         InferenceProvider delegate = factories.require(model.provider(), model.name())
                 .createInference(model, resolveSecret(model), blobLoaderFor(model));
         Set<AiCapabilityDescriptor> capabilities = capabilitiesFor(
@@ -220,7 +226,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 capabilities);
     }
 
-    private EmbeddingProvider createEmbedding(AiModelDescriptor model) {
+    private VersionedEmbeddingProvider createEmbedding(AiModelDescriptor model) {
         EmbeddingProvider delegate = factories.require(model.provider(), model.name())
                 .createEmbedding(model, resolveSecret(model));
         Set<AiCapabilityDescriptor> capabilities = capabilitiesFor(
@@ -233,7 +239,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 capabilities);
     }
 
-    private RerankingProvider createReranking(AiModelDescriptor model) {
+    private VersionedRerankingProvider createReranking(AiModelDescriptor model) {
         RerankingProvider delegate = factories.require(model.provider(), model.name())
                 .createReranking(model, resolveSecret(model));
         return VersionedAiProviders.reranking(
@@ -327,23 +333,12 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
-    private static RuntimeException closeAll(
-            Collection<?> providers, RuntimeException firstFailure) {
-        for (Object provider : providers) {
-            if (!(provider instanceof Closeable closeable)) {
-                continue;
-            }
-            try {
-                closeable.close();
-            } catch (Exception failure) {
-                if (firstFailure == null) {
-                    firstFailure = new IllegalStateException("Failed to close AI provider", failure);
-                } else {
-                    firstFailure.addSuppressed(failure);
-                }
-            }
+    private static void closeProvider(Closeable provider) {
+        try {
+            provider.close();
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Failed to close AI provider", failure);
         }
-        return firstFailure;
     }
 
     private static IllegalArgumentException configurationFailure(String message) {

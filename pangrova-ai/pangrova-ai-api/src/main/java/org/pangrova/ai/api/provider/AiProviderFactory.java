@@ -15,7 +15,9 @@ import org.pangrova.ai.api.inference.InferenceProvider;
 import org.pangrova.ai.api.reranking.RerankingProvider;
 
 /** Stateless dialect factory. Validation must not create clients, read secrets or perform network I/O.
- * Each successful create transfers one model-scoped provider to the Worker registry for closing. */
+ * Each successful create transfers one model-scoped provider to the Worker registry.
+ * A provider that owns resources implements {@link AutoCloseable}. The registry closes
+ * each acquired model instance when its Worker function runtime shuts down. */
 @Experimental
 public interface AiProviderFactory {
     /** Inlined into provider binaries so discovery detects incompatible contracts. */

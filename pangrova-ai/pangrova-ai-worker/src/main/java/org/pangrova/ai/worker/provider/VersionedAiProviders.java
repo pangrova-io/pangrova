@@ -22,7 +22,7 @@ final class VersionedAiProviders {
 
     private VersionedAiProviders() {}
 
-    static InferenceProvider inference(
+    static VersionedInferenceProvider inference(
             InferenceProvider delegate,
             String modelName,
             String version,
@@ -32,7 +32,7 @@ final class VersionedAiProviders {
                 delegate, modelName, version, signature, capabilities);
     }
 
-    static EmbeddingProvider embedding(
+    static VersionedEmbeddingProvider embedding(
             EmbeddingProvider delegate,
             String modelName,
             String version,
@@ -42,7 +42,7 @@ final class VersionedAiProviders {
                 delegate, modelName, version, signature, capabilities);
     }
 
-    static RerankingProvider reranking(
+    static VersionedRerankingProvider reranking(
             RerankingProvider delegate,
             String modelName,
             String version,
@@ -60,12 +60,20 @@ final class VersionedAiProviders {
     }
 
     private static void close(Object delegate) throws java.io.IOException {
-        if (delegate instanceof Closeable closeable) {
+        if (!(delegate instanceof AutoCloseable closeable)) return;
+        try {
             closeable.close();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new java.io.IOException("Interrupted while closing AI provider", interrupted);
+        } catch (java.io.IOException | RuntimeException failure) {
+            throw failure;
+        } catch (Exception failure) {
+            throw new java.io.IOException("Failed to close AI provider", failure);
         }
     }
 
-    private static final class VersionedInferenceProvider
+    static final class VersionedInferenceProvider
             implements InferenceProvider, Closeable {
 
         private final InferenceProvider delegate;
@@ -117,7 +125,7 @@ final class VersionedAiProviders {
         }
     }
 
-    private static final class VersionedEmbeddingProvider
+    static final class VersionedEmbeddingProvider
             implements EmbeddingProvider, Closeable {
 
         private final EmbeddingProvider delegate;
@@ -157,7 +165,7 @@ final class VersionedAiProviders {
         }
     }
 
-    private static final class VersionedRerankingProvider
+    static final class VersionedRerankingProvider
             implements RerankingProvider, Closeable {
 
         private final RerankingProvider delegate;
