@@ -39,7 +39,10 @@ public final class PaimonFileSystemAccessor implements FileSystemAccessor {
 
     @Override
     public void deleteFile(String path) throws IOException {
-        fileIO.deleteQuietly(new Path(path));
+        Path target = new Path(path);
+        if (!fileIO.delete(target, false) && fileIO.exists(target)) {
+            throw new IOException("Paimon FileIO could not delete " + target);
+        }
     }
 
     @Override
