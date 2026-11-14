@@ -62,6 +62,7 @@ macOS arm64 源码快照 `c61dc7785` 的 ASan 全量运行已结束。4335 项�
 
 ## 11 月 14 日追加验证
 
+- 当前源码（`85e48e618`）的生产包图扫描 910 个包、5219 条跨包引用、0 个循环分量。SPI 历史可达性基线现为 5 项，均已有逐项生产入口或独立库证据。
 - 旧 TableWriter 批写管线退役。TableWriter、WriteRecord、WriteContext、DataFileSink、WriteMode、TableFormat，以及 Lake、merge-tree、incremental writer 和 StreamingWriter、CdcConsumer、LateDataRouter、StreamingWiring 只有测试构造点，没有生产工厂、依赖注入或消费入口。真实 CDC 路径保持 CdcPipelineLoop → CdcTwoPhaseCommitter → ConnectorPageSinkCdcWriter；SQL 写入保持 Worker NativeWriteExecutor 与 ConnectorPageSink。模块、服务清单、公开文档、SPI 基线及回归断言同步更新。
 - TPC-DS q08 的计划差异只是 customer_address 一侧被 INNER 等值连接及 20 个 ZIP 常量域蕴含的冗余 SEARCH 被消除。5 次冷 JVM 的计划逐字一致，连接仍保留完整常量域；黄金计划按该评审差异刷新。同一查询域的重复、NULL、前缀和非匹配样本核对 IN 列表与等值连接判定一致。
 - Lance 48 项需要显式传入同源 `pangrova_lance_fixture_tool`。主工作树构建的 Native 源与 HEAD 逐文件一致（`src`、`cmake` 与 `CMakeLists.txt`），传入其绝对路径后 48/48 通过，JNI/SDK 使用同一批源码产物。

@@ -145,9 +145,10 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         var state = new QueryStateMachine();
         var authority = dispatcher.bindConnectorAuthority(state, session.queryId());
         session = session.withQueryAuthority(authority);
-        var registered = connectorMetadata(CATALOG, session);
+        var registered = (IcebergMetadata) metadata.catalogRegistry()
+                .queryCatalog(CATALOG, SessionContextConverter.toConnectorSession(
+                        session, CATALOG, SCHEMA)).metadata();
         var unrelated = connectorMetadata(UNREFERENCED_CATALOG, session);
-        authority.beginMetadata(CATALOG, () -> registered);
         pin(registered, session.queryId());
         var unrelatedOwner = new org.pangrova.coordinator.task.TestConnectorQuery(session.queryId());
         beginAndPin(unrelated, unrelatedOwner.authority());
@@ -172,8 +173,9 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         var state = new QueryStateMachine();
         var authority = dispatcher.bindConnectorAuthority(state, failing.queryId());
         failing = failing.withQueryAuthority(authority);
-        var connector = connectorMetadata(CATALOG, failing);
-        authority.beginMetadata(CATALOG, () -> connector);
+        var connector = (IcebergMetadata) metadata.catalogRegistry()
+                .queryCatalog(CATALOG, SessionContextConverter.toConnectorSession(
+                        failing, CATALOG, SCHEMA)).metadata();
         pin(connector, failing.queryId());
         var otherOwner = new org.pangrova.coordinator.task.TestConnectorQuery(other.queryId());
         beginAndPin(connector, otherOwner.authority());

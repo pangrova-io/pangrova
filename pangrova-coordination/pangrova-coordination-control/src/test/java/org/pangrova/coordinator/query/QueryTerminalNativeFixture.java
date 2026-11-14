@@ -113,19 +113,29 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
 
     void requireUnacknowledgedExecutionTerminalRetries() {
         var actual = worker.reports().stream().filter(report -> report.queryId().equals(queryId)
-                && report.canonicalTaskReport() != null).toList();
+                        && report.canonicalTaskReport() != null
+                        && canonical(report).getExecutionDrainState()
+                                == ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED)
+                .toList();
         assertThat(actual).isNotEmpty();
         var original = actual.get(0);
         assertThat(actual).allSatisfy(report -> {
             assertThat(report.state()).isEqualTo("FINISHED");
             assertThat(canonical(report).getState())
                     .isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
-            assertThat(canonical(report).getExecutionDrainState())
-                    .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED);
             assertThat(report).usingRecursiveComparison().isEqualTo(original);
-            assertThat(tracker.executionDrainReceipt(report.taskId())).isEmpty();
+            tracker.executionDrainReceipt(report.taskId()).ifPresent(receipt ->
+                    assertThat(receipt.getExecutionDrainState())
+                            .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED));
             assertThat(tracker.acknowledgesReportPublication(report)).isFalse();
         });
+        // The release phase publishes its own notice once the physical owners are free;
+        // it must also stay unacknowledged until the retained terminal publication clears.
+        assertThat(worker.reports()).filteredOn(report -> report.queryId().equals(queryId)
+                        && report.canonicalTaskReport() != null
+                        && canonical(report).getExecutionDrainState()
+                                == ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED)
+                .allSatisfy(report -> assertThat(tracker.acknowledgesReportPublication(report)).isFalse());
     }
 
     org.pangrova.protocol.rest.task.TaskStatusReport awaitActualNativeOwnersReleased() {

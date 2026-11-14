@@ -81,7 +81,7 @@ class SchedulerAbstractionLayerTest {
 
     @Test
     void dispatchFailureContractIsOwnedByScheduler() throws IOException {
-        assertThat(ErrorCategory.class.getPackageName()).isEqualTo("org.pangrova.scheduler.api.error");
+        assertThat(ErrorCategory.class.getPackageName()).isEqualTo("org.pangrova.scheduler.api.enums");
         assertThat(listJavaFileNames(SCHEDULER_PKG.resolve("failure"))).isEmpty();
     }
 

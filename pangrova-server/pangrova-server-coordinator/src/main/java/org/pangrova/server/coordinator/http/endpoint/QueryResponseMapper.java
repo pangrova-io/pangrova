@@ -10,8 +10,11 @@ final class QueryResponseMapper {
     private QueryResponseMapper() { }
 
     static SubmitQueryResponse submission(QuerySubmissionResult result) {
+        var selection = result.branchSelection();
         return new SubmitQueryResponse(result.queryId(), result.state().name(),
-                result.resultEndpoint(), result.columnNames(), result.branchSelection());
+                result.resultEndpoint(), result.columnNames(), selection == null ? null
+                        : new org.pangrova.common.client.query.BranchSelection(
+                                selection.table(), selection.branch()));
     }
 
     static ErrorDetail failure(QueryFailure failure) {

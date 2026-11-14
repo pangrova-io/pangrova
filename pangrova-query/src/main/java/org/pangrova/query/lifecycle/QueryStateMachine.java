@@ -56,13 +56,13 @@ public class QueryStateMachine {
     private volatile String tenantId;
     private final String auditPrincipal;
     private volatile String sql;
-    private volatile org.pangrova.common.client.query.BranchSelection branchSelection;
+    private volatile org.pangrova.query.api.session.BranchSelection branchSelection;
 
-    public void selectBranch(org.pangrova.common.client.query.BranchSelection selection) {
+    public void selectBranch(org.pangrova.query.api.session.BranchSelection selection) {
         this.branchSelection = java.util.Objects.requireNonNull(selection);
     }
 
-    public org.pangrova.common.client.query.BranchSelection branchSelection() {
+    public org.pangrova.query.api.session.BranchSelection branchSelection() {
         return branchSelection;
     }
     private final AtomicReference<QueryFailure> error = new AtomicReference<>();

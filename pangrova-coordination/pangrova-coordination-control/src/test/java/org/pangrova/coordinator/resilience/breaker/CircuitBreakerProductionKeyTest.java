@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.resilience.breaker;
 
-import org.pangrova.coordinator.enums.CircuitBreakerPhase;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -147,7 +146,7 @@ class CircuitBreakerProductionKeyTest {
             assertThat(registry.allowRequest(host)).isFalse();
 
             CircuitBreaker cb = registry.getCircuitBreaker(host);
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
         }
 
         @Test
@@ -162,7 +161,7 @@ class CircuitBreakerProductionKeyTest {
 
             assertThat(registry.allowRequest(host)).isTrue();
             CircuitBreaker cb = registry.getCircuitBreaker(host);
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
         }
 
         @Test
@@ -181,7 +180,7 @@ class CircuitBreakerProductionKeyTest {
 
             assertThat(registry.allowRequest(host)).isTrue();
             CircuitBreaker cb = registry.getCircuitBreaker(host);
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
         }
 
         @Test
@@ -199,7 +198,7 @@ class CircuitBreakerProductionKeyTest {
             registry.recordFailure(host, new RuntimeException("error 4"));
 
             CircuitBreaker cb = registry.getCircuitBreaker(host);
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
             assertThat(registry.allowRequest(host)).isFalse();
         }
     }
@@ -218,11 +217,11 @@ class CircuitBreakerProductionKeyTest {
             for (int i = 0; i < 5; i++) {
                 cb.onError(0, TimeUnit.MILLISECONDS, new RuntimeException("fail"));
             }
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
 
             // Manually transition to HALF_OPEN (simulates wait duration elapsed)
             cb.transitionToHalfOpenState();
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
 
             // Successful probes (permittedNumberOfCallsInHalfOpenState=5 for coordinator-to-worker)
             for (int i = 0; i < 5; i++) {
@@ -231,7 +230,7 @@ class CircuitBreakerProductionKeyTest {
             }
 
             // Should transition back to CLOSED
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.CLOSED);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
         }
 
         @Test
@@ -244,11 +243,11 @@ class CircuitBreakerProductionKeyTest {
             for (int i = 0; i < 5; i++) {
                 cb.onError(0, TimeUnit.MILLISECONDS, new RuntimeException("fail"));
             }
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
 
             // Transition to HALF_OPEN
             cb.transitionToHalfOpenState();
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.HALF_OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
 
             // Resilience4j evaluates HALF_OPEN after all permitted probes complete.
             // coordinator-to-worker: permittedNumberOfCallsInHalfOpenState=5, failureRateThreshold=60%
@@ -256,7 +255,7 @@ class CircuitBreakerProductionKeyTest {
             for (int i = 0; i < 5; i++) {
                 cb.onError(0, TimeUnit.MILLISECONDS, new RuntimeException("still failing"));
             }
-            assertThat(cb.getState()).isEqualTo(CircuitBreakerPhase.OPEN);
+            assertThat(cb.getState()).isEqualTo(CircuitBreaker.State.OPEN);
         }
 
         @Test

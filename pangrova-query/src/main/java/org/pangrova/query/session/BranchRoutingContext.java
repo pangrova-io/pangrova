@@ -24,7 +24,7 @@ public final class BranchRoutingContext {
      * Session property key prefix for branch routing entries.
      * Full key format: {@code branch.routing.CATALOG.SCHEMA.TABLE}
      */
-    static final String PROPERTY_PREFIX = org.pangrova.common.client.query.BranchSelection.PROPERTY_PREFIX;
+    static final String PROPERTY_PREFIX = org.pangrova.query.api.session.BranchSelection.PROPERTY_PREFIX;
 
     private static final BranchRoutingContext EMPTY = new BranchRoutingContext(Map.of());
 

@@ -111,8 +111,8 @@ class QueryLifecycleResponsibilityBoundaryTest {
                 // same late-wiring seam for the profile telemetry sink: accepted
                 // reports are forwarded to it, but it never drives callback flow.
                 .containsExactlyInAnyOrder("onTaskStatus", "clearTaskSequence",
-                        "setWriteCommitFencer", "setWriteQualityGate",
-                        "setOperatorStatsRegistry");
+                        "supersedesResultNotice", "setWriteCommitFencer",
+                        "setWriteQualityGate", "setOperatorStatsRegistry");
     }
 
     // ── QueryTimeoutScheduler boundary: timeout enforcement only ──

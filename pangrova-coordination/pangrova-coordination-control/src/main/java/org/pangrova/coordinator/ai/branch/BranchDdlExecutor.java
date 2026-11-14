@@ -175,7 +175,7 @@ public final class BranchDdlExecutor {
     }
 
     /** Verifies read access, tenant visibility and connector support before issuing a session mutation. */
-    public org.pangrova.common.client.query.BranchSelection selectBranch(
+    public org.pangrova.query.api.session.BranchSelection selectBranch(
             org.pangrova.parser.api.ast.statement.UseBranchStatement statement, QuerySession context) {
         var table = SessionTableNames.resolveTableRef(statement.tableName().parts(), context);
         var authorization = deps.accessControl();
@@ -194,7 +194,7 @@ public final class BranchDdlExecutor {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Branch unavailable for this table: " + branch);
         }
-        return new org.pangrova.common.client.query.BranchSelection(
+        return new org.pangrova.query.api.session.BranchSelection(
                 org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors.tableKey(
                         table.catalog(), table.schema(), table.table()), clear ? null : branch);
     }
