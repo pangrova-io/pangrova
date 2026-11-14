@@ -3,6 +3,7 @@ package org.pangrova.parser.parse;
 import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.api.enums.SqlDialect;
 import org.pangrova.parser.api.parse.StatementParser;
+import org.pangrova.parser.api.parse.SqlParser;
 
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.SourceLocation;
@@ -49,7 +50,7 @@ class StatementParserExtensionTest {
         }
 
         @Override
-        public Statement parse(String sql, org.pangrova.parser.api.parse.SqlParser parentParser) {
+        public Statement parse(String sql, SqlParser parentParser) {
             String trimmed = sql.strip();
             String target = trimmed.substring("PING ".length()).strip();
             if (target.isEmpty()) {
@@ -74,7 +75,7 @@ class StatementParserExtensionTest {
         }
 
         @Override
-        public Statement parse(String sql, org.pangrova.parser.api.parse.SqlParser parentParser) {
+        public Statement parse(String sql, SqlParser parentParser) {
             return new PingStatement("health");
         }
     }
@@ -180,6 +181,25 @@ class StatementParserExtensionTest {
     }
 
     @Test
+    void replacementAndRemovalTakeEffectForCachedSql() {
+        var registry = new StatementParserRegistry();
+        var parser = new AntlrSqlParser(AntlrSqlParser.DEFAULT_MAX_SQL_LENGTH,
+                AntlrSqlParser.DEFAULT_MAX_TREE_DEPTH, 20, SqlDialect.PANGROVA, registry);
+        registry.register(new PingStatementParser());
+        assertThat(parser.parse("PING first")).isEqualTo(new PingStatement("first"));
+        registry.register(new PingStatementParser() {
+            @Override
+            public Statement parse(String sql, SqlParser parent) {
+                return new PingStatement(sql);
+            }
+        });
+        assertThat(parser.parse("PING first")).isEqualTo(new PingStatement("PING first"));
+        assertThat(parser.parse("PING   first")).isEqualTo(new PingStatement("PING   first"));
+        assertThat(registry.unregister("ping")).isTrue();
+        assertThatThrownBy(() -> parser.parse("PING first")).isInstanceOf(ParseException.class);
+    }
+
+    @Test
     void extensionParserResultIsCached() {
         StatementParserRegistry registry = new StatementParserRegistry();
         registry.register(new PingStatementParser());
@@ -212,7 +232,7 @@ class StatementParserExtensionTest {
             }
 
             @Override
-            public Statement parse(String sql, org.pangrova.parser.api.parse.SqlParser parentParser) {
+            public Statement parse(String sql, SqlParser parentParser) {
                 // Delegate the inner query to the core parser
                 String innerSql = sql.strip().substring("CUSTOM EXPLAIN ".length());
                 Statement innerStmt = parentParser.parse(innerSql);
@@ -251,7 +271,7 @@ class StatementParserExtensionTest {
             }
 
             @Override
-            public Statement parse(String sql, org.pangrova.parser.api.parse.SqlParser parentParser) {
+            public Statement parse(String sql, SqlParser parentParser) {
                 String trimmed = sql.strip();
                 if (trimmed.length() <= 4 || trimmed.charAt(4) != ' ') {
                     throw new ParseException(

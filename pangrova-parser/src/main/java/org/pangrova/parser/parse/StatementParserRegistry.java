@@ -25,8 +25,8 @@ import java.util.ServiceLoader;
  * (lowest {@link StatementParser#priority()} first). The first parser whose
  * {@link StatementParser#canParse(String)} returns {@code true} wins.
  *
- * <p>Registration does not invalidate an owning parser's parse cache. Configure
- * extensions before serving queries, or explicitly invalidate that cache.
+ * <p>Each registration publishes a new revision. A parse uses the same revision for
+ * its cache lookup and its extension selection.
  *
  * <p>This class is thread-safe. Readers observe one immutable snapshot on the hot path; synchronized registration
  * publishes a fully sorted replacement once, without intermediate removals or gaps.
@@ -34,7 +34,26 @@ import java.util.ServiceLoader;
 @org.pangrova.common.concurrent.ThreadSafe
 public final class StatementParserRegistry {
 
-    private volatile List<StatementParser> parsers = List.of();
+    record Snapshot(long revision, List<StatementParser> parsers) {
+        private Snapshot next(List<StatementParser> updated) {
+            return new Snapshot(Math.incrementExact(revision), List.copyOf(updated));
+        }
+
+        Optional<StatementParser> findParser(String sql) {
+            for (StatementParser parser : parsers) {
+                if (parser.canParse(sql)) {
+                    return Optional.of(parser);
+                }
+            }
+            return Optional.empty();
+        }
+    }
+
+    private volatile Snapshot snapshot = new Snapshot(0, List.of());
+
+    Snapshot snapshot() {
+        return snapshot;
+    }
 
     /**
      * Creates an empty registry with no ServiceLoader discovery.
@@ -85,11 +104,11 @@ public final class StatementParserRegistry {
         if (parser.name() == null || parser.name().isEmpty()) {
             throw new IllegalArgumentException("parser name must not be null or empty");
         }
-        List<StatementParser> sorted = new ArrayList<>(parsers);
+        List<StatementParser> sorted = new ArrayList<>(snapshot.parsers());
         sorted.removeIf(existing -> existing.name().equals(parser.name()));
         sorted.add(parser);
         sorted.sort(Comparator.comparingInt(StatementParser::priority));
-        parsers = List.copyOf(sorted);
+        snapshot = snapshot.next(sorted);
     }
 
     /**
@@ -99,9 +118,11 @@ public final class StatementParserRegistry {
      * @return {@code true} if a parser was removed
      */
     public synchronized boolean unregister(String name) {
-        List<StatementParser> updated = new ArrayList<>(parsers);
+        List<StatementParser> updated = new ArrayList<>(snapshot.parsers());
         boolean removed = updated.removeIf(parser -> parser.name().equals(name));
-        if (removed) parsers = List.copyOf(updated);
+        if (removed) {
+            snapshot = snapshot.next(updated);
+        }
         return removed;
     }
 
@@ -113,25 +134,20 @@ public final class StatementParserRegistry {
      * @return the matching parser, or empty if no extension can handle the SQL
      */
     public Optional<StatementParser> findParser(String sql) {
-        for (StatementParser parser : parsers) {
-            if (parser.canParse(sql)) {
-                return Optional.of(parser);
-            }
-        }
-        return Optional.empty();
+        return snapshot.findParser(sql);
     }
 
     /**
      * Returns an unmodifiable snapshot of all registered parsers, in priority order.
      */
     public List<StatementParser> registeredParsers() {
-        return List.copyOf(parsers);
+        return snapshot.parsers();
     }
 
     /**
      * Returns the number of registered extension parsers.
      */
     public int size() {
-        return parsers.size();
+        return snapshot.parsers().size();
     }
 }

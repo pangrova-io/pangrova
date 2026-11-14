@@ -27,6 +27,14 @@ class PlanBaselineControllerTest {
     }
 
     @Test
+    void queryHashesRetainLiteralContentsQuotedNamesAndCommentBoundaries() {
+        assertThat(PlanHasher.queryHash("SELECT 'A  B'")).isNotEqualTo(PlanHasher.queryHash("select 'a b'"));
+        assertThat(PlanHasher.queryHash("SELECT \"ID\"")).isNotEqualTo(PlanHasher.queryHash("SELECT \"id\""));
+        assertThat(PlanHasher.queryHash("SELECT `a  b`")).isNotEqualTo(PlanHasher.queryHash("SELECT `a b`"));
+        assertThat(PlanHasher.queryHash("SELECT 1 -- note\n + 1")).isNotEqualTo(PlanHasher.queryHash("SELECT 1 -- note + 1"));
+    }
+
+    @Test
     void onPlanOptimized_capturesAndReturnsNoBaseline() {
         PangrovaPlanner planner = new PangrovaPlanner();
         PlanResult result = planner.plan("SELECT 1");

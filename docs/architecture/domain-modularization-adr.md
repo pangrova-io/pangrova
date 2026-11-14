@@ -148,6 +148,12 @@ description: "Accepted decisions for domain contracts, implementations, and proc
 - SeaTunnel 将工厂标识和配置校验声明在 Factory，数据源类型和发现入口属于 TableSourceFactory。Paimon 的 HiveCatalogFactory 接受 CatalogContext，返回契约 Catalog。Pangrova 同样按能力声明强类型工厂，Server 负责选择与校验，后端负责 SDK 实例及其关闭。[SeaTunnel Factory](https://github.com/apache/seatunnel/blob/dev/seatunnel-api/src/main/java/org/apache/seatunnel/api/table/factory/Factory.java) · [SeaTunnel TableSourceFactory](https://github.com/apache/seatunnel/blob/dev/seatunnel-api/src/main/java/org/apache/seatunnel/api/table/factory/TableSourceFactory.java) · [Paimon HiveCatalogFactory](https://github.com/apache/paimon/blob/master/paimon-hive/paimon-hive-catalog/src/main/java/org/apache/paimon/hive/HiveCatalogFactory.java)
 - Trino 在 `ServerMainModule.setup` 读取角色配置，安装 CoordinatorModule 或 WorkerModule，然后建立共享绑定。这里的 Module 是进程内装配单元。Pangrova 把角色选择与公共生命周期放在 Server，另外用 Maven 依赖和真实 JAR 检查约束 JNI 的加载范围。[Trino ServerMainModule](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/ServerMainModule.java)
 
+### SQL 文本与解析扩展的缓存归属
+
+Common 的 `SqlText` 保留字面量、引号标识符、注释正文和行注释结束位置。Parser 用它折叠内置语法 token 之间的空白。Planner 的诊断基线还对引号外的 ASCII 字母折叠大小写，两者保留各自的缓存和身份语义。
+
+注册扩展后，Parser 使用注册表快照的版本和原始 SQL 作为键。解析器选择、解析和缓存写入属于同一快照；替换或注销扩展后，旧解析即使较晚完成，也只能写入旧版本的键。缓存容量限制同样适用于旧版本条目。
+
 ## 循环依赖的判定与处理
 
 `A → B` 表示构建、加载或使用 A 需要 B。每次分析先标明是哪一种依赖，再给出闭合路径及产生每条边的源码、POM 或装配位置。A 调用 B，B 把结果返回给 A，本身只产生一条调用依赖。

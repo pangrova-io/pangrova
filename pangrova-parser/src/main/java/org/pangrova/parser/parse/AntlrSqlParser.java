@@ -18,6 +18,7 @@ import org.pangrova.parser.api.ast.Statement;
 import org.antlr.v4.runtime.BailErrorStrategy;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
+import org.pangrova.common.util.SqlText;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -81,7 +82,9 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
     private final int maxTreeDepth;
     private final SqlDialect dialect;
     private final StatementParserRegistry extensionRegistry;
-    private volatile Cache<String, Statement> parseCache;
+    private record ParseCacheKey(long extensionRevision, String sql) {}
+
+    private volatile Cache<ParseCacheKey, Statement> parseCache;
     private volatile int currentMaxSize;
 
     // Cache hit/miss statistics for adaptive sizing
@@ -156,7 +159,10 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
      */
     public Statement parse(String sql) {
         validateInput(sql);
-        String cacheKey = normalizeCacheKey(sql);
+        var extensions = extensionRegistry.snapshot();
+        // An extension owns its syntax and can distinguish whitespace in arbitrary positions.
+        String keyText = extensions.parsers().isEmpty() ? SqlText.parseCacheKey(sql) : sql;
+        var cacheKey = new ParseCacheKey(extensions.revision(), keyText);
         Statement cached = parseCache.getIfPresent(cacheKey);
         if (cached != null) {
             cacheHits.incrementAndGet();
@@ -168,7 +174,7 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
         totalRequests.incrementAndGet();
 
         // Check extension parsers first
-        java.util.Optional<StatementParser> extParser = extensionRegistry.findParser(sql);
+        java.util.Optional<StatementParser> extParser = extensions.findParser(sql);
         Statement result;
         if (extParser.isPresent()) {
             result = extParser.get().parse(sql, this);
@@ -392,74 +398,6 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
     }
 
     /**
-     * Normalize SQL text for cache key: trim leading/trailing whitespace and
-     * collapse whitespace OUTSIDE of string literals and quoted identifiers.
-     * Whitespace inside single-quoted strings and double-quoted identifiers is
-     * preserved exactly, preventing two SQL strings that differ only in literal
-     * content from sharing a cache entry (F-PARSER-01).
-     */
-    static String normalizeCacheKey(String sql) {
-        String stripped = sql.strip();
-        if (stripped.isEmpty()) {
-            return stripped;
-        }
-        StringBuilder sb = new StringBuilder(stripped.length());
-        boolean inSingleQuote = false;
-        boolean inDoubleQuote = false;
-        boolean pendingSpace = false;
-        for (int i = 0; i < stripped.length(); i++) {
-            char c = stripped.charAt(i);
-            if (inSingleQuote) {
-                sb.append(c);
-                if (c == '\'' && i + 1 < stripped.length() && stripped.charAt(i + 1) == '\'') {
-                    sb.append(stripped.charAt(++i)); // escaped single-quote ''
-                } else if (c == '\'') {
-                    inSingleQuote = false;
-                }
-                pendingSpace = false;
-            } else if (inDoubleQuote) {
-                sb.append(c);
-                if (c == '"') {
-                    inDoubleQuote = false;
-                }
-                pendingSpace = false;
-            } else if (c == '\'') {
-                if (pendingSpace) {
-                    sb.append(' ');
-                    pendingSpace = false;
-                }
-                sb.append(c);
-                inSingleQuote = true;
-            } else if (c == '"') {
-                if (pendingSpace) {
-                    sb.append(' ');
-                    pendingSpace = false;
-                }
-                sb.append(c);
-                inDoubleQuote = true;
-            } else if (Character.isWhitespace(c)) {
-                pendingSpace = true;
-            } else {
-                if (pendingSpace) {
-                    sb.append(' ');
-                    pendingSpace = false;
-                }
-                sb.append(c);
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Normalize SQL text for display/comparison: trim leading/trailing whitespace
-     * and collapse internal whitespace sequences to a single space.
-     * Does NOT strip literals (use {@link #normalizeCacheKey} for cache keys).
-     */
-    static String normalizeSql(String sql) {
-        return sql.strip().replaceAll("\\s+", " ");
-    }
-
-    /**
      * Evaluate cache hit rate periodically and resize the cache adaptively.
      * Grows the cache (up to {@link #CACHE_MAX_SIZE}) when hit rate is high,
      * shrinks it (down to {@link #CACHE_MIN_SIZE}) when hit rate is low.
@@ -478,7 +416,7 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
         }
         if (newSize != currentMaxSize) {
             currentMaxSize = newSize;
-            Cache<String, Statement> oldCache = parseCache;
+            Cache<ParseCacheKey, Statement> oldCache = parseCache;
             parseCache = Caffeine.newBuilder()
                     .maximumSize(newSize)
                     .build();

@@ -4,6 +4,7 @@ import org.pangrova.parser.api.exception.ParseException;
 
 import org.pangrova.parser.api.ast.Statement;
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.util.SqlText;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -14,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>Literals are intentionally NOT stripped from cache keys: the cached AST
  * embeds concrete literal values, so two SQLs differing only in literals must
- * not share a cache entry. See {@link AntlrSqlParser#normalizeCacheKey} for details.
+ * not share a cache entry. See {@link SqlText#parseCacheKey} for details.
  */
 class ParseCacheAndSllModeTest {
 
@@ -27,6 +28,14 @@ class ParseCacheAndSllModeTest {
         Statement first = parser.parse("SELECT 1");
         Statement second = parser.parse("SELECT 1");
         assertThat(second).isSameAs(first);
+    }
+
+    @Test
+    void lineCommentCannotHideOrExposeAFilterThroughTheCache() {
+        String filtered = "SELECT * FROM t -- limit rows\n WHERE id = 1";
+        String unrestricted = "SELECT * FROM t -- limit rows WHERE id = 1";
+        assertThat(parser.parse(filtered)).isNotEqualTo(parser.parse(unrestricted));
+        assertThat(parser.parse(unrestricted)).isEqualTo(new AntlrSqlParser().parse(unrestricted));
     }
 
     @Test
@@ -170,62 +179,62 @@ class ParseCacheAndSllModeTest {
 
     @Test
     void normalizeSqlCollapsesTabs() {
-        assertThat(AntlrSqlParser.normalizeSql("SELECT\t\t1")).isEqualTo("SELECT 1");
+        assertThat(SqlText.parseCacheKey("SELECT\t\t1")).isEqualTo("SELECT 1");
     }
 
     @Test
     void normalizeSqlTrimsEdges() {
-        assertThat(AntlrSqlParser.normalizeSql("  SELECT 1  ")).isEqualTo("SELECT 1");
+        assertThat(SqlText.parseCacheKey("  SELECT 1  ")).isEqualTo("SELECT 1");
     }
 
     @Test
     void normalizeSqlCollapsesNewlines() {
-        assertThat(AntlrSqlParser.normalizeSql("SELECT\n\n1")).isEqualTo("SELECT 1");
+        assertThat(SqlText.parseCacheKey("SELECT\n\n1")).isEqualTo("SELECT 1");
     }
 
     @Test
     void normalizeCacheKeyPreservesNumericLiterals() {
         // Literals are preserved so AST identity matches SQL identity.
-        assertThat(AntlrSqlParser.normalizeCacheKey("SELECT * FROM t WHERE id = 42"))
+        assertThat(SqlText.parseCacheKey("SELECT * FROM t WHERE id = 42"))
                 .isEqualTo("SELECT * FROM t WHERE id = 42");
     }
 
     @Test
     void normalizeCacheKeyPreservesDecimalLiterals() {
-        assertThat(AntlrSqlParser.normalizeCacheKey("SELECT * FROM t WHERE price > 19.99"))
+        assertThat(SqlText.parseCacheKey("SELECT * FROM t WHERE price > 19.99"))
                 .isEqualTo("SELECT * FROM t WHERE price > 19.99");
     }
 
     @Test
     void normalizeCacheKeyPreservesStringLiterals() {
-        assertThat(AntlrSqlParser.normalizeCacheKey("SELECT * FROM t WHERE name = 'hello'"))
+        assertThat(SqlText.parseCacheKey("SELECT * FROM t WHERE name = 'hello'"))
                 .isEqualTo("SELECT * FROM t WHERE name = 'hello'");
     }
 
     @Test
     void normalizeCacheKeyCollapsesWhitespaceButPreservesLiterals() {
-        assertThat(AntlrSqlParser.normalizeCacheKey("INSERT INTO t  VALUES (1,\n'a',\t3.14)"))
+        assertThat(SqlText.parseCacheKey("INSERT INTO t  VALUES (1,\n'a',\t3.14)"))
                 .isEqualTo("INSERT INTO t VALUES (1, 'a', 3.14)");
     }
 
     @Test
     void normalizeCacheKeyPreservesWhitespaceInsideStringLiterals() {
         // F-PARSER-01: whitespace inside single-quoted strings must NOT be collapsed
-        assertThat(AntlrSqlParser.normalizeCacheKey("SELECT * FROM t WHERE name = 'hello   world'"))
+        assertThat(SqlText.parseCacheKey("SELECT * FROM t WHERE name = 'hello   world'"))
                 .isEqualTo("SELECT * FROM t WHERE name = 'hello   world'");
     }
 
     @Test
     void normalizeCacheKeyPreservesEscapedQuotesInsideLiterals() {
         // Escaped single quotes ('') inside string literals must be handled correctly
-        assertThat(AntlrSqlParser.normalizeCacheKey("SELECT 'it''s   fine'"))
+        assertThat(SqlText.parseCacheKey("SELECT 'it''s   fine'"))
                 .isEqualTo("SELECT 'it''s   fine'");
     }
 
     @Test
     void normalizeCacheKeyPreservesWhitespaceInsideDoubleQuotedIdentifiers() {
         // Double-quoted identifiers can contain spaces
-        assertThat(AntlrSqlParser.normalizeCacheKey("SELECT \"column  name\"  FROM  t"))
+        assertThat(SqlText.parseCacheKey("SELECT \"column  name\"  FROM  t"))
                 .isEqualTo("SELECT \"column  name\" FROM t");
     }
 
@@ -234,8 +243,8 @@ class ParseCacheAndSllModeTest {
         // Two SQL strings differing only in literal whitespace must produce different keys
         String sql1 = "SELECT * FROM t WHERE name = 'hello world'";
         String sql2 = "SELECT * FROM t WHERE name = 'hello  world'";
-        assertThat(AntlrSqlParser.normalizeCacheKey(sql1))
-                .isNotEqualTo(AntlrSqlParser.normalizeCacheKey(sql2));
+        assertThat(SqlText.parseCacheKey(sql1))
+                .isNotEqualTo(SqlText.parseCacheKey(sql2));
     }
 
     // ── Adaptive cache sizing tests ──
