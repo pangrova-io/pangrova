@@ -168,7 +168,7 @@ public final class PangrovaResultSet implements ResultSet {
     public int findColumn(String columnLabel) throws SQLException {
         checkOpen();
         // PERF-T19: O(1) lookup via lazily-built HashMap instead of O(N) linear scan.
-        Integer idx = columnIndex().get(columnLabel.toLowerCase());
+        Integer idx = columnIndex().get(columnLabel.toLowerCase(java.util.Locale.ROOT));
         if (idx == null) {
             throw new SQLException("Column not found: " + columnLabel);
         }
@@ -180,7 +180,7 @@ public final class PangrovaResultSet implements ResultSet {
             Map<String, Integer> map = new HashMap<>(columns.size() * 2);
             for (int i = 0; i < columns.size(); i++) {
                 // putIfAbsent: first column wins for duplicate names (JDBC convention)
-                map.putIfAbsent(columns.get(i).name().toLowerCase(), i + 1);
+                map.putIfAbsent(columns.get(i).name().toLowerCase(java.util.Locale.ROOT), i + 1);
             }
             columnIndexCache = map;
         }

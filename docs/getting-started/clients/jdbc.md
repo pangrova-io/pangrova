@@ -117,9 +117,11 @@ characters such as `&`, `=`, `+`, and `:` when they occur in property values.
 
 Result PEM credentials are separate from the REST Java trust store. They retain
 certificate and endpoint hostname verification and never rewrite the advertised
-endpoint. If `Connection.close()` encounters a live result owner, it rejects new
-connection operations and reports a release error; retry close after consumption
-exits. A closed-for-admission connection is not itself a physical drain receipt.
+endpoint. `Connection.close()` seals new statement admission, cancels active
+queries, closes its statements and their fetched results, and then closes the
+transport. If cancellation fails or an execution is still running, the connection
+keeps its HTTP owner available to retry cancellation. Retry close after the
+statement exits. A closed-for-admission connection is not itself a physical drain receipt.
 
 ### SSL Configuration
 
@@ -144,6 +146,11 @@ It must not blindly close the global executor: already opened connections and
 other registered driver instances can still borrow that same owner. Automatic
 deregistration/shutdown needs connection leases; the explicit termination barrier
 does not establish that separate lifecycle contract.
+
+When `Statement.cancel()` races with a pending submission, it waits for that
+invocation's submit response and addresses the returned query ID. A failed
+submission with no confirmed query ID raises `SQLException` to the waiting
+caller. A cancellation on an idle statement returns immediately.
 
 `Statement.cancel()` retains the currently active query identity if its HTTP request
 fails or its acknowledgement is malformed, so an explicit retry still addresses

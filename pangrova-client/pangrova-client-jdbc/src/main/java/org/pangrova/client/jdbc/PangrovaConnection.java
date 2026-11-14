@@ -22,6 +22,9 @@ import java.sql.Statement;
 import java.sql.Struct;
 import java.util.Map;
 import java.util.Properties;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 /**
@@ -34,7 +37,9 @@ public final class PangrovaConnection implements Connection {
 
     private final PangrovaRestClient restClient;
     private final String catalog;
-    private boolean closed;
+    private final Set<Statement> statements = ConcurrentHashMap.newKeySet();
+    private boolean releasing;
+    private volatile boolean closed;
     private boolean resourcesReleased;
     private boolean autoCommit = true;
     private boolean readOnly;
@@ -53,21 +58,49 @@ public final class PangrovaConnection implements Connection {
     }
 
     @Override
-    public Statement createStatement() throws SQLException {
+    public synchronized Statement createStatement() throws SQLException {
         checkOpen();
-        return new PangrovaStatement(this);
+        var statement = new PangrovaStatement(this);
+        statements.add(statement);
+        return statement;
     }
 
     @Override
     public void close() throws SQLException {
-        closed = true;
-        if (resourcesReleased) return;
+        List<Statement> owned;
+        synchronized (this) {
+            closed = true;
+            if (resourcesReleased) return;
+            if (releasing) {
+                throw new SQLException("Connection close is in progress", "HY010");
+            }
+            releasing = true;
+            owned = List.copyOf(statements);
+        }
         try {
+            SQLException failure = null;
+            for (var statement : owned) {
+                try {
+                    // The HTTP owner must remain open until active statement cancellation is confirmed.
+                    statement.cancel();
+                    statement.close();
+                } catch (SQLException cleanup) {
+                    if (failure == null) failure = cleanup;
+                    else failure.addSuppressed(cleanup);
+                }
+            }
+            if (failure != null) throw failure;
             restClient.close();
-            resourcesReleased = true;
+            synchronized (this) { resourcesReleased = true; }
         } catch (RuntimeException failure) {
             throw new SQLException("Connection resource release failed; close can be retried", failure);
+        } finally {
+            synchronized (this) { releasing = false; }
         }
+    }
+
+    void statementClosed(Statement statement) {
+        statements.remove(statement);
     }
 
     @Override
@@ -108,9 +141,11 @@ public final class PangrovaConnection implements Connection {
     // --- Unsupported operations ---
 
     @Override
-    public PreparedStatement prepareStatement(String sql) throws SQLException {
+    public synchronized PreparedStatement prepareStatement(String sql) throws SQLException {
         checkOpen();
-        return new PangrovaPreparedStatement(this, sql);
+        var statement = new PangrovaPreparedStatement(this, sql);
+        statements.add(statement);
+        return statement;
     }
 
     @Override

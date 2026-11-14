@@ -48,7 +48,7 @@ final class StatementCancellationPeer implements AutoCloseable {
                     .coordinatorPort(server.getAddress().getPort()).connectTimeout(Duration.ofSeconds(2))
                     .requestTimeout(Duration.ofSeconds(2)).retryPolicy(RetryPolicy.NONE).build();
             connection = new PangrovaConnection(client, null);
-            statement = new PangrovaStatement(connection);
+            statement = (PangrovaStatement) connection.createStatement();
         } catch (Exception | Error failure) {
             try { close(); } catch (Exception cleanup) { failure.addSuppressed(cleanup); }
             throw failure;
@@ -99,7 +99,10 @@ final class StatementCancellationPeer implements AutoCloseable {
                 submits.incrementAndGet();
                 var query = submissions.poll();
                 if (query == null) throw new IllegalStateException("No protocol submission configured");
-                reply(exchange, new Reply(200, query.metadata()));
+                var block = query.submitBlock.getAndSet(null);
+                if (block != null) block.await();
+                var submissionFailure = query.submissionFailure.get();
+                reply(exchange, submissionFailure == null ? new Reply(200, query.metadata()) : submissionFailure);
                 return;
             }
             List<String> components = List.of(path.split("/"));
@@ -173,6 +176,8 @@ final class StatementCancellationPeer implements AutoCloseable {
         final AtomicInteger cancelRequests = new AtomicInteger();
         final AtomicReference<String> lastCancelled = new AtomicReference<>();
         final ConcurrentLinkedQueue<Reply> replies = new ConcurrentLinkedQueue<>();
+        final AtomicReference<Reply> submissionFailure = new AtomicReference<>();
+        final AtomicReference<ResponseBlock> submitBlock = new AtomicReference<>();
         final AtomicReference<Reply> statusFailure = new AtomicReference<>();
         final AtomicReference<ResponseBlock> cancelBlock = new AtomicReference<>();
         final ConcurrentLinkedQueue<ResponseBlock> blocks = new ConcurrentLinkedQueue<>();
@@ -182,9 +187,11 @@ final class StatementCancellationPeer implements AutoCloseable {
             this.endpoint = endpoint;
             state = new AtomicReference<>(endpoint == null ? "RUNNING" : "FINISHED");
         }
-        ResponseBlock blockCancel() {
+        ResponseBlock blockSubmission() { return blockResponse(submitBlock); }
+        ResponseBlock blockCancel() { return blockResponse(cancelBlock); }
+        private ResponseBlock blockResponse(AtomicReference<ResponseBlock> owner) {
             var block = new ResponseBlock();
-            if (!cancelBlock.compareAndSet(null, block)) throw new IllegalStateException("Cancel already held");
+            if (!owner.compareAndSet(null, block)) throw new IllegalStateException("Response already held");
             blocks.add(block);
             return block;
         }

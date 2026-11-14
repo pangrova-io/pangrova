@@ -39,11 +39,13 @@ import java.util.TreeMap;
 public final class PangrovaPreparedStatement implements PreparedStatement {
 
     private final PangrovaStatement delegate;
+    private final PangrovaConnection connection;
     private final String originalSql;
     private final int parameterCount;
     private final Map<Integer, Object> parameters = new TreeMap<>();
 
     PangrovaPreparedStatement(PangrovaConnection connection, String sql) {
+        this.connection = connection;
         this.delegate = new PangrovaStatement(connection);
         this.originalSql = sql;
         this.parameterCount = countPlaceholders(sql);
@@ -173,6 +175,7 @@ public final class PangrovaPreparedStatement implements PreparedStatement {
     public void close() throws SQLException {
         delegate.close();
         parameters.clear();
+        connection.statementClosed(this);
     }
 
     @Override

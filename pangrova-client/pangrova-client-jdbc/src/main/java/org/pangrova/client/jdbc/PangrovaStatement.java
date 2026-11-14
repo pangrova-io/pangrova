@@ -1,5 +1,7 @@
 package org.pangrova.client.jdbc;
 
+import org.pangrova.client.jdbc.enums.StatementKeywordKind;
+
 import org.pangrova.common.client.enums.CancelOutcome;
 
 import org.pangrova.common.client.exception.PangrovaClientException;
@@ -23,7 +25,8 @@ import java.sql.SQLTimeoutException;
 import java.sql.SQLWarning;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -38,7 +41,8 @@ public final class PangrovaStatement implements java.sql.Statement {
 
     private final PangrovaConnection connection;
     private volatile boolean closed;
-    private final AtomicBoolean executing = new AtomicBoolean();
+    // The future belongs to one invocation, including the interval before submit returns its ID.
+    private final AtomicReference<CompletableFuture<String>> submission = new AtomicReference<>();
     private int queryTimeoutSeconds;
     private int fetchSize;
     private ResultSet currentResultSet;
@@ -75,7 +79,7 @@ public final class PangrovaStatement implements java.sql.Statement {
         } catch (Exception e) {
             throw toSqlException(e);
         } finally {
-            executing.set(false);
+            releaseExecution();
         }
     }
 
@@ -86,6 +90,7 @@ public final class PangrovaStatement implements java.sql.Statement {
         SubmitQueryResponse submitResponse = client.submitQuery(sql, props);
         String queryId = submitResponse.queryId();
         currentQueryId.set(queryId);
+        submission.get().complete(queryId);
         LOG.debug("Submitted query queryId={}", queryId);
         try {
             T result = operation.execute(client, queryId, submitResponse, deadlineMs);
@@ -98,7 +103,7 @@ public final class PangrovaStatement implements java.sql.Statement {
     }
 
     private void acquireExecution() throws SQLException {
-        if (!executing.compareAndSet(false, true)) {
+        if (!submission.compareAndSet(null, new CompletableFuture<>())) {
             throw new SQLException("Statement execution is still owned", "HY010");
         }
         try {
@@ -108,9 +113,15 @@ public final class PangrovaStatement implements java.sql.Statement {
                         "HY010");
             }
         } catch (SQLException failure) {
-            executing.set(false);
+            releaseExecution();
             throw failure;
         }
+    }
+
+    private void releaseExecution() {
+        var completed = submission.getAndSet(null);
+        // Also unblock a cancel waiting on an unsuccessful or unconfirmed submission.
+        completed.complete(null);
     }
 
     @FunctionalInterface
@@ -180,13 +191,14 @@ public final class PangrovaStatement implements java.sql.Statement {
     @Override
     public void close() throws SQLException {
         closed = true;
-        if (executing.get()) {
+        if (submission.get() != null) {
             throw new SQLException("Statement execution has not drained; cancel and retry close", "HY010");
         }
         if (currentQueryId.get() != null) {
             cancel();
         }
         closeCurrentResultSet();
+        connection.statementClosed(this);
     }
 
     private void closeCurrentResultSet() throws SQLException {
@@ -221,7 +233,7 @@ public final class PangrovaStatement implements java.sql.Statement {
     }
 
     private void checkOpen() throws SQLException {
-        if (closed) {
+        if (closed || connection.isClosed()) {
             throw new SQLException("Statement is closed");
         }
     }
@@ -249,7 +261,7 @@ public final class PangrovaStatement implements java.sql.Statement {
         } catch (Exception e) {
             throw toSqlException(e);
         } finally {
-            executing.set(false);
+            releaseExecution();
         }
     }
 
@@ -270,7 +282,7 @@ public final class PangrovaStatement implements java.sql.Statement {
         } catch (Exception e) {
             throw toSqlException(e);
         } finally {
-            executing.set(false);
+            releaseExecution();
         }
     }
 
@@ -333,9 +345,9 @@ public final class PangrovaStatement implements java.sql.Statement {
                 // At top-level, check if we've found a keyword (non-CTE-name position)
                 // Look for the terminal keyword after the last CTE closing paren
                 // by finding a keyword that's a DML verb
-                TopLevelKeyword outcome = classifyTopLevelKeyword(sql, i);
-                if (outcome != TopLevelKeyword.OTHER) {
-                    return outcome == TopLevelKeyword.DML;
+                StatementKeywordKind outcome = classifyTopLevelKeyword(sql, i);
+                if (outcome != StatementKeywordKind.OTHER) {
+                    return outcome == StatementKeywordKind.DML;
                 }
             }
             i++;
@@ -360,7 +372,7 @@ public final class PangrovaStatement implements java.sql.Statement {
      *
      * @return an explicit classification; an unknown token is never a nullable Boolean
      */
-    private static TopLevelKeyword classifyTopLevelKeyword(String sql, int start) {
+    private static StatementKeywordKind classifyTopLevelKeyword(String sql, int start) {
         int len = sql.length();
         int wordEnd = start;
         while (wordEnd < len && !Character.isWhitespace(sql.charAt(wordEnd))
@@ -369,15 +381,14 @@ public final class PangrovaStatement implements java.sql.Statement {
         }
         String word = sql.substring(start, wordEnd).toUpperCase(Locale.ROOT);
         if (isDmlKeyword(word)) {
-            return TopLevelKeyword.DML;
+            return StatementKeywordKind.DML;
         }
         if (isSelectKeyword(word)) {
-            return TopLevelKeyword.SELECT;
+            return StatementKeywordKind.SELECT;
         }
-        return TopLevelKeyword.OTHER;
+        return StatementKeywordKind.OTHER;
     }
 
-    private enum TopLevelKeyword { DML, SELECT, OTHER }
 
     private static boolean isDmlKeyword(String word) {
         return switch (word) {
@@ -423,8 +434,22 @@ public final class PangrovaStatement implements java.sql.Statement {
         this.queryTimeoutSeconds = Math.max(0, seconds);
     }
     @Override public void cancel() throws SQLException {
-        String qid = currentQueryId.get();
-        if (qid != null) {
+        var pending = submission.get();
+        String qid;
+        if (pending == null) {
+            qid = currentQueryId.get();
+        } else {
+            try {
+                qid = pending.get();
+                if (qid == null) throw new SQLException("Query submission did not return a confirmed identity");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new SQLException("Interrupted waiting for the query identity to cancel", interrupted);
+            } catch (ExecutionException failure) {
+                throw new SQLException("Could not resolve the query identity to cancel", failure.getCause());
+            }
+        }
+        if (qid != null && qid.equals(currentQueryId.get())) {
             try {
                 CancelOutcome outcome = connection.restClient().cancelQuery(qid);
                 if (outcome == CancelOutcome.NOT_FOUND) {

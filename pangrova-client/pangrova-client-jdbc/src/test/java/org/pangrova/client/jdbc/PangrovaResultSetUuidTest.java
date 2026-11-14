@@ -55,6 +55,22 @@ class PangrovaResultSetUuidTest {
     }
 
     @Test
+    @org.junit.jupiter.api.parallel.ResourceLock(org.junit.jupiter.api.parallel.Resources.LOCALE)
+    void jdbcLabelsPreserveAsciiCaseInsensitivityUnderTurkishLocale() throws Exception {
+        var original = java.util.Locale.getDefault();
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"));
+            try (var result = new PangrovaResultSet(batch(false, true), null)) {
+                assertThat(result.findColumn("ID")).isOne();
+                assertThat(result.next()).isTrue();
+                assertThat(result.getObject("iD")).isEqualTo(VALUES[0]);
+            }
+        } finally {
+            java.util.Locale.setDefault(original);
+        }
+    }
+
+    @Test
     void unannotatedSixteenByteBinaryDoesNotBecomeUuid() throws Exception {
         try (var result = new PangrovaResultSet(batch(false, false), null)) {
             assertThat(result.getMetaData().getColumnTypeName(1)).isNotEqualTo("UUID");
@@ -67,7 +83,7 @@ class PangrovaResultSetUuidTest {
     private static ResultBatch batch(boolean empty, boolean uuid) throws Exception {
         var metadata = uuid ? Map.of("ARROW:extension:name", "arrow.uuid", "ARROW:extension:metadata", "")
                 : Map.<String, String>of();
-        var field = new Field("id", new FieldType(true, new ArrowType.FixedSizeBinary(16), null, metadata), null);
+        var field = new Field("ID", new FieldType(true, new ArrowType.FixedSizeBinary(16), null, metadata), null);
         var output = new ByteArrayOutputStream();
         try (var allocator = new RootAllocator();
                 var root = VectorSchemaRoot.create(new Schema(List.of(field)), allocator)) {
