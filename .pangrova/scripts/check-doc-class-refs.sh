@@ -41,9 +41,9 @@ design = re.compile(
     r'proposed|planned|target design|remaining work|new (class|component)'
     r'|phase [0-9]|does not exist|not implemented', re.I)
 reference = re.compile(r'`([A-Z][A-Za-z0-9]{3,})`')
-removed_before = re.compile(r'(原|已删除的|退役的|移除的|旧的)\s*$')
+removed_before = re.compile(r'(原|已删除的|退役的|移除的|旧的|旧|retired|removed|former|legacy|old)\s*$', re.I)
 removed_verb_before = re.compile(r'(删除|移除|退役|迁移到|迁到|迁入|移至|归入)[^，。；|]{0,12}$')
-removed_after = re.compile(r'^\s*[也均]?\s*(已删除|退役|移除|删除)')
+removed_after = re.compile(r'^\s*[也均]?\s*(已删除|退役|移除|删除)|^\s*(was|is)\s+(retired|removed)\b', re.I)
 disposition_verb = re.compile(r'^(已删除|删除|移除|退役|移入|迁入|迁到|迁至|移至|归入)')
 
 

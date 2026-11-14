@@ -3,10 +3,9 @@ package org.pangrova.worker.enums;
 /**
  * Semantic DML operation for native write operations.
  *
- * <p>Distinct from the connector-level
- * {@link org.pangrova.connector.api.enums.WriteMode} which models
- * append/upsert/overwrite semantics at the storage layer. This enum
- * models the DML operation intent as seen by the native execution engine.
+ * <p>This enum models the DML operation intent as seen by the native
+ * execution engine; the storage-layer append/upsert/overwrite choice is
+ * encoded by the connector write task that owns the target table.
  */
 public enum DmlOperation {
     /** Insert new rows into the target table. */

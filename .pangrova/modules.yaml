@@ -497,7 +497,7 @@ artifacts:
     packageRoots: [org.pangrova.streaming.api]
     exports: [org.pangrova.streaming.api]
     allowedImports: [pangrova-common]
-    forbiddenImports: [pangrova-streaming-pipeline, pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-streaming-writers-builtin, pangrova-persistence-streaming-postgresql, pangrova-coordination-control, pangrova-worker]
+    forbiddenImports: [pangrova-streaming-pipeline, pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-persistence-streaming-postgresql, pangrova-coordination-control, pangrova-worker]
     providers: {}
 
   pangrova-streaming-pipeline:
@@ -507,7 +507,7 @@ artifacts:
     testPackageRoots: [org.pangrova.streaming.property]
     exports: [org.pangrova.streaming.enums, org.pangrova.streaming.exception, org.pangrova.streaming.aggregation, org.pangrova.streaming.cdc, org.pangrova.streaming.commit, org.pangrova.streaming.coordinator, org.pangrova.streaming.maintenance, org.pangrova.streaming.pipeline, org.pangrova.streaming.query, org.pangrova.streaming.watermark]
     allowedImports: [pangrova-streaming-api, pangrova-common, pangrova-types, pangrova-batch, pangrova-parser, pangrova-observability-api, pangrova-connector-api]
-    forbiddenImports: [pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-streaming-writers-builtin, pangrova-persistence-streaming-postgresql, pangrova-coordination-control, pangrova-worker]
+    forbiddenImports: [pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-persistence-streaming-postgresql, pangrova-coordination-control, pangrova-worker]
     providers: {}
 
   pangrova-streaming-source-kafka:
@@ -534,15 +534,6 @@ artifacts:
         - org.pangrova.streaming.format.debezium.DebeziumJsonFormatFactory
         - org.pangrova.streaming.format.maxwell.MaxwellJsonFormatFactory
 
-  pangrova-streaming-writers-builtin:
-    path: pangrova-streaming/pangrova-streaming-writers-builtin
-    moduleName: org.pangrova.streaming.writers.builtin
-    packageRoots: [org.pangrova.streaming.writer]
-    exports: [org.pangrova.streaming.writer]
-    allowedImports: [pangrova-streaming-api, pangrova-streaming-pipeline, pangrova-types, pangrova-connector-api]
-    forbiddenImports: [pangrova-coordination-control, pangrova-worker]
-    providers: {}
-
   pangrova-persistence-streaming-memory:
     path: pangrova-persistence/pangrova-persistence-streaming-memory
     moduleName: org.pangrova.persistence.streaming.memory
@@ -558,7 +549,7 @@ artifacts:
     packageRoots: [org.pangrova.persistence.streaming.postgresql]
     exports: [org.pangrova.persistence.streaming.postgresql]
     allowedImports: [pangrova-streaming-api, pangrova-common, pangrova-persistence-jdbc-support]
-    forbiddenImports: [pangrova-streaming-pipeline, pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-streaming-writers-builtin, pangrova-coordination-control, pangrova-worker]
+    forbiddenImports: [pangrova-streaming-pipeline, pangrova-streaming-source-kafka, pangrova-streaming-formats-builtin, pangrova-coordination-control, pangrova-worker]
     providers: {}
 
   pangrova-transport-client:
@@ -690,7 +681,7 @@ artifacts:
     packageRoots: [org.pangrova.testing.integration.chaos, org.pangrova.testing.integration.e2e, org.pangrova.testing.integration.enums, org.pangrova.testing.integration.exception]
     testPackageRoots: [org.pangrova.testing.integration.control, org.pangrova.testing.integration.smoke]
     exports: []
-    allowedImports: [pangrova-client-http, pangrova-shuffle-pangrova, pangrova-common, pangrova-metadata-catalog, pangrova-observability-sdk, pangrova-query, pangrova-table, pangrova-testing-kit, pangrova-types, pangrova-batch, pangrova-connector-api, pangrova-metadata-api, pangrova-governance-api, pangrova-governance-runtime, pangrova-persistence-governance-postgresql, pangrova-streaming-api, pangrova-streaming-pipeline, pangrova-streaming-writers-builtin, pangrova-persistence-streaming-postgresql, pangrova-security-secrets]
+    allowedImports: [pangrova-client-http, pangrova-shuffle-pangrova, pangrova-common, pangrova-metadata-catalog, pangrova-observability-sdk, pangrova-query, pangrova-table, pangrova-testing-kit, pangrova-types, pangrova-batch, pangrova-connector-api, pangrova-metadata-api, pangrova-governance-api, pangrova-governance-runtime, pangrova-persistence-governance-postgresql, pangrova-streaming-api, pangrova-streaming-pipeline, pangrova-persistence-streaming-postgresql, pangrova-security-secrets]
     forbiddenImports: []
     providers: {}
 

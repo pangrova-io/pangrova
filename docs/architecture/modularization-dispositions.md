@@ -20,7 +20,7 @@ python3 .pangrova/scripts/export-class-inventory.py --base b51114d0 --output tar
 | 要求 | 已核对的证据 | 尚待验收 |
 |---|---|---|
 | 1、2 单子模块与局部契约 | POM 扫描未发现单子模块聚合目录。现存 28 个 `-api` 均有领域外制品直接声明非测试依赖。下文“按实际调用方复核契约制品”记录调用方及其语义。 | 领域外依赖能说明当前消费者，进一步合并仍须检查包级职责与循环。 |
-| 3 多实现和工厂 | 生产服务描述符含 24 种服务契约、49 条注册，分布在 30 个制品。AI 有 OpenAI 和 Qwen 两个工厂，Connector 可从进程插件目录加载。 | 下文“进程服务登记与实际调用”逐项列出注册、选择、资源和验证范围。Java spool、表的内存实现和厂商线上环境按其实际支持范围验收。 |
+| 3 多实现和工厂 | 生产服务描述符含 24 种服务契约、49 条注册，分布在 30 个制品。AI 有 OpenAI 和 Qwen 两个工厂，Connector 可从进程插件目录加载。旧 TableWriter 批写层级没有生产工厂、消费入口或关闭 owner，已随两个 writer 一起退役。 | 下文“进程服务登记与实际调用”逐项列出注册、选择、资源和验证范围。Java spool、表的内存实现和厂商线上环境按其实际支持范围验收。 |
 | 4–7 平铺、契约名称、客户端 | Parser、Batch、File、Planner、Query、Semantic、Table、Worker 各由领域 POM 直接构建。Java 契约使用 `.api`。Client 实际子制品为 HTTP、CLI、JDBC。 | JDBC 取消、CLI 超时在双 Worker 发行物已运行。后续客户端资源回收变更需用对应制品复验。 |
 | 8、9 客户端共用契约与 JSON | 共享客户端契约在 `common.client`，JSON 在 `common.json`，POM 中已移除原独立制品。 | 复查最终发行物的运行依赖与旧类。 |
 | 10、14 七个重点领域和参考设计 | Scheduler 按 policy/strategies，Streaming 按 pipeline/source/format/writer，Metadata 按 catalog/codec，Materialization 和 Indexing 按 lifecycle/strategies，Generation 按 workflow/codec，Execution 按 binding 划分。七者的外部契约独立发布。ADR 记录 Paimon、Iceberg、Trino、SeaTunnel 相关源码和取舍。全仓 Maven 制品已无 `-core`。 | 在同源、按角色装配的发行回归中验证这些边界。 |
@@ -62,6 +62,9 @@ macOS arm64 源码快照 `c61dc7785` 的 ASan 全量运行已结束。4335 项�
 
 ## 11 月 14 日追加验证
 
+- 旧 TableWriter 批写管线退役。TableWriter、WriteRecord、WriteContext、DataFileSink、WriteMode、TableFormat，以及 Lake、merge-tree、incremental writer 和 StreamingWriter、CdcConsumer、LateDataRouter、StreamingWiring 只有测试构造点，没有生产工厂、依赖注入或消费入口。真实 CDC 路径保持 CdcPipelineLoop → CdcTwoPhaseCommitter → ConnectorPageSinkCdcWriter；SQL 写入保持 Worker NativeWriteExecutor 与 ConnectorPageSink。模块、服务清单、公开文档、SPI 基线及回归断言同步更新。
+- TPC-DS q08 的计划差异只是 customer_address 一侧被 INNER 等值连接及 20 个 ZIP 常量域蕴含的冗余 SEARCH 被消除。5 次冷 JVM 的计划逐字一致，连接仍保留完整常量域；黄金计划按该评审差异刷新。同一查询域的重复、NULL、前缀和非匹配样本核对 IN 列表与等值连接判定一致。
+- Lance 48 项需要显式传入同源 `pangrova_lance_fixture_tool`。主工作树构建的 Native 源与 HEAD 逐文件一致（`src`、`cmake` 与 `CMakeLists.txt`），传入其绝对路径后 48/48 通过，JNI/SDK 使用同一批源码产物。
 - AI 模型 registry 把实现 `AutoCloseable` 的厂商实例交由版本包装器释放。并发关闭等待同一个结果，关闭异常仍传给调用方。已推送 `0ed4ff20b`。
 - 向量检索保留有正 OFFSET 的完整排序分页路径，零 OFFSET 仍可使用满足条件的索引。已推送 `7a374091f`。
 - 归并连接的成本与 Substrait 生成复用一处键顺序判定。左右输入分别满足升序、NULLS FIRST 时才能省去该侧排序。47 个 Java 用例和 145 个 Native 用例通过。已推送 `94e71d6b8`。
@@ -298,7 +301,7 @@ Function 是此前唯一只有一个子模块的领域目录。源码已上移�
 | `materialization-strategies-builtin` | 三个无外部资源的算法独立于 Core 发布。Server 仅保留 runtime 依赖。改变服务文件顺序不会改变显式策略和自动策略优先级 |
 | `streaming-api` | CDC 信封、源、转换器及其工厂、checkpoint、提交和 watermark 端口被生产控制面及 PostgreSQL 使用 |
 | `streaming-core` | Pipeline 的读取、解码、写入、checkpoint 和 watermark 由同一调度生命周期协调；格式实现通过服务发现 |
-| `streaming-source-kafka`、`streaming-formats-builtin`、`streaming-writers-builtin` | Kafka SDK、JSON 格式和 Connector writer 分别打包；具体生产与测试入口见本文 Streaming source、format 与 writer 小节 |
+| `streaming-source-kafka`、`streaming-formats-builtin` | Kafka SDK 和 JSON 解码格式分别打包；具体生产与测试入口见本文 Streaming source 与 format 小节 |
 
 本批 64 项策略发现、注册表、刷新服务、证明与 attempt 测试通过。另在 JDK 17 编译本家族全部生产源码并运行 6 项包依赖架构测试，核对领域值、调用端口、扩展契约的依赖方向。
 
@@ -478,7 +481,7 @@ Client 和 Transport 的六个子制品内没有以 Bridge 或 Adapter 命名的
 
 `CREATE STREAM ... FROM <provider>` 的 source id 经 AST、SQL 打印、StreamState、PostgreSQL、恢复调度传递。Server 发现一次 `CdcSourceFactory`，DDL 和 Scheduler 共用注册表。DDL 先检查 source 属性和 format，Scheduler 按持久化的 source 和不可变 checkpoint id 创建独占 reader。Kafka provider 负责 SDK、topic、group、rebalance、seek、commit 与部分初始化异常的关闭。Core 和 API 没有 Kafka SDK 编译依赖。退役的 `KafkaStreamSourceReader` 仅实现已移除的 `StreamSourceReader`，截断 poll 时会跨过未消费记录；生产 `KafkaCdcSourceReader` 保留按 partition 回退与恢复 seek 的实现。
 
-三个 JSON format 共用 Jackson 和注册方式，进入 `streaming-formats-builtin`。Lake、merge-tree 和 incremental writer 使用 Connector 写入契约、Types 与 Maintenance，进入 `streaming-writers-builtin`。Coordinator CDC 实际写入仍使用 `ConnectorPageSinkCdcWriter`；独立 writer 制品由现有 writer 使用方和集成测试引用，不将这些 writer 自动广播成支持的 SQL sink。
+三个 JSON format 共用 Jackson 和注册方式，进入 `streaming-formats-builtin`。原 `streaming-writers-builtin` 的 Lake、merge-tree 和 incremental writer 只有测试构造点，没有生产工厂、依赖注入、关闭 owner 或真实消费入口；核实公开文档和替代路径后，writer 制品与旧 `TableWriter` 批写层级一并退役。Coordinator CDC 实际写入继续使用 `ConnectorPageSinkCdcWriter`，SQL 写入使用 Worker `NativeWriteExecutor` 与 `ConnectorPageSink`。
 
 最终统一验证需覆盖 `StreamDdlRoundTripPropertyTest`、`StreamSchedulerLifecycleTest`、`CdcSourceRegistryTest`、`KafkaCdcSourceReaderIntegrationTest`、`StreamingKafkaIdentityIntegrationTest` 与 PostgreSQL StreamState 存取。Kafka 实际交付为现有 source，新增 provider 能力由其自身的真实实现与验证决定。
 
@@ -774,7 +777,7 @@ JDK 17 隔离源码 `b9565713a25429d54258c726244f6bc0ff0e297e` 的 SpiWiringVeri
 | LocalFileSystemAccessor | 仅显式本地路径调用者和索引测试会构造；更新虚假的自动发现说明。生产 Catalog 选择具体 Connector accessor，不在缺 FileIO 时绕回本地。暂留豁免。 |
 | ArrayBlock、DictionaryBlock、DoubleBlock、IntBlock、LazyBlock、LongBlock、RunLengthEncodedBlock、SliceBlock（8 项） | Batch API 自己提供的列值表示。门禁按 Block 契约和归属包识别，外部 Block 实现及另一个工厂接口仍参加装配检查。BlockRegionBoundsTest 逐种检验范围和溢出。 |
 | StandardTypeRegistry | 独立类型解析和兼容性计算。TypeSystemPropertyTest 证明已支持基础类型与 DECIMAL 往返。留在原豁免，TIMESTAMP 精度等扩展须按各自发布状态判定。 |
-| LakeTableWriter、MergeTreeTableWriter（2 项） | 外部提供 DataFileSink 的显式批写组件；SQL CDC 使用 ConnectorPageSinkCdcWriter。其回调和 schema/文件级测试不证明可作为耐久的 CDC 提交 authority，保留两项豁免。 |
+| LakeTableWriter、MergeTreeTableWriter（2 项，已退役） | 两套 writer 以及 TableWriter、WriteRecord、WriteContext、DataFileSink、WriteMode、TableFormat 只有测试构造点，无生产工厂或消费入口。真实 CDC 使用 CdcWriteSink 与 ConnectorPageSinkCdcWriter，SQL 写入使用 Worker NativeWriteExecutor 与 ConnectorPageSink。代码、模块、服务清单和文档同步退役，SPI 历史豁免降为 5 项。 |
 | CacheEvictionBroadcaster | 旧队列没有心跳消费者，一次 drain 也不能向所有 Worker 交付。迁入测试源码。Iceberg 可显式提供 best-effort 文件提示 listener；正式服务仍无集群文件驱逐保证。 |
 | SettableDynamicFilter | 迁测试。生产 split 枚举传 DynamicFilter.ALL。无 build producer 的测试 collector 与完成处理器一同迁测试；删除按两个叶子的次序猜测 build/probe 的逻辑。分布式自动剪枝状态见 dynamic-filtering.md。 |
 | LineageQueryEventListener | 显式 QueryEventDispatcher 调用可向借用 emitter 发送 START 和终态。门禁真实发布并检查消息。Coordinator 保持现有 durable lineage 唯一写入者。 |
@@ -787,6 +790,6 @@ JDK 17 隔离源码 `b9565713a25429d54258c726244f6bc0ff0e297e` 的 SpiWiringVeri
 
 **URI COPY #19**。CopyIntoParserTest 覆盖 URI 源在解析阶段的明确拒绝，SELECT 来源遵循其独立入口。JdbcCopyFileClaimStore 能识别不可变源、同 execution 重放、其他执行阻塞及 profile/摘要冲突。原子 source-read admission 和带凭据的 Worker staging 单测能验证签名、租户、字节和回滚。正式 SQL 尚不能冻结 URI 清单并把 claim、目标权限复查与恢复关联到同一写入发布。保留 issue 标记，reload generation 继续拒绝。现有 claim 和内部端点不构成用户可用的 URI 加载。
 
-**本批验证**。隔离源码 `5821360ba` 的 22 个测试类共 201 项通过，含 PostgreSQL、角色装配和两道 SPI 门禁。后续隔离源码 `ad3023b53` 的非 Native E2E 选集通过 151 项，最终字面量 Join 和 HEP 规则选集通过 33 项，覆盖 nullable BIGINT、列重命名、等式反序和基数估算与实际 build 方向相反的输入。剩余 7 个 SPI 豁免逐项列于上表。
+**本批验证**。隔离源码 `5821360ba` 的 22 个测试类共 201 项通过，含 PostgreSQL、角色装配和两道 SPI 门禁。后续隔离源码 `ad3023b53` 的非 Native E2E 选集通过 151 项，最终字面量 Join 和 HEP 规则选集通过 33 项，覆盖 nullable BIGINT、列重命名、等式反序和基数估算与实际 build 方向相反的输入。该批剩余 7 个 SPI 豁免曾逐项列于上表；其中 LakeTableWriter 与 MergeTreeTableWriter 已在本轮退役，现余 5 项。
 
 **Join 过滤的实际支持范围**。启用 Velox 生产 Connector 的 `canAddDynamicFilter`，从实际 hash build 推送到带列别名的 probe scan。两个 Parquet 源上，INNER 将 scan 输出从 4 行减到 2 行，Join 输出保留重复键；LEFT 的 scan 返回全部 4 行。发布后的远程 build 由独立测试经 Direct commit、注销 producer、seal、loopback Flight、Arrow exchange 和 Native hash Join 传入，同样验证 scan 和 Join 两个计数。两个独立 Worker 的具体查询、跨 stage 控制面向上游 probe 发布键域、文件 IO 字节减少均有独立验证要求。官方 Native 测试运行器的 44 项定向回归通过，另行执行的 12 项 NativeExchangeDataPlaneE2ETest 全部通过。macOS arm64 的 ASan/UBSan 运行同任务与远程 build、注入和交换测试 18 项，通过且诊断扫描无发现。真实 Iceberg SQL / Coordinator / Worker / JNI 测试共 6 项通过，其中 nullable BIGINT 和 VALUES 涉及 INNER、LEFT、重复 build 及重复 probe。首次实跑在 Calcite 的 transitive predicate 推导中叠加 Filter 并超时；限制字面量输入的推导并沿投影解析真实 key 后重跑。断言按独立读取的 probe 多重集验证，生成器按 50 个键循环生成 100 行。验证使用先前 Maven reactor 的测试 classpath 及本次重建的 planner、测试类和 Native 动态库。详细边界见 [Dynamic filters](dynamic-filtering.md)。

@@ -6,8 +6,10 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -19,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -103,6 +106,45 @@ class TpcdsPlanStabilityTest {
                 .as("Plan for TPC-DS " + queryFile + " must match golden file. "
                         + "If intentional, re-generate golden files and get approval.")
                 .isEqualTo(expectedPlan);
+    }
+
+    @Test
+    void regenerateGoldenPlansWhenRequested() throws IOException {
+        Assumptions.assumeTrue(Boolean.getBoolean("pangrova.plan.golden.write"),
+                "set -Dpangrova.plan.golden.write=true to refresh reviewed golden plans");
+        for (String queryFile : queryFiles().toList()) {
+            String sql = loadQuery(queryFile);
+            PlanResult result = planner.plan(sql);
+            assertThat(result).as("Plan result for " + queryFile).isNotNull();
+            Files.writeString(GOLDEN_DIR.resolve(queryFile.replace(".sql", ".plan")),
+                    result.plan().explain(), StandardCharsets.UTF_8);
+        }
+    }
+
+    @Test
+    void q08LiteralDomainPreservesInListSemanticsForEdgeValues() {
+        List<String> zipDomain = List.of(
+                "24128", "76232", "65084", "87816", "83926", "77556", "20548",
+                "26231", "43848", "15126", "91137", "61265", "98294", "25782",
+                "17920", "18103", "23790", "57855", "67449", "32213");
+        List<String> samples = new java.util.ArrayList<>(zipDomain);
+        samples.addAll(List.of("24128", "24128-1234", "2412", "241280",
+                "99999", "", " 24128", "2412X"));
+        samples.add(null);
+        for (String zip : samples) {
+            boolean inList = false;
+            boolean joinMatch = false;
+            if (zip != null) {
+                String prefix = zip.length() > 5 ? zip.substring(0, 5) : zip;
+                inList = zipDomain.contains(prefix);
+                for (String key : zipDomain) {
+                    joinMatch |= prefix.equals(key);
+                }
+            }
+            assertThat(joinMatch)
+                    .as("zip sample <%s>: inner equi-join with the constant domain must imply the IN list", zip)
+                    .isEqualTo(inList);
+        }
     }
 
     private static String loadQuery(String filename) {

@@ -1,10 +1,6 @@
 package org.pangrova.connector.api.data.write;
 
-import org.pangrova.connector.api.write.TableWriter;
-
 import org.pangrova.connector.api.data.ConnectorPageSink;
-import org.pangrova.connector.api.write.WriteContext;
-import org.pangrova.connector.api.enums.WriteMode;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -16,22 +12,26 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Contract tests for the write SPI hierarchy.
+ * Contract tests for the connector write SPI hierarchy.
  *
- * <p>Verifies the design decision documented in F-SPI-01:
- * <ul>
- *   <li>{@link ConnectorPageSink} is the canonical connector-level write SPI with
- *       two-phase commit (appendPage / finishWithMetadata / abort / close)</li>
- *   <li>{@link TableWriter} is the streaming write contract with single-shot
- *       write semantics (no commit/abort needed)</li>
- *   <li>There is no {@code WriteContext} transaction mode concept -- streaming
- *       writes are always self-managed</li>
- *   <li>{@code DataFileSink} was removed from the SPI (it was a redundant third
- *       write interface competing with ConnectorPageSink and TableWriter); it now
- *       lives in the streaming module as an internal implementation detail</li>
- * </ul>
+ * <p>{@link ConnectorPageSink} is the canonical connector-level write SPI with
+ * two-phase commit (appendPage / finishWithMetadata / abort / close). The former
+ * single-shot batch-write hierarchy had no production factory, consumer or
+ * close owner: the CDC runtime writes through CdcWriteSink and
+ * ConnectorPageSinkCdcWriter, and SQL writes use the same connector sinks.</p>
  */
 class WriteSpiContractTest {
+
+    private static final List<String> RETIRED_BATCH_WRITE_TYPES = List.of(
+            "org.pangrova.connector.api.write.TableWriter",
+            "org.pangrova.connector.api.write.WriteRecord",
+            "org.pangrova.connector.api.write.WriteContext",
+            "org.pangrova.connector.api.write.DataFileSink",
+            "org.pangrova.connector.api.enums.WriteMode",
+            "org.pangrova.connector.api.enums.TableFormat",
+            "org.pangrova.streaming.writer.lake.LakeTableWriter",
+            "org.pangrova.streaming.writer.mergetree.MergeTreeTableWriter",
+            "org.pangrova.streaming.writer.incremental.IncrementalWriter");
 
     @Test
     void connectorPageSinkHasTwoPhaseCommitMethods() {
@@ -47,32 +47,15 @@ class WriteSpiContractTest {
     }
 
     @Test
-    void tableWriterHasSingleShotWriteSemantics() {
-        Set<String> methods = methodNames(TableWriter.class);
-        assertTrue(methods.contains("write"),
-                "TableWriter must have write for single-shot streaming writes");
-        assertFalse(methods.contains("commit"),
-                "TableWriter must not have commit (streaming writes are self-managed)");
-        assertFalse(methods.contains("abort"),
-                "TableWriter must not have abort (streaming writes are self-managed)");
-        assertFalse(methods.contains("finishWithMetadata"),
-                "TableWriter must not have finishWithMetadata (not a 2PC contract)");
-    }
-
-    @Test
-    void tableWriterWriteMethodAcceptsWriteContext() {
-        Method writeMethod = Arrays.stream(TableWriter.class.getDeclaredMethods())
-                .filter(m -> m.getName().equals("write"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("write method not found"));
-
-        Class<?>[] paramTypes = writeMethod.getParameterTypes();
-        assertEquals(4, paramTypes.length,
-                "write() should take 4 parameters: tableName, records, writeMode, context");
-        assertEquals(String.class, paramTypes[0], "First param should be tableName (String)");
-        assertEquals(List.class, paramTypes[1], "Second param should be records (List)");
-        assertEquals(WriteMode.class, paramTypes[2], "Third param should be writeMode (WriteMode)");
-        assertEquals(WriteContext.class, paramTypes[3], "Fourth param should be context (WriteContext)");
+    void retiredBatchWriteHierarchyStaysRemoved() {
+        for (String type : RETIRED_BATCH_WRITE_TYPES) {
+            try {
+                Class.forName(type);
+                fail(type + " had no production constructor, factory or consumer; it must stay retired");
+            } catch (ClassNotFoundException expected) {
+                // expected: the dead batch-write hierarchy was retired
+            }
+        }
     }
 
     @Test
@@ -98,20 +81,6 @@ class WriteSpiContractTest {
         } catch (ClassNotFoundException expected) {
             // expected: StreamWriteResult deleted
         }
-    }
-
-    @Test
-    void connectorPageSinkAndTableWriterAreDistinctHierarchies() {
-        assertFalse(ConnectorPageSink.class.isAssignableFrom(TableWriter.class),
-                "TableWriter must not extend ConnectorPageSink");
-        assertFalse(TableWriter.class.isAssignableFrom(ConnectorPageSink.class),
-                "ConnectorPageSink must not extend TableWriter");
-    }
-
-    @Test
-    void tableWriterIsAutoCloseable() {
-        assertTrue(AutoCloseable.class.isAssignableFrom(TableWriter.class),
-                "TableWriter must be AutoCloseable for resource management");
     }
 
     private static Set<String> methodNames(Class<?> clazz) {

@@ -4754,32 +4754,6 @@ artifacts:
     providers:
       "org.pangrova.streaming.api.source.CdcSourceFactory":
         - org.pangrova.streaming.source.kafka.KafkaCdcSourceFactory
-  pangrova-streaming-writers-builtin:
-    path: pangrova-streaming/pangrova-streaming-writers-builtin
-    mainPackages:
-      - org.pangrova.streaming.writer.enums
-      - org.pangrova.streaming.writer.incremental
-      - org.pangrova.streaming.writer.lake
-      - org.pangrova.streaming.writer.mergetree
-    pomDependencies:
-      pangrova-connector-api: compile
-      pangrova-streaming-api: test
-      pangrova-streaming-pipeline: compile
-      pangrova-types: compile
-    imports:
-      main:
-        - pangrova-connector-api
-        - pangrova-streaming-pipeline
-        - pangrova-types
-      test:
-        - pangrova-connector-api
-        - pangrova-streaming-api
-        - pangrova-streaming-pipeline
-        - pangrova-types
-    exportedPackages:
-      - org.pangrova.streaming.writer.lake
-    providers:
-      {}
   pangrova-table:
     path: pangrova-table
     mainPackages:
@@ -4967,7 +4941,6 @@ artifacts:
       pangrova-shuffle-service: test
       pangrova-streaming-api: test
       pangrova-streaming-pipeline: test
-      pangrova-streaming-writers-builtin: test
       pangrova-table: compile
       pangrova-testing-kit: compile
       pangrova-transport-client: test
@@ -5069,7 +5042,6 @@ artifacts:
         - pangrova-shuffle-service
         - pangrova-streaming-api
         - pangrova-streaming-pipeline
-        - pangrova-streaming-writers-builtin
         - pangrova-table
         - pangrova-testing-kit
         - pangrova-transport-client

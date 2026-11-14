@@ -2,12 +2,6 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.streaming.enums.WatermarkState;
 
-import org.pangrova.connector.api.enums.TableFormat;
-import org.pangrova.connector.api.write.WriteContext;
-import org.pangrova.connector.api.enums.WriteMode;
-import org.pangrova.connector.api.write.WriteRecord;
-import org.pangrova.connector.api.write.WriteResult;
-import org.pangrova.connector.api.write.TableWriter;
 
 import org.pangrova.common.lifecycle.ResourceCloser;
 
@@ -54,7 +48,7 @@ import static org.assertj.core.api.Assertions.*;
  * Acceptance test: validates the streaming/governance chain from main() to CDC pipeline.
  *
  * <p>Chain under test: LineageEventEmitter → GovernanceContext → StreamingContext →
- * WatermarkTracker → CdcConsumer</p>
+ * WatermarkTracker → CDC pipeline governance</p>
  *
  * <p><b>Property 33: Streaming/governance chain from main() to CDC pipeline</b></p>
  */
@@ -355,21 +349,5 @@ class StreamingGovernanceChainTest extends org.pangrova.server.coordinator.testi
         public boolean isDetailedAuditEnabled(String cat, String schema, String table) {
             return enabled.contains(cat + "." + schema + "." + table);
         }
-    }
-
-    private static class NoOpTableWriter implements TableWriter {
-        @Override
-        public WriteResult write(String tableName, List<WriteRecord> records,
-                                 WriteMode writeMode, WriteContext context) {
-            return new WriteResult(tableName, records.size(), 0, 0, 0, Instant.now());
-        }
-
-        @Override
-        public TableFormat format() {
-            return TableFormat.ICEBERG;
-        }
-
-        @Override
-        public void close() { }
     }
 }

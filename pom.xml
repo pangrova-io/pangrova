@@ -895,11 +895,6 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-streaming-writers-builtin</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-persistence-streaming-postgresql</artifactId>
                 <version>${project.version}</version>
             </dependency>

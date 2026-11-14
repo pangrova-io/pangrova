@@ -312,7 +312,7 @@ public API/SPI artifacts. Final target structure and outstanding work are tracke
 │  │  Transaction boundary:                                               │   │
 │  │  ┌─ ACID BEGIN ──────────────────────────────────────────────────┐  │   │
 │  │  │ 1. Begin Transaction (Coordinator)                            │  │   │
-│  │  │ 2. Write Data Files (Worker Java TableWriter, parallel)         │  │   │
+│  │  │ 2. Write Data Files (Worker Native write path, parallel)        │  │   │
 │  │  │ 3. Report Write Results (Workers → Coordinator)               │  │   │
 │  │  │ 4. Commit Transaction (Coordinator, atomic operation)          │  │   │
 │  │  └─ ACID END ────────────────────────────────────────────────────┘  │   │
@@ -320,7 +320,7 @@ public API/SPI artifacts. Final target structure and outstanding work are tracke
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Note: On the write path, the Worker-side Java `TableWriter` is responsible for flushing data files to storage and producing statistics; the Coordinator only handles transaction orchestration and metadata commit, and does not write data files directly.
+Note: On the write path, the Worker-side Java write path flushes data files through the connector page sink and produces statistics; the Coordinator only handles transaction orchestration and metadata commit, and does not write data files directly.
 
 ### 2.3 Worker Module Structure
 

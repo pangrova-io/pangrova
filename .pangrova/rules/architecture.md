@@ -122,7 +122,6 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-streaming/pangrova-streaming-pipeline` | Streaming domain flow, CDC pipeline, commit protocol, maintenance, watermark, scheduling and in-process memory stores; no provider or JDBC Store dependency |
 | `pangrova-streaming/pangrova-streaming-source-kafka` | Kafka SDK and per-stream source reader, loaded by the Coordinator through CdcSourceFactory |
 | `pangrova-streaming/pangrova-streaming-formats-builtin` | Service-loaded Canal/Debezium/Maxwell JSON decoders |
-| `pangrova-streaming/pangrova-streaming-writers-builtin` | Lake, merge-tree and incremental writer implementations |
 | `pangrova-persistence/pangrova-persistence-streaming-memory` | Process-local CDC registrations and watermarks. Checkpoint and commit recovery require a durable backend. |
 | `pangrova-persistence/pangrova-persistence-streaming-postgresql` | CDC registration/commit-state, checkpoint, offset and watermark PostgreSQL stores; canonical schema initialization stays in Schema Migrations |
 | `pangrova-governance/pangrova-governance-api` | Catalog/tag/classification, lineage, quality and audit contracts; no Core or Provider dependency |

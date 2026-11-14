@@ -108,8 +108,6 @@ class SpiWiringVerificationTest {
             "org.pangrova.coordinator.query.lifecycle.CoordinatorQueryLifecycle",
             "org.pangrova.indexing.storage.LocalFileSystemAccessor",
             "org.pangrova.planner.type.StandardTypeRegistry",
-            "org.pangrova.streaming.writer.lake.LakeTableWriter",
-            "org.pangrova.streaming.writer.mergetree.MergeTreeTableWriter",
             "org.pangrova.worker.resource.memory.UnifiedMemoryLedger");
 
     // Each independently callable component is exercised against the real database below.

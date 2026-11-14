@@ -12,7 +12,8 @@ sidebar_label: "Streaming & CDC"
 > take precedence.
 
 > **Current CDC boundary.** Sections 2.4–2.5 describe current wiring and gaps;
-> sections 2.6–2.8 retain `TableWriter` contracts and historical writer sketches. The running pipeline uses
+> sections 2.6–2.8 retain retired `TableWriter` sketches: that batch-write hierarchy
+> had no production factory, consumer or close owner and was removed. The running pipeline uses
 > `CdcPipelineLoop` → `CdcTwoPhaseCommitter` → `ConnectorPageSinkCdcWriter` on the
 > Coordinator. The source offset and Iceberg/Paimon catalog do not share an
 > atomic transaction. `COMMITTING` is now quarantined on ambiguous failure;
@@ -118,8 +119,8 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 | 原 `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
 | StreamWriteSink (old name) | `CdcWriteSink` | Clarifies this writes CDC data, not arbitrary stream output |
 | StreamWriteResult (old name) | `CdcWriteResult` | Consistent with CdcWriteSink |
-| `StreamingWriter` | `IncrementalWriter` | Clarifies incremental batch buffering, not stream processing |
-| `StreamingWriterConfig` | `IncrementalWriterConfig` | Consistent with IncrementalWriter |
+| 原 `StreamingWriter` | 原 `IncrementalWriter`（均已退役） | Clarifies incremental batch buffering, not stream processing |
+| 原 `StreamingWriterConfig` | 原 `IncrementalWriterConfig`（均已退役） | Consistent with IncrementalWriter |
 
 Removed APIs: CheckpointCoordinator and the streaming-local CheckpointStore —
 Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
@@ -187,9 +188,7 @@ Flink-style barrier checkpointing is not needed for CDC offset-based recovery.
 
 ### 2.2 Unified Write Architecture
 
-**Design principle**: CDC writes and client writes share the same underlying write component (`TableWriter`); CDC merely adds a parsing layer on top of the write component.
-
-Note: `TableWriter` runs in the Worker-side Java write path. For SQL writes, the Coordinator orchestrates the transaction and schedules write Tasks, while Workers perform the actual data-file writes and report results. The CDC Consumer, as a write service, can be deployed on a Worker or on a dedicated ingestion node, but reuses the same `TableWriter` SPI and transaction semantics.
+**Earlier unified-write proposal (retired).** CDC writes and client writes were to share the retired `TableWriter` batch component, with CDC adding a parsing layer. That hierarchy had no production factory, consumer or close owner and was removed. The coordinator CDC runtime writes through `CdcWriteSink` and `ConnectorPageSinkCdcWriter`; SQL writes use the Worker `NativeWriteExecutor` with the connector page sink. The coordinator owns transaction orchestration and metadata commit and does not write data files.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -226,9 +225,11 @@ Note: `TableWriter` runs in the Worker-side Java write path. For SQL writes, the
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.3 CDC Consumer
+### 2.3 CDC Ingestion Loop
 
-The CDC Consumer is only responsible for parsing Debezium messages, then delegates the actual write to `TableWriter`.
+The CDC loop parses source records and publishes them through `CdcWriteSink`; the coordinator-side `ConnectorPageSinkCdcWriter` performs the connector write.
+
+> **Historical sketch.** The retired `CdcConsumer` batch-writer class shown below belongs to the retired `TableWriter` hierarchy.
 
 ```java
 /**
@@ -320,7 +321,7 @@ StreamingBootstrap
 ```
 
 `StreamingBootstrap.createWriteSink()` explicitly reports that Worker dispatch is
-unavailable. A `TableWriter` SPI or an illustrative Native CDC design does not change
+unavailable. An illustrative Native CDC design does not change
 that instantiated path. The CDC sink is not covered by the relational distributed
 write journal. See [Distributed Write](distributed-writes.md) for the current
 publication and repair boundary.
@@ -355,15 +356,17 @@ snapshot, attempt, and fence to a durable Native batch and one observable catalo
 publication. It is a proposed acceptance contract, not implemented support. See the
 [CDC repair contract](distributed-writes.md#cdc-repair-contract-proposed-not-implemented).
 
-### 2.6 Table Writer SPI
+### 2.6 Retired Table Writer SPI (historical sketch)
 
 **Scope: SPI contract and illustrative code.** The current CDC bootstrap instantiates
 `ConnectorPageSinkCdcWriter`, not the writer sketches below.
 
-> **This section is the authoritative definition of the unified write SPI.**
-> All other documents (overview.md §5.1, query-execution.md §6, connectors.md §5.1) reference this section.
+> **Historical.** The batch-write SPI below was retired; the current write contracts are
+> `CdcWriteSink` for CDC and `ConnectorPageSink` for connector persistence.
 
-Unified write interface shared by CDC ingestion and SQL writes. TableWriter is the single upper-layer entry point for all write operations. Internally it delegates to `ConnectorPageSinkProvider` (defined in [04 §1.2](./connectors.md)) for format-specific persistence — see [connectors.md §5.1](./connectors.md) for the delegation model.
+Earlier proposal for one batch-write entry point shared by CDC ingestion and SQL writes.
+It was never given a production factory, consumer or close owner, so the code and its
+writers were removed.
 
 
 
@@ -500,7 +503,7 @@ public record WriteRecord(
 }
 ```
 
-### 2.7 Iceberg Table Writer (Hybrid Delete Strategy)
+### 2.7 Iceberg Table Writer (historical sketch)
 
 **Status: design/component sketch; not the default CDC sink or a delivery guarantee.**
 
@@ -560,7 +563,7 @@ public class IcebergTableWriter implements TableWriter {
 }
 ```
 
-### 2.8 Paimon Table Writer
+### 2.8 Paimon Table Writer (historical sketch)
 
 **Status: design/component sketch; not the default CDC sink or a delivery guarantee.**
 
@@ -1622,7 +1625,7 @@ See [14 §7](./observability.md) for structured logging format.
 
 
 
-> **Write Interface Hierarchy**: `TableWriter` (§2.6) is the unified upper-layer write entry point. It internally delegates to `ConnectorPageSinkProvider` ([04 §1.2](./connectors.md)) for format-specific file persistence. See [04 §5.1](./connectors.md) for the complete delegation model diagram. `DataWriter` (02 §6) is deprecated — all write paths should use `TableWriter`.
+> **Write Interface Hierarchy**: `CdcWriteSink` owns the CDC commit handoff and `ConnectorPageSinkCdcWriter` persists through the connector page sink. SQL writes use the Worker `NativeWriteExecutor` with `ConnectorPageSink`. The former `TableWriter` batch hierarchy was retired; §2.6 keeps its sketch as history. `DataWriter` (02 §6) is deprecated.
 
 
 > **CDC Consumer Deployment**: CDC Consumer runs as an embedded component within Worker processes (default) or as standalone processes. The deployment model is defined here in §3. For cluster-level deployment topology, see [distributed.md §2](./distributed.md). CDC Consumer instances register with ZooKeeper for partition assignment coordination.

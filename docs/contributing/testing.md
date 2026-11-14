@@ -1416,8 +1416,8 @@ Test steps:
 
 Verification points:
   - [10 §2] CDC Consumer parses Debezium messages correctly
-  - [10 §3] TableWriter transactional commit (two-phase)
-  - [02 §6] The write-path Java TableWriter works correctly
+  - [10 §3] CDC two-phase commit through CdcWriteSink
+  - [02 §6] The Worker Native write path commits through ConnectorPageSink
   - [04] Iceberg Connector incremental queries are correct
 
 Pass criteria:

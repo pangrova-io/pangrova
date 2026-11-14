@@ -688,43 +688,19 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 | Extension Point | Location | Responsibility | Extension Method |
 |--------|------|------|----------|
 | Storage Adapter (Java) | pangrova-connector-{format}/ | Maps storage-specific metadata to PangrovaReadExtension | Implement the StorageAdapter interface |
-
-| Table Writer (Java) | pangrova-connector-{format}/ | Unified write interface (CDC + SQL writes share) | Implement TableWriter interface, see [streaming.md §2.6](./streaming.md) (authoritative) |
-
-
-
-**TableWriter ↔ ConnectorPageSinkProvider Delegation Model:**
-
-`TableWriter` ([10 §2.6](./streaming.md)) is the upper-layer unified entry point for all write operations (both CDC and SQL paths). Internally, `TableWriter` delegates to `ConnectorPageSinkProvider` (defined above in §1.2) for format-specific data file persistence. This avoids duplicate write logic and unifies transaction management.
-
-```
-CDC Consumer / SQL Write Task
-        │
-        ▼
-    TableWriter (unified entry — 10 §2.6)
-        │
-        ├── SELF_MANAGED (CDC): TableWriter manages transaction internally
-        │     └── ConnectorPageSinkProvider.createPageSink()
-        │           └── ConnectorPageSink.appendPage() + commit()
-        │
-        └── COORDINATOR_MANAGED (SQL): Coordinator manages transaction
-              └── ConnectorPageSinkProvider.createPageSink()
-                    └── ConnectorPageSink.appendPage() (no commit)
-                    └── Coordinator calls Connector.commit() atomically
-```
-
-| Responsibility | ConnectorPageSinkProvider (§1.2) | TableWriter ([10 §2.6](./streaming.md)) |
-|----------------|----------------------------------|---------------------------------------------|
-| Layer | Connector SPI factory — creates format-specific PageSink instances | Upper-layer unified write interface — entry point for CDC and SQL |
-| Acquisition | `Connector.getPageSinkProvider()` | Constructed by write task or CDC consumer |
-| Transaction | External — managed by `Connector.beginTransaction()` / `commit()` / `rollback()` | Via `WriteContext.transactionMode` (COORDINATOR_MANAGED or SELF_MANAGED) |
-| Input format | `ConnectorPageSink.appendPage(Page)` — Pangrova internal Page format | `write(List<WriteRecord>)` for CDC, `writeBatch(VectorSchemaRoot)` for SQL |
-| CDC support | Not directly — no CDC-specific API | Explicit CDC support with UPSERT mode |
-| Relationship | **Internal implementation detail** of TableWriter | **Delegates to** ConnectorPageSinkProvider internally |
 | File Format Reader (C++) | pangrova-worker-native/src/engine/ | Reads specific file formats (Parquet/ORC/Avro) | Implement the DataSourceFactory interface |
 | Delete Handler (C++) | pangrova-worker-native/src/engine/delete/ | Handles different types of delete files | Implement the DeleteHandler interface |
 | TableMaintenanceSpi (Java) | pangrova-connector-{format}/ | Async compaction, orphan cleanup, snapshot expiration | Implement TableMaintenanceSpi interface, see [streaming.md §2.9](./streaming.md) (authoritative) |
 | Properties Handler | properties map in protocol | Passes format-specific metadata | Convention-based key prefix |
+
+**Write SPI boundary.**
+
+`ConnectorPageSinkProvider` and `ConnectorPageSink` are the canonical connector write SPI.
+The Worker `NativeWriteExecutor` appends columnar batches and obtains a staged metadata
+fragment with `finishWithMetadata()`; the Coordinator publishes it with
+`ConnectorMetadata.finishDistributedWrite()`. The CDC runtime writes through `CdcWriteSink`
+and `ConnectorPageSinkCdcWriter`. `TableWriter` was retired: its single-shot batch hierarchy had
+no production factory, consumer or close owner.
 
 **Relationship between ClassLoader isolation and the Native layer**: Java ClassLoader isolation applies only to Java-layer Connector plugins (metadata, Split planning, transaction management). The Native-layer DataSourceFactory is registered by the `connector_type` string (such as `"iceberg"`, `"paimon"`); it is a global, stateless format reader and is not affected by Java ClassLoader isolation. When multiple Connectors need to read the Parquet format, the Native layer shares the same `ParquetFormatReader` instance and distinguishes the semantics of different lakehouse formats via `SplitInfo.connector_info` (oneof) (such as Iceberg Delete File handling vs Paimon LSM Merge). Therefore, Java-layer ClassLoader isolation and Native-layer DataSourceFactory registration are two independent dimensions that do not interfere with each other.
 
