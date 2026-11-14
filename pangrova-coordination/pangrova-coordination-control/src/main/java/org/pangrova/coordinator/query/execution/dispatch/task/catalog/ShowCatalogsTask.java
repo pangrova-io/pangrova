@@ -24,10 +24,6 @@ public final class ShowCatalogsTask implements MetadataTask<ShowCatalogsStatemen
     @Override
     public StatementResult execute(ShowCatalogsStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowCatalogs();
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, null, StatementCategory.SHOW);
     }
 }

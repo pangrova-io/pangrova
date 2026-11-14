@@ -24,10 +24,6 @@ public final class DropCatalogTask implements MetadataTask<DropCatalogStatement>
     @Override
     public StatementResult execute(DropCatalogStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeDropCatalog(statement, context.session());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.DDL);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, null, StatementCategory.DDL);
     }
 }

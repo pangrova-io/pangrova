@@ -24,10 +24,6 @@ public final class ShowClusteringStatusTask implements MetadataTask<ShowClusteri
     @Override
     public StatementResult execute(ShowClusteringStatusStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowClusteringStatus(statement, context.session());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.CLUSTERING);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, null, StatementCategory.CLUSTERING);
     }
 }

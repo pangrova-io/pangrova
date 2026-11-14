@@ -24,10 +24,6 @@ public final class CreateCatalogTask implements MetadataTask<CreateCatalogStatem
     @Override
     public StatementResult execute(CreateCatalogStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeCreateCatalog(statement);
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.DDL);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, null, StatementCategory.DDL);
     }
 }

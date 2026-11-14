@@ -28,15 +28,11 @@ public final class CreateStreamTask implements MetadataTask<CreateStreamStatemen
                 ? context.session().userIdentity().principal() : "anonymous";
         executor.create(statement, tenantId, creator);
         List<TypedRow> rows = List.of(TypedRow.builder().putString("result", "CREATE STREAM succeeded").build());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.STREAM);
+        return StatementResult.fromRows(rows, null, StatementCategory.STREAM);
     }
 
     private static String resolveTenantId(StatementExecutionContext ctx) {
         return ctx.session() != null && ctx.session().tenantId() != null
                 ? ctx.session().tenantId() : "";
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
     }
 }

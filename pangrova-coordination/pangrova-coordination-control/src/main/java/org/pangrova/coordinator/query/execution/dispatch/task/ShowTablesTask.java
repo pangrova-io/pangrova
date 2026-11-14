@@ -24,10 +24,6 @@ public final class ShowTablesTask implements MetadataTask<ShowTablesStatement> {
     @Override
     public StatementResult execute(ShowTablesStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowTables(statement, context.session());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, null, StatementCategory.SHOW);
     }
 }

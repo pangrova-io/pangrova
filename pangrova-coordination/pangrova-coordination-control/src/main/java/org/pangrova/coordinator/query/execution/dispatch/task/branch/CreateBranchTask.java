@@ -26,10 +26,6 @@ public final class CreateBranchTask implements MetadataTask<CreateBranchStatemen
     public StatementResult execute(CreateBranchStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeCreateBranch(statement, context.session());
         String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
-        return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, mutatedTable, StatementCategory.DDL);
     }
 }

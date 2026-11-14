@@ -27,10 +27,6 @@ public final class CreateIndexTask implements MetadataTask<CreateIndexStatement>
         List<TypedRow> rows = executor.executeCreateIndex(
                 statement, context.session());
         String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
-        return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, mutatedTable, StatementCategory.INDEX);
     }
 }

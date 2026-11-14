@@ -25,10 +25,6 @@ public final class ShowIndexesTask implements MetadataTask<ShowIndexesStatement>
     public StatementResult execute(ShowIndexesStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowIndexes(
                 statement, context.session());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.INDEX);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, null, StatementCategory.INDEX);
     }
 }

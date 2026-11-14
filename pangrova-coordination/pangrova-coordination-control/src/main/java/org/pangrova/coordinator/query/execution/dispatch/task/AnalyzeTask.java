@@ -26,11 +26,7 @@ public final class AnalyzeTask implements MetadataTask<AnalyzeStatement> {
     public StatementResult execute(AnalyzeStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.execute(statement, context.session());
         String mutatedTable = StatementTableTargets.resolve(statement, context.session()).toString();
-        return new StatementResult(rows, extractColumnNames(rows), mutatedTable,
+        return StatementResult.fromRows(rows, mutatedTable,
                 StatementCategory.MAINTENANCE);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
     }
 }

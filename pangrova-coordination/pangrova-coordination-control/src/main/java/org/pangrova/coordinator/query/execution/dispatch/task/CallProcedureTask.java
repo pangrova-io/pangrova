@@ -42,14 +42,10 @@ public final class CallProcedureTask implements MetadataTask<CallStatement> {
         if (call.isWarmup()) {
             TableWarmupExecutor warmup = new TableWarmupExecutor(catalogRegistry);
             List<TypedRow> rows = warmup.execute(call.target(), context.session());
-            return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
+            return StatementResult.fromRows(rows, null, StatementCategory.MAINTENANCE);
         }
         List<TypedRow> rows = maintenance.executeProcedure(
                 call.procedureName(), call.target(), call.arguments(), context.session());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return StatementResult.fromRows(rows, null, StatementCategory.MAINTENANCE);
     }
 }

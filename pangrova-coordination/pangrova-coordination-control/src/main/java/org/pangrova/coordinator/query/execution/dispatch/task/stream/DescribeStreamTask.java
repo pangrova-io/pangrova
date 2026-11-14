@@ -31,7 +31,7 @@ public final class DescribeStreamTask implements MetadataTask<DescribeStreamStat
         List<TypedRow> rows = state.map(DescribeStreamTask::toRow)
                 .map(List::of)
                 .orElse(List.of());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.STREAM);
+        return StatementResult.fromRows(rows, null, StatementCategory.STREAM);
     }
 
     private static TypedRow toRow(StreamState s) {
@@ -55,9 +55,5 @@ public final class DescribeStreamTask implements MetadataTask<DescribeStreamStat
     private static String resolveTenantId(StatementExecutionContext ctx) {
         return ctx.session() != null && ctx.session().tenantId() != null
                 ? ctx.session().tenantId() : "";
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
     }
 }

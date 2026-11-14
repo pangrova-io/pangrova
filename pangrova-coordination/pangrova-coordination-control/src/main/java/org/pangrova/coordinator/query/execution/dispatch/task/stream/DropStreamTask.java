@@ -26,15 +26,11 @@ public final class DropStreamTask implements MetadataTask<DropStreamStatement> {
         String tenantId = resolveTenantId(context);
         executor.drop(statement, tenantId);
         List<TypedRow> rows = List.of(TypedRow.builder().putString("result", "DROP STREAM succeeded").build());
-        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.STREAM);
+        return StatementResult.fromRows(rows, null, StatementCategory.STREAM);
     }
 
     private static String resolveTenantId(StatementExecutionContext ctx) {
         return ctx.session() != null && ctx.session().tenantId() != null
                 ? ctx.session().tenantId() : "";
-    }
-
-    private static List<String> extractColumnNames(List<TypedRow> rows) {
-        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
     }
 }

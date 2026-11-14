@@ -18,6 +18,12 @@ public record StatementResult(
         String mutatedTable,
         StatementCategory category) {
 
+    /** Uses the first result row's column order for statements with a row-derived schema. */
+    public static StatementResult fromRows(List<TypedRow> rows, String mutatedTable, StatementCategory category) {
+        List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+        return new StatementResult(rows, columns, mutatedTable, category);
+    }
+
     public StatementResult {
         checkNotNull(category, "category");
         rows = rows != null ? List.copyOf(rows) : List.of();
