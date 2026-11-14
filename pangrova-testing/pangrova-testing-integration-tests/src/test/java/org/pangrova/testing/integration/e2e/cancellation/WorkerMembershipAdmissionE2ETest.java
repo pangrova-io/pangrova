@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Real SQL/Native Worker and delayed task HTTP. Run in its own JVM: the fence is permanent. */
 @E2ETest
 @Tag("native-required")
+@Tag("native-runtime-owner")
 class WorkerMembershipAdmissionE2ETest extends TaskCancellationTestBase {
     @Test
     void membershipFenceRejectsPreviouslyIssuedTaskAndPreservesCleanupReceipt() throws Exception {
