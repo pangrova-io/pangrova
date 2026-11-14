@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.security;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -7,11 +9,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
@@ -26,7 +24,6 @@ public final class ShuffleCapabilityAuthority {
     private static final int MAXIMUM_ATTEMPT_BYTES = 16_384;
     private static final int MINIMUM_SECRET_BYTES = 32;
     private static final int MAXIMUM_SECRET_BYTES = 4096;
-    private static final String HMAC_ALGORITHM = "HmacSHA256";
 
     private final byte[] secret;
 
@@ -149,13 +146,7 @@ public final class ShuffleCapabilityAuthority {
     }
 
     private byte[] sign(byte[] payload) {
-        try {
-            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
-            mac.init(new SecretKeySpec(secret, HMAC_ALGORITHM));
-            return mac.doFinal(payload);
-        } catch (GeneralSecurityException failure) {
-            throw new IllegalStateException("HMAC-SHA256 is unavailable", failure);
-        }
+        return DigestUtils.hmacSha256(secret).doFinal(payload);
     }
 
     private record DecodedCapability(CapabilityScope scope, long expiresAtEpochMs) {}

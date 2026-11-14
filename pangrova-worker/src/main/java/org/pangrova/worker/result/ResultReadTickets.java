@@ -1,12 +1,12 @@
 package org.pangrova.worker.result;
 
+import org.pangrova.common.util.DigestUtils;
+
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ResultReadGrant;
 import org.pangrova.protocol.v2.ResultReadScope;
 import org.pangrova.protocol.v2.TaskRequest;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -52,12 +52,6 @@ public final class ResultReadTickets {
     }
 
     private String signature(String message) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key, "HmacSHA256"));
-            return HexFormat.of().formatHex(mac.doFinal(message.getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.GeneralSecurityException failure) {
-            throw new IllegalStateException("Result ticket authentication is unavailable", failure);
-        }
+        return HexFormat.of().formatHex(DigestUtils.hmacSha256(key).doFinal(message.getBytes(StandardCharsets.UTF_8)));
     }
 }

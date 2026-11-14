@@ -1,10 +1,8 @@
 package org.pangrova.security.mask;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
+import org.pangrova.common.util.DigestUtils;
+
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
@@ -12,7 +10,6 @@ import java.util.HexFormat;
  */
 public final class MaskFunctions {
 
-    private static final String HMAC_SHA256 = "HmacSHA256";
 
     private MaskFunctions() {}
 
@@ -71,18 +68,9 @@ public final class MaskFunctions {
         if (perTableSalt == null || perTableSalt.isEmpty()) {
             throw new IllegalArgumentException("perTableSalt must not be null or empty");
         }
-        try {
-            Mac mac = Mac.getInstance(HMAC_SHA256);
-            SecretKeySpec keySpec = new SecretKeySpec(
-                    perTableSalt.getBytes(StandardCharsets.UTF_8), HMAC_SHA256);
-            mac.init(keySpec);
-            byte[] hmacBytes = mac.doFinal(input.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hmacBytes);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("HmacSHA256 not available", e);
-        } catch (InvalidKeyException e) {
-            throw new IllegalStateException("Invalid HMAC key", e);
-        }
+        byte[] digest = DigestUtils.hmacSha256(perTableSalt.getBytes(StandardCharsets.UTF_8))
+                .doFinal(input.getBytes(StandardCharsets.UTF_8));
+        return HexFormat.of().formatHex(digest);
     }
 
     public static String maskRange(long value, long precision) {

@@ -18,6 +18,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DigestUtilsTest {
 
     @Test
+    void keyedMacMatchesRfc4231TestCaseOneAcrossUpdates() {
+        byte[] key = new byte[20];
+        java.util.Arrays.fill(key, (byte) 0x0b);
+        var mac = DigestUtils.hmacSha256(key);
+        mac.update("Hi ".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        byte[] signature = mac.doFinal("There".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        assertThat(java.util.HexFormat.of().formatHex(signature))
+                .isEqualTo("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7");
+    }
+
+    @Test
     void matchesSha256ChecksKnownEmptyAndUtf8Digests() {
         assertThat(DigestUtils.matchesSha256(new byte[0],
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")).isTrue();

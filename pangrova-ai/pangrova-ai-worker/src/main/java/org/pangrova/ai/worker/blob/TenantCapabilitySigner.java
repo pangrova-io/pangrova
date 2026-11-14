@@ -1,19 +1,18 @@
 package org.pangrova.ai.worker.blob;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 
 import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 /** Authenticates opaque FILE references using externally supplied cluster key material. */
 public final class TenantCapabilitySigner {
 
     private static final int MINIMUM_KEY_BYTES = 32;
-    private static final String HMAC_SHA256 = "HmacSHA256";
     private static final byte[] DERIVATION_CONTEXT =
             "pangrova-file-capability-v2".getBytes(StandardCharsets.US_ASCII);
 
@@ -60,7 +59,7 @@ public final class TenantCapabilitySigner {
         }
         byte[] tenantKey = deriveTenantKey(tenantScope);
         try {
-            Mac mac = mac(tenantKey);
+            Mac mac = DigestUtils.hmacSha256(tenantKey);
             update(mac, tenantScope);
             update(mac, mimeType);
             update(mac, Long.toString(size));
@@ -77,7 +76,7 @@ public final class TenantCapabilitySigner {
     }
 
     private byte[] deriveTenantKey(String tenantScope) {
-        Mac mac = mac(masterKey);
+        Mac mac = DigestUtils.hmacSha256(masterKey);
         mac.update(DERIVATION_CONTEXT);
         mac.update((byte) 0);
         mac.update(tenantScope.getBytes(StandardCharsets.US_ASCII));
@@ -87,15 +86,5 @@ public final class TenantCapabilitySigner {
     private static void update(Mac mac, String value) {
         mac.update(value.getBytes(StandardCharsets.UTF_8));
         mac.update((byte) 0);
-    }
-
-    private static Mac mac(byte[] key) {
-        try {
-            Mac mac = Mac.getInstance(HMAC_SHA256);
-            mac.init(new SecretKeySpec(key, HMAC_SHA256));
-            return mac;
-        } catch (GeneralSecurityException failure) {
-            throw new IllegalStateException("HMAC-SHA-256 is unavailable", failure);
-        }
     }
 }

@@ -1,12 +1,10 @@
 package org.pangrova.common.file;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.Base64;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -23,21 +21,15 @@ import org.pangrova.common.exception.PangrovaException;
  */
 public final class FileAccessSignature {
 
-    private static final String ALGORITHM = "HmacSHA256";
 
     private FileAccessSignature() {}
 
     /** Returns a URL-safe, unpadded HMAC over the encoded descriptor. */
     public static String sign(String secret, String encodedDescriptor) {
         requireSecret(secret);
-        try {
-            Mac mac = Mac.getInstance(ALGORITHM);
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM));
-            byte[] digest = mac.doFinal(encodedDescriptor.getBytes(StandardCharsets.US_ASCII));
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
-        } catch (GeneralSecurityException failure) {
-            throw new IllegalStateException("HMAC-SHA256 is unavailable", failure);
-        }
+        byte[] digest = DigestUtils.hmacSha256(secret.getBytes(StandardCharsets.UTF_8))
+                .doFinal(encodedDescriptor.getBytes(StandardCharsets.US_ASCII));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
     }
 
     /** Rejects a missing or mismatched signature without leaking which one failed. */

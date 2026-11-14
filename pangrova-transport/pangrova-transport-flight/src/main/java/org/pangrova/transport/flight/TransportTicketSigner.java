@@ -10,6 +10,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -17,7 +18,6 @@ import java.util.Arrays;
 import java.util.Objects;
 
 import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.transport.DataTicket;
@@ -43,7 +43,6 @@ import org.pangrova.protocol.transport.DataTicket;
 @ThreadSafe
 public final class TransportTicketSigner {
 
-    private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final int SIGNATURE_LENGTH = 32;
 
     private final Duration ticketTtl;
@@ -117,7 +116,7 @@ public final class TransportTicketSigner {
             out.flush();
 
             byte[] dataToSign = baos.toByteArray();
-            byte[] signature = computeHmac(dataToSign);
+            byte[] signature = DigestUtils.hmacSha256(secretKey).doFinal(dataToSign);
 
             baos.write(signature);
             return baos.toByteArray();
@@ -155,10 +154,10 @@ public final class TransportTicketSigner {
             // Reconstruct the data that was signed
             byte[] dataToVerify = Arrays.copyOf(signedTicket,
                     signedTicket.length - SIGNATURE_LENGTH);
-            byte[] expectedSignature = computeHmac(dataToVerify);
+            byte[] expectedSignature = DigestUtils.hmacSha256(secretKey).doFinal(dataToVerify);
 
             // Constant-time comparison to prevent timing attacks
-            if (!constantTimeEquals(expectedSignature, receivedSignature)) {
+            if (!MessageDigest.isEqual(expectedSignature, receivedSignature)) {
                 throw new TicketValidationException("Invalid ticket signature");
             }
 
@@ -175,26 +174,7 @@ public final class TransportTicketSigner {
         }
     }
 
-    private byte[] computeHmac(byte[] data) {
-        try {
-            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
-            mac.init(new SecretKeySpec(secretKey, HMAC_ALGORITHM));
-            return mac.doFinal(data);
-        } catch (Exception e) {
-            throw new IllegalStateException("HMAC computation failed", e);
-        }
-    }
 
-    private static boolean constantTimeEquals(byte[] a, byte[] b) {
-        if (a.length != b.length) {
-            return false;
-        }
-        int result = 0;
-        for (int i = 0; i < a.length; i++) {
-            result |= a[i] ^ b[i];
-        }
-        return result == 0;
-    }
 
     private static byte[] deriveKey(String secret) {
         Objects.requireNonNull(secret, "secret must not be null");

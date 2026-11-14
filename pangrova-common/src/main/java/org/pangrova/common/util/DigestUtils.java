@@ -1,6 +1,9 @@
 package org.pangrova.common.util;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -102,6 +105,19 @@ public final class DigestUtils {
             return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    /** Returns an independent keyed MAC for a single signing or verification operation. */
+    public static Mac hmacSha256(byte[] key) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(key, mac.getAlgorithm()));
+            return mac;
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("HMAC-SHA256 is unavailable", e);
+        } catch (InvalidKeyException e) {
+            throw new IllegalArgumentException("Invalid HMAC-SHA256 key", e);
         }
     }
 }
