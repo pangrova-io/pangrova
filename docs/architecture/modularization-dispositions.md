@@ -476,7 +476,7 @@ Client 和 Transport 的六个子制品内没有以 Bridge 或 Adapter 命名的
 
 ### Streaming source、format 与 writer 的实际边界
 
-`CREATE STREAM ... FROM <provider>` 的 source id 经 AST、SQL 打印、StreamState、PostgreSQL、恢复调度传递。Server 发现一次 `CdcSourceFactory`，DDL 和 Scheduler 共用注册表。DDL 先检查 source 属性和 format，Scheduler 按持久化的 source 和不可变 checkpoint id 创建独占 reader。Kafka provider 负责 SDK、topic、group、rebalance、seek、commit 与部分初始化异常的关闭。Core 和 API 没有 Kafka SDK 编译依赖。退役的 `KafkaStreamSourceReader` 仅实现无人调用的 `StreamSourceReader`，截断 poll 时会跨过未消费记录；生产 `KafkaCdcSourceReader` 保留按 partition 回退与恢复 seek 的实现。
+`CREATE STREAM ... FROM <provider>` 的 source id 经 AST、SQL 打印、StreamState、PostgreSQL、恢复调度传递。Server 发现一次 `CdcSourceFactory`，DDL 和 Scheduler 共用注册表。DDL 先检查 source 属性和 format，Scheduler 按持久化的 source 和不可变 checkpoint id 创建独占 reader。Kafka provider 负责 SDK、topic、group、rebalance、seek、commit 与部分初始化异常的关闭。Core 和 API 没有 Kafka SDK 编译依赖。退役的 `KafkaStreamSourceReader` 仅实现已移除的 `StreamSourceReader`，截断 poll 时会跨过未消费记录；生产 `KafkaCdcSourceReader` 保留按 partition 回退与恢复 seek 的实现。
 
 三个 JSON format 共用 Jackson 和注册方式，进入 `streaming-formats-builtin`。Lake、merge-tree 和 incremental writer 使用 Connector 写入契约、Types 与 Maintenance，进入 `streaming-writers-builtin`。Coordinator CDC 实际写入仍使用 `ConnectorPageSinkCdcWriter`；独立 writer 制品由现有 writer 使用方和集成测试引用，不将这些 writer 自动广播成支持的 SQL sink。
 

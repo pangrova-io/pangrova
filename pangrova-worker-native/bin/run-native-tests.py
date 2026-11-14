@@ -144,6 +144,10 @@ def require_clean_sanitizers(log):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    if sys.version_info < (3, 10):
+        parser.error(
+            f"Python 3.10 or later is required (running {sys.version.split()[0]}); "
+            "the nested Maven fixture build reuses this interpreter for function contracts")
     native = Path(__file__).resolve().parents[1]
     parser.add_argument("--build-dir", type=Path, default=native / "build")
     parser.add_argument("ctest_args", nargs=argparse.REMAINDER,

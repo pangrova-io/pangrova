@@ -26,21 +26,49 @@ fi
 # are the assertions that readers are most likely to interpret as repository types.
 # Pattern: starts with uppercase, contains at least one lowercase, length >= 4,
 # no spaces, no dots (excludes package names), no parens (excludes method calls).
-# Lines recording removed or migrated historical types (the disposition ledger's
-# original-class columns) are skipped: those names intentionally have no source.
-# Uses -E (extended regex) for portability across GNU and BSD grep.
+# A reference is skipped only when that occurrence is itself recorded as removed
+# or migrated ("原 `X`", "退役的 `X`", "`X` 已删除", "| 删除 ..." cells). Other
+# active types on the same line are still checked.
 extract_class_refs() {
-    for doc in "$DOCS_DIR"/*.md; do
-        if head -n 30 "$doc" | grep -Eiq 'Status.*(Draft|Target architecture)'; then
+    python3 - "$DOCS_DIR" <<'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+status = re.compile(r'Status.*(Draft|Target architecture)', re.I)
+design = re.compile(
+    r'proposed|planned|target design|remaining work|new (class|component)'
+    r'|phase [0-9]|does not exist|not implemented', re.I)
+reference = re.compile(r'`([A-Z][A-Za-z0-9]{3,})`')
+removed_before = re.compile(r'(原|已删除的|退役的|移除的|旧的)\s*$')
+removed_verb_before = re.compile(r'(删除|移除|退役|迁移到|迁到|迁入|移至|归入)[^，。；|]{0,12}$')
+removed_after = re.compile(r'^\s*[也均]?\s*(已删除|退役|移除|删除)')
+removed_cell_after = re.compile(r'\|\s*(删除|退役|移除|归入|迁入|迁到|移至|迁移到)')
+
+active = {}
+for doc in sorted(root.glob('*.md')):
+    text = doc.read_text(encoding='utf-8')
+    if status.search('\n'.join(text.splitlines()[:30])):
+        continue
+    text = re.sub(r'^```.*?^```', '', text, flags=re.S | re.M)
+    for line in text.splitlines():
+        if design.search(line):
             continue
-        fi
-        awk '/^```/{in_fence = !in_fence; next} !in_fence{print}' "$doc"
-    done \
-        | grep -ivE 'proposed|planned|target design|remaining work|new (class|component)|phase [0-9]|does not exist|not implemented|已删除|删除|退役|移除|迁到|迁入|迁至|移至|归入|原 `|removed|retired|migrated' \
-        | grep -ohE '`[A-Z][a-zA-Z0-9]{3,}`' 2>/dev/null \
-        | sed 's/`//g' \
-        | grep -E '[a-z]' \
-        | sort -u
+        for match in reference.finditer(line):
+            name = match.group(1)
+            if not re.search('[a-z]', name):
+                continue
+            prefix = line[max(0, match.start() - 24):match.start()]
+            suffix = line[match.end():match.end() + 24]
+            historical = bool(
+                removed_before.search(prefix)
+                or removed_verb_before.search(prefix)
+                or removed_after.search(suffix)
+                or removed_cell_after.search(line[match.end():]))
+            active[name] = active.get(name, False) or not historical
+print('\n'.join(sorted(name for name, is_active in active.items() if is_active)))
+PY
 }
 
 # Known non-class identifiers to skip (keywords, acronyms, config names)
