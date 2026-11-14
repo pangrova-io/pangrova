@@ -506,7 +506,7 @@ If ANY link in this chain is broken, the system is broken. E2E tests validate th
 ### Dead Code Policy
 
 - **Zero tolerance for dead code**: if code is unreachable, delete it
-- **Zero tolerance for stub implementations**: `throw new UnsupportedOperationException()` is acceptable ONLY with `@Experimental` annotation and tracking issue
+- **Zero tolerance for stub implementations**: `throw new UnsupportedOperationException()` is acceptable ONLY with an explicit tracking issue on the method or its `@ExperimentalImplementation` owner
 - **Zero tolerance for orphan imports**: unused `import` (Java) or `#include` (C++) must be removed
 - Run `.pangrova/scripts/detect-dead-stubs.sh` when changing SPI, wiring,
   registrations, or implementation connectivity

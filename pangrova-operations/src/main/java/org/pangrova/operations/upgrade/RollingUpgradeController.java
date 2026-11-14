@@ -1,6 +1,6 @@
 package org.pangrova.operations.upgrade;
 
-import org.pangrova.common.annotation.Experimental;
+import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.slf4j.Logger;
@@ -18,7 +18,7 @@ import java.util.Objects;
  * <p>The host supplies a {@link NodeOperations} backend that completes each
  * infrastructure operation or throws. No infrastructure backend ships with this controller.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-rolling-upgrade")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-rolling-upgrade")
 public final class RollingUpgradeController {
 
     private static final Logger LOG = LoggerFactory.getLogger(RollingUpgradeController.class);

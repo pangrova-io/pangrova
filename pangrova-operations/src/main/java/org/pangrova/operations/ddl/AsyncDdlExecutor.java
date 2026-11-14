@@ -1,6 +1,6 @@
 package org.pangrova.operations.ddl;
 
-import org.pangrova.common.annotation.Experimental;
+import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
  * (DATA_REWRITE jobs) submits work to a single-threaded background executor
  * and updates job state to COMPLETED or FAILED when the work finishes.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-async-ddl")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-async-ddl")
 public final class AsyncDdlExecutor implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(AsyncDdlExecutor.class);

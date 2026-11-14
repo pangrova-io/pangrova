@@ -1,6 +1,6 @@
 package org.pangrova.operations.scaling;
 
-import org.pangrova.common.annotation.Experimental;
+import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +31,7 @@ import java.util.function.IntSupplier;
  * <p>Emergency scale-out has its own shorter cooldown (30 seconds) to allow rapid response
  * to resource pressure, independent of the normal scale-out cooldown (3 minutes).</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-auto-scaling")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-auto-scaling")
 @ThreadSafe
 public final class AutoScalingController {
 

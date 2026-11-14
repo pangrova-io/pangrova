@@ -20,7 +20,7 @@ import java.lang.annotation.Target;
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface Experimental {
+public @interface ExperimentalImplementation {
 
     /**
      * Tracking issue URL or identifier describing the remaining work

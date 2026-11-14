@@ -1,6 +1,6 @@
 package org.pangrova.operations.dr;
 
-import org.pangrova.common.annotation.Experimental;
+import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.slf4j.Logger;
@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory;
  * but no production {@link StandbyOperations} implementation exists. The failover
  * pipeline is untested against real infrastructure.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-failover")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-failover")
 public final class FailoverController {
 
     private static final Logger LOG = LoggerFactory.getLogger(FailoverController.class);

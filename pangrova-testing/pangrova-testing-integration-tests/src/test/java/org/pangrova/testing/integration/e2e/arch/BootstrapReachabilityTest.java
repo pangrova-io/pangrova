@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * this set indicates dead wiring: a service that compiles but is never
  * started, or whose start path was deleted leaving the class behind.</p>
  *
- * <p>Classes annotated with {@code @DeadCode} or {@code @Experimental} are
+ * <p>Classes annotated with {@code @DeadCode} or {@code @ExperimentalImplementation} are
  * excluded. Known pre-existing orphans are baselined for incremental
  * cleanup — the test fails only on NEW orphans.</p>
  *
@@ -55,7 +55,7 @@ class BootstrapReachabilityTest {
     private static final String DEAD_CODE_ANNOTATION =
             "org.pangrova.common.annotation.DeadCode";
     private static final String EXPERIMENTAL_ANNOTATION =
-            "org.pangrova.common.annotation.Experimental";
+            "org.pangrova.common.annotation.ExperimentalImplementation";
 
     private static final String PANGROVA_PKG_PREFIX = "org.pangrova.";
     private static final String TESTING_PKG_PREFIX = "org.pangrova.testing.";

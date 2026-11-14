@@ -1,6 +1,6 @@
 package org.pangrova.operations.scaling;
 
-import org.pangrova.common.annotation.Experimental;
+import org.pangrova.common.annotation.ExperimentalImplementation;
 import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.time.Clock;
@@ -22,7 +22,7 @@ import java.util.Objects;
  * <p>Concurrency: {@code idleSince} is a {@code volatile} best-effort timer, mirroring
  * {@link AutoScalingController}'s cooldown approach; the scaling executor is idempotent.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-auto-scaling")
+@ExperimentalImplementation(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-auto-scaling")
 @ThreadSafe
 public final class AutoSuspendController {
 

@@ -24,6 +24,7 @@ class StubDetectionTest(unittest.TestCase):
         self.script = self.root / '.pangrova/scripts/detect-dead-stubs.sh'
         self.script.parent.mkdir(parents=True)
         shutil.copyfile(SCRIPT, self.script)
+        shutil.copyfile(SCRIPT.with_name("DeadStubCheck.java"), self.script.with_name("DeadStubCheck.java"))
         self.git('init', '-q')
 
     def git(self, *args):
@@ -52,19 +53,37 @@ class StubDetectionTest(unittest.TestCase):
         (self.root / '.gitignore').write_text('module/\n')
         self.assertEqual(self.check().returncode, 1)
 
-    def test_test_spi_and_generated_sources_are_outside_stub_gate(self):
+    def test_test_and_generated_sources_are_outside_stub_gate(self):
         for name in ['module/src/test/java/example/Test.java',
-                     'pangrova-indexing/pangrova-indexing-api/src/main/java/example/Contract.java',
                      'module/target/generated/src/main/java/example/Generated.java']:
             self.source(name)
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_experimental_and_tracking_issue_exceptions_are_preserved(self):
-        self.source(content=STUB.replace('public class', '@Experimental\npublic class'))
+    def test_tracked_implementation_and_method_issue_are_recognized(self):
+        self.source(content=STUB.replace('public class', '@ExperimentalImplementation(trackingIssue = "OPS-7")\npublic class'))
         self.source('module/src/main/java/example/Tracked.java',
-                    STUB.replace('public class', '// https://github.com/example/repo/issues/1\npublic class'))
+                    STUB.replace('public void', '// https://github.com/example/repo/issues/1\n    public void'))
         self.assertEqual(self.check().returncode, 0)
+
+    def test_api_stability_and_nearby_real_method_do_not_hide_default_stub(self):
+        self.source('domain-api/src/main/java/example/Contract.java', """
+            @Experimental interface Contract {
+                default void available() {
+                    int a = 1;
+                    int b = 2;
+                    report(a + b);
+                }
+                default void pending() {
+                    throw new UnsupportedOperationException(
+                    );
+                }
+                void report(int value);
+            }""")
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('pending', result.stdout)
+        self.assertNotIn('available', result.stdout)
 
     def test_ignored_dependency_sources_do_not_produce_findings(self):
         (self.root / '.gitignore').write_text('vendor/\n')

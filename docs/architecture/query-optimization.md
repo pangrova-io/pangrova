@@ -1273,7 +1273,9 @@ See [14 §7](./observability.md) for structured logging format.
 
 ## 11. Distribution-Aware CBO Cost Model (OPT-011)
 
-This section extends the `PangrovaCostModel` (§6) with data distribution property tracking and topology-aware network costing, enabling the optimizer to eliminate unnecessary shuffles for co-partitioned tables and select optimal join strategies based on actual data layout.
+Physical planning represents partitioning with the Calcite trait `PangrovaDistribution` and ordering with `RelCollation`. Exchanges and joins estimate transfer cost using the configured per-byte network cost. The merge join costs and requests sorting separately for each input. A join-key prefix in ascending order with nulls first satisfies the Native merge contract.
+
+The design below describes proposed Connector distribution metadata and rack-aware costing. The current compiler has no Connector contract establishing equivalent partition transforms, bucket counts, and hash semantics across two scans. Those scans cannot use this proposal to elide an exchange. Scheduler rack information alone does not establish table co-partitioning.
 
 ### 11.1 Architecture
 
