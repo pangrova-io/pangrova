@@ -826,7 +826,7 @@ artifacts:
       pangrova-parser: compile
       pangrova-persistence-ai-postgresql: test
       pangrova-persistence-catalog-api: compile
-      pangrova-persistence-catalog-postgresql: compile
+      pangrova-persistence-catalog-postgresql: test
       pangrova-persistence-coordination-api: compile
       pangrova-persistence-coordination-memory: test
       pangrova-persistence-coordination-postgresql: test
@@ -845,7 +845,7 @@ artifacts:
       pangrova-persistence-query-postgresql: test
       pangrova-persistence-security-api: compile
       pangrova-persistence-security-memory: test
-      pangrova-persistence-security-postgresql: compile
+      pangrova-persistence-security-postgresql: test
       pangrova-persistence-semantic-postgresql: test
       pangrova-persistence-streaming-postgresql: test
       pangrova-persistence-table-api: compile

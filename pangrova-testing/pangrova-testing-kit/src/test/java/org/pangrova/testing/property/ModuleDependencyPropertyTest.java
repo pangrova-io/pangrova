@@ -67,6 +67,24 @@ class ModuleDependencyPropertyTest {
     }
 
     @Test
+    void domainProductionClosuresExcludePersistenceBackends() {
+        var backends = new TreeSet<String>();
+        for (String artifact : MODEL.policies().keySet()) {
+            if (artifact.startsWith("pangrova-persistence-") && !artifact.endsWith("-api")
+                    && !artifact.equals("pangrova-persistence-jdbc-support")) {
+                backends.add(artifact);
+            }
+        }
+        for (Policy domain : MODEL.policies().values()) {
+            if (domain.testSurface() || backends.contains(domain.artifactId())
+                    || domain.path().startsWith("pangrova-server/") || domain.artifactId().equals("pangrova-standalone")) {
+                continue;
+            }
+            assertProductionClosureExcludes(domain.artifactId(), backends);
+        }
+    }
+
+    @Test
     void queryProductionClosureExcludesBackendsAndProcessAssembly() {
         Set<String> forbidden = Set.of("pangrova-persistence-generation-postgresql", "pangrova-persistence-memory",
                 "pangrova-persistence-table-postgresql", "pangrova-persistence-table-memory",
@@ -185,7 +203,7 @@ class ModuleDependencyPropertyTest {
             assertThat(forbidden).as("Production dependency path: %s", path).doesNotContain(artifact);
             Policy policy = MODEL.policies().get(artifact);
             assertThat(policy).as("Production artifact %s has an owner", artifact).isNotNull();
-            scanPomDependencies(ROOT.resolve(policy.path()).resolve("pom.xml")).forEach((target, scope) -> {
+            MODEL.pomDependencies(artifact).forEach((target, scope) -> {
                 if (scope.equals("compile") || scope.equals("runtime")) {
                     var next = new ArrayList<>(path);
                     next.add(target);

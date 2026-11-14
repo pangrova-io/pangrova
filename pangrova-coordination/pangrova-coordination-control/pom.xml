@@ -34,7 +34,7 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-materialization-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-postgresql</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-api</artifactId></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-postgresql</artifactId><scope>test</scope></dependency>
 
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-catalog-api</artifactId></dependency>
 
@@ -63,7 +63,7 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-indexing-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-generation-api</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-memory</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId><scope>test</scope></dependency>
   <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secret-file</artifactId><scope>test</scope></dependency>
 
   <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-secret-env</artifactId><scope>test</scope></dependency>
