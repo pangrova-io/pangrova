@@ -2,12 +2,27 @@ package org.pangrova.testing.testkit;
 
 import org.junit.jupiter.api.Test;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.containers.Network;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Configuration failures must clean up the owned cluster even before the first container starts. */
 class PangrovaClusterContainerLifecycleTest {
+    @Test
+    void stoppingAClusterReleasesOnlyResourcesItOwns() {
+        // The cluster was never started. A lookup or close on its borrowed network is an ownership error.
+        Network borrowed = new Network() {
+            @Override public String getId() { throw new AssertionError("unused network was opened"); }
+            @Override public void close() { throw new AssertionError("borrowed network was closed"); }
+            @Override public org.junit.runners.model.Statement apply(org.junit.runners.model.Statement base,
+                    org.junit.runner.Description description) { return base; }
+        };
+        try (var cluster = new PangrovaClusterContainer(DockerImageName.parse("pangrova/engine:test"), 1, borrowed)) {
+            assertThat(cluster.getNetwork()).isSameAs(borrowed);
+        }
+    }
+
     @Test
     void coordinatorStartupProbeRequiresItsOwnHttpCheck() {
         String pendingCluster = """

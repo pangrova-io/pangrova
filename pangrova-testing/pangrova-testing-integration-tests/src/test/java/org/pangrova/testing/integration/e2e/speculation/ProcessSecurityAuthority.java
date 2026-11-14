@@ -40,6 +40,7 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     private final String schema = "spec_" + UUID.randomUUID().toString().replace("-", "");
     private final PGSimpleDataSource dataSource = new PGSimpleDataSource();
     private final GenericContainer<?> ldap;
+    private boolean schemaCreated;
 
     ProcessSecurityAuthority(Network network) {
         ldap = new GenericContainer<>(DockerImageName.parse("osixia/openldap:1.5.0"))
@@ -54,12 +55,12 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     }
 
     void start() throws Exception {
-        initializeDatabase();
         try {
+            initializeDatabase();
             ldap.start();
             verifyDirectory();
         } catch (Exception | Error startupFailure) {
-            try { close(); } catch (RuntimeException cleanupFailure) { startupFailure.addSuppressed(cleanupFailure); }
+            try { close(); } catch (Exception cleanupFailure) { startupFailure.addSuppressed(cleanupFailure); }
             throw startupFailure;
         }
     }
@@ -83,6 +84,7 @@ final class ProcessSecurityAuthority implements AutoCloseable {
         try (var connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var statement = connection.createStatement()) {
             statement.execute("CREATE SCHEMA " + schema);
+            schemaCreated = true;
         }
         dataSource.setURL(postgres.getJdbcUrl());
         dataSource.setCurrentSchema(schema);
@@ -124,5 +126,18 @@ final class ProcessSecurityAuthority implements AutoCloseable {
                 + java.util.Base64.getEncoder().encodeToString(PASSWORD.getBytes(StandardCharsets.UTF_8)) + "\n";
     }
 
-    @Override public void close() { ldap.stop(); }
+    @Override public void close() throws Exception {
+        try (AutoCloseable directory = ldap::stop) {
+            if (schemaCreated) {
+                var postgres = SharedTestContainers.POSTGRES;
+                try (var connection = DriverManager.getConnection(
+                        postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+                     var statement = connection.createStatement()) {
+                    // The UUID schema belongs to this fixture; the shared database belongs to the suite.
+                    statement.execute("DROP SCHEMA " + schema + " CASCADE");
+                    schemaCreated = false;
+                }
+            }
+        }
+    }
 }

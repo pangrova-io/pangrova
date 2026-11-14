@@ -50,6 +50,7 @@ public final class PangrovaClusterContainer implements AutoCloseable {
     private final DockerImageName imageName;
     private final int workerCount;
     private final Network network;
+    private final boolean ownsNetwork;
 
     private GenericContainer<?> coordinator;
     private final List<GenericContainer<?>> workers = new ArrayList<>();
@@ -75,12 +76,18 @@ public final class PangrovaClusterContainer implements AutoCloseable {
      * @param workerCount number of worker containers (must be >= 1)
      */
     public PangrovaClusterContainer(DockerImageName imageName, int workerCount) {
+        this(imageName, workerCount, null);
+    }
+
+    /** Borrows a supplied network shared with directory, database or fault-injection processes. */
+    public PangrovaClusterContainer(DockerImageName imageName, int workerCount, Network sharedNetwork) {
         if (workerCount < 1) {
             throw new IllegalArgumentException("workerCount must be >= 1, got: " + workerCount);
         }
         this.imageName = Objects.requireNonNull(imageName);
         this.workerCount = workerCount;
-        this.network = Network.newNetwork();
+        ownsNetwork = sharedNetwork == null;
+        network = ownsNetwork ? Network.newNetwork() : sharedNetwork;
     }
 
     /**
@@ -203,7 +210,7 @@ public final class PangrovaClusterContainer implements AutoCloseable {
         }
         failure = closeContainer(coordinator, failure);
         if (failure != null) throw failure;
-        network.close();
+        if (ownsNetwork) network.close();
         workers.clear();
         started = false;
         closed = true;
