@@ -95,7 +95,7 @@ description: "Accepted decisions for domain contracts, implementations, and proc
 | Maven 制品 | 在实际启用的 profile 下检查整个 reactor 的构建顺序。生产依赖、测试依赖、classifier 和构建插件分开追踪。只要 Maven 必须先构建对方，就要纳入构建图。聚合父 POM 列出子模块不构成生产代码依赖。 |
 | Java 生产包 | 检查发行制品之间及同一 JAR 内部的能力包。两个以上包互相可达即形成一个强连通分量。用真实类型引用定位边，包括方法签名、泛型、注解、工厂返回值和全限定引用。一个包内部多个类协作按职责判断。 |
 | 插件与运行角色 | Server 可以装入 Provider，Provider 通过领域接口被调用。验证工厂的类加载器、服务描述符和角色发行 classpath，检查 Core 是否仍在运行时按实现类名回查 Provider。 |
-| Native | CMake 构建顺序、组件间头文件引用和 JNI 回调分别检查。现有 Engine 与索引、向量及能力实现之间有双向引用，具体位置记录在 `.pangrova/rules/architecture.md` 的 C++ 边界表。修改这些位置时由 Engine 声明所需操作，具体注册归运行时装配。新增引用必须符合组件边界，仍发行一个共享库。 |
+| Native | 对每个目标验证 CMake 构建顺序。Native 门禁解析仓库源码内的字面量 include，任何文件闭环都报告逐边行号并失败。按七个 OBJECT 组件聚合时，它们目前属于同一个强连通分量。Engine 调用 Bridge 运行时、UDF 回调 Java、Lance 使用 Engine 列布局都贡献了实际依赖。使用 `python3 .pangrova/scripts/check-native-includes.py pangrova-worker-native/src --components` 导出边和证据。组件解耦按具体职责移动契约和注册入口，JNI 双向调用另做握手与关闭验证。 |
 | 运行时生命周期 | 将“必须等待对方完成才能继续”画成等待边。禁止 A 等 B ready 而 B 同时等 A ready，也禁止持锁回调让对方等待同一把锁。Server 可以先创建实例，再注册回调，能力确认后才开放接入。每个资源指定唯一关闭方，借用者先停止使用，由所属方释放。通过启动失败、取消、并发和逆序关闭测试验证。 |
 
 ### 断开哪一条边

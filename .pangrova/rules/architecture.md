@@ -420,11 +420,19 @@ Within `pangrova-worker-native/src/`, C++ components follow layered dependencies
 | `udf/` | Velox SDK, `bridge/` handle registry, `engine/` |
 | `lance/` | Lance C FFI, Arrow, `engine/observability/`, `capabilities/` |
 
-The in-process engine registers capability, indexing and vector implementations
-directly, so include-level edges between `engine/`, `capabilities/`,
-`indexing/` and `vector/` exist in both directions. The OBJECT-target split
-defines ownership and build isolation, not an acyclic include graph; the single
-shared library links them together by design.
+The Native boundary gate resolves literal quoted and angled includes to files under
+`pangrova-worker-native/src` and rejects closed file paths, including self-includes.
+It checks each preprocessor branch. Build configurations, generated headers and external
+dependencies are validated by the corresponding CMake builds.
+
+At component granularity all seven OBJECT groups belong to one strongly connected
+component. For example `engine/executor/driver/PlanExecutionCompletion.cpp` uses the
+Bridge runtime, `udf/JvmScalarFunction.cpp` uses the Bridge for Java callbacks and
+`lance/LanceBatchReader.cpp` consumes Engine column layout. Reversing these dependencies
+requires moving the relevant runtime contract or value type to its semantic owner and
+installing the implementation at process assembly. A single shared library is still
+published. Inspect the source and line for each component edge with
+`python3 .pangrova/scripts/check-native-includes.py pangrova-worker-native/src --components`.
 
 The engine→capability edges are confined to named seams, all of them inside
 capability-specific execution rather than the generic SELECT/DDL/DML path:
@@ -452,8 +460,8 @@ allowed outside the list above.
 - `engine/observability/` MUST NOT include business logic headers
 - `engine/memory/` MUST NOT include executor or shuffle headers (direction: they depend on memory)
 - `engine/columnar/` MUST NOT include SQL decoder, executor or JNI headers
-- No new circular includes between C++ components outside the documented
-  engine/capability/index/vector composition above
+- Reject local file include cycles. Review changes to cross-component edges against the
+  ownership table above and validate affected build targets and JNI entry points
 
 ## Full-Chain Connectivity Requirements
 

@@ -99,4 +99,5 @@ if [[ "${fail}" -ne 0 ]]; then
     exit 1
 fi
 
+python3 "${SCRIPT_DIR}/check-native-includes.py" "${SRC_DIR}"
 echo "PASS: native layout and JNI boundary are conforming"
