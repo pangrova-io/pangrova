@@ -792,6 +792,8 @@ public class E2ETestFramework {
 ```
 
 
+`IndependentClientCancellationE2ETest` uses a Coordinator and two Worker processes. The relay holds an actual Native terminal task report while `Statement.cancel()` or the packaged CLI timeout cancels the matching query over HTTP. The checks require the same UUID to become CANCELLED. Each client must also have one PostgreSQL query history row with its exact SQL, LDAP principal, tenant and unsuccessful outcome. The security audit must contain one submission and one cancellation event in that order for the same ID. Submission records the already authenticated principal and SQL. The cancellation event records the tenant resolved during admission. The CLI case holds the first FINISHED notification while its real retry proceeds. After PostgreSQL shows that the tenant admission slot was released, it delivers the original delayed notification and requires separate acknowledgements for that superseded notice and the actual Native release receipt. JDBC then consumes a TLS result stream on the same connection, and a fresh CLI query also reads its result. Supply the local role classpaths, CLI and Native manifest used by the independent-process suites.
+
 ## 7. Chaos Testing Framework
 
 ```
