@@ -2,6 +2,8 @@
 
 > 领域契约统一在 `.api` 下发布。跨域依赖方向、Provider 安装、运行角色与循环处置见[领域模块化 ADR](../../docs/architecture/domain-modularization-adr.md)。模块清单记录可验证的当前边界。改变边界时同步更新源码、清单、装配和 ADR。
 
+合并或拆分模块前，按[循环依赖的判定与处理](../../docs/architecture/domain-modularization-adr.md#循环依赖的判定与处理)分别检查制品、生产包、Native 组件和运行时等待关系。合并预检要覆盖经过第三方制品返回的间接路径。同批合并多个领域时，在一次预检中收缩所有候选组。提交变更时给出被切断的边、契约与状态的归属，以及复查同一张图的结果。
+
 Pangrova is a **hybrid C++ / Java distributed OLAP engine** using JNI for cross-language calls.
 Java handles coordination and planning; C++ handles high-performance vectorized execution.
 

@@ -65,12 +65,24 @@ class ModuleManifestTest(unittest.TestCase):
         deps = {"core": ["api", "provider"], "provider": ["port"], "port": ["api"], "api": []}
         artifacts = {name: {"leaf": True, "dependencies": dict.fromkeys(edges, "compile")}
                      for name, edges in deps.items()}
-        self.assertEqual(["core", "provider", "port", "api"],
-                         BASELINE.merge_witness(artifacts, {"core", "api"}))
-        self.assertEqual([], BASELINE.merge_witness(artifacts, {"core", "provider"}))
-        self.assertEqual([], BASELINE.merge_witness(artifacts, set(deps)))
+        self.assertEqual([("core", "provider"), ("provider", "port"), ("port", "api")],
+                         BASELINE.merge_witness(artifacts, [["core", "api"]]))
+        self.assertEqual([], BASELINE.merge_witness(artifacts, [["core", "provider"]]))
+        self.assertEqual([], BASELINE.merge_witness(artifacts, [list(deps)]))
         with self.assertRaisesRegex(ValueError, "Unknown or non-leaf"):
-            BASELINE.merge_witness(artifacts, {"api", "missing"})
+            BASELINE.merge_witness(artifacts, [["api", "missing"]])
+
+    def test_two_individually_safe_merges_can_close_a_cycle_together(self):
+        deps = {"a-app": ["b-api"], "b-app": ["a-api"], "a-api": [], "b-api": []}
+        artifacts = {name: {"leaf": True, "dependencies": dict.fromkeys(edges, "compile")}
+                     for name, edges in deps.items()}
+        groups = [["a-app", "a-api"], ["b-app", "b-api"]]
+        for group in groups:
+            self.assertEqual([], BASELINE.merge_witness(artifacts, [group]))
+        self.assertEqual([("a-app", "b-api"), ("b-app", "a-api")],
+                         BASELINE.merge_witness(artifacts, groups))
+        with self.assertRaisesRegex(ValueError, "multiple merge groups: a-api"):
+            BASELINE.merge_witness(artifacts, [groups[0], ["a-api", "b-api"]])
 
     def test_duplicate_artifact_cannot_hide_a_module_from_the_graph(self):
         for directory in ("first", "second"):

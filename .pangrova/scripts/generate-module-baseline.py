@@ -118,45 +118,63 @@ def collect_descriptors(module_dir: Path) -> dict[str, list[str]]:
     return descriptors
 
 
-def merge_witness(artifacts: dict, selected: set[str]) -> list[str]:
-    """Find a shortest original path that leaves and re-enters the proposed artifact."""
-    if len(selected) < 2:
-        raise ValueError("Select at least two distinct artifacts")
-    for name in sorted(selected):
-        if name not in artifacts or not artifacts[name]["leaf"]:
-            raise ValueError(f"Unknown or non-leaf artifact: {name}")
-    queue = deque(sorted(selected))
-    parents = dict.fromkeys(selected)
-    while queue:
-        source = queue.popleft()
+def merge_witness(artifacts: dict, groups: list[list[str]]) -> list[tuple[str, str]]:
+    """Return original POM edges forming a cycle through a proposed merged artifact."""
+    owners = {name: (name,) for name in artifacts}
+    merged = []
+    for names in groups:
+        group = tuple(sorted(set(names)))
+        if len(group) < 2:
+            raise ValueError("Select at least two distinct artifacts in each merge group")
+        for name in group:
+            if name not in artifacts or not artifacts[name]["leaf"]:
+                raise ValueError(f"Unknown or non-leaf artifact: {name}")
+            if len(owners[name]) > 1:
+                raise ValueError(f"Artifact occurs in multiple merge groups: {name}")
+            owners[name] = group
+        merged.append(group)
+
+    # Keep one real edge per pair of contracted nodes for actionable diagnostics.
+    graph = defaultdict(dict)
+    for source in sorted(artifacts):
         for target in sorted(artifacts[source]["dependencies"]):
-            if target not in artifacts:
-                continue
-            if target in selected:
-                if source not in selected:
-                    path = [source]
-                    while parents[path[-1]] is not None:
-                        path.append(parents[path[-1]])
-                    return [*reversed(path), target]
-            elif target not in parents:
-                parents[target] = source
-                queue.append(target)
+            if target in owners and owners[source] != owners[target]:
+                graph[owners[source]].setdefault(owners[target], (source, target))
+
+    for start in merged:
+        queue = deque([start])
+        parents = {start: None}
+        while queue:
+            source = queue.popleft()
+            for target, edge in graph[source].items():
+                if target == start:
+                    path = [edge]
+                    while source != start:
+                        previous = parents[source]
+                        path.append(graph[previous][source])
+                        source = previous
+                    return list(reversed(path))
+                if target not in parents:
+                    parents[target] = source
+                    queue.append(target)
     return []
 
 
-def check_merge(names: list[str]) -> int:
+def check_merge(groups: list[list[str]]) -> int:
     artifacts = pom_artifacts()
     try:
-        path = merge_witness(artifacts, set(names))
+        edges = merge_witness(artifacts, groups)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 2
-    if path:
+    if edges:
         print("Merging these artifacts closes a declared POM dependency cycle:")
-        for source, target in zip(path, path[1:]):
+        for group in groups:
+            print("  merge: " + ", ".join(group))
+        for source, target in edges:
             print(f"  {source} -> {target} ({artifacts[source]['dependencies'][target]}, {artifacts[source]['pom']})")
         return 1
-    print("No declared POM dependency path leaves and re-enters the proposed artifact.")
+    print("No declared POM dependency cycle passes through a proposed merged artifact.")
     return 0
 
 
@@ -310,8 +328,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="check the existing fact baseline")
     parser.add_argument("--graph-dir", type=Path, help="export graphs without rewriting the baseline")
-    parser.add_argument("--check-merge", nargs="+", metavar="ARTIFACT",
-                        help="simulate merging leaf artifacts using direct local POM edges, including test scope")
+    parser.add_argument("--check-merge", nargs="+", action="append", metavar="ARTIFACT",
+                        help="simulate merging leaf artifacts using declared POM edges; repeat for simultaneous merges")
     options = parser.parse_args()
     if options.check_merge:
         if options.check or options.graph_dir:
