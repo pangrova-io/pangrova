@@ -115,7 +115,7 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 
 | Old Name | New Name | Rationale |
 |---|---|---|
-| `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
+| 原 `StreamSourceReader` | `CdcSourceReader` | Clarifies this reads CDC events, not arbitrary streams |
 | StreamWriteSink (old name) | `CdcWriteSink` | Clarifies this writes CDC data, not arbitrary stream output |
 | StreamWriteResult (old name) | `CdcWriteResult` | Consistent with CdcWriteSink |
 | `StreamingWriter` | `IncrementalWriter` | Clarifies incremental batch buffering, not stream processing |

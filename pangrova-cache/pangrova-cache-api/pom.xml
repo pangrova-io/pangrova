@@ -12,4 +12,10 @@
     <properties>
         <module.name>org.pangrova.cache.api</module.name>
     </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
+    </dependencies>
 </project>

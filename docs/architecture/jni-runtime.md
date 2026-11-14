@@ -59,7 +59,7 @@ Manual cross-file alignment is not an accepted mechanism.
 | `TaskRequest`, splits, resource/write/shuffle config | Java → Native | Canonical generated descriptor and protocol epoch |
 | `RuntimeInitConfig` | Java → Native | Canonical runtime, memory, cache, spill, filesystem and mutual-TLS configuration |
 | `RuntimeCommand` and typed command payloads | Java → Native | Canonical generated descriptor; unknown command fails |
-| `TaskStatus`, command responses, metrics/cache/capabilities | Native → Java | Canonical generated descriptor; negative response is not success |
+| Task-status responses, command responses, metrics/cache/capabilities | Native → Java | Canonical generated descriptor; negative response is not success |
 
 REST DTOs that never cross JNI are Java contracts. Native implementation-only
 structures that never cross JNI are C++ contracts. Neither may duplicate a

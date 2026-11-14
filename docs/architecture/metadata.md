@@ -72,7 +72,7 @@ authority and atomicity design. Historical V9 schema and checksums remain intact
 Generation stores now consume `GenerationTransactionAuthority` from
 `persistence.jdbc.api.generation`. This is explicitly a caller-owned JDBC transaction port,
 not a data-source container or an authorization snapshot. The real
-`MetadataGenerationTransactionAuthority` adapter retains the current tenant and
+`PostgresGenerationTransactionAuthority` adapter retains the current tenant and
 table-policy checks and delegates model validation through Security's
 `persistence.jdbc.api.security.model.CurrentModelAuthority` on that same connection. The process
 root constructs AI Control's `persistence.ai.postgresql.embedding.JdbcCurrentModelAuthority`

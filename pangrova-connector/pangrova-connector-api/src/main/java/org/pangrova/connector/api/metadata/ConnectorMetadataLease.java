@@ -1,6 +1,9 @@
 package org.pangrova.connector.api.metadata;
 
+import org.pangrova.common.api.annotation.Stable;
+
 /** Holds the connector resources needed by one begun metadata instance. */
+@Stable(since = "1.0")
 public interface ConnectorMetadataLease {
     ConnectorMetadata metadata();
 

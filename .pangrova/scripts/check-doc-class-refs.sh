@@ -34,7 +34,7 @@ extract_class_refs() {
         fi
         awk '/^```/{in_fence = !in_fence; next} !in_fence{print}' "$doc"
     done \
-        | grep -ivE 'proposed|planned|target design|remaining work|new (class|component)|phase [0-9]|does not exist|not implemented' \
+        | grep -ivE 'proposed|planned|target design|remaining work|new (class|component)|phase [0-9]|does not exist|not implemented|已删除|删除|退役|移除|迁到|迁入|迁至|移至|归入|原 `|removed|retired|migrated' \
         | grep -ohE '`[A-Z][a-zA-Z0-9]{3,}`' 2>/dev/null \
         | sed 's/`//g' \
         | grep -E '[a-z]' \
@@ -106,6 +106,9 @@ is_excluded() {
         FormatReader|ParquetFormatReader|OrcFormatReader|MemoryManager)
             return 0 ;;
         ShuffleReader|ShuffleWriter)
+            return 0 ;;
+        # Third-party and reference examples, not Pangrova repository types
+        FlightProducer|RelCollation|AbstractCatalog|Supplier)
             return 0 ;;
         *)
             return 1 ;;

@@ -91,7 +91,7 @@ Catalog 增量同步收到数据源的取消后直接退出。扫描线程在启
 | Paimon 索引删除 | 生产访问器使用 SDK 的非递归删除。若删除返回 false 且目标仍在，向调用方报告错误；目标已经消失时可幂等重放。 | `PaimonFileSystemAccessorTest` |
 | Table 策略绑定 | 原 `TableControlGovernanceBindingStore` 归入 `table.api.policy.TablePolicyRepository`。PostgreSQL 和 Memory 的 `policy` 包分别拥有实现。Binder 直接使用原子 upsert 的返回值确认绑定 ID、首次创建者与创建时间。工作流在同一事务读策略时复用同一个查询。 | `PostgresTablePolicyRepositoryTest`、`InMemoryTablePolicyRepositoryTest`、`TableControlPolicyBinderTest` |
 | JDBC 主异常 | 各领域的事务 owner 继续决定提交、回滚和关闭的顺序。`JdbcSupport.rollbackAfterFailure` 统一保留回滚时的 SQL、驱动或资源异常；Query journal 的冲突处置仍须取得实际 rollback 确认。 | `JdbcRollbackTest`、`JdbcTransactionsTest`、`JdbcQueryStateJournalIntegrationTest` |
-| Worker 观测与 Secret 工厂 | 任务状态上报使用角色装配的 MetricsProvider。真实 OTLP gRPC 请求验证部署资源属性。ENV/FILE 工厂重复前缀或版本不兼容时，在创建任何 provider 前拒绝。 | `RemoteTaskStatusReporterTest`、`TelemetryInitializerTest`、`SecretResolverRegistryTest` |
+| Worker 观测与 Secret 工厂 | 任务状态上报使用角色装配的 MetricsProvider。真实 OTLP gRPC 请求验证部署资源属性。ENV/FILE 工厂重复前缀或版本不兼容时，在创建任何 provider 前拒绝。 | `RemoteTaskStatusReporterTracePropagationTest`、`TelemetryInitializerTest`、`SecretResolverRegistryTest` |
 
 ## Shuffle 服务端读取与 cleanup 竞争
 
@@ -129,7 +129,7 @@ Direct 的数据路径在 Native 执行端，Local 的 SpoolStoreFactory 提供�
 |---|---|---|
 | 两个角色各自构建 Observability 配置，Coordinator 固定返回空 | Server Coordinator 与 Server Worker 都从部署配置构造 SDK 的 `ObservabilityConfig`。采样、压缩、资源、凭据和 TLS 在一个配置对象中校验。进程持有 SDK 生命周期，Worker 任务终态上报通过同一 MetricsProvider 记录投递失败 | 配置与 SDK 定点测试通过 53 项。角色装配、网络导出及发行回归分别验证 |
 | Config 的全局 `StateStoreFactory` 和 `state-store.type` | 删除无生产注册或调用的静态注册表及无法改变后端的配置项。部署模板移除该键。Coordinator 使用领域端口装配已有持久化实现，Metadata JDBC 配置仍指向实际访问的数据源 | 构建引用扫描、配置读取联测、角色启动 |
-| 两个 PostgreSQL 索引发布器内各自的 `PublicationMode` | `IndexPublicationMode` 定义初次构建与在线替换的描述符条件。每个工作流在自己的原事务内锁定和验证暂存 generation，原有当前授权、epoch、幂等和二次 fence 在提交方执行 | PostgreSQL 标量索引和生成作业的发布测试 |
+| 两个 PostgreSQL 索引发布器内各自的 `PublicationMode` 已删除 | `IndexPublicationMode` 定义初次构建与在线替换的描述符条件。每个工作流在自己的原事务内锁定和验证暂存 generation，原有当前授权、epoch、幂等和二次 fence 在提交方执行 | PostgreSQL 标量索引和生成作业的发布测试 |
 | `JournalEventSql.PayloadConflict` 与 `QueryLineageFactSql.PayloadConflict` | 查询 PostgreSQL 制品分别拥有 journal 与 lineage 的不可变载荷冲突。journal 冲突携带类型化的事件身份，仅成功回滚后才准许队列确定性拒绝该事件 | journal 冲突、回滚失败、查询启动恢复 |
 | Remote Shuffle、Iceberg 通知和表达式错误 | 自研 Shuffle Service 错误移入服务端 exception，保留 gRPC 失败类型映射。Iceberg 提交通知异常携带原始 cause，读取表达式无法下推独立归 Iceberg Provider | 服务端授权和读取、提交重放、表达式翻译 |
 
@@ -327,7 +327,7 @@ PostgreSQL 发送确认及进程接管。SQL 质量检查所需的授权查询�
 |---|---|---|
 | `scheduler.api.placement.{ClusterSnapshot,SchedulingWorkerSnapshot,ControlLoopAction}` | `scheduler-api` 的 `.api.control` | 这些类型表达整个集群的一次观察及拟议操作。实验接口 `SchedulerControlLoop` 和空动作实现有独立测试，目前没有 Coordinator 定时执行这些操作，也没有生效的 control-loop 配置项 |
 | `scheduler.api.placement.{RetryBudget,FaultTolerancePolicy,NativeFaultPolicy,TaskDuration}` | 前两个归 `.api.retry`，Native 故障策略归 `.api.health`，任务耗时归 `.api.speculation` | `NativeCrashHandler` 处理故障，慢任务识别使用 `TaskDuration`。`RetryBudget` 有独立策略测试，线上失败任务的重试次数由 Query 的 Stage 维护 |
-| `scheduler.core.speculation.{SpeculativeWorkerInventory,SpeculativeQueryInventory,SpeculativeAttemptCanceller}` | `scheduler-api` 的 `.api.speculation` | Coordinator 提供 Worker/Query 的观察和取消入口。带有 Protobuf 请求或执行报告的 `TaskRegistry`、`SpeculativeAttemptDispatcher` 留在 Core 执行适配层。Scheduler API 独立加载不需要 Protocol 或 Calcite |
+| `scheduler.core.speculation.{SpeculativeWorkerInventory,SpeculativeQueryInventory,SpeculativeAttemptCanceller}` | `scheduler-api` 的 `.api.speculation` | Coordinator 提供 Worker/Query 的观察和取消入口。带有 Protobuf 请求或执行报告的 `SpeculativeTaskRegistry`、`CoordinatorSpeculativeAttemptDispatcher` 留在 Core 执行适配层。Scheduler API 独立加载不需要 Protocol 或 Calcite |
 | `SpeculativeTaskLauncher` 的 lineage 和次数缓存 | 删除重复缓存，新增 `scheduler.api.retry.TaskRetryAdmission` | `QueryBootstrap → DAGLifecycleController → Stage` 核对可替换性、持有 lineage 预算与槽位，并在派发前登记终态路由。错误的 query、无可用替代节点、预算耗尽均不会消耗额度。实际派发失败时回退槽位、次数与路由。取消推测落败 attempt 与失败重试的接纳分开 |
 | `scheduler.api.placement.WorkerSelectionStrategyFactory` 和内建算法 | 工厂与 placement 值保留 Scheduler API，候选资格和调度留 Core，算法与服务描述符留 `scheduler-strategies-builtin` | Coordinator 配置 `coordinator.query.placement-provider` 经 `QuerySchedulingWiring` 查找版本兼容且 ID 唯一的工厂。角色装配和租户选择用例覆盖该路径 |
 | `generation.core.submission.GenerationPublicationFactory`、`IndexingBootstrap.artifactPublicationStores` | 删除转发及重复路由，使用 `generation.publication.GenerationPublicationRouter` | Server 将 vector index、text index、generated column values、tabular export 四类输出一次性映射到三个 PostgreSQL 参与者，`DurableGenerationPublisher` 在既有 claim 和发布确认范围内调用所选存储端口。单元测试检查四条分派、拒绝未知类型、失败延后重试、已占用 claim 与过期 claim 接管；数据库测试检查真实空表发布 |
@@ -358,7 +358,7 @@ Connector 的类加载隔离测试同时打包宿主契约与插件代码，核�
 
 | 原路径 | 当前处置及验证入口 |
 |---|---|
-| `QualityCheckService`、`GovernanceStatementHandler` 与写前检查各执行规则 | 程序化入口和定时任务使用 `GovernanceStatementHandler`。与写前检查共享 `QualityRuleEvaluation` 校验结果的规则、表、严重性与行数。实际审计与写入拒绝由 `WriteQualityGateTest`、`CronSchedulerTest` 等覆盖。 |
+| 原 `QualityCheckService`、`GovernanceStatementHandler` 与写前检查各执行规则 | 程序化入口和定时任务使用 `GovernanceStatementHandler`。与写前检查共享 `QualityRuleEvaluation` 校验结果的规则、表、严重性与行数。实际审计与写入拒绝由 `WriteQualityGateTest`、`CronSchedulerTest` 等覆盖。 |
 | `GovernanceQueryRunner` | 结构化读取携带稳定表 UUID 与租户主体。PG SQL 测试覆盖表达式；生产尚无已授权的定时读取通道与候选写入 post-image。 |
 | `LineageBackend.isAvailable()` | 两个既有实现曾无条件返回 true，现以发送确认表达交付成功。所有实现明确承担 close 契约。LOG 无私有外部资源，HTTP 客户端由发送端在 drain 后收回。 |
 | Worker 中的环境变量解析和硬编码文件后端 | 共享 Secret 注册表接入实际 Catalog 与 AI，`BlobStorageFactory` 提供 LOCAL、S3、OSS 的 FILE 发布路径；`ObjectStoreAccessorProvider` 提供 LOCAL、S3 文件空间。Worker 对 COPY 的目标后端另行要求 `ManagedBlobStorageFactory`。它保证预算逐请求生效、取消可见和物理后端身份可复核。当前只有 S3 实现，Local 与 OSS 在打开目标前拒绝。COPY 的精确版本来源继续使用 S3。35 个定点用例通过，覆盖 Worker 实际 mTLS 请求、S3 物理身份、拒绝不支持的后端、配置重复、租约关闭与部分启动失败。 |
@@ -371,7 +371,7 @@ Connector 的类加载隔离测试同时打包宿主契约与插件代码，核�
 | Metadata 的 RegistryTablePolicyAuthority 转发五个方法 | CatalogRegistry 在构造时绑定唯一 TableControlPolicyBinder。它直接实现 TablePolicyAuthority。行策略、列掩码、质量规则借用同一实例。TableControlService 决定 stable ID、当前部署和 ACTIVE 准入，PostgreSQL 工作流继续拥有事务 | TableControlRowPolicyStoreTest、TableControlQualityRuleStoreTest、MetadataTagOperationsTest、TableControlPolicyBinderTest 包含改名、重建同名对象、旧授权拒绝 |
 | metadata.service 的行策略存储、事务策略投影、DefaultConnectorSession | 行策略及列掩码在 metadata.security 按 stable ID 投影。Connector 会话在 metadata.connector 构造，测试验证目标 catalog/schema、租户传递及令牌隔离。缓存键按授权会话取摘要的测试与包内缓存键同位置 | MetadataResolutionCacheKeyTest、DefaultConnectorSessionTest；与上一行合计 32 项通过 |
 | 无装配引用的 MetadataCleanupConfig | 原类列出的三个 YAML 字段没有加载入口。失效日志由 maintenance leader 调用 PostgreSQL cleanup，L1 由缓存自己的 TTL 管理。删除失效配置声明 | ModuleInvalidationLifecycleTest 检查领导权轮换及关闭 |
-| `DefaultMetadataService` 中的已解析表缓存、`MetadataResolutionCacheKey` | `metadata.resolution.CatalogTableResolution` 持有按认证会话隔离的 cache、受控表版本核验、观察表 TTL 与 DDL 后的失效。DDL 使用当前认证会话从 Connector 读取元数据。SQL 与 REST 调用仍经 MetadataService | DefaultMetadataServiceResolveTest、DefaultMetadataServiceCacheTest、DefaultMetadataServiceAlterTableTest、MetadataResolutionCacheKeyTest 共 12 项通过 |
+| 原 `DefaultMetadataService` 中的已解析表缓存、`MetadataResolutionCacheKey` | `metadata.resolution.CatalogTableResolution` 持有按认证会话隔离的 cache、受控表版本核验、观察表 TTL 与 DDL 后的失效。DDL 使用当前认证会话从 Connector 读取元数据。SQL 与 REST 调用仍经 MetadataService | DefaultMetadataServiceResolveTest、DefaultMetadataServiceCacheTest、DefaultMetadataServiceAlterTableTest、MetadataResolutionCacheKeyTest 共 12 项通过 |
 | `metadata.generation` 的 PostgreSQL 事务装配、发布候选项和事务权限 | `persistence.workflow.postgresql.generation` 的 PostgresGenerationStores、PostgresGenerationPublicationCandidates、PostgresGenerationTransactionAuthority 组合当前权限、fence 与 Generation 参与者。Metadata 的生产代码移除了对 Query、Generation 和 Security PostgreSQL 实现的依赖 | 实际 PostgreSQL 的 Generation 存储与 fencing 30 项、锁 4 项通过。跨域提交的整组集成测试随 full-regression 验证 |
 | Coordination 中的 HTTP 端点、Filter 和 StageFileUrlService | `server.coordinator.http` 持有 Jersey 注册与入口。Query、Catalog、Copy、File 的资源和过滤器从 `http.endpoint` 向下划分。`http.request` 独立持有请求限额与进程内幂等键，使端点无需导入装配包 | 迁移后的 FileUrlServiceTest、RequestLimitControlIsolationTest、CatalogRestResourceTest、QueryStatusResourceTest、InternalAuthFilterPropertyTest 共 41 项通过。首次复查检出五个包组成的循环，调整请求包后扫描 826 个生产包，循环分量为零 |
 | Iceberg、Paimon 各自的同格式快照标签命名 | Common 的 connector.SnapshotPinTags 拥有持久标签名称的 UTF-8 编码与快照后缀。两个 Connector 分别向自身 Catalog 创建与删除标签、验证快照与标签的一致性 | 提交 d10e8c49 的 SnapshotPinTagsTest、IcebergSnapshotPinProviderTest、两个 SnapshotPinLifecycleTest 和两组架构门禁共 39 项通过 |
@@ -381,7 +381,7 @@ Connector 的类加载隔离测试同时打包宿主契约与插件代码，核�
 
 原 `metadata.api.cache.L2CacheStore` 允许无条件覆盖，Memory 忽略逐条 TTL，Server 从未安装它。`cache.api.CacheStore` 现在为命中和未命中都返回同一次原子观察的组与条目代际。Memory 和 Redis 工厂分别由两个 JAR 注册，`TieredMetadataCache` 只在代际仍匹配时填充。Redis 单实例持有自己可关闭的连接池，旧 payload 和失活的代际键有界过期。
 
-生产查询经 Federation handle 缓存表投影，按 catalog、schema、table、incarnation 和 revision 区分。同步与健康检查直接借用同一底层 source，外部 schema 的读取权威保持在连接器。MetadataBootstrap 关闭 registry、分发器后关闭 store；创建失败时 Server 释放尚未转移的 store。PG outbox 将已提交失效传播给各 Coordinator。已纠正此前声称 Redis Pub/Sub 提供跨节点一致性的说明。配置、网络故障、关闭、跨 namespace、同名目录重建、缓存填充和删除的竞争分别验证。隔离工作树中 36 项 Metadata 测试、2 项 federation factory 测试、1 项真实 Redis 容器测试、9 项 Server 配置与 PostgreSQL 失效进度测试通过。Redis 用两个独立客户端并发运行 12 轮失效与旧填充竞争。`jdeps` 显示 Cache API 只依赖 `java.base`；3 个 JAR 中仅两个 Provider 各发布一条工厂注册。
+生产查询经 Federation handle 缓存表投影，按 catalog、schema、table、incarnation 和 revision 区分。同步与健康检查直接借用同一底层 source，外部 schema 的读取权威保持在连接器。MetadataBootstrap 关闭 registry、分发器后关闭 store；创建失败时 Server 释放尚未转移的 store。PG outbox 将已提交失效传播给各 Coordinator。已纠正此前声称 Redis Pub/Sub 提供跨节点一致性的说明。配置、网络故障、关闭、跨 namespace、同名目录重建、缓存填充和删除的竞争分别验证。隔离工作树中 36 项 Metadata 测试、2 项 federation factory 测试、1 项真实 Redis 容器测试、9 项 Server 配置与 PostgreSQL 失效进度测试通过。Redis 用两个独立客户端并发运行 12 轮失效与旧填充竞争。`jdeps` 显示 Cache API 仅依赖 `java.base` 与 Common 的注解包，无第三方依赖；3 个 JAR 中仅两个 Provider 各发布一条工厂注册。
 
 ### Catalog 元数据调用与 query scope
 

@@ -5,7 +5,7 @@ sidebar_label: "Caching (Target)"
 
 # Pangrova — Caching Target Architecture
 
-> **Status.** The implementation includes Velox Native caching, Worker eviction and locality, and a separate Coordinator cache for federation metadata. The RAM/SSD manager and prefetch controller below describe the proposed Native design.
+> **Status.** Draft target architecture. The implementation includes Velox Native caching, Worker eviction and locality, and a separate Coordinator cache for federation metadata. The RAM/SSD manager and prefetch controller below describe the proposed Native design.
 
 > **Summary.** Target design for multi-tier caching and smart prefetch.
 

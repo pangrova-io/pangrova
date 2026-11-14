@@ -2,7 +2,10 @@ package org.pangrova.cache.api;
 
 import java.time.Duration;
 
+import org.pangrova.common.api.annotation.Stable;
+
 /** Thread-safe expendable values. Each operation is atomic within the deployed store. */
+@Stable(since = "1.0")
 public interface CacheStore extends AutoCloseable {
     CacheLookup read(CacheKey key);
 

@@ -282,9 +282,11 @@ artifacts:
     path: pangrova-cache/pangrova-cache-api
     mainPackages:
       - org.pangrova.cache.api
-    pomDependencies: []
+    pomDependencies:
+      pangrova-common: compile
     imports:
-      main: []
+      main:
+        - pangrova-common
       test: []
     exportedPackages:
       - org.pangrova.cache.api
@@ -2897,6 +2899,7 @@ artifacts:
       pangrova-testing-kit: test
     imports:
       main:
+        - pangrova-common
         - pangrova-connector-api
         - pangrova-materialization-api
         - pangrova-persistence-jdbc-support

@@ -242,7 +242,7 @@ artifacts:
     moduleName: org.pangrova.cache.api
     packageRoots: [org.pangrova.cache.api]
     exports: [org.pangrova.cache.api]
-    allowedImports: []
+    allowedImports: [pangrova-common]
     forbiddenImports: [pangrova-metadata-catalog, pangrova-server-coordinator, pangrova-worker]
     providers: {}
 
