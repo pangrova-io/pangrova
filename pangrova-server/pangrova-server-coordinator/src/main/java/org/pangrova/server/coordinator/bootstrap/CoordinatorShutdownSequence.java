@@ -41,7 +41,7 @@ final class CoordinatorShutdownSequence {
             PluginConnectorHandleFactory connectorHandleFactory,
             org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority,
             DataSource metadataDataSource, SecurityBootstrap security, ObservabilityBootstrap observability,
-            org.pangrova.persistence.coordination.api.provider.CoordinationProvider zkLeaseProvider) {}
+            org.pangrova.persistence.coordination.api.provider.CoordinationProvider coordinationProvider) {}
 
     static void closeOwnedResources(CoordinatorLifecycleAdmission lifecycle,
             ShutdownOwners owners) {
@@ -94,14 +94,14 @@ final class CoordinatorShutdownSequence {
         lifecycle.step("connectors", present(owners.connectorHandleFactory(), PluginConnectorHandleFactory::shutdown));
         lifecycle.step("execution-authority", present(owners.executionAuthority(),
                 org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority::close));
-        lifecycle.step("datasource",
-                present(owners.metadataDataSource(), CoordinatorShutdownSequence::closeDataSource));
         ResourceCloser.closeAll(primary,
+                () -> lifecycle.step("coordinationProvider", present(owners.coordinationProvider(),
+                        org.pangrova.persistence.coordination.api.provider.CoordinationProvider::close)),
+                () -> lifecycle.step("datasource",
+                        present(owners.metadataDataSource(), CoordinatorShutdownSequence::closeDataSource)),
                 () -> lifecycle.step("security", present(owners.security(), SecurityBootstrap::shutdown)),
                 () -> lifecycle.step("observability",
-                        present(owners.observability(), ObservabilityBootstrap::shutdown)),
-                () -> lifecycle.step("quorum", present(owners.zkLeaseProvider(),
-                        org.pangrova.persistence.coordination.api.provider.CoordinationProvider::close)));
+                        present(owners.observability(), ObservabilityBootstrap::shutdown)));
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorShutdownSequence.class);

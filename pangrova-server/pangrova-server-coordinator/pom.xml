@@ -246,8 +246,12 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-persistence-materialization-postgresql</artifactId>
         </dependency>
-        <!-- Optional quorum coordination (pangrova-coordination-zookeeper) is loaded reflectively
-             by CoordinatorLeaseBootstrap so the default relational backend carries no ZooKeeper SDK. -->
+        <!-- The Coordinator role discovers quorum support at runtime. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-coordination-zookeeper</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-indexing-lifecycle</artifactId>

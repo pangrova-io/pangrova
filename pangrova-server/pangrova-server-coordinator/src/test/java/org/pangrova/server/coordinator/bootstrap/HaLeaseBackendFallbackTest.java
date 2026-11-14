@@ -22,8 +22,34 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *   <li>Multiple shuffle endpoints configured</li>
  * </ul>
  */
+@org.junit.jupiter.api.parallel.ResourceLock("SYSTEM_PROPERTIES")
 @DisplayName("HA Lease Backend InMemory Fallback (Task #77)")
 class HaLeaseBackendFallbackTest {
+
+    @Test
+    void explicitBackendCannotBecomeALoopbackMemoryLease() {
+        String key = "pangrova.coordination.lease.backend";
+        String previous = System.getProperty(key);
+        try {
+            var config = new CoordinatorBootstrapConfig(
+                    new CoordinatorBootstrapConfig.CoreConfig("coord", 0,
+                            CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
+                            org.pangrova.server.coordinator.enums.CoordinatorRole.COMBINED, "127.0.0.1"),
+                    new CoordinatorBootstrapConfig.FeatureFlags(false, false, false, false, false, false,
+                            false, false, false, false, false, false),
+                    CoordinatorBootstrapConfig.QueryConfig.defaults(),
+                    new CoordinatorBootstrapConfig.TransportConfig(0, 1024L, "localhost", null),
+                    CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(), null, null, null);
+            for (String backend : java.util.List.of("jdbc", "zk", "misspelt")) {
+                System.setProperty(key, backend);
+                assertThatThrownBy(() -> new CoordinatorBootstrap(config).ensureDistributedLease())
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("explicitly configured");
+            }
+        } finally {
+            if (previous == null) System.clearProperty(key);
+            else System.setProperty(key, previous);
+        }
+    }
 
     @Test
     @DisplayName("Multi-node deployment with non-loopback host fails fast when no datasource")

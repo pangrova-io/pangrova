@@ -158,8 +158,12 @@ class ZooKeeperDistributedLeaseTest {
         // A-HA-01 wiring: the provider builds + owns a Curator client from a connect string and
         // exposes a working quorum lease — the exact path the coordinator bootstrap uses to select
         // the ZooKeeper backend.
-        try (ZooKeeperLeaseProvider provider =
-                     new ZooKeeperLeaseProvider("127.0.0.1:" + port, "/pangrova/provider-leases")) {
+        var factory = java.util.ServiceLoader.load(
+                org.pangrova.persistence.coordination.api.provider.CoordinationProviderFactory.class)
+                .stream().map(java.util.ServiceLoader.Provider::get)
+                .filter(f -> f.aliases().contains("zk")).findFirst().orElseThrow();
+        try (var provider = factory.open(null, java.util.Map.of("connectString", "127.0.0.1:" + port,
+                "basePath", "/pangrova/provider-leases")::get)) {
             org.pangrova.persistence.coordination.api.lease.DistributedLease l = provider.lease();
             assertThat(l.tryAcquire("k", "A", Duration.ofSeconds(30))).isPresent();
             assertThat(l.tryAcquire("k", "B", Duration.ofSeconds(30)))

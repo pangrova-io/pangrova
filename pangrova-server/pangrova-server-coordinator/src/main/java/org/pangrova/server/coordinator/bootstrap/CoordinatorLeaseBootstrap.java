@@ -1,62 +1,55 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease;
 import org.pangrova.persistence.coordination.api.provider.CoordinationProvider;
-import org.pangrova.persistence.coordination.api.lease.DistributedLease;
+import org.pangrova.persistence.coordination.api.provider.CoordinationProviderFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.ServiceLoader;
 
-/** Owns exact lease backend selection; lifecycle ownership stays with the Coordinator bootstrap. */
+/** Opens the selected membership and lease backend for the lifetime of this Coordinator. */
 final class CoordinatorLeaseBootstrap {
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorLeaseBootstrap.class);
+    private static final String PREFIX = "pangrova.coordination.lease.";
 
     private CoordinatorLeaseBootstrap() {}
 
-    static Binding resolve(DataSource dataSource) {
-        String backend = System.getProperty("pangrova.coordination.lease.backend", "jdbc")
-                .trim().toLowerCase(Locale.ROOT);
-        return switch (backend) {
-            case "jdbc" -> jdbc(dataSource);
-            case "zookeeper", "zk" -> quorum();
-            default -> throw new IllegalArgumentException("Unknown coordination lease backend: " + backend);
-        };
+    static CoordinationProvider resolve(DataSource dataSource) {
+        return open(dataSource, System.getProperty(PREFIX + "backend", "jdbc"),
+                ServiceLoader.load(CoordinationProviderFactory.class, CoordinatorLeaseBootstrap.class.getClassLoader()));
     }
 
-    private static Binding jdbc(DataSource dataSource) {
-        LOG.warn("event=coordination_spof_posture backend=jdbc "
-                + "message=\"lease, registry and journal require the relational metadata backend; "
-                + "deploy a highly available database for multi-coordinator operation\"");
-        LOG.info("event=distributed_lease_configured backend=jdbc");
-        return new Binding(new JdbcDistributedLease(dataSource), null);
-    }
-
-    private static Binding quorum() {
-        String connectString = System.getProperty("pangrova.coordination.lease.zookeeper.connectString");
-        if (connectString == null || connectString.isBlank()) {
-            throw new IllegalStateException("coordination lease backend=zookeeper requires "
-                    + "pangrova.coordination.lease.zookeeper.connectString");
+    static CoordinationProvider open(DataSource source, String backend, Iterable<CoordinationProviderFactory> factories) {
+        Map<String, CoordinationProviderFactory> names = new HashMap<>();
+        for (var factory : factories) {
+            if (factory.apiVersion() != CoordinationProviderFactory.API_VERSION) {
+                throw new IllegalStateException("Unsupported coordination provider API version: " + factory.id());
+            }
+            register(names, factory.id(), factory);
+            for (String alias : factory.aliases()) {
+                register(names, alias, factory);
+            }
         }
-        String basePath = System.getProperty("pangrova.coordination.lease.zookeeper.basePath", "/pangrova/leases");
-        var provider = loadQuorumProvider(connectString, basePath);
-        return new Binding(provider.lease(), provider);
+        var chosen = names.get(backend.trim().toLowerCase(Locale.ROOT));
+        if (chosen == null) {
+            throw new IllegalArgumentException("Unknown coordination lease backend: " + backend
+                    + ". Installed provider IDs and aliases: " + new java.util.TreeSet<>(names.keySet()));
+        }
+        var provider = Objects.requireNonNull(chosen.open(source,
+                key -> System.getProperty(PREFIX + chosen.id() + "." + key)), "coordination provider");
+        LOG.info("event=distributed_lease_configured backend={}", chosen.id());
+        return provider;
     }
 
-    private static CoordinationProvider loadQuorumProvider(String connectString, String basePath) {
-        try {
-            Class<?> type = Class.forName("org.pangrova.coordination.zookeeper.ZooKeeperLeaseProvider",
-                    true, CoordinatorLeaseBootstrap.class.getClassLoader());
-            return (CoordinationProvider) type.getConstructor(String.class, String.class)
-                    .newInstance(connectString, basePath);
-        } catch (ClassNotFoundException missing) {
-            throw new IllegalStateException("coordination lease backend=zookeeper requires "
-                    + "pangrova-coordination-zookeeper on the runtime classpath", missing);
-        } catch (ReflectiveOperationException failure) {
-            throw new IllegalStateException("Failed to create the ZooKeeper coordination provider", failure);
+    private static void register(Map<String, CoordinationProviderFactory> names, String id,
+                                 CoordinationProviderFactory factory) {
+        if (id == null || !id.matches("[a-z][a-z0-9-]*") || names.putIfAbsent(id, factory) != null) {
+            throw new IllegalArgumentException("Invalid or duplicate coordination provider ID: " + id);
         }
     }
-
-    record Binding(DistributedLease lease, CoordinationProvider quorumProvider) {}
 }

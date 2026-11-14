@@ -13,8 +13,9 @@ artifact. PostgreSQL and process-local Memory implementations are separate
 `pangrova-persistence-coordination-postgresql` and `pangrova-persistence-coordination-memory`
 artifacts. Core receives these contracts explicitly; it cannot select a Memory backend.
 
-`CoordinatorLeaseBootstrap` in Server chooses the configured backend explicitly,
-with JDBC as its default. The optional ZooKeeper provider consumes the narrow
+`CoordinatorLeaseBootstrap` in Server discovers CoordinationProviderFactory registrations and selects the configured ID or alias.
+JDBC is the default. Each factory returns the lease and registry for a single authority.
+The Server rejects duplicate names and incompatible factory versions before opening a provider. The optional ZooKeeper provider consumes the narrow
 persistence API and Coordination values alongside its quorum SDK. The shared
 DataSource belongs to Server; PostgreSQL operations close borrowed connections,
 not the pool. The quorum provider owns its shared client close hook.

@@ -56,6 +56,16 @@ class CoordinatorLeaseBootstrapTest {
     }
 
     @Test
+    void rejectsConflictingNamesBeforeOpeningEitherBackend() {
+        var factory = java.util.ServiceLoader.load(
+                org.pangrova.persistence.coordination.api.provider.CoordinationProviderFactory.class)
+                .stream().map(java.util.ServiceLoader.Provider::get)
+                .filter(f -> f.id().equals("jdbc")).findFirst().orElseThrow();
+        assertThatThrownBy(() -> CoordinatorLeaseBootstrap.open(null, "jdbc", java.util.List.of(factory, factory)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicate");
+    }
+
+    @Test
     void jdbcRequiresTheActualMetadataDataSource() {
         System.setProperty(BACKEND, "jdbc");
         assertThatThrownBy(() -> CoordinatorLeaseBootstrap.resolve(null))
@@ -69,8 +79,8 @@ class CoordinatorLeaseBootstrapTest {
         var first = CoordinatorLeaseBootstrap.resolve(dataSource);
         System.setProperty(BACKEND, " JDBC ");
         var second = CoordinatorLeaseBootstrap.resolve(dataSource);
-        assertThat(first.quorumProvider()).isNull();
-        assertThat(second.quorumProvider()).isNull();
+        assertThat(first.registry()).isNotNull();
+        assertThat(second.registry()).isNotNull();
         var acquired = first.lease().tryAcquire("actual-lease", "owner-one", Duration.ofSeconds(30)).orElseThrow();
         assertThat(second.lease().tryAcquire("actual-lease", "owner-two", Duration.ofSeconds(30))).isEmpty();
         assertThat(first.lease().release(acquired.leaseKey(), acquired.holderId(), acquired.epoch())).isTrue();

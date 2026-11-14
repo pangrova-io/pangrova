@@ -6,9 +6,8 @@ import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.common.api.annotation.Internal;
 
 /**
- * Optional quorum-backed coordination backend: distributed lease and coordinator
- * registry sharing one connection and one close hook. Implemented outside the
- * Coordinator artifact so the default relational backend carries no quorum SDK.
+ * Coordinator membership and distributed leases for one configured backend.
+ * The creating Coordinator closes the provider after both consumers drain.
  */
 @Internal
 public interface CoordinationProvider extends AutoCloseable {

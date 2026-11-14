@@ -72,22 +72,33 @@ public final class ZooKeeperLeaseProvider implements CoordinationProvider {
                 .connectionTimeoutMs((int) connectionTimeout.toMillis())
                 .retryPolicy(new ExponentialBackoffRetry(1000, 3))
                 .build();
-        this.client.start();
         try {
+            this.client.start();
             if (!client.blockUntilConnected((int) connectionTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
-                client.close();
                 throw new IllegalStateException(
                         "Timed out connecting to ZooKeeper for distributed lease: " + connectString);
             }
-        } catch (InterruptedException e) {
+            this.lease = new ZooKeeperDistributedLease(client, basePath);
+            this.registry = new ZooKeeperCoordinatorRegistry(client, siblingPath(basePath, "coordinators"));
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            client.close();
-            throw new IllegalStateException("Interrupted connecting to ZooKeeper: " + connectString, e);
+            var failure = new IllegalStateException("Interrupted connecting to ZooKeeper: " + connectString, interrupted);
+            closeAfterFailure(failure);
+            throw failure;
+        } catch (RuntimeException | Error failure) {
+            closeAfterFailure(failure);
+            throw failure;
         }
-        this.lease = new ZooKeeperDistributedLease(client, basePath);
-        this.registry = new ZooKeeperCoordinatorRegistry(client, siblingPath(basePath, "coordinators"));
         LOG.info("event=distributed_lease_configured backend=zookeeper connectString={} basePath={}",
                 connectString, basePath);
+    }
+
+    private void closeAfterFailure(Throwable failure) {
+        try {
+            client.close();
+        } catch (RuntimeException | Error cleanup) {
+            failure.addSuppressed(cleanup);
+        }
     }
 
     /** The quorum-backed lease. Returned as the API type so callers stay decoupled from Curator. */

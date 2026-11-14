@@ -72,9 +72,9 @@ separate HA database and no `coordinator.ha.jdbc-url` config option.
 
 ### Distributed lease backend (JVM system properties)
 
-By default the leader-election lease is stored in the HA JDBC database. To run
+The Coordinator distribution includes JDBC and ZooKeeper factories. Both the leader lease and the membership registry use the selected factory. JDBC is the default. To run
 leader election on a fault-tolerant ZooKeeper quorum instead, set these JVM
-system properties (`-D...`) on every coordinator:
+system properties (`-D...`) on every coordinator. Explicit backend selection requires metadata and its JDBC data source for the durable journal. A loopback role with metadata disabled can use a process-local lease only when the backend property is absent.
 
 | System property | Default | Description |
 |-----------------|---------|-------------|

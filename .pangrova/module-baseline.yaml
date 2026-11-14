@@ -1099,7 +1099,8 @@ artifacts:
         - pangrova-persistence-coordination-api
     exportedPackages: []
     providers:
-      {}
+      "org.pangrova.persistence.coordination.api.provider.CoordinationProviderFactory":
+        - org.pangrova.coordination.zookeeper.ZooKeeperCoordinationProviderFactory
   pangrova-execution-api:
     path: pangrova-execution/pangrova-execution-api
     mainPackages:
@@ -2443,6 +2444,7 @@ artifacts:
       - org.pangrova.persistence.coordination.postgresql.admission
       - org.pangrova.persistence.coordination.postgresql.lease
       - org.pangrova.persistence.coordination.postgresql.membership
+      - org.pangrova.persistence.coordination.postgresql.provider
     pomDependencies:
       pangrova-common: compile
       pangrova-coordination-api: compile
@@ -2465,7 +2467,8 @@ artifacts:
       - org.pangrova.persistence.coordination.postgresql.lease
       - org.pangrova.persistence.coordination.postgresql.membership
     providers:
-      {}
+      "org.pangrova.persistence.coordination.api.provider.CoordinationProviderFactory":
+        - org.pangrova.persistence.coordination.postgresql.provider.JdbcCoordinationProviderFactory
   pangrova-persistence-file-api:
     path: pangrova-persistence/pangrova-persistence-file-api
     mainPackages:
@@ -4065,6 +4068,7 @@ artifacts:
       pangrova-connector-runtime: compile
       pangrova-coordination-api: compile
       pangrova-coordination-control: compile
+      pangrova-coordination-zookeeper: runtime
       pangrova-execution-api: compile
       pangrova-file: compile
       pangrova-filesystem-api: compile

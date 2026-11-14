@@ -63,7 +63,7 @@ public final class CoordinatorBootstrap {
     private org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry coordinatorRegistry;
     private AiInfrastructureStores aiInfrastructureStores;
     private org.pangrova.persistence.coordination.api.lease.DistributedLease distributedLease;
-    private org.pangrova.persistence.coordination.api.provider.CoordinationProvider zkLeaseProvider;
+    private org.pangrova.persistence.coordination.api.provider.CoordinationProvider coordinationProvider;
     private SecurityBootstrap security;
     private ModuleIntegrationBootstrap moduleWiring;
     private StreamingBootstrap streamingBootstrap;
@@ -265,7 +265,7 @@ public final class CoordinatorBootstrap {
         CoordinatorShutdownSequence.closeOwnedResources(lifecycle, new CoordinatorShutdownSequence.ShutdownOwners(
                 query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, http, moduleWiring,
                 nativeDatasetControl, metadataBootstrap, connectorHandleFactory, executionAuthority,
-                metadataDataSource, security, observability, zkLeaseProvider));
+                metadataDataSource, security, observability, coordinationProvider));
     }
 
     private void initSecretResolver() {
@@ -297,11 +297,10 @@ public final class CoordinatorBootstrap {
                 throw new IllegalStateException("metadataEnabled=true but metadataJdbcConfig is null");
             }
             metadataDataSource = PooledDataSourceFactory.create(jdbc.jdbcUrl(), jdbc.username(), jdbc.password());
-            distributedLease = resolveDistributedLease(metadataDataSource);
+            coordinationProvider = CoordinatorLeaseBootstrap.resolve(metadataDataSource);
+            distributedLease = java.util.Objects.requireNonNull(coordinationProvider.lease(), "coordination lease");
             SchemaMigrationRunner.migrate(metadataDataSource);
-            coordinatorRegistry = zkLeaseProvider == null
-                    ? new org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry(metadataDataSource)
-                    : java.util.Objects.requireNonNull(zkLeaseProvider.registry(), "quorum coordinator registry");
+            coordinatorRegistry = java.util.Objects.requireNonNull(coordinationProvider.registry(), "coordinator registry");
             aiInfrastructureStores = AiInfrastructureStores.jdbc(
                     metadataDataSource, artifactStores.builds(metadataDataSource));
             CatalogDeploymentRepository deployments = new PostgresCatalogDeploymentRepository(metadataDataSource);
@@ -322,20 +321,6 @@ public final class CoordinatorBootstrap {
         } catch (Exception e) {
             throw new BootstrapFailedException("Metadata", e);
         }
-    }
-
-    /**
-     * Selects the distributed-lease backend (A-HA-01). Defaults to JDBC (single coordination DB) for
-     * backward compatibility. Set {@code -Dpangrova.coordination.lease.backend=zookeeper} plus
-     * {@code -Dpangrova.coordination.lease.zookeeper.connectString=host:port,...} to run leader election
-     * on a ZooKeeper quorum. Durable execution still requires the relational metadata backend.
-     * The ZooKeeper client is owned by this bootstrap and released in {@link #shutdown()}.
-     */
-    private org.pangrova.persistence.coordination.api.lease.DistributedLease resolveDistributedLease(
-            DataSource source) {
-        var binding = CoordinatorLeaseBootstrap.resolve(source);
-        zkLeaseProvider = binding.quorumProvider();
-        return binding.lease();
     }
 
     private void startModules() {
@@ -503,6 +488,10 @@ public final class CoordinatorBootstrap {
     org.pangrova.persistence.coordination.api.lease.DistributedLease ensureDistributedLease() {
         if (distributedLease != null) {
             return distributedLease;
+        }
+        if (System.getProperty("pangrova.coordination.lease.backend") != null) {
+            throw new IllegalStateException("The explicitly configured coordination lease backend requires "
+                    + "metadataEnabled=true and a metadata JDBC data source");
         }
         if (!config.transport().isLoopbackAdvertisedHost()) {
             throw new IllegalStateException(
