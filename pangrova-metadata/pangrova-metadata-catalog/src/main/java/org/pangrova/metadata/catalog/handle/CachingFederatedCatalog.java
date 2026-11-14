@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.List;
 import java.util.Objects;
 import org.pangrova.metadata.api.catalog.FederatedCatalog;

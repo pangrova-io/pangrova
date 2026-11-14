@@ -37,7 +37,7 @@ python3 .pangrova/scripts/export-class-inventory.py --base b51114d0 --output tar
 | 编号 | 剩余交付与验收证据 |
 |---|---|
 | 3 | 逐项关联可替换能力的配置、工厂、角色装配、实际调用与关闭。Coordination 的 JDBC、ZooKeeper 已通过同一工厂选择，Server 的租约与成员共享一个实例。Cache 和 Federation 的后续装配变更仍在验证。 |
-| 11 | PostgreSQL Coordination 的 lease 与 membership 曾因工厂归包互引。工厂迁入 provider 后，独立候选的 885 个 Java 生产包检测到 0 个循环分量。整合快照 `616d4910f` 的 914 个生产包也检测到 0 个循环分量。逐模块职责复核与最终角色验收继续进行。 |
+| 11 | PostgreSQL Coordination 的 lease 与 membership 曾因工厂归包互引。工厂迁入 provider 后，独立候选的 885 个 Java 生产包检测到 0 个循环分量。整合快照 `616d4910f` 的 914 个生产包也检测到 0 个循环分量。逐模块职责复核与最终角色验收xu'ya继续进行。 |
 | 12 | 将历史可达性例外逐个关联到生产入口、独立库调用方、测试源码或明确的未支持状态。逐类职责、调用方、事实和资源复核仍有待审条目。 |
 | 13 | 已统一签名等共用工具。剩余域内工具与跨模块重复实现须逐项确认调用方与归属，并复验最终发行物。 |
 | 16 | 同源全量 Maven、Native ASan、Linux amd64 角色发行物、最终性能与资源对照仍未全绿。macOS Release 快照 `c61dc7785` 已通过 4335/4335 项。该轮 ASan 的 Native Shuffle 双向 TLS 全量运行出现握手失败，同一 ASan 用例单独运行 24 次通过，根因尚未确认。索引权限测试与冷缓存遍历的修复已推送（`fd262a4c2`），原 11 个 PostgreSQL 用例及 6 个缓存用例复验通过。 |
