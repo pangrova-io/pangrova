@@ -9,8 +9,6 @@ import org.pangrova.indexing.api.data.IndexData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -209,36 +207,19 @@ public final class IndexCache {
      * than currentGeneration. Called on cache miss to clean up stale entries.
      */
     private void invalidateOlderGenerations(String indexId, String dataFilePath, int currentGeneration) {
-        Set<CacheKey> keys = indexIdIndex.get(indexId);
-        if (keys == null) {
+        Set<CacheKey> fileKeys = dataFileIndex.get(dataFilePath);
+        Set<CacheKey> indexKeys = indexIdIndex.get(indexId);
+        if (fileKeys == null || indexKeys == null) {
             return;
         }
-        List<CacheKey> toRemove = collectOlderKeys(keys, dataFilePath, currentGeneration);
-        removeStaleEntries(toRemove, keys);
-    }
-
-    private static List<CacheKey> collectOlderKeys(Set<CacheKey> keys, String dataFilePath,
-                                                    int currentGeneration) {
-        List<CacheKey> toRemove = new ArrayList<>();
-        for (CacheKey candidate : keys) {
-            if (candidate.dataFilePath().equals(dataFilePath)
-                    && candidate.generation() < currentGeneration) {
-                toRemove.add(candidate);
-            }
-        }
-        return toRemove;
-    }
-
-    private void removeStaleEntries(List<CacheKey> toRemove, Set<CacheKey> indexKeys) {
-        if (toRemove.isEmpty()) {
-            return;
-        }
-        cache.invalidateAll(toRemove);
-        indexKeys.removeAll(toRemove);
-        for (CacheKey removed : toRemove) {
-            Set<CacheKey> fileKeys = dataFileIndex.get(removed.dataFilePath());
-            if (fileKeys != null) {
-                fileKeys.remove(removed);
+        Set<CacheKey> candidates = fileKeys.size() <= indexKeys.size() ? fileKeys : indexKeys;
+        for (CacheKey key : candidates) {
+            if (key.generation() < currentGeneration
+                    && key.indexId().equals(indexId)
+                    && key.dataFilePath().equals(dataFilePath)) {
+                cache.invalidate(key);
+                indexKeys.remove(key);
+                fileKeys.remove(key);
             }
         }
     }

@@ -11,8 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Previously, {@code invalidateOlderGenerations} scanned ALL entries for an indexId
  * on every cache miss (O(K) per miss, O(K²) for cold scan). After the fix, it uses
- * a nested map {@code indexId -> dataFilePath -> Set<CacheKey>} for direct O(1) lookup
- * to the exact (indexId, dataFilePath) bucket.</p>
+ * the smaller of the file and index buckets, so unrelated files do not increase
+ * the work for a cold scan over distinct paths in one index.</p>
  */
 class IndexCacheLookupComplexityTest {
 
@@ -66,12 +66,18 @@ class IndexCacheLookupComplexityTest {
         cache.put(indexId, "/data/file-B.parquet", 0, testData(2));
         cache.put(indexId, "/data/file-C.parquet", 0, testData(3));
 
+        cache.put("another-index", "/data/file-A.parquet", 0, testData(4));
+        cache.put(indexId, "/data/file-A.parquet", 3, testData(5));
+
         // Miss on file-A at generation 2 should invalidate ONLY file-A gen 0
         IndexData result = cache.get(indexId, "/data/file-A.parquet", 2);
         assertThat(result).isNull();
 
         // file-A gen 0 should be invalidated
         assertThat(cache.get(indexId, "/data/file-A.parquet", 0)).isNull();
+
+        assertThat(cache.get("another-index", "/data/file-A.parquet", 0)).isNotNull();
+        assertThat(cache.get(indexId, "/data/file-A.parquet", 3)).isNotNull();
 
         // file-B and file-C must NOT be affected
         assertThat(cache.get(indexId, "/data/file-B.parquet", 0)).isNotNull();

@@ -26,6 +26,7 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-iceberg</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-metadata-catalog</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-workflow-api</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-workflow-postgresql</artifactId><scope>test</scope></dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-metadata-catalog</artifactId>

@@ -1684,6 +1684,7 @@ artifacts:
       pangrova-persistence-query-postgresql: test
       pangrova-persistence-security-postgresql: test
       pangrova-persistence-workflow-api: test
+      pangrova-persistence-workflow-postgresql: test
       pangrova-planner: compile
       pangrova-protocol: compile
       pangrova-query: test
