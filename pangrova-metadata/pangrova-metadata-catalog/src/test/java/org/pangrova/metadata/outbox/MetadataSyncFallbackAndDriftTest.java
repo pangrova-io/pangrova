@@ -50,6 +50,25 @@ class MetadataSyncFallbackAndDriftTest {
         dispatcher.shutdown();
     }
 
+    @Test
+    void cancelledSourceCannotFallBackToFullSyncOrAdvanceTheCursor() {
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        var stopped = new java.util.concurrent.CancellationException("source closed");
+        var catalog = new IncrementalFailingAdapter() {
+            @Override public org.pangrova.metadata.api.catalog.MetadataChangeBatch readChangesSince(Instant since) {
+                reads.incrementAndGet();
+                throw stopped;
+            }
+            @Override public List<String> listSchemas() {
+                throw new AssertionError("Full scan after cancellation");
+            }
+        };
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> syncService.syncWithRetry(deployment("cat"), catalog))
+                .isSameAs(stopped);
+        assertThat(reads.get()).isOne();
+        assertThat(synchronization.completions).isEmpty();
+    }
+
     // ── Sync fallback tests ──
 
     @Test
@@ -90,7 +109,7 @@ class MetadataSyncFallbackAndDriftTest {
     // ── Test doubles ──
 
     /** Adapter that always fails incremental sync but succeeds full sync. */
-    static final class IncrementalFailingAdapter implements FederatedCatalog {
+    static class IncrementalFailingAdapter implements FederatedCatalog {
         List<String> schemas = List.of();
         final Map<String, List<String>> tablesBySchema = new HashMap<>();
         final Map<String, TableMetadata> tableMetadata = new HashMap<>();

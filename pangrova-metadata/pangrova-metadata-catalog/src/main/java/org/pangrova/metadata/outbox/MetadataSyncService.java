@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import org.pangrova.metadata.api.catalog.MetadataChange;
@@ -84,6 +85,7 @@ public class MetadataSyncService {
     public SyncResult incrementalSync(CatalogDescriptor deployment, FederatedCatalog adapter) {
         Instant start = Instant.now();
         CatalogDeploymentIdentity scope = scope(deployment);
+        checkCancellation();
         synchronization.recoverPending(scope);
         projections.recoverPending(scope);
         Optional<Instant> checkpoint = synchronization.loadCheckpoint(scope);
@@ -103,6 +105,7 @@ public class MetadataSyncService {
     public SyncResult fullSync(CatalogDescriptor deployment, FederatedCatalog adapter) {
         Instant start = Instant.now();
         CatalogDeploymentIdentity scope = scope(deployment);
+        checkCancellation();
         synchronization.recoverPending(scope);
         projections.recoverPending(scope);
         Optional<Instant> checkpoint = synchronization.loadCheckpoint(scope);
@@ -130,7 +133,7 @@ public class MetadataSyncService {
                 return requireComplete(incrementalSync(deployment, adapter));
             } catch (MetadataSyncOutcomeUnknownException | MetadataSyncConflictException | MetadataSyncPendingException
                     | MetadataProjectionConflictException | MetadataProjectionOutcomeUnknownException
-                    | MetadataProjectionScopeException | MetadataProjectionPendingException terminal) {
+                    | MetadataProjectionScopeException | MetadataProjectionPendingException | CancellationException terminal) {
                 throw terminal;
             } catch (Exception e) {
                 lastError = e;
@@ -143,7 +146,7 @@ public class MetadataSyncService {
             return requireComplete(fullSync(deployment, adapter));
         } catch (MetadataSyncOutcomeUnknownException | MetadataSyncConflictException | MetadataSyncPendingException
                     | MetadataProjectionConflictException | MetadataProjectionOutcomeUnknownException
-                    | MetadataProjectionScopeException | MetadataProjectionPendingException terminal) {
+                    | MetadataProjectionScopeException | MetadataProjectionPendingException | CancellationException terminal) {
             throw terminal;
         } catch (Exception fullSyncError) {
             if (lastError != fullSyncError) {
@@ -153,13 +156,18 @@ public class MetadataSyncService {
         }
     }
 
+    private static void checkCancellation() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("Metadata synchronization interrupted");
+        }
+    }
+
     private void handleRetryFailure(String catalogName, int attempt, Exception e) {
+        checkCancellation();
         if (attempt < MAX_RETRIES) {
             long backoffMs = 1000L * (1L << (attempt - 1));
             ThreadUtils.sleepQuietly(backoffMs);
-            if (Thread.currentThread().isInterrupted()) {
-                throw new MetadataSyncException(catalogName, 0, e);
-            }
+            checkCancellation();
         }
         LOG.warn("event=metadata_sync_failed catalog={} attempt={} maxRetries={} error={}",
                 catalogName, attempt, MAX_RETRIES, e.getMessage(), e);
@@ -168,11 +176,12 @@ public class MetadataSyncService {
     private SyncAccumulator applyChanges(CatalogDeploymentIdentity scope, List<MetadataChange> changes) {
         SyncAccumulator acc = new SyncAccumulator();
         for (MetadataChange change : changes) {
+            checkCancellation();
             try {
                 applyChange(scope, change);
                 acc.applied++;
             } catch (MetadataProjectionConflictException | MetadataProjectionOutcomeUnknownException
-                    | MetadataProjectionScopeException | MetadataProjectionPendingException terminal) {
+                    | MetadataProjectionScopeException | MetadataProjectionPendingException | CancellationException terminal) {
                 throw terminal;
             } catch (Exception e) {
                 acc.errors++;
@@ -193,6 +202,7 @@ public class MetadataSyncService {
     void validateSyncedSample(CatalogDeploymentIdentity scope, FederatedCatalog adapter,
                               List<MetadataChange> changes) {
         for (MetadataChange change : changes) {
+            checkCancellation();
             if (change.type() == MetadataChange.ChangeType.DELETE) {
                 continue;
             }
@@ -222,7 +232,7 @@ public class MetadataSyncService {
                 schemaDriftDetectedCount.incrementAndGet();
             }
         } catch (MetadataProjectionConflictException | MetadataProjectionOutcomeUnknownException
-                | MetadataProjectionScopeException | MetadataProjectionPendingException terminal) {
+                | MetadataProjectionScopeException | MetadataProjectionPendingException | CancellationException terminal) {
             throw terminal;
         } catch (Exception e) {
             LOG.warn("event=drift_validation_failed catalog={} table={}.{} error={}",
@@ -245,6 +255,7 @@ public class MetadataSyncService {
             FederatedCatalog adapter, List<String> schemas) {
         SyncAccumulator acc = new SyncAccumulator();
         for (String schema : schemas) {
+            checkCancellation();
             syncSchema(scope, adapter, schema, acc);
         }
         return acc;
@@ -280,6 +291,7 @@ public class MetadataSyncService {
     private void syncSchema(CatalogDeploymentIdentity scope, FederatedCatalog adapter,
             String schema, SyncAccumulator acc) {
         for (String table : adapter.listTables(schema)) {
+            checkCancellation();
             syncSingleTable(scope, adapter, schema, table, acc);
         }
     }
@@ -293,7 +305,7 @@ public class MetadataSyncService {
             cache.invalidateTable(scope.catalogName(), schema, table);
             acc.applied++;
         } catch (MetadataProjectionConflictException | MetadataProjectionOutcomeUnknownException
-                | MetadataProjectionScopeException | MetadataProjectionPendingException terminal) {
+                | MetadataProjectionScopeException | MetadataProjectionPendingException | CancellationException terminal) {
             throw terminal;
         } catch (Exception e) {
             acc.errors++;
@@ -333,6 +345,7 @@ public class MetadataSyncService {
 
     private static void validateChangeTargets(CatalogDeploymentIdentity scope, List<MetadataChange> changes) {
         for (MetadataChange change : changes) {
+            checkCancellation();
             QualifiedTableRef ref = java.util.Objects.requireNonNull(change.tableRef(), "source table reference");
             if (!scope.catalogName().equals(ref.catalog())) {
                 throw new MetadataProjectionScopeException(
@@ -454,6 +467,7 @@ public class MetadataSyncService {
 
     private SyncResult finishSync(CatalogDeploymentIdentity scope, Optional<Instant> expected, Optional<Instant> next,
             String syncType, Instant start, SyncAccumulator acc) {
+        checkCancellation();
         Instant end = Instant.now();
         SyncResult result = new SyncResult(scope.catalogName(), syncType, end, acc.applied, acc.errors,
                 acc.errorMessages, Math.max(0, Duration.between(start, end).toMillis()));
