@@ -4,6 +4,9 @@ import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.util.Objects;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -11,39 +14,42 @@ import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.persistence.catalog.api.projection.TableProjectionRepository;
-import org.pangrova.persistence.catalog.postgresql.transaction.PostgresCatalogPersistenceSupport;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 
 /** PostgreSQL implementation of {@link TableProjectionRepository}; borrows the DataSource. */
-public final class PostgresTableProjectionRepository extends PostgresCatalogPersistenceSupport
-        implements TableProjectionRepository {
+public final class PostgresTableProjectionRepository implements TableProjectionRepository {
     private static final int SEARCH_LIMIT = 100;
 
+    private final DataSource dataSource;
+
     public PostgresTableProjectionRepository(DataSource dataSource) {
-        super(dataSource);
+        this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
     @Override
     public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
-        String sql = "SELECT columns, partition_spec, sort_order, properties, "
-                + "table_created_at, table_updated_at FROM table_metadata "
-                + "WHERE catalog_name=? AND schema_name=? AND table_name=?";
-        return executeQuery(sql, ps -> {
-            ps.setString(1, catalog);
-            ps.setString(2, schema);
-            ps.setString(3, table);
-        }, rs -> rs.next()
-                ? Optional.of(ProjectionRows.readTable(rs, new QualifiedTableRef(catalog, schema, table)))
-                : Optional.empty());
+        var ref = new QualifiedTableRef(catalog, schema, table);
+        try (Connection conn = dataSource.getConnection()) {
+            return CatalogProjectionSql.load(conn, ref);
+        } catch (SQLException failure) {
+            throw new MetastoreException("Cannot load table projection " + ref, failure);
+        }
     }
 
     @Override
     public List<QualifiedTableRef> searchTables(String pattern) {
         String sql = "SELECT catalog_name, schema_name, table_name FROM table_metadata "
                 + "WHERE table_name LIKE ? ESCAPE '\\' LIMIT ?";
-        return executeQuery(sql, ps -> {
-            ps.setString(1, "%" + escapeLikePattern(pattern) + "%");
-            ps.setInt(2, SEARCH_LIMIT);
-        }, this::mapTableRefs);
+        try (Connection conn = dataSource.getConnection();
+                PreparedStatement statement = conn.prepareStatement(sql)) {
+            statement.setString(1, "%" + escapeLikePattern(pattern) + "%");
+            statement.setInt(2, SEARCH_LIMIT);
+            try (ResultSet rows = statement.executeQuery()) {
+                return mapTableRefs(rows);
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Cannot search table projections", failure);
+        }
     }
 
     private static String escapeLikePattern(String input) {

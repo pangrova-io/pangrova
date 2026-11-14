@@ -1,5 +1,7 @@
 package org.pangrova.persistence.workflow.postgresql.projection;
 
+import org.pangrova.persistence.catalog.postgresql.projection.CatalogProjectionSql;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
@@ -226,17 +228,17 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
         boolean changed;
         if (mutation instanceof MetadataProjectionMutation.UpsertTable upsert) {
             TableMetadata table = upsert.table();
-            previous = ProjectionRows.load(connection,
+            previous = CatalogProjectionSql.load(connection,
                     new QualifiedTableRef(table.catalog(), table.schema(), table.table()));
             // A certified table observation also proves its parent schema exists. Publish both
             // under this request's fence, so incremental discovery does not depend on a full scan.
-            ProjectionRows.observeSchemas(connection, table.catalog(), java.util.List.of(table.schema()));
-            changed = ProjectionRows.upsert(connection, table);
+            CatalogProjectionSql.observeSchemas(connection, table.catalog(), java.util.List.of(table.schema()));
+            changed = CatalogProjectionSql.upsert(connection, table);
         } else if (mutation instanceof MetadataProjectionMutation.DeleteTable deletion) {
-            previous = ProjectionRows.load(connection, deletion.table());
-            changed = ProjectionRows.delete(connection, deletion.table());
+            previous = CatalogProjectionSql.load(connection, deletion.table());
+            changed = CatalogProjectionSql.delete(connection, deletion.table());
         } else if (mutation instanceof MetadataProjectionMutation.ObserveSchemas observation) {
-            changed = ProjectionRows.observeSchemas(
+            changed = CatalogProjectionSql.observeSchemas(
                     connection, observation.deployment().catalogName(), observation.schemas());
         } else {
             throw new IllegalArgumentException("Unsupported projection mutation");

@@ -1258,7 +1258,7 @@ artifacts:
     moduleName: org.pangrova.persistence.workflow.postgresql
     packageRoots: [org.pangrova.persistence.workflow.postgresql]
     exports: [org.pangrova.persistence.workflow.postgresql]
-    allowedImports: [pangrova-generation-api, pangrova-persistence-generation-api, pangrova-persistence-generation-postgresql, pangrova-persistence-query-postgresql, pangrova-persistence-jdbc-api, pangrova-persistence-security-api, pangrova-persistence-workflow-api, pangrova-metadata-api, pangrova-metadata-codec, pangrova-persistence-catalog-api, pangrova-persistence-jdbc-support, pangrova-common, pangrova-security-access, pangrova-security-api, pangrova-table, pangrova-persistence-security-postgresql, pangrova-persistence-table-postgresql]
+    allowedImports: [pangrova-generation-api, pangrova-persistence-generation-api, pangrova-persistence-generation-postgresql, pangrova-persistence-query-postgresql, pangrova-persistence-jdbc-api, pangrova-persistence-security-api, pangrova-persistence-workflow-api, pangrova-metadata-api, pangrova-metadata-codec, pangrova-persistence-catalog-api, pangrova-persistence-catalog-postgresql, pangrova-persistence-jdbc-support, pangrova-common, pangrova-security-access, pangrova-security-api, pangrova-table, pangrova-persistence-security-postgresql, pangrova-persistence-table-postgresql]
     forbiddenImports: [pangrova-metadata-catalog, pangrova-coordination-control, pangrova-worker, pangrova-server-coordinator, pangrova-planner]
     friendExports:
       pangrova-security-access: [org.pangrova.security.authorization.deferred]

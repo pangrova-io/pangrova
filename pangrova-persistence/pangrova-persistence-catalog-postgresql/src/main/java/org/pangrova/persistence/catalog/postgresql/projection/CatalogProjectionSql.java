@@ -1,5 +1,6 @@
-package org.pangrova.persistence.workflow.postgresql.projection;
+package org.pangrova.persistence.catalog.postgresql.projection;
 
+import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.common.json.CanonicalJsonMapper;
@@ -16,12 +17,13 @@ import java.util.Optional;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
 
 /** SQL participants borrow the workflow connection and never commit, roll back or close it. */
-final class ProjectionRows {
+@Internal
+public final class CatalogProjectionSql {
     private static final TableMetadataSerializer TABLES = new TableMetadataSerializer();
 
-    private ProjectionRows() {}
+    private CatalogProjectionSql() {}
 
-    static Optional<TableMetadata> load(Connection connection, QualifiedTableRef ref) throws SQLException {
+    public static Optional<TableMetadata> load(Connection connection, QualifiedTableRef ref) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT columns, partition_spec, sort_order, properties, table_created_at, table_updated_at "
                         + "FROM table_metadata WHERE catalog_name=? AND schema_name=? AND table_name=?")) {
@@ -32,14 +34,14 @@ final class ProjectionRows {
         }
     }
 
-    static TableMetadata readTable(ResultSet rows, QualifiedTableRef ref) throws SQLException {
+    private static TableMetadata readTable(ResultSet rows, QualifiedTableRef ref) throws SQLException {
         TableMetadata full = TABLES.deserialize(rows.getString("columns"));
         return new TableMetadata(ref.catalog(), ref.schema(), ref.table(), full.columns(),
                 full.partitionSpec(), full.sortOrder(), full.properties(),
                 instant(rows.getTimestamp("table_created_at")), instant(rows.getTimestamp("table_updated_at")));
     }
 
-    static boolean upsert(Connection connection, TableMetadata table) throws SQLException {
+    public static boolean upsert(Connection connection, TableMetadata table) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO table_metadata (catalog_name, schema_name, table_name, "
                         + "columns, partition_spec, sort_order, properties, table_created_at, "
@@ -62,7 +64,7 @@ final class ProjectionRows {
         }
     }
 
-    static boolean delete(Connection connection, QualifiedTableRef ref) throws SQLException {
+    public static boolean delete(Connection connection, QualifiedTableRef ref) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "DELETE FROM table_metadata WHERE catalog_name=? AND schema_name=? AND table_name=?")) {
             bindRef(statement, ref);
@@ -70,7 +72,7 @@ final class ProjectionRows {
         }
     }
 
-    static boolean observeSchemas(Connection connection, String catalog, List<String> schemas) throws SQLException {
+    public static boolean observeSchemas(Connection connection, String catalog, List<String> schemas) throws SQLException {
         Timestamp now = Timestamp.from(Instant.now());
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO schema_metadata (catalog_name, schema_name, synced_at) "

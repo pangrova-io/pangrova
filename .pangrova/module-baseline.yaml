@@ -3246,7 +3246,7 @@ artifacts:
       pangrova-metadata-api: compile
       pangrova-metadata-codec: compile
       pangrova-persistence-catalog-api: compile
-      pangrova-persistence-catalog-postgresql: test
+      pangrova-persistence-catalog-postgresql: compile
       pangrova-persistence-generation-api: compile
       pangrova-persistence-generation-postgresql: compile
       pangrova-persistence-jdbc-api: compile
@@ -3267,6 +3267,7 @@ artifacts:
         - pangrova-metadata-api
         - pangrova-metadata-codec
         - pangrova-persistence-catalog-api
+        - pangrova-persistence-catalog-postgresql
         - pangrova-persistence-generation-api
         - pangrova-persistence-generation-postgresql
         - pangrova-persistence-jdbc-api
