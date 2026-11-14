@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DOCS_DIR="${REPO_ROOT}/docs/architecture"
+DOCS_DIR="${PANGROVA_DOC_CLASS_REFS_DIR:-${REPO_ROOT}/docs/architecture}"
 
 if [ ! -d "$DOCS_DIR" ]; then
     echo "⚠️  docs/architecture/ directory not found — skipping class reference check."
@@ -44,7 +44,26 @@ reference = re.compile(r'`([A-Z][A-Za-z0-9]{3,})`')
 removed_before = re.compile(r'(原|已删除的|退役的|移除的|旧的)\s*$')
 removed_verb_before = re.compile(r'(删除|移除|退役|迁移到|迁到|迁入|移至|归入)[^，。；|]{0,12}$')
 removed_after = re.compile(r'^\s*[也均]?\s*(已删除|退役|移除|删除)')
-removed_cell_after = re.compile(r'\|\s*(删除|退役|移除|归入|迁入|迁到|移至|迁移到)')
+disposition_verb = re.compile(r'^(已删除|删除|移除|退役|移入|迁入|迁到|迁至|移至|归入)')
+
+
+def cell_spans(line):
+    spans = []
+    start = 0
+    for index, char in enumerate(line):
+        if char == '|':
+            spans.append((start, index))
+            start = index + 1
+    spans.append((start, len(line)))
+    return spans
+
+
+def sentence_bounds(line, start, end):
+    begin = max(line.rfind('。', 0, start), line.rfind('；', 0, start)) + 1
+    ends = [position for position in (line.find('。', end), line.find('；', end))
+            if position != -1]
+    return begin, min(ends) if ends else len(line)
+
 
 active = {}
 for doc in sorted(root.glob('*.md')):
@@ -55,17 +74,38 @@ for doc in sorted(root.glob('*.md')):
     for line in text.splitlines():
         if design.search(line):
             continue
+        table = line.lstrip().startswith('|')
+        spans = cell_spans(line) if table else None
+        if spans:
+            spans = [span for span in spans if span[1] > span[0]]
         for match in reference.finditer(line):
             name = match.group(1)
             if not re.search('[a-z]', name):
                 continue
-            prefix = line[max(0, match.start() - 24):match.start()]
-            suffix = line[match.end():match.end() + 24]
-            historical = bool(
-                removed_before.search(prefix)
-                or removed_verb_before.search(prefix)
-                or removed_after.search(suffix)
-                or removed_cell_after.search(line[match.end():]))
+            if table:
+                cell_index, (cell_start, cell_end) = next(
+                    (index, span) for index, span in enumerate(spans)
+                    if span[0] <= match.start() <= span[1])
+                cell = line[cell_start:cell_end]
+                local_start = match.start() - cell_start
+                local_end = match.end() - cell_start
+                prefix = cell[max(0, local_start - 24):local_start]
+                suffix = cell[local_end:local_end + 24]
+                historical = bool(
+                    removed_before.search(prefix)
+                    or removed_verb_before.search(prefix)
+                    or removed_after.search(suffix))
+                if not historical and cell_index == 0 and len(spans) > 1:
+                    disposition = line[spans[1][0]:spans[1][1]].strip()
+                    historical = bool(disposition_verb.search(disposition))
+            else:
+                begin, end = sentence_bounds(line, match.start(), match.end())
+                prefix = line[max(begin, match.start() - 24):match.start()]
+                suffix = line[match.end():min(end, match.end() + 24)]
+                historical = bool(
+                    removed_before.search(prefix)
+                    or removed_verb_before.search(prefix)
+                    or removed_after.search(suffix))
             active[name] = active.get(name, False) or not historical
 print('\n'.join(sorted(name for name, is_active in active.items() if is_active)))
 PY
