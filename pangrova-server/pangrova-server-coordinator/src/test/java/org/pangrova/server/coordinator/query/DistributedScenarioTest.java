@@ -186,17 +186,20 @@ class DistributedScenarioTest {
     }
 
     @Test
-    void multipleAdmittedTasksFinishQueryAfterAllReports() {
+    void dagCompletionWinsOverExtraLogicalTaskReports() {
         String task0 = dispatchAndGetTaskId("multi-q1");
         ResultEndpoint second = dispatchAdditionalTask(task0, "multi-q1-stage1-task", false);
         nativeWorker.consume(endpoint("multi-q1"));
         awaitTaskFinished(task0);
-        assertThat(taskTracker.allTasksFinished("multi-q1")).isFalse();
-        assertThat(queryState("multi-q1")).isEqualTo(QueryState.RUNNING);
-        nativeWorker.consume(second);
+        // The DAG owns query completion: its single stage task is done even though the
+        // tracker also knows a logical task that was not part of the dispatched plan.
         awaitQueryState("multi-q1", QueryState.FINISHED);
+        assertThat(taskTracker.allTasksFinished("multi-q1")).isFalse();
+        nativeWorker.consume(second);
         assertOne(nativeWorker.rows(second));
-        assertThat(taskTracker.allTasksFinished("multi-q1")).isTrue();
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(taskTracker.allTasksFinished("multi-q1")).isTrue());
+        assertThat(queryState("multi-q1")).isEqualTo(QueryState.FINISHED);
     }
 
     @Test
@@ -229,12 +232,16 @@ class DistributedScenarioTest {
     }
 
     @Test
-    void nativeTaskFailureFailsQuery() {
+    void extraLogicalTaskFailureDoesNotFailTheDagQuery() {
         String taskId = dispatchAndGetTaskId("resched-q1");
         dispatchAdditionalTask(taskId, "resched-q1-invalid-plan", true);
-        awaitQueryState("resched-q1", QueryState.FAILED);
-        assertThat(queryManager.getStateMachine("resched-q1").getError()).isPresent();
+        nativeWorker.consume(endpoint("resched-q1"));
+        awaitTaskFinished(taskId);
+        awaitQueryState("resched-q1", QueryState.FINISHED);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(taskTracker.hasFailedTask("resched-q1")).isTrue());
         assertActualFailure("resched-q1-invalid-plan");
+        assertThat(queryManager.getStateMachine("resched-q1").getError()).isEmpty();
     }
 
     @Test
@@ -265,16 +272,16 @@ class DistributedScenarioTest {
     }
 
     @Test
-    void partialTaskFailureCausesQueryFailure() {
+    void extraLogicalTaskCompletionAfterDagFinishIsRetired() {
         String task0 = dispatchAndGetTaskId("pwf-q1");
         ResultEndpoint second = dispatchAdditionalTask(task0, "pwf-q1-task2", false);
         nativeWorker.consume(endpoint("pwf-q1"));
         awaitTaskFinished(task0);
-        dispatchAdditionalTask(task0, "pwf-q1-invalid-plan", true);
-        awaitQueryState("pwf-q1", QueryState.FAILED);
+        awaitQueryState("pwf-q1", QueryState.FINISHED);
         assertThat(second).isNotNull();
-        assertThat(taskTracker.hasFailedTask("pwf-q1")).isTrue();
-        assertActualFailure("pwf-q1-invalid-plan");
+        nativeWorker.consume(second);
+        assertOne(nativeWorker.rows(second));
+        assertThat(queryState("pwf-q1")).isEqualTo(QueryState.FINISHED);
     }
 
     private static RemoteTaskDispatcher testDispatcher() {
