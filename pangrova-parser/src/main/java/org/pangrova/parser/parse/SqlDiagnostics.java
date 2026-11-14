@@ -12,6 +12,9 @@ public final class SqlDiagnostics {
         var lexer = new PangrovaSqlLexer(CharStreams.fromString(sql));
         lexer.removeErrorListeners();
         int action = lexer.nextToken().getType();
+        if (action == PangrovaSqlLexer.SET) {
+            return "SET [redacted]";
+        }
         if ((action == PangrovaSqlLexer.CREATE || action == PangrovaSqlLexer.ALTER)
                 && lexer.nextToken().getType() == PangrovaSqlLexer.CATALOG) {
             return (action == PangrovaSqlLexer.CREATE ? "CREATE" : "ALTER") + " CATALOG [redacted]";

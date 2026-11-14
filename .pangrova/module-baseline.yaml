@@ -3312,7 +3312,6 @@ artifacts:
       - org.pangrova.planner.api.result
       - org.pangrova.planner.api.retrieval
       - org.pangrova.planner.api.statistics
-      - org.pangrova.planner.branch
       - org.pangrova.planner.cost
       - org.pangrova.planner.cost.aggregate
       - org.pangrova.planner.cost.convention

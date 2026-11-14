@@ -47,6 +47,13 @@ public class SecurityPolicyApplier {
      * Atomically updates the compiler after schema changes (DDL).
      * Version is auto-incremented.
      */
+    public void requireBranchRead(String catalog, String schema, String table, QuerySession session) {
+        if (accessControlEnforcer == null || session.userIdentity() == null) {
+            throw new org.pangrova.security.api.exception.AccessDeniedException("Authenticated branch reader required");
+        }
+        accessControlEnforcer.checkTableAccess(java.util.List.of(java.util.List.of(catalog, schema, table)), session.userIdentity());
+    }
+
     public void updateCompiler(SqlCompiler newCompiler) {
         compilerHolder.update(newCompiler);
     }

@@ -1343,8 +1343,6 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 │  │  • High-cardinality aggregation -> increase memory or enable Spill      │   │
 │  │                                                                          │   │
 │  │  Step 3: Optimize the query or adjust resources                         │   │
-│  │          SET SESSION query_max_memory = '10GB';                         │   │
-│  │          SET SESSION spill_enabled = true;                              │   │
 │  │                                                                          │   │
 │  │  Step 4: Re-run the query                                               │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
@@ -1377,8 +1375,6 @@ canonical task reports carry `ExecutionError` with `error_class`, `code`, `messa
 │  │  3. Check network connectivity: curl -I https://s3.amazonaws.com        │   │
 │  │  4. Check throttling: view CloudWatch S3 metrics                        │   │
 │  │  5. Temporary measure: increase retry count and timeout                 │   │
-│  │     SET SESSION s3.max-retries = 10;                                    │   │
-│  │     SET SESSION s3.connect-timeout = 30s;                               │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
 │  Corrupted data files:                                                          │

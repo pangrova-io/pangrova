@@ -41,6 +41,19 @@ class CoordinatorExceptionMapperTest {
     }
 
     @Test
+    void parseAndUnsupportedSqlAreBadRequestsWithTheirDomainCode() {
+        for (var code : java.util.List.of(org.pangrova.common.enums.PangrovaErrorCode.PARSER_SYNTAX_ERROR,
+                org.pangrova.common.enums.PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE)) {
+            var failure = new org.pangrova.common.exception.PangrovaException(code, "SQL rejected");
+            try (var response = mapper.toResponse(failure)) {
+                assertThat(response.getStatus()).isEqualTo(400);
+                assertThat(response.getEntity()).isEqualTo(
+                        new ErrorDetail(code.getCode(), "USER_ERROR", "SQL rejected"));
+            }
+        }
+    }
+
+    @Test
     void unexpectedFailuresRemainInternalErrors() {
         try (var response = mapper.toResponse(new IllegalStateException("storage unavailable"))) {
             assertThat(response.getStatus()).isEqualTo(500);

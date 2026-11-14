@@ -830,12 +830,6 @@ logging:
     org.pangrova.connector.iceberg: TRACE
 ```
 
-```sql
--- Adjust log level via SQL
-SET SESSION log_level = 'DEBUG';
-SET SESSION log_level FOR 'org.pangrova.planner' = 'TRACE';
-```
-
 ---
 
 

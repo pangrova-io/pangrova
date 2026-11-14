@@ -551,6 +551,6 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
                 ? result.resultEndpoint()
                 : sm.getResultEndpoint().orElse(null);
         return new QuerySubmissionResult(
-                queryId, sm.getState(), endpoint, columnNames);
+                queryId, sm.getState(), endpoint, columnNames, sm.branchSelection());
     }
 }

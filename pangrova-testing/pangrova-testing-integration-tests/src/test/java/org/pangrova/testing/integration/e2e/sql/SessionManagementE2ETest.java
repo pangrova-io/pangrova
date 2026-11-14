@@ -13,13 +13,13 @@
  */
 package org.pangrova.testing.integration.e2e.sql;
 
-import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -43,44 +43,16 @@ class SessionManagementE2ETest extends PangrovaE2ETestBase {
                 CATALOG, SCHEMA, icebergWarehouse().toString()));
     }
 
-    @Nested
-    @DisplayName("SET Property")
-    class SetProperty {
-
-        @Test
-        @DisplayName("SET session property syntax is accepted")
-        void setSessionProperty() {
-            String sql = "SET 'query.max-execution-time' = '300s'";
-            executeDdl(sql);
-        }
-
-        @Test
-        @DisplayName("SET catalog property")
-        void setCatalogProperty() {
-            String sql = "SET 'catalog.default' = '" + CATALOG + "'";
-            executeDdl(sql);
-        }
-
-        @Test
-        @DisplayName("SET multiple properties in sequence")
-        void setMultipleProperties() {
-            String sql1 = "SET 'query.max-memory' = '4GB'";
-            String sql2 = "SET 'task.concurrency' = '16'";
-            executeDdl(sql1);
-            executeDdl(sql2);
-        }
+    @ParameterizedTest
+    @ValueSource(strings = {"catalog.default", "query.max-memory", "task.concurrency", "tenant_id"})
+    void serverRejectsGenericSessionMutationWithoutEchoingItsValue(String property) {
+        String marker = "unapplied-test-value";
+        String error = executeExpectingError("SET '" + property + "' = '" + marker + "'");
+        assertThat(error).contains("Server-side SET is unsupported").doesNotContain(marker);
     }
 
-    @Nested
-    @DisplayName("SHOW Session Properties")
-    class ShowProperties {
-
-        @Test
-        @DisplayName("SHOW SESSION syntax is accepted")
-        void showSession() {
-            String sql = "SHOW SESSION";
-            List<TypedRow> rows = executeQuery(sql);
-            assertThat(rows).isNotNull();
-        }
+    @Test
+    void showSessionHasNoCommandHandler() {
+        assertThat(executeExpectingError("SHOW SESSION")).contains("PARSER-0001");
     }
 }

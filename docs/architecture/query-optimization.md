@@ -394,9 +394,6 @@ SecurityPolicyEventPublisher.publish(SecurityPolicyChangeEvent)
 ### 3.4 Cache Control SQL
 
 ```sql
--- Enable/disable result cache
-SET SESSION query_result_cache = true;
-
 -- Disable cache for a query
 SELECT /*+ NO_CACHE */ * FROM orders WHERE order_date = '2024-01-01';
 

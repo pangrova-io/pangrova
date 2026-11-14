@@ -48,6 +48,46 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
                 CATALOG, SCHEMA, icebergWarehouse().toString()));
     }
 
+    @Test
+    void connectionScopedBranchSelectionReadsItsFrozenHeadAndMainClearsTheRoute() throws Exception {
+        executeDdl("CREATE TABLE " + fqn() + " (id BIGINT)");
+        try {
+            executeDml("INSERT INTO " + fqn() + " VALUES (11)");
+            executeDdl("CREATE BRANCH dev ON " + fqn());
+            executeDml("INSERT INTO " + fqn() + " VALUES (22)");
+            var changed = submitQueryViaHttp("USE BRANCH dev ON " + fqn());
+            consumeSubmittedQuery(changed);
+            var route = changed.branchSelection();
+            assertThat(route.table()).isEqualTo(fqn().toLowerCase(java.util.Locale.ROOT));
+            assertThat(route.branch()).isEqualTo("dev");
+            var properties = java.util.Map.of(route.propertyKey(), route.branch());
+            assertThat(executeWithBoundSession("SELECT id FROM " + fqn(), properties))
+                    .extracting(row -> row.getLong("id")).containsExactly(11L);
+            assertThat(executeQuery("SELECT id FROM " + fqn()))
+                    .extracting(row -> row.getLong("id")).containsExactlyInAnyOrder(11L, 22L);
+            restrictDefaultSqlAuthority();
+            try {
+                assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                        submitQueryViaHttp("USE BRANCH dev ON " + fqn())))
+                        .hasMessageContaining("lacks SELECT");
+                assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                        executeWithBoundSession("SELECT id FROM " + fqn(), properties)))
+                        .hasMessageContaining("lacks SELECT");
+            } finally {
+                restoreDefaultSqlAuthority();
+            }
+            var cleared = submitQueryViaHttp("USE BRANCH MAIN ON " + fqn(), properties);
+            consumeSubmittedQuery(cleared);
+            assertThat(cleared.branchSelection().table()).isEqualTo(route.table());
+            assertThat(cleared.branchSelection().branch()).isNull();
+            assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                    submitQueryViaHttp("USE BRANCH unknown ON " + fqn())))
+                    .hasMessageContaining("Branch unavailable");
+        } finally {
+            executeDdl("DROP TABLE " + fqn());
+        }
+    }
+
     @BeforeEach
     void assignTableName(TestInfo info) {
         String method = info.getTestMethod().map(m -> m.getName()).orElse("unknown");

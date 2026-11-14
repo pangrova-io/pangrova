@@ -418,10 +418,11 @@ final class QueryPipelineExecutor {
         if (selectedCatalog == null) {
             return java.util.OptionalLong.empty();
         }
-        CatalogHandle handle = catalogRegistry.getCatalog(selectedCatalog);
+        securityPolicyApplier.requireBranchRead(selectedCatalog, schema, table, context);
+        catalogRegistry.requireVisibleDescriptor(selectedCatalog, context.tenantId());
         var session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                 context, selectedCatalog, schema);
-        var metadata = handle.getMetadata(session);
+        var metadata = catalogRegistry.metadataForQuery(selectedCatalog, session);
         String selectedSchema = canonicalName(schema, metadata.listSchemaNames(session));
         if (selectedSchema == null) return java.util.OptionalLong.empty();
         session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(

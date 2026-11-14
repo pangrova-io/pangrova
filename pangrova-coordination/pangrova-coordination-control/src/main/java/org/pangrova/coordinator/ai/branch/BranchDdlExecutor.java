@@ -174,10 +174,35 @@ public final class BranchDdlExecutor {
                 .build());
     }
 
+    /** Verifies read access, tenant visibility and connector support before issuing a session mutation. */
+    public org.pangrova.common.client.query.BranchSelection selectBranch(
+            org.pangrova.parser.api.ast.statement.UseBranchStatement statement, QuerySession context) {
+        var table = SessionTableNames.resolveTableRef(statement.tableName().parts(), context);
+        var authorization = deps.accessControl();
+        if (authorization == null || context.userIdentity() == null) {
+            throw new org.pangrova.security.api.exception.AccessDeniedException("Authenticated branch reader required");
+        }
+        authorization.checkCanSelectFromTable(context.userIdentity(), table.catalog(), table.schema(), table.table());
+        deps.catalogRegistry().requireVisibleDescriptor(table.catalog(), context.tenantId());
+        var session = SessionContextConverter.toConnectorSession(context, table.catalog(), table.schema());
+        var metadata = deps.catalogRegistry().metadataForQuery(table.catalog(), session);
+        requireTableHandle(metadata, session, table);
+        String branch = statement.branchName();
+        boolean clear = branch.equalsIgnoreCase("main");
+        if (!clear && metadata.resolveRefSnapshotId(session, new SchemaTableName(table.schema(), table.table()),
+                "BRANCH", branch).orElse(0L) <= 0L) {
+            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Branch unavailable for this table: " + branch);
+        }
+        return new org.pangrova.common.client.query.BranchSelection(
+                org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors.tableKey(
+                        table.catalog(), table.schema(), table.table()), clear ? null : branch);
+    }
+
     private void checkAlterPrivilege(QualifiedTableName tableRef, UserIdentity user) {
         AccessControl ac = deps.accessControl();
         if (ac == null || user == null) {
-            return;
+            throw new org.pangrova.security.api.exception.AccessDeniedException("Authenticated branch mutation authority required");
         }
         ac.checkCanAlterTable(user, tableRef.catalog(), tableRef.schema(), tableRef.table());
     }

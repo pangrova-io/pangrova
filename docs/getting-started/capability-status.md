@@ -34,7 +34,7 @@ the exact connector, query shape, deployment, and failure scenario still need va
 | Catalog maintenance `CALL` | Distinct connector procedure dispatch is wired | Use the connector-specific procedure and arguments. This is not the same path as the standalone statements |
 | `COPY INTO` | Subquery form executes through the relational `INSERT ... SELECT` write path | URI sources and file-loading options fail closed in the parser. Server-side file ingestion is not implemented |
 | Clustering DDL / `RECLUSTER` | Parser and executor/task code exist; no default production registration found | Syntax examples describe partial work, not a usable maintenance lifecycle |
-| Server-side `SET` | Registered handler logs the property and returns an empty result | It does not mutate server session state. Supply supported context in query requests or client connection settings |
+| Server-side `SET` | Parsed assignment returns `PARSER_UNSUPPORTED_FEATURE` | Supply supported context in query requests or client connection settings |
 | Catalog YAML auto-registration | Documented format, automatic startup loading remains planned | Use SQL `CREATE CATALOG` for the documented registration path |
 
 Source evidence: [statement bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-server/pangrova-server-coordinator/src/main/java/org/pangrova/server/coordinator/bootstrap/QueryExecutionBootstrap.java),

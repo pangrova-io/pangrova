@@ -456,3 +456,11 @@ Worker 与 Standalone 中的两份 Native 资源分别来自 Worker JAR 和平�
 | Catalog 资源 | QueryConnectorAuthority 单次取得实际 metadata 及其 CatalogHandle。提前规划、增量扫描和 metadata query scope 共用这一版本，持续到该查询 drain 和 cleanup 完成。旧 revision 在所有读者释放后关闭，释放失败可以重试。对同一 incarnation 的提交监听器在替换前登记到新 handle。 |
 
 本批以 f522eceab 为父提交独立编译 143 项 reactor，7 类 66 项测试全部通过。CatalogLifecycleTest 另在真实 Coordinator、Worker、PostgreSQL 和 Iceberg 上通过 6 项，包括 CREATE/DROP、ALTER/DESCRIBE、无授权拒绝、输出脱敏和历史 revision；两组均无跳过。
+
+## 连接分支选择与会话赋值
+
+`USE BRANCH` 验证当前 SELECT 授权、tenant、表和可读分支后返回 `branch_selection`。JDBC/CLI 共享的 HTTP Client 按连接维护选择。下一次查询根据完全限定的表名再次授权、解析真实分支头并固定 snapshot。MAIN 清除当前表的选择，显式 VERSION AS OF 优先。删除了 Planner 中独立的 AST 改写器及其进程内 branch map。
+
+从连接发起的通用 SQL SET 请求使用 PARSER_UNSUPPORTED_FEATURE 明确拒绝，SQL 报告和审计不包含赋值内容。
+
+以 a407b3938 为父提交独立构建，143 项 reactor 编译通过，协议、客户端、授权、解析、路由和 HTTP 10 类 96 项测试通过。macOS arm64 真实 SQL 验证为 Iceberg BranchTag 14 项、PaimonTimeTravel 5 项、SessionManagement 5 项，均无跳过。Iceberg 测例在读到冻结分支后撤销真实 PostgreSQL 角色，重新选分支及使用已有回执读取均因缺少 SELECT 被拒绝。Paimon 已创建的具名分支被显式拒绝，MAIN 清除语义由 Iceberg 实际验证。

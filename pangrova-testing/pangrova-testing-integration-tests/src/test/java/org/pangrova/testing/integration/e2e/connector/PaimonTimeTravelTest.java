@@ -55,6 +55,20 @@ class PaimonTimeTravelTest extends SqlE2ETestBase {
                         CATALOG, SCHEMA, paimonWarehouse().toString())));
     }
 
+    @Test
+    void namedPaimonBranchCannotBeReadAsAMainSnapshot() {
+        sqlRunner.executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, PRIMARY KEY (id) NOT ENFORCED)");
+        try {
+            sqlRunner.execute("INSERT INTO " + fqn() + " VALUES (1)");
+            sqlRunner.executeDdl("ALTER TABLE " + fqn() + " CREATE BRANCH dev");
+            assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                    submitQueryViaHttp("USE BRANCH dev ON " + fqn())))
+                    .hasMessageContaining("Branch unavailable");
+        } finally {
+            sqlRunner.executeDdl("DROP TABLE " + fqn());
+        }
+    }
+
     @BeforeEach
     void assignUniqueTableName(TestInfo testInfo) {
         String method = testInfo.getTestMethod()

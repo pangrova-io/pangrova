@@ -111,6 +111,24 @@ class QueryResponseJsonContractTest {
     }
 
     @Test
+    void branchAcknowledgementDistinguishesUnchangedSelectionAndReset() throws Exception {
+        SubmitQueryResponse ordinary = new SubmitQueryResponse("q", "FINISHED", null, null);
+        JsonNode ordinaryJson = MAPPER.valueToTree(ordinary);
+        assertThat(ordinaryJson.has("branch_selection")).isFalse();
+        assertThat(MAPPER.treeToValue(ordinaryJson, SubmitQueryResponse.class).branchSelection()).isNull();
+
+        for (BranchSelection change : java.util.List.of(
+                new BranchSelection("catalog.db.orders", "dev"), new BranchSelection("catalog.db.orders", null))) {
+            SubmitQueryResponse response = new SubmitQueryResponse("q", "FINISHED", null, null, change);
+            JsonNode json = MAPPER.valueToTree(response);
+            assertThat(json.at("/branch_selection/table").asText()).isEqualTo(change.table());
+            assertThat(MAPPER.treeToValue(json, SubmitQueryResponse.class).branchSelection()).isEqualTo(change);
+        }
+        assertThat(MAPPER.valueToTree(QueryStatusResponse.of("q", "FINISHED", null, null))
+                .has("branch_selection")).isFalse();
+    }
+
+    @Test
     void errorDetail_nullStackTrace_omittedFromJson() throws Exception {
         ErrorDetail error = new ErrorDetail("CODE_1", "TYPE_1", "msg");
 

@@ -15,7 +15,12 @@ import org.pangrova.common.client.result.ResultEndpoint;
  */
 @Experimental
 public record QuerySubmissionResult(
-        String queryId, QueryState state, ResultEndpoint resultEndpoint, List<String> columnNames) {
+        String queryId, QueryState state, ResultEndpoint resultEndpoint, List<String> columnNames,
+        org.pangrova.common.client.query.BranchSelection branchSelection) {
+    public QuerySubmissionResult(String queryId, QueryState state, ResultEndpoint resultEndpoint, List<String> columnNames) {
+        this(queryId, state, resultEndpoint, columnNames, null);
+    }
+
     public QuerySubmissionResult {
         Objects.requireNonNull(queryId, "queryId");
         Objects.requireNonNull(state, "state");

@@ -141,7 +141,8 @@ class StatementDispatcherPropertyTest {
 
     @Provide
     Arbitrary<Statement> unsupportedStatements() {
-        return Arbitraries.of(new UseBranchStatement("main", Identifier.of("catalog", "schema", "table")));
+        return Arbitraries.of(new org.pangrova.parser.api.ast.statement.CancelBackfillStatement(
+                Identifier.of("catalog", "schema", "table"), "col"));
     }
 
     @Provide

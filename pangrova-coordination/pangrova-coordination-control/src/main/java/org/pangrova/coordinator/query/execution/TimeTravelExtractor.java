@@ -32,7 +32,8 @@ final class TimeTravelExtractor {
     static CompilationPhase.TimeTravelResult extract(String sql, QuerySession context,
                                                       RefSnapshotResolver resolver) {
         var parsed = TimeTravelSqlClauses.extract(sql);
-        if (parsed.references().stream().noneMatch(ref -> ref.table().timeTravelSpec().isPresent())) {
+        var routes = org.pangrova.query.session.BranchRoutingContext.fromSessionProperties(context.sessionProperties());
+        if (!routes.hasRouting() && parsed.references().stream().noneMatch(ref -> ref.table().timeTravelSpec().isPresent())) {
             return CompilationPhase.TimeTravelResult.passthrough(sql);
         }
         ConnectorSession session = SessionContextConverter.toConnectorSession(context);
@@ -46,8 +47,9 @@ final class TimeTravelExtractor {
             }
             List<String> parts = qualify(ref, session);
             String key = PlanningSnapshotSelectors.tableKey(parts.get(0), parts.get(1), parts.get(2));
-            OptionalLong selected = ref.timeTravelSpec().isEmpty() ? OptionalLong.empty()
-                    : OptionalLong.of(snapshot(parts, ref.timeTravelSpec().orElseThrow(), resolver));
+            var selection = ref.timeTravelSpec().or(() -> routes.getBranch(key).map(TimeTravelSpec::branch));
+            OptionalLong selected = selection.isPresent()
+                    ? OptionalLong.of(snapshot(parts, selection.orElseThrow(), resolver)) : OptionalLong.empty();
             var previous = selections.putIfAbsent(key, selected);
             if (previous != null && !previous.equals(selected)) {
                 throw invalid("Multiple source snapshots for one table require per-relation read bindings: " + key);

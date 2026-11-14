@@ -29,7 +29,7 @@ public final class StatementClassifier {
                     SHOW_TAGS, SHOW_METADATA, SHOW_BACKFILL_STATUS, SHOW_SEMANTIC_VIEWS,
                     SHOW_MATERIALIZATIONS, SHOW_MATERIALIZATION_DEPENDENCIES,
                     SHOW_MATERIALIZATION_GC_HISTORY, SHOW_MATERIALIZATION_REFRESH_HISTORY,
-                    SHOW_VOLUMES, DESCRIBE_VOLUME, SHOW_STAGES, DESCRIBE_STAGE, LIST_STAGE,
+                    USE_BRANCH, SHOW_VOLUMES, DESCRIBE_VOLUME, SHOW_STAGES, DESCRIBE_STAGE, LIST_STAGE,
                     SHOW_PRIVILEGE_MUTATION -> StatementCategory.SHOW;
             case CALL, COMPACT, OPTIMIZE, VACUUM, ANALYZE, REMOVE_STAGE -> StatementCategory.MAINTENANCE;
             case CREATE_DYNAMIC_TABLE, CREATE_CONTINUOUS_QUERY, ALTER_DYNAMIC_TABLE,
@@ -43,8 +43,7 @@ public final class StatementClassifier {
             case CREATE_STREAM, ALTER_STREAM, DROP_STREAM, SHOW_STREAMS, DESCRIBE_STREAM -> StatementCategory.STREAM;
             case QUERY, SET_QUERY, CTE_QUERY, INCREMENTAL_READ -> StatementCategory.QUERY;
             // These parsed operations have no execution implementation. Never fall through to a query.
-            case BACKFILL_COLUMN, CANCEL_BACKFILL,
-                    USE_BRANCH -> StatementCategory.UNKNOWN;
+            case BACKFILL_COLUMN, CANCEL_BACKFILL -> StatementCategory.UNKNOWN;
         };
     }
 

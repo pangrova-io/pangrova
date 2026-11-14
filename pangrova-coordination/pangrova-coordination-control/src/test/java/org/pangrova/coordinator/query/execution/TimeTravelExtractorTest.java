@@ -14,6 +14,25 @@ class TimeTravelExtractorTest {
             "query", Map.of("catalog", "Catalog", "schema", "Schema"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
     @Test
+    void sessionRouteUsesOnlyTheExactPhysicalTableAndExplicitVersionWins() {
+        var routed = new QuerySession("query", Map.of("catalog", "Catalog", "schema", "Schema",
+                "branch.routing.catalog.schema.rows", "dev"), null, "tenant", java.util.Optional.empty(),
+                SESSION.traceContext());
+        var selected = TimeTravelExtractor.extract(
+                "SELECT a.id FROM rows a JOIN other.schema.rows b ON a.id = b.id", routed,
+                (catalog, schema, table, type, name) -> {
+                    assertThat(type).isEqualTo("BRANCH");
+                    assertThat(name).isEqualTo("dev");
+                    return java.util.OptionalLong.of(9);
+                });
+        assertThat(selected.snapshotOverrides()).containsExactlyEntriesOf(Map.of("catalog.schema.rows", 9L));
+        assertThat(TimeTravelExtractor.extract("SELECT id FROM rows FOR VERSION AS OF 12", routed, null)
+                .snapshotOverrides()).containsExactlyEntriesOf(Map.of("catalog.schema.rows", 12L));
+        assertThat(TimeTravelExtractor.extract("WITH rows AS (SELECT 1 AS id) SELECT id FROM rows", routed, null)
+                .snapshotOverrides()).isEmpty();
+    }
+
+    @Test
     void resolvesOneTwoAndThreePartNamesFromTheTrustedSession() {
         var selected = TimeTravelExtractor.extract("SELECT id FROM first FOR VERSION AS OF 2 "
                 + "UNION ALL SELECT id FROM other.second FOR SYSTEM_VERSION AS OF 3 "

@@ -972,7 +972,7 @@ public class ResourceQueue {
 
     /** Match query to queue by user/source/tags */
     public static ResourceQueue matchQueue(QueryContext context) {
-        // 1. Check explicit queue hint: SET SESSION resource_queue = 'etl'
+        // 1. Check the request's explicit queue hint
         // 2. Match by user group
         // 3. Match by query source (jdbc/cli/bi-tool)
         // 4. Default queue

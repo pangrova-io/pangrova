@@ -285,7 +285,7 @@ final class QueryExecutionBootstrap {
         this.metadataFactory = buildMetadataFactory(
                 ddlExecutor, showDescribeExecutor, maintenanceExecutor, controlledMaintenance, catalog, dmlDispatch);
         registerOptionalMetadataTasks(indexing, dmlDispatch, ddlExecutor, queryDispatcherRef);
-        registerBranchTasks(metadataFactory, catalog);
+        registerBranchTasks(metadataFactory, catalog, accessControl);
         SecurityAdministrationBootstrap.register(metadataFactory, config, metadataDataSource);
         registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
         registerFileSpaceTasks(metadataFactory, accessControl, metadataDataSource, auditEmitter);
@@ -406,12 +406,7 @@ final class QueryExecutionBootstrap {
         tasks.put(org.pangrova.parser.api.ast.statement.AlterTableStatement.Unlink.class, alterTableTask);
         tasks.put(org.pangrova.parser.api.ast.statement.CreateSchemaStatement.class, createSchemaTask);
         CatalogStatementTasks.register(tasks, ddlExecutor, showDescribeExecutor);
-        // SET session property (no-op, returns empty result)
-        tasks.put(SetSessionStatement.class,
-                (MetadataTask<SetSessionStatement>)
-                (stmt, ctx) -> new org.pangrova.query.dispatch.StatementResult(
-                        ddlExecutor.executeSetSession(stmt), java.util.List.of(), null,
-                        org.pangrova.query.api.enums.StatementCategory.DDL));
+        tasks.put(SetSessionStatement.class, new org.pangrova.coordinator.query.execution.dispatch.task.SetSessionTask());
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(
@@ -521,9 +516,11 @@ final class QueryExecutionBootstrap {
 
     private static void registerBranchTasks(
             org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
-            CatalogRegistry catalogRegistry) {
-        var branchDeps = new org.pangrova.coordinator.ai.branch.BranchDdlContext(catalogRegistry, null);
+            CatalogRegistry catalogRegistry, AccessControl accessControl) {
+        var branchDeps = new org.pangrova.coordinator.ai.branch.BranchDdlContext(catalogRegistry, accessControl);
         var branchExecutor = new org.pangrova.coordinator.ai.branch.BranchDdlExecutor(branchDeps);
+        factory.registerTask(org.pangrova.parser.api.ast.statement.UseBranchStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.branch.UseBranchTask(branchExecutor));
         factory.registerTask(org.pangrova.parser.api.ast.statement.CreateBranchStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.CreateBranchTask(branchExecutor));
         factory.registerTask(org.pangrova.parser.api.ast.statement.DropBranchStatement.class,

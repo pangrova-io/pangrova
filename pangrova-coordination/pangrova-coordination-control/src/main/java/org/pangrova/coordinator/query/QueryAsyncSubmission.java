@@ -56,7 +56,7 @@ final class QueryAsyncSubmission {
         awaitReady(context, dispatch);
         requireResult(context, dispatch);
         return new QuerySubmissionResult(queryId, state.getState(), state.getResultEndpoint().orElse(null),
-                dispatcher.removeColumnNames(queryId));
+                dispatcher.removeColumnNames(queryId), state.branchSelection());
     }
 
     private Future<?> submit(Context context) {

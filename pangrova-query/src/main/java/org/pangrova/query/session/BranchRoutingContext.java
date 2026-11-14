@@ -12,9 +12,10 @@ import java.util.Optional;
  * here. Subsequent queries resolve the table to the specified branch version.
  * {@code USE BRANCH MAIN ON table} removes the routing (reverts to main branch).</p>
  *
- * <p>Branch routing state propagates to Workers via session properties using the
+ * <p>Clients send their per-table selection to the Coordinator using the
  * key prefix {@value #PROPERTY_PREFIX}. Each entry is serialized as
- * {@code branch.routing.<qualified_table_name> = <branch_name>}.</p>
+ * {@code branch.routing.<qualified_table_name> = <branch_name>}. The planner binds the
+ * selected branch to an exact snapshot for Worker execution.</p>
  *
  * <p>This class is immutable. Mutation methods return new instances.</p>
  */
@@ -24,7 +25,7 @@ public final class BranchRoutingContext {
      * Session property key prefix for branch routing entries.
      * Full key format: {@code branch.routing.CATALOG.SCHEMA.TABLE}
      */
-    static final String PROPERTY_PREFIX = "branch.routing.";
+    static final String PROPERTY_PREFIX = org.pangrova.common.client.query.BranchSelection.PROPERTY_PREFIX;
 
     private static final BranchRoutingContext EMPTY = new BranchRoutingContext(Map.of());
 

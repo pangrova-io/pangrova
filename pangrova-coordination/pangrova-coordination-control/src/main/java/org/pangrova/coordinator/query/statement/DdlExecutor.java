@@ -571,13 +571,4 @@ public final class DdlExecutor {
         LOG.info("event=catalog_dropped catalog={}", stmt.name());
         return List.of();
     }
-
-    /**
-     * Executes SET session property. Currently a no-op (properties are accepted but not persisted).
-     */
-    public List<TypedRow> executeSetSession(org.pangrova.parser.api.ast.SetSessionStatement stmt) {
-        LOG.info("event=set_session property={} value={}", stmt.propertyName(), stmt.value());
-        return List.of();
-    }
-
 }

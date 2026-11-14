@@ -2491,6 +2491,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask(ddlExecutor));
         org.pangrova.coordinator.query.execution.dispatch.task.catalog.CatalogStatementTasks.register(
                 tasks, ddlExecutor, showDescribeExecutor);
+        tasks.put(org.pangrova.parser.api.ast.SetSessionStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.SetSessionTask());
         // SHOW / DESCRIBE
         tasks.put(org.pangrova.parser.api.ast.ShowSchemasStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowSchemasTask(showDescribeExecutor));
@@ -2541,8 +2543,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         spRegistry, currentAccessControl));
         // Branch/tag mutations use the same metadata tasks as the production bootstrap.
         var branchDeps = new org.pangrova.coordinator.ai.branch.BranchDdlContext(
-                metadataBootstrap.catalogRegistry(), null);
+                metadataBootstrap.catalogRegistry(), currentAccessControl);
         var branchExecutor = new org.pangrova.coordinator.ai.branch.BranchDdlExecutor(branchDeps);
+        tasks.put(org.pangrova.parser.api.ast.statement.UseBranchStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.branch.UseBranchTask(branchExecutor));
         tasks.put(org.pangrova.parser.api.ast.statement.CreateBranchStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.CreateBranchTask(branchExecutor));
         tasks.put(org.pangrova.parser.api.ast.statement.DropBranchStatement.class,

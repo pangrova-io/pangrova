@@ -59,6 +59,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaRestClient.class);
 
     private final PangrovaRestClientConfig config;
+    private final java.util.concurrent.ConcurrentMap<String, String> branchRoutes = new java.util.concurrent.ConcurrentHashMap<>();
     private final RetryPolicy retryPolicy;
     private final ConnectionPoolConfig connectionPoolConfig;
     private final RestHttpClientOwner httpOwner;
@@ -106,8 +107,16 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
      * Non-idempotent POST: does not retry after the request may have been sent.
      */
     public SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties) {
-        SubmitQueryRequest request = new SubmitQueryRequest(sql, sessionProperties);
-        return postNonIdempotent("/v1/query/submit", request, SubmitQueryResponse.class);
+        var properties = new java.util.HashMap<>(branchRoutes);
+        if (sessionProperties != null) properties.putAll(sessionProperties);
+        var request = new SubmitQueryRequest(sql, properties);
+        var response = postNonIdempotent("/v1/query/submit", request, SubmitQueryResponse.class);
+        var selection = response.branchSelection();
+        if (selection != null) {
+            if (selection.branch() == null) branchRoutes.remove(selection.propertyKey());
+            else branchRoutes.put(selection.propertyKey(), selection.branch());
+        }
+        return response;
     }
 
     /**

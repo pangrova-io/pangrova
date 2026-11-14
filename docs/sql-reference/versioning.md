@@ -103,6 +103,11 @@ USE BRANCH branch_name ON table_name;
 USE BRANCH MAIN ON table_name;  -- Switch back to main
 ```
 
+The Coordinator checks the authenticated user's table SELECT privilege, tenant visibility and the selected branch head. Each subsequent query resolves that branch to an exact snapshot. An explicit time-travel clause overrides the session selection on that table. Iceberg supports named branch reads. Paimon rejects branch selection because its snapshots are scoped to a branch.
+
+The JDBC connection and CLI client retain the server's `branch_selection` acknowledgement. REST clients send the returned branch name in `session_properties` under `branch.routing.<table>` for subsequent requests. MAIN returns a null branch and removes that entry. Independent connections retain their own selections. The route applies to reads, including query sources within writes.
+
+
 ### SHOW BRANCHES / SHOW TAGS
 
 ```sql

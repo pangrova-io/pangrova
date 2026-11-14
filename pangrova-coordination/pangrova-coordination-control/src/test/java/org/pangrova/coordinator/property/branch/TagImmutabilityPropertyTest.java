@@ -159,7 +159,18 @@ class TagImmutabilityPropertyTest {
                 null);
         registry.register(descriptor);
 
-        BranchDdlContext ctx = new BranchDdlContext(registry, null);
+        var roles = new org.pangrova.testing.testkit.security.policy.InMemoryRoleStore();
+        roles.createRole(org.pangrova.security.api.policy.Role.of("owner"));
+        roles.grantRoleToUser(org.pangrova.security.api.policy.UserRoleAssignment.of(TEST_USER.principal(), "owner"));
+        var grants = new org.pangrova.testing.testkit.security.policy.StaticGrantStore(java.util.List.of(
+                org.pangrova.security.api.policy.PrivilegeGrant.of("owner", org.pangrova.security.api.enums.Privilege.ALTER,
+                        "TABLE", CATALOG, SCHEMA, TABLE, null)));
+        var authorization = new org.pangrova.security.policy.builtin.authorization.DynamicRbacAccessControl(
+                grants, roles, new org.pangrova.security.rowfilter.RowLevelSecurityFilter(
+                        new org.pangrova.testing.testkit.security.rowfilter.EmptyRowPolicyStore()),
+                new org.pangrova.security.mask.ColumnMaskingProcessor(
+                        new org.pangrova.testing.testkit.security.mask.EmptyColumnMaskStore()));
+        BranchDdlContext ctx = new BranchDdlContext(registry, authorization);
         return new BranchDdlExecutor(ctx);
     }
 

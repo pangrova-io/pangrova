@@ -64,6 +64,35 @@ class PangrovaRestClientSubmitIdempotencyTest {
     }
 
     @Test
+    void branchSelectionsAreAppliedToSubsequentRequestsInJustOneClient() {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var observed = new java.util.concurrent.CopyOnWriteArrayList<java.util.Map<String, String>>();
+        server.createContext("/v1/query/submit", exchange -> {
+            var request = mapper.readValue(exchange.getRequestBody(), org.pangrova.common.client.query.SubmitQueryRequest.class);
+            observed.add(request.sessionProperties());
+            var selection = switch (request.query()) {
+                case "USE BRANCH dev ON c.s.t" -> new org.pangrova.common.client.query.BranchSelection("c.s.t", "dev");
+                case "USE BRANCH MAIN ON c.s.t" -> new org.pangrova.common.client.query.BranchSelection("c.s.t", null);
+                default -> null;
+            };
+            var body = mapper.writeValueAsBytes(new org.pangrova.common.client.query.SubmitQueryResponse(
+                    "query", "FINISHED", null, java.util.List.of(), selection));
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var stream = exchange.getResponseBody()) { stream.write(body); }
+        });
+        try (var first = client(); var second = client()) {
+            first.submitQuery("USE BRANCH dev ON c.s.t", Map.of());
+            first.submitQuery("SELECT id FROM c.s.t", Map.of());
+            second.submitQuery("SELECT id FROM c.s.t", Map.of());
+            first.submitQuery("USE BRANCH MAIN ON c.s.t", Map.of());
+            first.submitQuery("SELECT id FROM c.s.t", Map.of());
+        }
+        var route = Map.of("branch.routing.c.s.t", "dev");
+        assertThat(observed).containsExactly(Map.of(), route, Map.of(), route, Map.of());
+    }
+
+    @Test
     @DisplayName("submit is NOT re-sent after a response timeout (request may have reached server)")
     void submitDoesNotRetryAfterRequestTimeout() {
         AtomicInteger submitInvocations = new AtomicInteger();

@@ -11,7 +11,7 @@ final class QueryResponseMapper {
 
     static SubmitQueryResponse submission(QuerySubmissionResult result) {
         return new SubmitQueryResponse(result.queryId(), result.state().name(),
-                result.resultEndpoint(), result.columnNames());
+                result.resultEndpoint(), result.columnNames(), result.branchSelection());
     }
 
     static ErrorDetail failure(QueryFailure failure) {
