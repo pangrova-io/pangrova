@@ -52,7 +52,22 @@ public final class TimeTravelSqlClauses {
                 throw invalid("SQL parse tree exceeds the parser depth limit");
             }
             return collect(sql, tree, new AstBuilder(tokens));
-        } catch (ParseCancellationException | StackOverflowError failure) {
+        } catch (ParseCancellationException failure) {
+            if (failure.getCause() instanceof ParseException original) {
+                throw original;
+            }
+            if (failure.getCause() instanceof org.antlr.v4.runtime.RecognitionException syntax) {
+                var token = syntax.getOffendingToken();
+                int line = token == null ? 0 : token.getLine();
+                int column = token == null ? 0 : token.getCharPositionInLine();
+                String detail = token == null ? "syntax error"
+                        : "mismatched input '" + token.getText() + "'";
+                throw new ParseException(PangrovaErrorCode.PARSER_SYNTAX_ERROR,
+                        "line " + line + ":" + column + " " + detail, line, column);
+            }
+            throw new ParseException(PangrovaErrorCode.PARSER_SYNTAX_ERROR,
+                    "Cannot locate time-travel clauses in invalid SQL", null, failure);
+        } catch (StackOverflowError failure) {
             throw new ParseException(PangrovaErrorCode.PARSER_SYNTAX_ERROR,
                     "Cannot locate time-travel clauses in invalid SQL", null, failure);
         }

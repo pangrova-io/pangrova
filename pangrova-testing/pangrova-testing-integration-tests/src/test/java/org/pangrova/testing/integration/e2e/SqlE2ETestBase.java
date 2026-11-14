@@ -153,6 +153,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static final String E2E_USER_BEARER_TOKEN = "e2e-user-token";
     protected static final String E2E_SECOND_USER_BEARER_TOKEN = "e2e-second-user-token";
     private static final String E2E_USER_PRINCIPAL = "e2e-user";
+    private static final String E2E_SECOND_USER_PRINCIPAL = "e2e-second-user";
     private static final String E2E_TENANT_ID = "e2e-tenant";
     private static final long WORKER_MEMORY_BYTES = 2L * 1024 * 1024 * 1024; // 2GB — balances Velox memory needs vs OS process limits
     // Finite deployment limits for the authenticated shared fixture, not production defaults.
@@ -817,6 +818,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static void restoreDefaultSqlAuthority() {
         E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL,
                         metadataBootstrap.catalogRegistry());
+        E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_SECOND_USER_PRINCIPAL,
+                        metadataBootstrap.catalogRegistry());
     }
 
     /** Releases a scenario's policy wiring; no alternative compilation path is retained. */
@@ -897,6 +900,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         // enabling AI functions changes Native callbacks, not HTTP identity.
         var store = E2eCurrentAuthority.tenants(
                 stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL, E2E_TENANT_QUOTA);
+        if (store.getTenantForUser(E2E_SECOND_USER_PRINCIPAL).isEmpty()) {
+            store.addUserToTenant(E2E_TENANT_ID, E2E_SECOND_USER_PRINCIPAL,
+                    org.pangrova.security.api.enums.TenantRole.OWNER);
+        }
         // Mirror the production composition: query audit is durable whenever the
         // metadata database exists, so the E2E suite exercises the same store.
         org.pangrova.security.audit.AuditEventEmitter auditEmitter = null;
@@ -1586,9 +1593,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 queryId, nativeTaskId,
                 lastException != null ? lastException.getMessage() : "unknown", lastException);
         cancelNativeTaskAfterFetch(nativeTaskId);
+        String causeMessage = lastException != null && lastException.getMessage() != null
+                ? ": " + lastException.getMessage() : "";
         throw new IllegalStateException(
                 "Native Flight result fetch failed: queryId=" + queryId
-                        + " taskId=" + nativeTaskId, lastException);
+                        + " taskId=" + nativeTaskId + causeMessage, lastException);
     }
 
     protected static void cancelNativeTaskAfterFetch(String coordinatorTaskId) {
