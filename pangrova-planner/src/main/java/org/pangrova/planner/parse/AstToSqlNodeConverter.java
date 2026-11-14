@@ -91,8 +91,12 @@ public final class AstToSqlNodeConverter {
     private SqlNode convertCteQuery(CteQuery cte) {
         List<SqlNode> withItems = cte.ctes().stream().map(def -> {
             SqlIdentifier name = new SqlIdentifier(def.name(), POS);
+            SqlNodeList columns = def.columnList().isEmpty() ? null
+                    : new SqlNodeList(def.columnList().stream()
+                            .map(column -> (SqlNode) new SqlIdentifier(column, POS)).toList(), POS);
             SqlNode query = convert(def.query());
-            return (SqlNode) new SqlWithItem(POS, name, null, query);
+            return (SqlNode) new SqlWithItem(POS, name, columns, query,
+                    SqlLiteral.createBoolean(cte.recursive(), POS));
         }).toList();
         SqlNodeList withList = new SqlNodeList(withItems, POS);
         return new SqlWith(POS, withList, convert(cte.body()));

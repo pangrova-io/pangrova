@@ -118,6 +118,18 @@ public final class PangrovaColumnOriginMetadata implements MetadataHandler<Built
         return derived(origins);
     }
 
+    /** A spool keeps its input layout; recursive readers observe the same columns. */
+    public Set<RelColumnOrigin> getColumnOrigins(org.apache.calcite.rel.logical.LogicalTableSpool spool,
+                                                RelMetadataQuery query, int output) {
+        return requireOrigins(spool.getInput(), query, output);
+    }
+
+    /** Recursive output keeps the seed layout; the iterative branch reuses the same columns. */
+    public Set<RelColumnOrigin> getColumnOrigins(org.apache.calcite.rel.core.RepeatUnion repeat,
+                                                RelMetadataQuery query, int output) {
+        return requireOrigins(repeat.getSeedRel(), query, output);
+    }
+
     private Set<RelColumnOrigin> expressionOrigins(
             RexNode expression, RelNode input, RelMetadataQuery query, int constants) {
         if (expression instanceof RexInputRef reference) {

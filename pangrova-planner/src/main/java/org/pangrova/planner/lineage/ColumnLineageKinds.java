@@ -90,6 +90,13 @@ final class ColumnLineageKinds {
             }
             return kind;
         }
+        if (relation instanceof org.apache.calcite.rel.core.RepeatUnion repeat) {
+            return combine(field(repeat.getSeedRel(), output),
+                    field(repeat.getIterativeRel(), output));
+        }
+        if (relation instanceof org.apache.calcite.rel.logical.LogicalTableSpool spool) {
+            return field(spool.getInput(), output);
+        }
         if (passthrough(relation)) {
             return field(relation.getInput(0), output);
         }
