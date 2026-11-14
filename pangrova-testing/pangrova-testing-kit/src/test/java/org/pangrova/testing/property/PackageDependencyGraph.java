@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -187,10 +188,13 @@ final class PackageDependencyGraph {
     }
 
     void writeReport(Path path) throws IOException {
+        List<List<String>> components = cycles();
         StringBuilder report = new StringBuilder("Main-source package dependency cycles\n");
         report.append("Packages: ").append(edges.size()).append("\n");
-        for (var cycle : cycles()) {
+        report.append("Cyclic components: ").append(components.size()).append("\n");
+        for (var cycle : components) {
             report.append("\nComponent: ").append(cycle).append("\n");
+            report.append("Cycle: ").append(String.join(" -> ", closedPath(cycle))).append("\n");
             for (String from : cycle) {
                 edges.get(from).forEach((to, witness) -> {
                     if (cycle.contains(to)) {
@@ -202,6 +206,33 @@ final class PackageDependencyGraph {
         }
         Files.createDirectories(path.toAbsolutePath().getParent());
         Files.writeString(path, report, StandardCharsets.UTF_8);
+    }
+
+    /** Shortest cycle through the first package of this component, in deterministic edge order. */
+    private List<String> closedPath(List<String> component) {
+        String start = component.get(0);
+        Set<String> members = Set.copyOf(component);
+        Map<String, String> previous = new HashMap<>();
+        Deque<String> queue = new ArrayDeque<>();
+        queue.add(start);
+        while (!queue.isEmpty()) {
+            String from = queue.remove();
+            for (String to : edges.get(from).keySet()) {
+                if (to.equals(start)) {
+                    List<String> path = new ArrayList<>();
+                    path.add(start);
+                    for (String node = from; node != null; node = previous.get(node)) {
+                        path.add(node);
+                    }
+                    Collections.reverse(path);
+                    return path;
+                }
+                if (members.contains(to) && previous.putIfAbsent(to, from) == null) {
+                    queue.add(to);
+                }
+            }
+        }
+        throw new IllegalStateException("No cycle through " + start + " in component " + component);
     }
 
     private final class Components {

@@ -168,7 +168,24 @@ class PackageDependencyGraphTest {
         graph.writeReport(report);
         assertThat(Files.readString(report)).isEqualTo(first)
                 .doesNotContain("../")
+                .contains("Cyclic components: 2\n")
                 .contains("A.java:2 -> org.pangrova.beta.inner.B", "B.java:2 -> org.pangrova.gamma.C");
+    }
+
+    @Test
+    void reportShowsAnActualClosedPathWhenComponentOrderIsNotAnEdgeOrder() throws Exception {
+        pom(root, "");
+        source(root, "org.pangrova.a.A", "public class A { org.pangrova.c.C c; }");
+        source(root, "org.pangrova.b.B", "public class B { org.pangrova.a.A a; }");
+        source(root, "org.pangrova.c.C", "public class C { org.pangrova.b.B b; }");
+
+        Path report = root.resolve("target/cycles.txt");
+        PackageDependencyGraph.scan(root).writeReport(report);
+        assertThat(Files.readString(report))
+                .contains("Component: [org.pangrova.a, org.pangrova.b, org.pangrova.c]")
+                .contains("Cycle: org.pangrova.a -> org.pangrova.c -> org.pangrova.b -> org.pangrova.a")
+                .contains("A.java:2 -> org.pangrova.c.C", "B.java:2 -> org.pangrova.a.A",
+                        "C.java:2 -> org.pangrova.b.B");
     }
 
     @Test
@@ -181,6 +198,9 @@ class PackageDependencyGraphTest {
         var graph = PackageDependencyGraph.scan(root);
         assertThat(graph.cycles()).isEmpty();
         assertThat(graph.dependencies("org.pangrova.b")).isEmpty();
+        Path report = root.resolve("target/cycles.txt");
+        graph.writeReport(report);
+        assertThat(Files.readString(report)).contains("Packages: 3\nCyclic components: 0\n");
     }
 
     @Test

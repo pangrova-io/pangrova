@@ -86,6 +86,46 @@ description: "Accepted decisions for domain contracts, implementations, and proc
 - 新项目直接修改所有调用方，不保留旧 FQN 转发壳，不建设数据迁移、双写或旧库兼容。
   空库初始化唯一 owner 是 schema-migrations，已有 migration 序列保留，不清空用户库。
 
+## 循环依赖的判定与处理
+
+`A → B` 表示构建、加载或使用 A 需要 B。每次分析先标明是哪一种依赖，再给出闭合路径及产生每条边的源码、POM 或装配位置。A 调用 B，B 把结果返回给 A，本身只产生一条调用依赖。
+
+| 检查对象 | 判定与处理 |
+|---|---|
+| Maven 制品 | 在实际启用的 profile 下检查整个 reactor 的构建顺序。生产依赖、测试依赖、classifier 和构建插件分开追踪。只要 Maven 必须先构建对方，就要纳入构建图。聚合父 POM 列出子模块不构成生产代码依赖。 |
+| Java 生产包 | 检查发行制品之间及同一 JAR 内部的能力包。两个以上包互相可达即形成一个强连通分量。用真实类型引用定位边，包括方法签名、泛型、注解、工厂返回值和全限定引用。一个包内部多个类协作按职责判断。 |
+| 插件与运行角色 | Server 可以装入 Provider，Provider 通过领域接口被调用。验证工厂的类加载器、服务描述符和角色发行 classpath，检查 Core 是否仍在运行时按实现类名回查 Provider。 |
+| Native | CMake 构建顺序、组件间头文件引用和 JNI 回调分别检查。现有 Engine 与索引、向量及能力实现之间有双向引用，具体位置记录在 `.pangrova/rules/architecture.md` 的 C++ 边界表。修改这些位置时由 Engine 声明所需操作，具体注册归运行时装配。新增引用必须符合组件边界，仍发行一个共享库。 |
+| 运行时生命周期 | 将“必须等待对方完成才能继续”画成等待边。禁止 A 等 B ready 而 B 同时等 A ready，也禁止持锁回调让对方等待同一把锁。Server 可以先创建实例，再注册回调，能力确认后才开放接入。每个资源指定唯一关闭方，借用者先停止使用，由所属方释放。通过启动失败、取消、并发和逆序关闭测试验证。 |
+
+### 断开哪一条边
+
+1. **先找语义 owner。** 记录谁拥有值的身份与校验、谁决定状态转换、谁提交事务，以及双方实际需要哪些操作。先删除残留 import、错误 scope 或失效的依赖声明。同一对模块可能有多条独立路径，逐条检查。
+2. **共享值回到定义其语义的最小 owner。** 跨 Query、Generation 和执行协议的执行租约属于 Execution。Protocol 可以引用身份契约，查询状态机无需随 wire DTO 进入 Worker。外观类似但生命周期或作用域不同的值仍分别拥有。
+3. **领域定义所需操作，实现依赖该契约。** File 的授权服务需要按名称或 ID 查询空间、读取当前 profile。在目标结构中，这两个读契约由 File 声明为 `FileSpaceLookup` 和 `CurrentStorageProfile`。Persistence 的 `FileSpaceRegistry` 和 `StorageProfileRegistry` 分别扩展它们，Server 注入实际实例。编译依赖从 Persistence 指向 File，运行时 File 可以通过接口调用仓储。历史 revision、冲突和权限失败的语义必须保留。
+4. **多方编排放到真正的调用者。** 两个领域协同完成一次操作时，由拥有业务流程的一方编排。涉及跨域原子写时使用强类型 workflow，保留同一连接、锁顺序、fence 和提交 owner。Server 负责装配，事务提交由工作流实现负责。
+5. **按独立性确定制品。** 如果两个包共同维护同一状态机、共享同一生命周期，又没有独立调用者，可以把相关行为收回拥有该状态机的能力包，并删除转发层。只合并 Maven 模块仍须检查内部包图。多种实现共享独立契约，工厂放在领域的 `.api`，通过服务描述符发现。不得通过搬入 Common、静态 setter 或双向 lookup 隐藏依赖。
+6. **后端联测放到能同时依赖两侧的位置。** 若 Table 的测试使用真实 Memory 后端，而该后端实现 Table 接口，这组测试放进 Memory 或 Integration Tests。保留原断言、真实对象和故障覆盖。生产代码读取的方法由其生产依赖提供。
+
+### 合入条件
+
+平铺之前，先在现有依赖图上把拟合并的制品视作一个节点。若存在一条从拟合并制品出发、经过仍独立发布的制品、再回到拟合并集合的路径，合并后就会成环。例如合并 Metadata Core 和 API，会把 `metadata-core → persistence-catalog-api → metadata-api` 变成 `metadata → persistence-catalog-api → metadata`。此时保留独立契约，或先按语义归属消除那条依赖，再重新检查。合并集合内部的直接依赖在制品图中消失，同一 JAR 内的包仍要逐个检查。
+
+- 给出修改前后依赖路径和涉及的具体类型。主源码包图中包含两个或更多包的强连通分量必须清零。调整 `allowedImports`、`friendExports` 或生成 baseline 只能记录有依据的单向边。
+- 对默认及本次涉及的发行 profile 验证 reactor。运行 `PackageDependencyAcyclicityPropertyTest` 检查默认 reactor 主源码。报告针对每个包含环的强连通分量列出一条实际闭合路径，以及分量内部每条边的源码位置。`ModuleDependencyPropertyTest` 另行校验包归属、允许的边及服务注册。检查实际 JAR 与单角色运行 classpath，验证反射、生成代码和 JNI 入口。
+- 对变化的路径执行至少一条真实调用及相应失败场景。带事务的路径核对失败回滚和失主拒绝，资源边界核对失败清理与只关闭一次。每条路径记录实际结果，构建、包图和运行时证据分别给出。
+
+从仓库根目录可复查发行 profile 的构建顺序，以及生产包的循环检测和门禁自身的回归用例：
+
+```bash
+mvn -B -ntp -Pnative-runtime,full-regression validate
+mvn -B -ntp -pl :pangrova-testing-kit -am \
+  -Dtest=PackageDependencyGraphTest,PackageDependencyAcyclicityPropertyTest,ModuleDependencyPropertyTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+```
+
+包图报告位于 `pangrova-testing/pangrova-testing-kit/target/package-dependency-cycles.txt`。验收需要报告同时列出实际扫描的包数和 `Cyclic components: 0`。Maven 的 `validate` 校验当前 profile 的 reactor 排序；发布前仍执行完整的 `verify` 和角色启动测试。
+
 ## 实施顺序及退出条件
 
 | 阶段 | 范围 | 退出条件 |
