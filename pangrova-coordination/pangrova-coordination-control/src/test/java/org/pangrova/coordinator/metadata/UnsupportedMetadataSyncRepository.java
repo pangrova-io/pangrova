@@ -15,7 +15,7 @@ public final class UnsupportedMetadataSyncRepository implements MetadataSyncRepo
     @Override public Optional<Instant> loadCheckpoint(CatalogDeploymentIdentity scope) {
         throw new UnsupportedOperationException("This test fixture does not support metadata synchronization");
     }
-    @Override public void complete(MetadataSyncCompletion completion) {
+    @Override public void complete(long epoch, MetadataSyncCompletion completion) {
         throw new UnsupportedOperationException("This test fixture does not support metadata synchronization");
     }
     @Override public Optional<MetadataSyncCompletion> findCompletion(UUID id) {

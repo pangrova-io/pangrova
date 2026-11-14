@@ -77,6 +77,11 @@ public final class CachingFederatedCatalog implements FederatedCatalog {
     }
 
     @Override
+    public Optional<TableMetadata> observeTable(String schema, String table) {
+        return delegate.observeTable(schema, table);
+    }
+
+    @Override
     public List<String> listSchemas() {
         return delegate.listSchemas();
     }

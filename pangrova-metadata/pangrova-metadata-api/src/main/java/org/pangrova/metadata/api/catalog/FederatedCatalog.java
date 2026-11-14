@@ -21,6 +21,15 @@ public interface FederatedCatalog extends AutoCloseable {
 
     TableMetadata getTable(String schema, String table);
 
+    /**
+     * Read the source authority directly, bypassing query/projection caches. Empty certifies
+     * absence of this exact object. Timeouts, access failures and unavailable authority must
+     * throw. Providers without authoritative point reads cannot repair the local projection.
+     */
+    default java.util.Optional<TableMetadata> observeTable(String schema, String table) {
+        throw new UnsupportedOperationException("Catalog has no authoritative point lookup");
+    }
+
     TableStatistics getTableStatistics(String schema, String table);
 
     org.pangrova.metadata.api.catalog.MetadataChangeBatch readChangesSince(Instant since);

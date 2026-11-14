@@ -43,3 +43,5 @@ pending intent per Catalog. Applied state commits with the original effect and r
 canonical empty-database initialization resources, not a historical-data conversion workflow.
 
 V112 records the selected CDC source factory on a stream. The provider identifier is required during creation and retained across recovery.
+
+V115 records the current federation observation epoch on the locked catalog deployment row.

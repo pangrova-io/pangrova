@@ -9,7 +9,7 @@ import java.util.UUID;
 /**
  * Thread-safe owner of durable sync progress and run diagnostics. Connections remain provider-owned.
  * Progress is never derived from diagnostic completion times. Implementations must atomically
- * compare the current deployment and expected checkpoint, store the run, and advance progress.
+ * compare the current deployment, observation epoch and expected checkpoint, store the run, and advance progress.
  * Concurrent/stale progress is rejected; identical run-ID replay succeeds, differing replay fails.
  * Completion uncertainty must be reported explicitly and confirmed with findCompletion before replay.
  * A deployment replacement has independent progress. History may be read after deployment deletion.
@@ -22,7 +22,7 @@ public interface MetadataSyncRepository {
      * acceptance raise MetadataSyncPendingException; unknown commit outcomes raise
      * MetadataSyncOutcomeUnknownException. Neither permits replacing the run ID.
      */
-    void complete(MetadataSyncCompletion completion);
+    void complete(long observationEpoch, MetadataSyncCompletion completion);
 
     /**
      * Resolves durable pending completion by its original ID/content before reading a new source

@@ -74,6 +74,7 @@ class MetadataDriftSamplingIntegrationTest {
 
     @Test
     void schemaDriftDetectedAndCorrected() throws SQLException {
+        var scope = sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity();
         var original = table(false);
         sinkFixture.saveTable(original);
         cache.putTable("cat", "sch", "t1", original);
@@ -81,28 +82,29 @@ class MetadataDriftSamplingIntegrationTest {
         var actual = source.getTable("sch", "t1");
         long before = tableEvents();
 
-        service.validateSingleTable(sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity(), source, change(actual));
+        service.validateSingleTable(scope, service.beginObservation(scope), source, change(actual));
 
         assertThat(service.getSchemaDriftDetectedCount()).isEqualTo(1);
         assertThat(sinkTables.loadTable("cat", "sch", "t1")).contains(actual);
         assertThat(sinkTables.loadTable("cat", "sch", "t1").orElseThrow().columns()).hasSize(3);
         assertThat(cache.getTable("cat", "sch", "t1")).isEmpty();
         assertThat(tableEvents()).isEqualTo(before + 1);
-        service.validateSingleTable(sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity(), source, change(actual));
+        service.validateSingleTable(scope, service.beginObservation(scope), source, change(actual));
         assertThat(service.getSchemaDriftDetectedCount()).isEqualTo(1);
         assertThat(tableEvents()).isEqualTo(before + 1);
     }
 
     @Test
     void noDriftWhenColumnsMatch() throws SQLException {
+        var scope = sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity();
         sourceFixture.saveTable(table(false));
         var original = source.getTable("sch", "t1");
         sinkFixture.saveTable(original);
         cache.putTable("cat", "sch", "t1", original);
         long before = tableEvents();
 
-        service.validateSingleTable(sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity(), source, change(original));
-        service.validateSyncedSample(sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity(), source, List.of(change(original)));
+        service.validateSingleTable(scope, service.beginObservation(scope), source, change(original));
+        service.validateSyncedSample(scope, service.beginObservation(scope), source, List.of(change(original)));
 
         assertThat(service.getSchemaDriftDetectedCount()).isZero();
         assertThat(sinkTables.loadTable("cat", "sch", "t1")).contains(original);
@@ -112,6 +114,7 @@ class MetadataDriftSamplingIntegrationTest {
 
     @Test
     void schemaDriftSkipsDeletes() throws SQLException {
+        var scope = sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity();
         var original = table(false);
         sinkFixture.saveTable(original);
         cache.putTable("cat", "sch", "t1", original);
@@ -119,7 +122,7 @@ class MetadataDriftSamplingIntegrationTest {
         // A closed real source would fail any read; DELETE must never consult it.
         source.close();
 
-        service.validateSyncedSample(sinkDeployments.getCatalogDescriptor("cat").orElseThrow().identity(), source, List.of(new MetadataChange(MetadataChange.ChangeType.DELETE,
+        service.validateSyncedSample(scope, service.beginObservation(scope), source, List.of(new MetadataChange(MetadataChange.ChangeType.DELETE,
                 new QualifiedTableRef("cat", "sch", "t1"), null)));
 
         assertThat(service.getSchemaDriftDetectedCount()).isZero();
@@ -149,7 +152,7 @@ class MetadataDriftSamplingIntegrationTest {
                         + "FOR EACH ROW EXECUTE FUNCTION deny_drift_event()");
             }
             try {
-                assertThatThrownBy(() -> service.validateSingleTable(scope, source, change(actual)))
+                assertThatThrownBy(() -> service.validateSingleTable(scope, service.beginObservation(scope), source, change(actual)))
                         .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class)
                         .satisfies(failure -> assertThat(((SQLException) failure.getCause()).getSQLState()).isEqualTo("42501"));
                 assertThat(service.getSchemaDriftDetectedCount()).isZero();
@@ -169,7 +172,7 @@ class MetadataDriftSamplingIntegrationTest {
             assertThat(sinkTables.loadTable("cat", "sch", "t1")).contains(actual);
             assertThat(cache.getTable("cat", "sch", "t1")).isEmpty();
             assertThat(tableEvents()).isEqualTo(before + 1);
-            service.validateSingleTable(scope, source, change(actual));
+            service.validateSingleTable(scope, service.beginObservation(scope), source, change(actual));
             // A recovered storage operation is not a newly completed drift-detection invocation.
             assertThat(service.getSchemaDriftDetectedCount()).isZero();
             assertThat(tableEvents()).isEqualTo(before + 1);

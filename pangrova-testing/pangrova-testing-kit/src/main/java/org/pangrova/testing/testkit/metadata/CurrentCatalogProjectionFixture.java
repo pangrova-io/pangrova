@@ -27,18 +27,21 @@ public final class CurrentCatalogProjectionFixture {
     }
 
     public MetadataProjectionReceipt saveTable(TableMetadata table) {
-        return transactions.apply(new MetadataProjectionMutation.UpsertTable(
-                UUID.randomUUID(), identity(table.catalog()), table));
+        var scope = identity(table.catalog());
+        return transactions.apply(transactions.beginObservation(scope), new MetadataProjectionMutation.UpsertTable(
+                UUID.randomUUID(), scope, table));
     }
 
     public MetadataProjectionReceipt deleteTable(String catalog, String schema, String table) {
-        return transactions.apply(new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), identity(catalog),
+        var scope = identity(catalog);
+        return transactions.apply(transactions.beginObservation(scope), new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), scope,
                 new QualifiedTableRef(catalog, schema, table)));
     }
 
     public MetadataProjectionReceipt saveSchemas(String catalog, List<String> schemas) {
-        return transactions.apply(new MetadataProjectionMutation.ObserveSchemas(
-                UUID.randomUUID(), identity(catalog), schemas));
+        var scope = identity(catalog);
+        return transactions.apply(transactions.beginObservation(scope), new MetadataProjectionMutation.ObserveSchemas(
+                UUID.randomUUID(), scope, schemas));
     }
 
     private CatalogDeploymentIdentity identity(String catalog) {

@@ -31,6 +31,7 @@ import org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProj
 /** Public atomic port tested on a canonically initialized, isolated real PostgreSQL database. */
 class PostgresMetadataProjectionTransactionsTest {
     private DataSource source;
+    private long epoch;
     private PostgresCatalogDeploymentRepository deployments;
     private PostgresMetadataProjectionTransactions transactions;
     private PostgresTableProjectionRepository tables;
@@ -44,7 +45,8 @@ class PostgresMetadataProjectionTransactionsTest {
         descriptor = new CatalogDescriptor("cat", CatalogType.FEDERATION, "inventory", CatalogState.ACTIVE,
                 Map.of(), "", Set.of("tenant-a"));
         deployments.saveCatalogDescriptor(descriptor);
-        transactions.apply(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of("sch")));
+        epoch = transactions.beginObservation(descriptor.identity());
+        transactions.apply(epoch, new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of("sch")));
     }
 
     @Test void newTableAtomicallyObservesItsPreviouslyUnknownParentSchema() throws Exception {
@@ -52,7 +54,7 @@ class PostgresMetadataProjectionTransactionsTest {
                 Map.of(), Instant.EPOCH, Instant.EPOCH);
         var mutation = upsert(table);
         long events = count("invalidation_log");
-        var receipt = transactions.apply(mutation);
+        var receipt = transactions.apply(epoch, mutation);
         assertThat(new PostgresSchemaProjectionRepository(source).loadSchemas("cat")).containsExactly("new_schema", "sch");
         assertThat(tables.loadTable("cat", "new_schema", "new_table")).contains(table);
         assertThat(transactions.findReceipt(mutation.operationId())).contains(receipt);
@@ -66,7 +68,7 @@ class PostgresMetadataProjectionTransactionsTest {
             statement.execute("ALTER TABLE metadata_projection_mutations ADD CONSTRAINT deny_receipt CHECK (revision < 0) NOT VALID");
         }
         var mutation = upsert(table);
-        assertThatThrownBy(() -> transactions.apply(mutation))
+        assertThatThrownBy(() -> transactions.apply(epoch, mutation))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         assertThat(new PostgresSchemaProjectionRepository(source).loadSchemas("cat")).containsExactly("sch");
         assertThat(tables.loadTable("cat", "new_schema", "new_table")).isEmpty();
@@ -77,18 +79,33 @@ class PostgresMetadataProjectionTransactionsTest {
         long intents = count("metadata_projection_intents");
         for (String name : List.of("nul\0name", "x".repeat(256))) {
             var mutation = new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of(name));
-            assertThatThrownBy(() -> transactions.apply(mutation)).isInstanceOf(MetadataProjectionScopeException.class);
+            assertThatThrownBy(() -> transactions.apply(epoch, mutation)).isInstanceOf(MetadataProjectionScopeException.class);
         }
         assertThat(count("metadata_projection_intents")).isEqualTo(intents);
         String unicodeName = "\uD83C\uDF3F".repeat(255);
-        transactions.apply(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of(unicodeName, "", "  ")));
+        transactions.apply(epoch, new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of(unicodeName, "", "  ")));
         assertThat(new PostgresSchemaProjectionRepository(source).loadSchemas("cat")).contains(unicodeName, "", "  ");
+    }
+
+    @Test void supersededEpochCanConfirmHistoryButCannotReserveNewWork() throws Exception {
+        var original = upsert(table("original"));
+        var receipt = transactions.apply(epoch, original);
+        long newer = new PostgresMetadataProjectionTransactions(source).beginObservation(descriptor.identity());
+        assertThat(newer).isGreaterThan(epoch);
+        long events = count("invalidation_log");
+        assertThat(transactions.apply(epoch, original)).isEqualTo(receipt);
+        for (long refused : List.of(epoch, 0L)) {
+            assertThatThrownBy(() -> transactions.apply(refused, upsert(table("stale"))))
+                    .isInstanceOf(MetadataProjectionConflictException.class);
+        }
+        assertThat(count("invalidation_log")).isEqualTo(events);
+        assertThat(tables.loadTable("cat", "sch", "tbl")).contains(table("original"));
     }
 
     @Test void updateReceiptCapturesPreviousProjectionAndCurrentTenantScope() {
         var original = table("original");
-        transactions.apply(upsert(original));
-        var receipt = transactions.apply(upsert(table("updated")));
+        transactions.apply(epoch, upsert(original));
+        var receipt = transactions.apply(epoch, upsert(table("updated")));
         assertThat(receipt.previousTable()).contains(original);
         assertThat(receipt.allowedTenants()).containsExactly("tenant-a");
         assertThat(receipt.changed()).isTrue();
@@ -97,33 +114,33 @@ class PostgresMetadataProjectionTransactionsTest {
 
     @Test void exactReplayAfterReplacementConfirmsHistoryWithoutChangingCurrentProjection() throws Exception {
         var mutation = upsert(table("one"));
-        var receipt = transactions.apply(mutation);
+        var receipt = transactions.apply(epoch, mutation);
         deployments.deleteCatalogDescriptor(descriptor.identity());
         var replacement = new CatalogDescriptor("cat", CatalogType.FEDERATION, "replacement", CatalogState.ACTIVE,
                 Map.of(), "", Set.of("tenant-b"));
         deployments.saveCatalogDescriptor(replacement);
         long events = count("invalidation_log");
-        assertThat(transactions.apply(mutation)).isEqualTo(receipt);
+        assertThat(transactions.apply(epoch, mutation)).isEqualTo(receipt);
         assertThat(tables.loadTable("cat", "sch", "tbl")).isEmpty();
         assertThat(count("invalidation_log")).isEqualTo(events);
         assertThat(transactions.findReceipt(mutation.operationId())).contains(receipt);
-        assertThatThrownBy(() -> transactions.apply(upsert(table("new-id"))))
+        assertThatThrownBy(() -> transactions.apply(epoch, upsert(table("new-id"))))
                 .isInstanceOf(MetadataProjectionConflictException.class);
     }
 
     @Test void sameIdDifferentContentCannotMutateOrInvalidate() throws Exception {
         var mutation = upsert(table("one"));
-        var receipt = transactions.apply(mutation);
+        var receipt = transactions.apply(epoch, mutation);
         long events = count("invalidation_log");
-        assertThat(transactions.apply(mutation)).isEqualTo(receipt);
+        assertThat(transactions.apply(epoch, mutation)).isEqualTo(receipt);
         var conflict = new MetadataProjectionMutation.UpsertTable(mutation.operationId(), descriptor.identity(), table("two"));
-        assertThatThrownBy(() -> transactions.apply(conflict)).isInstanceOf(MetadataProjectionConflictException.class);
+        assertThatThrownBy(() -> transactions.apply(epoch, conflict)).isInstanceOf(MetadataProjectionConflictException.class);
         assertThat(tables.loadTable("cat", "sch", "tbl")).contains(table("one"));
         assertThat(count("invalidation_log")).isEqualTo(events);
     }
 
     @Test void revisionChangeFencesAllMutationKindsWithoutNewEventsOrReceipts() throws Exception {
-        transactions.apply(upsert(table("original")));
+        transactions.apply(epoch, upsert(table("original")));
         advanceRevision();
         long events = count("invalidation_log");
         long receipts = count("metadata_projection_mutations");
@@ -131,7 +148,7 @@ class PostgresMetadataProjectionTransactionsTest {
                 new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), descriptor.identity(), new QualifiedTableRef("cat", "sch", "tbl")),
                 new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of("forbidden")));
         for (var mutation : mutations) {
-            assertThatThrownBy(() -> transactions.apply(mutation)).isInstanceOf(MetadataProjectionConflictException.class);
+            assertThatThrownBy(() -> transactions.apply(epoch, mutation)).isInstanceOf(MetadataProjectionConflictException.class);
             assertThat(transactions.findReceipt(mutation.operationId())).isEmpty();
         }
         assertThat(tables.loadTable("cat", "sch", "tbl")).contains(table("original"));
@@ -143,7 +160,7 @@ class PostgresMetadataProjectionTransactionsTest {
     @Test void deletedDeploymentCannotMutateEvenAnEmptyObservation() {
         deployments.deleteCatalogDescriptor(descriptor.identity());
         var operation = new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of());
-        assertThatThrownBy(() -> transactions.apply(operation)).isInstanceOf(MetadataProjectionConflictException.class);
+        assertThatThrownBy(() -> transactions.apply(epoch, operation)).isInstanceOf(MetadataProjectionConflictException.class);
         assertThat(transactions.findReceipt(operation.operationId())).isEmpty();
     }
 
@@ -158,10 +175,10 @@ class PostgresMetadataProjectionTransactionsTest {
 
     @Test void normalizedSchemaObservationReplaysAndNeverDeletesMissingNames() throws Exception {
         UUID id = UUID.randomUUID();
-        var receipt = transactions.apply(new MetadataProjectionMutation.ObserveSchemas(id, descriptor.identity(), List.of("z", "a", "z")));
+        var receipt = transactions.apply(epoch, new MetadataProjectionMutation.ObserveSchemas(id, descriptor.identity(), List.of("z", "a", "z")));
         long events = count("invalidation_log");
-        assertThat(transactions.apply(new MetadataProjectionMutation.ObserveSchemas(id, descriptor.identity(), List.of("a", "z")))).isEqualTo(receipt);
-        var empty = transactions.apply(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of()));
+        assertThat(transactions.apply(epoch, new MetadataProjectionMutation.ObserveSchemas(id, descriptor.identity(), List.of("a", "z")))).isEqualTo(receipt);
+        var empty = transactions.apply(epoch, new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of()));
         assertThat(empty.changed()).isFalse();
         assertThat(transactions.findReceipt(empty.mutation().operationId())).contains(empty);
         assertThat(new PostgresSchemaProjectionRepository(source).loadSchemas("cat")).containsExactly("a", "sch", "z");
@@ -171,10 +188,10 @@ class PostgresMetadataProjectionTransactionsTest {
     @Test void missingTableDeletionHasDurableNoopReceipt() throws Exception {
         var mutation = new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), descriptor.identity(), new QualifiedTableRef("cat", "sch", "absent"));
         long events = count("invalidation_log");
-        var receipt = transactions.apply(mutation);
+        var receipt = transactions.apply(epoch, mutation);
         assertThat(receipt.changed()).isFalse();
         assertThat(receipt.previousTable()).isEmpty();
-        assertThat(transactions.apply(mutation)).isEqualTo(receipt);
+        assertThat(transactions.apply(epoch, mutation)).isEqualTo(receipt);
         assertThat(count("invalidation_log")).isEqualTo(events);
     }
 
@@ -184,7 +201,7 @@ class PostgresMetadataProjectionTransactionsTest {
             statement.execute("ALTER TABLE metadata_projection_mutations ADD CONSTRAINT deny_receipt CHECK (revision < 0) NOT VALID");
         }
         var mutation = upsert(table("denied"));
-        assertThatThrownBy(() -> transactions.apply(mutation)).isInstanceOf(MetastoreException.class)
+        assertThatThrownBy(() -> transactions.apply(epoch, mutation)).isInstanceOf(MetastoreException.class)
                 .hasRootCauseInstanceOf(SQLException.class)
                 .satisfies(failure -> assertThat(((SQLException) failure.getCause()).getSQLState()).isEqualTo("23514"));
         assertThat(transactions.findReceipt(mutation.operationId())).isEmpty();
@@ -201,7 +218,7 @@ class PostgresMetadataProjectionTransactionsTest {
             try (var statement = blocker.createStatement()) {
                 statement.execute("UPDATE catalog_definitions SET revision=revision+1, allowed_tenants='[\"tenant-b\"]' WHERE name='cat'");
             }
-            var writer = executor.submit(() -> catchThrowable(() -> transactions.apply(mutation)));
+            var writer = executor.submit(() -> catchThrowable(() -> transactions.apply(epoch, mutation)));
             try {
                 await().atMost(Duration.ofSeconds(10)).until(this::projectionWaitsForDeployment);
                 assertThat(tables.loadTable("cat", "sch", "tbl")).isEmpty();
@@ -222,8 +239,8 @@ class PostgresMetadataProjectionTransactionsTest {
         try (var blocker = source.getConnection()) {
             blocker.setAutoCommit(false);
             try (var statement = blocker.createStatement()) { statement.execute("SELECT 1 FROM catalog_definitions WHERE name='cat' FOR UPDATE"); }
-            var first = executor.submit(() -> transactions.apply(mutation));
-            var second = executor.submit(() -> transactions.apply(mutation));
+            var first = executor.submit(() -> transactions.apply(epoch, mutation));
+            var second = executor.submit(() -> transactions.apply(epoch, mutation));
             try { await().atMost(Duration.ofSeconds(10)).until(() -> waitingProjections() == 2); }
             finally { blocker.commit(); }
             assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo(second.get(10, TimeUnit.SECONDS));
@@ -252,7 +269,7 @@ class PostgresMetadataProjectionTransactionsTest {
                     } catch (java.lang.reflect.InvocationTargetException wrapped) { throw wrapped.getCause(); }
                 });
         var mutation = upsert(table("isolation"));
-        var receipt = new PostgresMetadataProjectionTransactions(serializableDefault).apply(mutation);
+        var receipt = new PostgresMetadataProjectionTransactions(serializableDefault).apply(epoch, mutation);
         assertThat(transactions.findReceipt(mutation.operationId())).contains(receipt);
     }
 
@@ -270,7 +287,7 @@ class PostgresMetadataProjectionTransactionsTest {
                                     try {
                                         if (call.getName().equals("prepareStatement") && parameters[0].toString().startsWith("SELECT incarnation_id")
                                                 && interleaved.compareAndSet(false, true)) {
-                                            transactions.apply(mutation);
+                                            transactions.apply(epoch, mutation);
                                             deployments.deleteCatalogDescriptor(descriptor.identity());
                                             deployments.saveCatalogDescriptor(new CatalogDescriptor("cat", CatalogType.FEDERATION,
                                                     "replacement", CatalogState.ACTIVE, Map.of(), "", Set.of()));
@@ -280,7 +297,7 @@ class PostgresMetadataProjectionTransactionsTest {
                                 });
                     } catch (java.lang.reflect.InvocationTargetException wrapped) { throw wrapped.getCause(); }
                 });
-        var replay = new PostgresMetadataProjectionTransactions(interleaving).apply(mutation);
+        var replay = new PostgresMetadataProjectionTransactions(interleaving).apply(epoch, mutation);
         assertThat(interleaved).isTrue();
         assertThat(replay).isEqualTo(transactions.findReceipt(mutation.operationId()).orElseThrow());
         assertThat(tables.loadTable("cat", "sch", "tbl")).isEmpty();
@@ -289,7 +306,8 @@ class PostgresMetadataProjectionTransactionsTest {
     @Test void concurrentOperationIdCollisionAcrossCatalogsRollsBackLosingProjectionAndEvent() throws Exception {
         var peer = new CatalogDescriptor("peer", CatalogType.FEDERATION, "inventory", CatalogState.ACTIVE, Map.of(), "", Set.of());
         deployments.saveCatalogDescriptor(peer);
-        transactions.apply(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), peer.identity(), List.of("sch")));
+        long peerEpoch = transactions.beginObservation(peer.identity());
+        transactions.apply(peerEpoch, new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), peer.identity(), List.of("sch")));
         UUID id = UUID.randomUUID();
         var firstMutation = new MetadataProjectionMutation.UpsertTable(id, descriptor.identity(), table("cat"));
         var peerTable = new TableMetadata("peer", "sch", "tbl", List.of(), Map.of(), List.of(), Map.of(), Instant.EPOCH, Instant.EPOCH);
@@ -300,8 +318,8 @@ class PostgresMetadataProjectionTransactionsTest {
         try (var blocker = source.getConnection()) {
             blocker.setAutoCommit(false);
             try (var statement = blocker.createStatement()) { statement.execute("LOCK TABLE invalidation_log IN SHARE MODE"); }
-            var first = executor.submit(() -> catchThrowable(() -> transactions.apply(firstMutation)));
-            var second = executor.submit(() -> catchThrowable(() -> transactions.apply(secondMutation)));
+            var first = executor.submit(() -> catchThrowable(() -> transactions.apply(epoch, firstMutation)));
+            var second = executor.submit(() -> catchThrowable(() -> transactions.apply(peerEpoch, secondMutation)));
             try {
                 await().atMost(Duration.ofSeconds(10)).until(() -> {
                     try (var connection = source.getConnection(); var statement = connection.createStatement();

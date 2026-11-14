@@ -243,12 +243,7 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
                     .contains("stale_col")
                     .doesNotContain("name", "value");
 
-            // Step 3: Create a FederatedCatalog adapter that simulates drift:
-            // - readChangesSince() returns changes with STALE metadata (same as corrupted deployments)
-            // - getTable() returns the CORRECT metadata (what the real catalog has)
-            // This models the scenario where incremental change detection is slightly behind
-            // the actual catalog state. applyChanges saves the stale metadata from the change,
-            // then validateSyncedSample detects the mismatch via getTable().
+            // The change feed lags the source. Only the independent point lookup can repair the projection.
             TableMetadata correctMeta = new TableMetadata(
                     ICE_CATALOG, SCHEMA, iceTable,
                     List.of(
@@ -258,15 +253,8 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
                     Map.of(), List.of(), Map.of(),
                     Instant.now(), Instant.now());
 
-            // Build enough changes to statistically guarantee drift detection
-            // (10% sample rate, 100 changes = ~10 validations expected)
-            List<MetadataChange> staleChanges = new java.util.ArrayList<>();
-            for (int i = 0; i < 100; i++) {
-                staleChanges.add(new MetadataChange(
-                        MetadataChange.ChangeType.UPDATE,
-                        new QualifiedTableRef(ICE_CATALOG, SCHEMA, iceTable),
-                        corruptedMeta));
-            }
+            List<MetadataChange> staleChanges = List.of(new MetadataChange(MetadataChange.ChangeType.UPDATE,
+                    new QualifiedTableRef(ICE_CATALOG, SCHEMA, iceTable), corruptedMeta));
 
             FederatedCatalog driftAdapter = new DriftSimulatingAdapter(
                     correctMeta, staleChanges);
@@ -280,9 +268,9 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
             // Step 5: Verify drift was detected and auto-corrected
             assertThat(syncService.getSchemaDriftDetectedCount())
                     .as("Schema drift should be detected at least once")
-                    .isGreaterThan(0);
+                    .isOne();
 
-            // Verify deployments now has correct metadata (auto-corrected by validateSyncedSample)
+            // Verify deployments now has correct metadata (refreshed from the current source)
             Optional<TableMetadata> corrected = tables.loadTable(
                     ICE_CATALOG, SCHEMA, iceTable);
             assertThat(corrected).isPresent();
@@ -340,14 +328,8 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
                     Map.of(), List.of(), Map.of(),
                     Instant.now(), Instant.now());
 
-            // Build stale changes for drift detection
-            List<MetadataChange> staleChanges = new java.util.ArrayList<>();
-            for (int i = 0; i < 100; i++) {
-                staleChanges.add(new MetadataChange(
-                        MetadataChange.ChangeType.UPDATE,
-                        new QualifiedTableRef(ICE_CATALOG, SCHEMA, iceTable),
-                        corruptedMeta));
-            }
+            List<MetadataChange> staleChanges = List.of(new MetadataChange(MetadataChange.ChangeType.UPDATE,
+                    new QualifiedTableRef(ICE_CATALOG, SCHEMA, iceTable), corruptedMeta));
 
             // Trigger drift detection and auto-correction via incremental sync
             MetadataSyncService syncService = new MetadataSyncService(
@@ -358,7 +340,7 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
 
             assertThat(syncService.getSchemaDriftDetectedCount())
                     .as("Drift should be detected")
-                    .isGreaterThan(0);
+                    .isOne();
 
             // Cross-catalog JOIN after correction returns correct results
             List<TypedRow> rows = sqlRunner.execute(
@@ -399,8 +381,7 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
      * {@code readChangesSince()} returns changes with stale metadata,
      * while {@code getTable()} returns the correct (current) metadata.
      * This models the scenario where incremental change detection is slightly
-     * behind the actual catalog state, triggering drift detection in
-     * {@code validateSyncedSample()}.
+     * behind the point lookup used for projection.
      */
     private static class DriftSimulatingAdapter implements FederatedCatalog {
         private final TableMetadata correctMetadata;
@@ -420,6 +401,10 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
         @Override
         public List<String> listTables(String schema) {
             return List.of(correctMetadata.table());
+        }
+
+        @Override public java.util.Optional<TableMetadata> observeTable(String schema, String table) {
+            return java.util.Optional.of(getTable(schema, table));
         }
 
         @Override

@@ -15,11 +15,18 @@ import java.util.UUID;
  * differing content or stale deployment is rejected. A commit result that cannot be established
  * must be reported as outcome unknown and confirmed by ID before any new attempt.
  *
- * <p>These are per-operation guarantees, not a scan-wide publication, source-version comparison
- * or lease among concurrent scans of the same deployment. Assembly owns shared backend resources.</p>
+ * <p>Each operation is atomic. The observation epoch fences overlapping scans and callbacks.
+ * External snapshot isolation and object version ordering depend on the source. Assembly owns shared backend resources.</p>
  */
 @Experimental
 public interface MetadataProjectionTransactions {
+    /**
+     * Advance the durable observation epoch for this exact deployment before any external read.
+     * New reservations from superseded epochs fail. An already accepted intent must be recovered
+     * first. This orders local observations across processes, independently of source timestamps.
+     */
+    long beginObservation(CatalogDeploymentIdentity deployment);
+
     /**
      * Synchronous operation; return means the receipt and effects are committed. A historical
      * replay may succeed after the deployment has changed and grants no authority for new work.
@@ -30,7 +37,7 @@ public interface MetadataProjectionTransactions {
      * raises MetadataProjectionPendingException: recovery may replay it, so do not submit a new ID.
      * Implementations must not retain caller resources.
      */
-    MetadataProjectionReceipt apply(MetadataProjectionMutation mutation);
+    MetadataProjectionReceipt apply(long observationEpoch, MetadataProjectionMutation mutation);
 
     /**
      * Resolves previously accepted intents before a new source observation begins, including after

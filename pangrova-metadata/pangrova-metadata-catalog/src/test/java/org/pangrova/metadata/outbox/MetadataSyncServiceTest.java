@@ -69,6 +69,7 @@ class MetadataSyncServiceTest {
                 MetadataChange.ChangeType.ADD,
                 new QualifiedTableRef("cat", "sch", "t1"), meta);
         StubCatalogAdapter adapter = new StubCatalogAdapter();
+        adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(addChange);
 
         SyncResult result = syncService.incrementalSync(deployment("cat"), adapter);
@@ -88,6 +89,7 @@ class MetadataSyncServiceTest {
                 MetadataChange.ChangeType.DELETE,
                 new QualifiedTableRef("cat", "sch", "t1"), null);
         StubCatalogAdapter adapter = new StubCatalogAdapter();
+        adapter.absent.add("sch:t1");
         adapter.changes = List.of(deleteChange);
 
         SyncResult result = syncService.incrementalSync(deployment("cat"), adapter);
@@ -103,6 +105,7 @@ class MetadataSyncServiceTest {
                 MetadataChange.ChangeType.UPDATE,
                 new QualifiedTableRef("cat", "sch", "t1"), meta);
         StubCatalogAdapter adapter = new StubCatalogAdapter();
+        adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(change);
 
         syncService.incrementalSync(deployment("cat"), adapter);
@@ -203,6 +206,7 @@ class MetadataSyncServiceTest {
         MetadataChange badChange = new MetadataChange(
                 MetadataChange.ChangeType.UPDATE,
                 new QualifiedTableRef("cat", "sch", "t2"), null);
+        adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(goodChange, badChange);
         // badChange has null metadata -> store.saveTable(null) will throw
 
@@ -290,6 +294,7 @@ class MetadataSyncServiceTest {
                 MetadataChange.ChangeType.ADD,
                 new QualifiedTableRef("cat", "sch", "t1"), meta);
         StubCatalogAdapter adapter = new StubCatalogAdapter();
+        adapter.tableMetadata.put("sch:t1", meta);
         adapter.changes = List.of(change);
 
         SyncResult result = syncService.incrementalSync(deployment("cat"), adapter);
@@ -319,6 +324,7 @@ class MetadataSyncServiceTest {
     // ── Test doubles ──
 
     static final class StubCatalogAdapter implements FederatedCatalog {
+        final java.util.Set<String> absent = new java.util.HashSet<>();
         List<MetadataChange> changes = List.of();
         List<String> schemas = List.of();
         final Map<String, List<String>> tablesBySchema = new HashMap<>();
@@ -330,6 +336,11 @@ class MetadataSyncServiceTest {
         @Override
         public List<String> listTables(String schema) {
             return tablesBySchema.getOrDefault(schema, List.of());
+        }
+
+        @Override public java.util.Optional<TableMetadata> observeTable(String schema, String table) {
+            if (absent.contains(schema + ":" + table)) return Optional.empty();
+            return Optional.of(getTable(schema, table));
         }
 
         @Override

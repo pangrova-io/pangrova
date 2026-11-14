@@ -28,7 +28,7 @@ final class RecordingMetadataSyncRepository implements MetadataSyncRepository {
     }
 
     @Override
-    public void complete(MetadataSyncCompletion completion) {
+    public void complete(long epoch, MetadataSyncCompletion completion) {
         completions.add(completion);
         completion.nextCheckpoint().ifPresent(value -> checkpoints.put(completion.scope(), value));
     }

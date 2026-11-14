@@ -430,5 +430,15 @@ execution. The original IDs are recoverable by Catalog across service/provider r
 Metadata Catalog must recover pending work before observing a new source batch. New IDs cannot
 bypass pending operations. Obsolete requests are rejected under the current deployment fence.
 Projection/outbox/receipt and checkpoint/run receipt retain their separate atomic owners.
-This closes the per-operation recovery barrier, not the remaining whole-scan ownership,
-source-version, cancellation, event-recovery or retention work.
+This delivers per-operation recovery. The following decision extends its guarantees to competing observations.
+
+### Federation 同部署观察顺序
+
+V115 在部署行持久化观察 epoch。每轮全量、增量和每次实际 push 回调先恢复原 intent，再在同一把部署行锁下开始观察。
+采样沿用本轮 epoch。更新投影或提交同步进度时，服务端验证部署与 epoch；先前的 intent 必须按原 ID 处理完才允许发出新 epoch。
+已落库的逐操作回执在新 epoch 或新部署下仍可确认。这使任意两个 Coordinator 重叠扫描时，较早开始的扫描无法在新观察之后提交新操作或推进 checkpoint。
+
+增量覆盖区间用于 checkpoint，表级状态来自独立的权威点读。推送删除会复查源表是否已重建。缓存、超时、权限不足和能力不支持均无法构成缺失证明。
+分次枚举允许部分可见，遗漏的表或 schema 不触发清扫。外部源缺少统一快照或单对象版本时，无法宣称整个 Catalog 在同一源版本下发布，
+也无法对源读取和本地提交作跨系统原子承诺。后续若需要这两项保证，须由源提供可验证的读取边界和版本。
+取消中的底层源 I/O、推送订阅的启动/退出、事件恢复和日志保留仍需各自的能力与生命周期验证。

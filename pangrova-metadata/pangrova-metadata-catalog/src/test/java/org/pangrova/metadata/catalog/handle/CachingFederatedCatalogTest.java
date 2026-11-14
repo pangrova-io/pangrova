@@ -138,6 +138,14 @@ class CachingFederatedCatalogTest {
     }
 
     @Test
+    void cachedQueryResultCannotSupplyAuthorityForSynchronization() {
+        assertThat(caching.getTable("public", "orders")).isNotNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> caching.observeTable("public", "orders"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(backing.getTableCalls.get()).isOne();
+    }
+
+    @Test
     void closeClosesUnderlyingDelegate() {
         caching.close();
         assertThat(backing.closed).isTrue();

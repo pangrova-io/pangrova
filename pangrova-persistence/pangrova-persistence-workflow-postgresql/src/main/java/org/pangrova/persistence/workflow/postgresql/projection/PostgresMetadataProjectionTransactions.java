@@ -34,21 +34,60 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
     }
 
     @Override
-    public MetadataProjectionReceipt apply(MetadataProjectionMutation mutation) {
-        Objects.requireNonNull(mutation, "mutation");
-        ProjectionRequestValidation.validate(mutation);
-        Optional<MetadataProjectionReceipt> replay = transact(mutation, true);
-        return replay.orElseGet(() -> transact(mutation, false).orElseThrow());
+    public long beginObservation(CatalogDeploymentIdentity deployment) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            connection.setAutoCommit(false);
+            try {
+                lockDeployment(connection, deployment);
+                // A reserved operation can be executed/recovered by its original ID. Refuse to
+                // advance until these reservations have completed under their own observation.
+                try (var pending = connection.prepareStatement(
+                        "SELECT 1 FROM metadata_projection_intents WHERE catalog_name=? AND state='PENDING' "
+                                + "UNION ALL SELECT 1 FROM metadata_sync_intents WHERE catalog_name=? AND state='PENDING'")) {
+                    pending.setString(1, deployment.catalogName());
+                    pending.setString(2, deployment.catalogName());
+                    try (var rows = pending.executeQuery()) {
+                        if (rows.next()) throw new MetadataProjectionConflictException("Recover pending catalog work before observing");
+                    }
+                }
+                long epoch;
+                try (var advance = connection.prepareStatement("UPDATE catalog_definitions SET "
+                        + "observation_epoch=observation_epoch+1 WHERE name=? RETURNING observation_epoch")) {
+                    advance.setString(1, deployment.catalogName());
+                    try (var rows = advance.executeQuery()) {
+                        if (!rows.next()) throw new MetadataProjectionConflictException("Catalog deployment no longer exists");
+                        epoch = rows.getLong(1);
+                    }
+                }
+                connection.commit();
+                return epoch;
+            } catch (SQLException | RuntimeException | Error failure) {
+                rollback(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            // No epoch is returned on a lost acknowledgement, so the caller cannot publish from it.
+            throw new MetastoreException("Cannot begin catalog observation: " + deployment, failure);
+        }
     }
 
-    private Optional<MetadataProjectionReceipt> transact(MetadataProjectionMutation mutation, boolean reserve) {
+    @Override
+    public MetadataProjectionReceipt apply(long observationEpoch, MetadataProjectionMutation mutation) {
+        Objects.requireNonNull(mutation, "mutation");
+        ProjectionRequestValidation.validate(mutation);
+        Optional<MetadataProjectionReceipt> replay = transact(observationEpoch, mutation, true);
+        return replay.orElseGet(() -> transact(observationEpoch, mutation, false).orElseThrow());
+    }
+
+    private Optional<MetadataProjectionReceipt> transact(long observationEpoch, MetadataProjectionMutation mutation, boolean reserve) {
         boolean commitStarted = false;
         try (Connection connection = dataSource.getConnection()) {
             // Receipt rechecks must observe a winner that committed while the row lock was awaited.
             connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             try {
-                Optional<MetadataProjectionReceipt> receipt = reserve ? reserveOrReplay(connection, mutation)
+                Optional<MetadataProjectionReceipt> receipt = reserve ? reserveOrReplay(connection, observationEpoch, mutation)
                         : Optional.of(applyOrReplay(connection, mutation));
                 commitStarted = true;
                 connection.commit();
@@ -111,7 +150,7 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
     }
 
     private static Optional<MetadataProjectionReceipt> reserveOrReplay(
-            Connection connection, MetadataProjectionMutation mutation) throws SQLException {
+            Connection connection, long observationEpoch, MetadataProjectionMutation mutation) throws SQLException {
         var receipt = readReceipt(connection, mutation.operationId());
         if (receipt.isPresent()) return Optional.of(requireReplay(mutation, receipt.orElseThrow()));
         try {
@@ -132,6 +171,9 @@ public final class PostgresMetadataProjectionTransactions implements MetadataPro
         if (pending.isPresent()) {
             throw new MetadataProjectionPendingException(pending.orElseThrow().mutation().operationId(),
                     new IllegalStateException("Recover the existing catalog operation before submitting a new ID"));
+        }
+        if (!CatalogProjectionSql.isCurrentObservation(connection, mutation.deployment().catalogName(), observationEpoch)) {
+            throw new MetadataProjectionConflictException("Catalog observation has been superseded");
         }
         ProjectionIntentJournal.insert(connection, mutation);
         return Optional.empty();

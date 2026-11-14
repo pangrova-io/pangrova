@@ -12,6 +12,7 @@ import java.util.*;
 
 /** Single-thread component recorder. SQL atomicity and outbox guarantees are tested against PostgreSQL. */
 final class RecordingProjectionTransactions implements TableProjectionRepository, MetadataProjectionTransactions {
+    private long epoch;
     private final CatalogDescriptor deployment;
     private final Map<QualifiedTableRef, TableMetadata> tables = new HashMap<>();
     private final Map<UUID, MetadataProjectionReceipt> receipts = new HashMap<>();
@@ -31,17 +32,21 @@ final class RecordingProjectionTransactions implements TableProjectionRepository
     @Override public Optional<MetadataProjectionReceipt> findReceipt(UUID id) {
         return Optional.ofNullable(receipts.get(id));
     }
+    @Override public long beginObservation(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity scope) {
+        recoverPending(scope);
+        return ++epoch;
+    }
     @Override public void recoverPending(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity scope) {
         // This synchronous component recorder has no crash boundary or pending operations.
         if (!deployment.identity().equals(scope)) throw new MetadataProjectionConflictException("Projection deployment differs");
     }
-    @Override public MetadataProjectionReceipt apply(MetadataProjectionMutation mutation) {
+    @Override public MetadataProjectionReceipt apply(long epoch, MetadataProjectionMutation mutation) {
         var existing = receipts.get(mutation.operationId());
         if (existing != null) {
             if (!existing.mutation().equals(mutation)) throw new MetadataProjectionConflictException("Operation content differs");
             return existing;
         }
-        if (!deployment.identity().equals(mutation.deployment())) {
+        if (epoch != this.epoch || !deployment.identity().equals(mutation.deployment())) {
             throw new MetadataProjectionConflictException("Projection deployment differs");
         }
         TableMetadata previous = null;

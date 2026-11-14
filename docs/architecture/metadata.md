@@ -1230,37 +1230,37 @@ public class TieredMetadataCache implements MetadataCache {
 
 ### 3.6 MetadataSyncService — Metadata Synchronization
 
-The sync service borrows four explicit persistence ports: `CatalogDeploymentRepository`,
-`TableProjectionRepository`, `MetadataProjectionTransactions`, and `MetadataSyncRepository`.
-Server assembles their PostgreSQL implementations on the selected metadata DataSource;
-Core does not choose a backend or own the shared pool.
+Server assembles the table projection reader, projection transaction writer and sync repository
+on one PostgreSQL database. The periodic Coordinator schedule supplies the deployment and adapter
+from the federation handle. Before the first external read, the service recovers accepted work
+and issues a new durable observation epoch under the current deployment row lock.
 
-The periodic caller passes the descriptor from the actual federation handle together
-with its adapter. Incremental reads return `MetadataChangeBatch`. Only an error-free
-batch with a source-certified `completeThrough` can advance a checkpoint. A certified
-empty batch may advance; an unbounded inventory, partial failure, or full enumeration
-cannot manufacture a checkpoint from local wall time. Progress belongs to a catalog
-incarnation and revision, not its reusable name.
+| Source path | Projection and progress |
+|---|---|
+| Full enumeration | Adds observed schemas and refreshes positively observed tables by authoritative point lookup. Omitted names are preserved. A missing or failed lookup for a listed table records a partial scan. |
+| Incremental batch | Uses events as table references and rereads each current source object. Explicit absence deletes the projection. Only a completely applied, source-certified interval advances the checkpoint. |
+| Push callback | Rechecks the named object for every notification, including DELETE. An old delete received after recreation publishes the recreated table. A source failure propagates and retains the projection. |
+| Drift sample | Uses the parent batch's epoch for a separate current-source read and any column repair. The sampled check is diagnostic and never advances progress independently. |
 
-The synchronization repository atomically checks current deployment and expected
-checkpoint, records the run, and advances progress. An unknown COMMIT is confirmed
-using the original run receipt; if confirmation fails, the same invocation does not
-retry incremental sync or fall back to full sync. Partial results are failures for
-`syncWithRetry`.
+A later epoch supersedes an earlier observation across Coordinator processes. Both mutation
+and completion reservation verify the epoch under the deployment lock. A pending durable intent
+blocks a new epoch until recovery under its original identity. Previously committed operations
+remain visible and confirmable by ID. Each projection, tenant impact, invalidation and receipt
+share a transaction. Checkpoint and run receipt have their own atomic transaction. A new epoch
+can interrupt an incomplete scan, including an empty run awaiting completion.
 
-Each projection write carries the original handle's `CatalogDeploymentIdentity`.
-`MetadataProjectionTransactions` locks and verifies that deployment, rejects foreign
-catalog targets, then commits the projection, invalidation and immutable operation
-receipt together. Unknown commit results are confirmed with that original operation ID;
-unconfirmed results terminate that invocation without a new mutation or full-sync fallback.
-The periodic Server scheduler still lacks a durable pending-operation barrier across
-invocations/restarts; this recovery boundary remains unfinished and must retain the
-original operation identity before another round can be authorized.
-The complete external scan is **not** one transaction: source-version conditional writes,
-concurrent same-deployment inventory, omitted deletions, and the scheduler's full
-lease/lifecycle remain unfinished. The former leader-only and
-wall-clock-watermark examples were not evidence that those guarantees existed.
-Those guarantees are bounded by the current Catalog Persistence ports and tests.
+The serialized projection preserves source creation and update instants at their supplied precision.
+A same-name recreation replaces the previous object’s creation time.
+
+A provider certifies point-in-time table existence or absence via `observeTable`. The cache decorator
+forwards this operation directly. Unsupported lookup, timeout, access denial and ambiguous absence
+cannot authorize deletion. A complete change interval identifies affected keys; it supplies no
+per-object version. The current SPI supplies no common read snapshot for a full catalog. Readers
+can see committed rows of a partial scan, and external changes after a point lookup remain possible.
+Full verification of a catalog at one source revision would require a provider-issued snapshot or
+comparable versioned tombstones. External federation providers must supply their own authority;
+the repository ships no production Federation backend. Coordinator periodically polls. The push
+entry point applies these guarantees when explicitly subscribed; no automatic subscription ships.
 
 ### 3.7 SchemaEvolutionValidator — Schema Change Validation
 
@@ -1376,7 +1376,7 @@ public class SchemaEvolutionValidator {
 `org.pangrova.metadata.api.catalog`.
 It exposes schema/table enumeration, table metadata and statistics, incremental
 `readChangesSince(Instant)` returning `MetadataChangeBatch`, and adapter close.
-The caching decorator forwards incremental batches without caching them.
+The caching decorator forwards incremental batches and authoritative point lookups directly to the provider.
 
 A complete-through bound must represent every change (including deletions) in the
 requested interval and exclude late commits into that interval. A successful SELECT,
@@ -1530,20 +1530,10 @@ public class MetadataModelConverter {
 
 ```java
 /**
- * Metadata change event — the input unit for MetadataSyncService
+ * A source hint for one table. Optional metadata can diagnose a stale change feed.
  */
-public record MetadataChange(
-    ChangeType type,
-    String schema,
-    String table,
-    TableMetadata metadata,     // non-null for ADD/UPDATE, null for DELETE
-    Instant changeTime
-) {
+public record MetadataChange(ChangeType type, QualifiedTableRef tableRef, TableMetadata metadata) {
     public enum ChangeType { ADD, UPDATE, DELETE }
-
-    public String describe() {
-        return type + " " + schema + "." + table;
-    }
 }
 
 /**
@@ -2349,6 +2339,5 @@ parent schema observation, invalidation, receipt and terminal intent state commi
 checkpoint, completion receipt and terminal intent state also commit together. Obsolete deployment
 intents are fenced and rejected, never reauthorized with a current descriptor.
 
-This is per-operation recovery, not a lease or an atomic publication of an entire scan. A new scan
-may create new observations after pending work is recovered. Generic cache invalidation is durable;
-process-local schema-evolution event recovery, retention and scan lifecycle remain incomplete.
+The observation epoch and per-operation recovery interact as described in §3.6. Generic cache invalidation is durable.
+Process-local schema-evolution event recovery, retention and cancellation of in-flight source calls remain open.

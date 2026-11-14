@@ -54,7 +54,8 @@ class MetadataSyncRecoveryIntegrationTest {
         deployment = new CatalogDescriptor("catalog", CatalogType.FEDERATION, "inventory", CatalogState.ACTIVE,
                 Map.of(), "", Set.of());
         new PostgresCatalogDeploymentRepository(database).saveCatalogDescriptor(deployment);
-        new PostgresMetadataProjectionTransactions(database).apply(
+        var projections = new PostgresMetadataProjectionTransactions(database);
+        projections.apply(projections.beginObservation(deployment.identity()),
                 new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), deployment.identity(), List.of("schema")));
         tables = new PostgresTableProjectionRepository(database);
         events = new MetadataEventDispatcher();
@@ -114,6 +115,8 @@ class MetadataSyncRecoveryIntegrationTest {
         assertThat(catchThrowable(() -> service(database, database).syncWithRetry(deployment, inventory)))
                 .isInstanceOf(MetadataSyncPendingException.class);
         assertThat(inventory.requested).containsExactly(Instant.EPOCH);
+        assertThat(catchThrowable(() -> new PostgresMetadataProjectionTransactions(database).beginObservation(deployment.identity())))
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
         assertThat(catchThrowable(() -> service(database, database).syncWithRetry(deployment, inventory)))
                 .isInstanceOf(MetadataSyncPendingException.class);
         assertThat(catchThrowable(() -> service(database, database).fullSync(deployment, inventory)))
@@ -193,6 +196,10 @@ class MetadataSyncRecoveryIntegrationTest {
         }
         @Override public List<String> listSchemas() { schemaReads++; return List.of("schema"); }
         @Override public List<String> listTables(String schema) { return List.of("table"); }
+        @Override public java.util.Optional<TableMetadata> observeTable(String schema, String table) {
+            return java.util.Optional.of(getTable(schema, table));
+        }
+
         @Override public TableMetadata getTable(String schema, String table) { return table(); }
         @Override public TableStatistics getTableStatistics(String schema, String table) { return TableStatistics.UNKNOWN; }
         @Override public void close() {}

@@ -31,6 +31,7 @@ import org.pangrova.persistence.catalog.postgresql.projection.PostgresSchemaProj
 /** Faults wrap public JDBC calls on a real database; no private-state reflection or mocked SQL. */
 class PostgresMetadataProjectionFailureTest {
     private DataSource source;
+    private long epoch;
     private MetadataProjectionMutation.UpsertTable mutation;
 
     @BeforeEach
@@ -40,7 +41,8 @@ class PostgresMetadataProjectionFailureTest {
                 Map.of(), "", Set.of());
         new PostgresCatalogDeploymentRepository(source).saveCatalogDescriptor(descriptor);
         var transactions = new PostgresMetadataProjectionTransactions(source);
-        transactions.apply(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of("sch")));
+        epoch = transactions.beginObservation(descriptor.identity());
+        transactions.apply(epoch, new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), descriptor.identity(), List.of("sch")));
         mutation = new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), descriptor.identity(),
                 new org.pangrova.metadata.api.object.TableMetadata("catalog", "sch", "tbl", List.of(), Map.of(), List.of(), Map.of(),
                         Instant.EPOCH, Instant.EPOCH));
@@ -50,12 +52,12 @@ class PostgresMetadataProjectionFailureTest {
     void lostCommitAcknowledgmentIsConfirmedByImmutableOperationReceipt() {
         AtomicInteger closed = new AtomicInteger();
         var faulting = new PostgresMetadataProjectionTransactions(afterCallFault("commit", new SQLException("lost reply"), closed));
-        Throwable failure = catchThrowable(() -> faulting.apply(mutation));
+        Throwable failure = catchThrowable(() -> faulting.apply(epoch, mutation));
         assertThat(failure).isInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         assertThat(((MetadataProjectionOutcomeUnknownException) failure).operationId()).isEqualTo(mutation.operationId());
         var confirmation = new PostgresMetadataProjectionTransactions(source);
         assertThat(confirmation.findReceipt(mutation.operationId()).orElseThrow().mutation()).isEqualTo(mutation);
-        confirmation.apply(mutation);
+        confirmation.apply(epoch, mutation);
         assertThat(new PostgresTableProjectionRepository(source).loadTable("catalog", "sch", "tbl")).contains(mutation.table());
         assertThat(closed).hasValue(2);
     }
@@ -64,7 +66,7 @@ class PostgresMetadataProjectionFailureTest {
     void closeFailureAfterCommitDoesNotTurnAcceptedMutationIntoRetryableFailure() {
         AtomicInteger closed = new AtomicInteger();
         var faulting = new PostgresMetadataProjectionTransactions(afterCallFault("close", new SQLException("close failed"), closed));
-        assertThat(catchThrowable(() -> faulting.apply(mutation)))
+        assertThat(catchThrowable(() -> faulting.apply(epoch, mutation)))
                 .isInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         assertThat(new PostgresMetadataProjectionTransactions(source).findReceipt(mutation.operationId()).orElseThrow().mutation()).isEqualTo(mutation);
         assertThat(closed).hasValue(2);
@@ -78,7 +80,7 @@ class PostgresMetadataProjectionFailureTest {
         var rollbackFailure = new IllegalStateException("rollback reply failed");
         AtomicInteger closed = new AtomicInteger();
         var faulting = new PostgresMetadataProjectionTransactions(afterCallFault("rollback", rollbackFailure, closed));
-        Throwable failure = catchThrowable(() -> faulting.apply(mutation));
+        Throwable failure = catchThrowable(() -> faulting.apply(epoch, mutation));
         assertThat(failure).isInstanceOf(MetastoreException.class).isNotInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         assertThat(failure.getCause()).isInstanceOf(SQLException.class).hasMessageContaining("reject_progress");
         assertThat(failure.getCause().getSuppressed()).containsExactly(rollbackFailure);
@@ -90,7 +92,7 @@ class PostgresMetadataProjectionFailureTest {
     void lostIntentAcknowledgmentIsRecoveredByAnotherProviderWithoutOriginalCallerState() {
         var faulting = new PostgresMetadataProjectionTransactions(
                 afterCallFault("commit", new SQLException("lost intent reply"), new AtomicInteger(), 1));
-        assertThat(catchThrowable(() -> faulting.apply(mutation)))
+        assertThat(catchThrowable(() -> faulting.apply(epoch, mutation)))
                 .isInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         var restarted = new PostgresMetadataProjectionTransactions(source);
         assertThat(restarted.findReceipt(mutation.operationId())).isEmpty();
@@ -100,21 +102,21 @@ class PostgresMetadataProjectionFailureTest {
         assertThat(receipt.mutation()).isEqualTo(mutation);
         assertThat(new PostgresTableProjectionRepository(source).loadTable("catalog", "sch", "tbl")).contains(mutation.table());
         restarted.recoverPending(mutation.deployment());
-        assertThat(restarted.apply(mutation)).isEqualTo(receipt);
+        assertThat(restarted.apply(epoch, mutation)).isEqualTo(receipt);
     }
 
     @Test
     void pendingOperationCannotBeBypassedWithAnotherIdOrDifferentPayload() {
         var faulting = new PostgresMetadataProjectionTransactions(
                 afterCallFault("commit", new SQLException("lost intent reply"), new AtomicInteger(), 1));
-        assertThat(catchThrowable(() -> faulting.apply(mutation)))
+        assertThat(catchThrowable(() -> faulting.apply(epoch, mutation)))
                 .isInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         var restarted = new PostgresMetadataProjectionTransactions(source);
         var differentId = new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), mutation.deployment(), mutation.table());
-        assertThat(catchThrowable(() -> restarted.apply(differentId)))
+        assertThat(catchThrowable(() -> restarted.apply(epoch, differentId)))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         var differentPayload = new MetadataProjectionMutation.ObserveSchemas(mutation.operationId(), mutation.deployment(), List.of("other"));
-        assertThat(catchThrowable(() -> restarted.apply(differentPayload)))
+        assertThat(catchThrowable(() -> restarted.apply(epoch, differentPayload)))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
         assertThat(restarted.findReceipt(mutation.operationId())).isEmpty();
         assertThat(restarted.findReceipt(differentId.operationId())).isEmpty();
@@ -126,7 +128,7 @@ class PostgresMetadataProjectionFailureTest {
     void replacementRejectsOldIntentAndLateCallerCannotWriteIntoNewIncarnation() {
         var faulting = new PostgresMetadataProjectionTransactions(
                 afterCallFault("commit", new SQLException("lost intent reply"), new AtomicInteger(), 1));
-        assertThat(catchThrowable(() -> faulting.apply(mutation)))
+        assertThat(catchThrowable(() -> faulting.apply(epoch, mutation)))
                 .isInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         var deployments = new PostgresCatalogDeploymentRepository(source);
         deployments.deleteCatalogDescriptor(mutation.deployment());
@@ -135,12 +137,12 @@ class PostgresMetadataProjectionFailureTest {
         deployments.saveCatalogDescriptor(replacement);
         var restarted = new PostgresMetadataProjectionTransactions(source);
         restarted.recoverPending(replacement.identity());
-        assertThat(catchThrowable(() -> restarted.apply(mutation)))
+        assertThat(catchThrowable(() -> restarted.apply(epoch, mutation)))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
-        assertThat(catchThrowable(() -> restarted.apply(new MetadataProjectionMutation.ObserveSchemas(
+        assertThat(catchThrowable(() -> restarted.apply(epoch, new MetadataProjectionMutation.ObserveSchemas(
                 mutation.operationId(), replacement.identity(), List.of("reused-id")))))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
-        restarted.apply(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), replacement.identity(), List.of("new")));
+        restarted.apply(restarted.beginObservation(replacement.identity()), new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), replacement.identity(), List.of("new")));
         assertThat(new PostgresSchemaProjectionRepository(source).loadSchemas("catalog")).containsExactly("new");
         assertThat(new PostgresTableProjectionRepository(source).loadTable("catalog", "sch", "tbl")).isEmpty();
         assertThat(restarted.findReceipt(mutation.operationId())).isEmpty();
@@ -150,7 +152,7 @@ class PostgresMetadataProjectionFailureTest {
     void concurrentRecoveryAndOriginalRetryPublishOneEffect() throws Exception {
         var faulting = new PostgresMetadataProjectionTransactions(
                 afterCallFault("commit", new SQLException("lost intent reply"), new AtomicInteger(), 1));
-        assertThat(catchThrowable(() -> faulting.apply(mutation)))
+        assertThat(catchThrowable(() -> faulting.apply(epoch, mutation)))
                 .isInstanceOf(MetadataProjectionOutcomeUnknownException.class);
         long before = eventCount();
         var executor = java.util.concurrent.Executors.newFixedThreadPool(3);
@@ -158,7 +160,7 @@ class PostgresMetadataProjectionFailureTest {
         try {
             var first = executor.submit(() -> { start.await(); new PostgresMetadataProjectionTransactions(source).recoverPending(mutation.deployment()); return null; });
             var second = executor.submit(() -> { start.await(); new PostgresMetadataProjectionTransactions(source).recoverPending(mutation.deployment()); return null; });
-            var retry = executor.submit(() -> { start.await(); return new PostgresMetadataProjectionTransactions(source).apply(mutation); });
+            var retry = executor.submit(() -> { start.await(); return new PostgresMetadataProjectionTransactions(source).apply(epoch, mutation); });
             start.countDown();
             first.get(10, java.util.concurrent.TimeUnit.SECONDS);
             second.get(10, java.util.concurrent.TimeUnit.SECONDS);
@@ -177,11 +179,13 @@ class PostgresMetadataProjectionFailureTest {
             statement.execute("ALTER TABLE metadata_projection_mutations ADD CONSTRAINT reject_progress CHECK (revision < 0) NOT VALID");
         }
         var restarted = new PostgresMetadataProjectionTransactions(source);
-        assertThat(catchThrowable(() -> restarted.apply(mutation)))
+        assertThat(catchThrowable(() -> restarted.apply(epoch, mutation)))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
+        assertThat(catchThrowable(() -> restarted.beginObservation(mutation.deployment())))
+                .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
         assertThat(catchThrowable(() -> restarted.recoverPending(mutation.deployment())))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
-        assertThat(catchThrowable(() -> restarted.apply(new MetadataProjectionMutation.UpsertTable(
+        assertThat(catchThrowable(() -> restarted.apply(epoch, new MetadataProjectionMutation.UpsertTable(
                 UUID.randomUUID(), mutation.deployment(), mutation.table()))))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionPendingException.class);
         assertThat(restarted.findReceipt(mutation.operationId())).isEmpty();

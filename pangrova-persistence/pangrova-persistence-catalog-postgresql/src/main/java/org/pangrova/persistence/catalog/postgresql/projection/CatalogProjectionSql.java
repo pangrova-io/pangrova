@@ -23,9 +23,22 @@ public final class CatalogProjectionSql {
 
     private CatalogProjectionSql() {}
 
+    /** The caller already holds the deployment row lock. Zero is the unissued epoch. */
+    public static boolean isCurrentObservation(Connection connection, String catalog, long epoch) throws SQLException {
+        if (epoch <= 0) return false;
+        try (var check = connection.prepareStatement(
+                "SELECT 1 FROM catalog_definitions WHERE name=? AND observation_epoch=?")) {
+            check.setString(1, catalog);
+            check.setLong(2, epoch);
+            try (var rows = check.executeQuery()) {
+                return rows.next();
+            }
+        }
+    }
+
     public static Optional<TableMetadata> load(Connection connection, QualifiedTableRef ref) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT columns, partition_spec, sort_order, properties, table_created_at, table_updated_at "
+                "SELECT columns "
                         + "FROM table_metadata WHERE catalog_name=? AND schema_name=? AND table_name=?")) {
             bindRef(statement, ref);
             try (ResultSet rows = statement.executeQuery()) {
@@ -38,7 +51,7 @@ public final class CatalogProjectionSql {
         TableMetadata full = TABLES.deserialize(rows.getString("columns"));
         return new TableMetadata(ref.catalog(), ref.schema(), ref.table(), full.columns(),
                 full.partitionSpec(), full.sortOrder(), full.properties(),
-                instant(rows.getTimestamp("table_created_at")), instant(rows.getTimestamp("table_updated_at")));
+                full.createdAt(), full.updatedAt());
     }
 
     public static boolean upsert(Connection connection, TableMetadata table) throws SQLException {
@@ -49,7 +62,8 @@ public final class CatalogProjectionSql {
                         + "ON CONFLICT (catalog_name, schema_name, table_name) DO UPDATE SET "
                         + "columns=EXCLUDED.columns, partition_spec=EXCLUDED.partition_spec, "
                         + "sort_order=EXCLUDED.sort_order, properties=EXCLUDED.properties, "
-                        + "table_updated_at=EXCLUDED.table_updated_at, synced_at=EXCLUDED.synced_at")) {
+                        + "table_created_at=EXCLUDED.table_created_at, table_updated_at=EXCLUDED.table_updated_at, "
+                        + "synced_at=EXCLUDED.synced_at")) {
             statement.setString(1, table.catalog());
             statement.setString(2, table.schema());
             statement.setString(3, table.table());
@@ -107,7 +121,4 @@ public final class CatalogProjectionSql {
         return value == null ? null : Timestamp.from(value);
     }
 
-    private static Instant instant(Timestamp value) {
-        return value == null ? null : value.toInstant();
-    }
 }

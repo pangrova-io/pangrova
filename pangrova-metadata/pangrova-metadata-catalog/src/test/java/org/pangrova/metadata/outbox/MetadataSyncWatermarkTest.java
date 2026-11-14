@@ -34,6 +34,7 @@ import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataP
 /** Exercises the real SQL progress owner through the sync service, not just a setter invocation. */
 class MetadataSyncWatermarkTest {
     private static final Instant BOUND = Instant.parse("2026-01-01T00:00:00.123456789Z");
+    private javax.sql.DataSource database;
     private MetadataEventDispatcher dispatcher;
     private PostgresMetadataSyncRepository synchronization;
     private PostgresCatalogDeploymentRepository deployments;
@@ -46,7 +47,8 @@ class MetadataSyncWatermarkTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        var dataSource = MigratedPostgres.create();
+        database = MigratedPostgres.create();
+        var dataSource = database;
         deployments = new PostgresCatalogDeploymentRepository(dataSource);
         tables = new PostgresTableProjectionRepository(dataSource);
         projections = new PostgresMetadataProjectionTransactions(dataSource);
@@ -164,8 +166,10 @@ class MetadataSyncWatermarkTest {
         var invalid = new MetadataChange(MetadataChange.ChangeType.ADD,
                 new QualifiedTableRef("catalog", "schema", "broken"), null);
         var source = new Inventory(new MetadataChangeBatch(List.of(change("one"), invalid), Optional.of(BOUND)));
+        source.unavailable = "broken";
         assertThat(service.incrementalSync(deployment, source).errors()).isEqualTo(1);
         assertThat(synchronization.loadCheckpoint(scope)).isEmpty();
+        source.unavailable = null;
         source.batch = new MetadataChangeBatch(List.of(change("one"), change("broken")), Optional.of(BOUND));
         assertThat(service.incrementalSync(deployment, source).errors()).isZero();
         assertThat(source.requested).containsExactly(Instant.EPOCH, Instant.EPOCH);
@@ -252,10 +256,10 @@ class MetadataSyncWatermarkTest {
     }
 
     @Test
-    void pushDeleteDoesNotFetchAlreadyDeletedSourceTable() {
+    void pushDeleteRequiresAuthoritativeAbsence() {
         projectionFixture.saveTable(change("one").metadata());
         var source = new Inventory(new MetadataChangeBatch(List.of(), Optional.empty()));
-        source.beforeFetch = () -> { throw new AssertionError("Deleted source table must not be fetched"); };
+        source.absent = true;
         service.subscribeToPushNotifications(deployment, source);
         source.listener.onChange(new MetadataChange(MetadataChange.ChangeType.DELETE,
                 new QualifiedTableRef("catalog", "schema", "one"), null));
@@ -276,22 +280,115 @@ class MetadataSyncWatermarkTest {
     void driftRepairCannotPublishAfterSourceReadSupersedesDeployment() {
         var source = new Inventory(new MetadataChangeBatch(List.of(), Optional.empty()));
         source.beforeFetch = this::advanceDeployment;
-        assertThatThrownBy(() -> service.validateSingleTable(scope, source, change("one")))
+        assertThatThrownBy(() -> service.validateSingleTable(scope, service.beginObservation(scope), source, change("one")))
                 .isInstanceOf(org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
         assertThat(tables.loadTable("catalog", "schema", "one")).isEmpty();
         assertThat(service.getSchemaDriftDetectedCount()).isZero();
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"FULL", "INCREMENTAL", "PUSH", "SAMPLE", "EMPTY"})
+    void laterCoordinatorFencesPausedObservationOnSameDeployment(String kind) throws Exception {
+        var captured = new java.util.concurrent.CountDownLatch(1);
+        var resume = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        Runnable pause = () -> {
+            captured.countDown();
+            try {
+                if (!resume.await(20, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("No resume");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(interrupted);
+            }
+        };
+        var hint = change("one");
+        var slow = new Inventory(new MetadataChangeBatch(kind.equals("EMPTY") ? List.of() : List.of(hint),
+                Optional.of(BOUND)));
+        var stale = new TableMetadata("catalog", "schema", "one",
+                List.of(new org.pangrova.metadata.api.object.ColumnMetadata("obsolete",
+                        org.pangrova.metadata.api.object.ColumnType.of("BIGINT"), true, null, null)),
+                Map.of(), List.of(), Map.of(), BOUND, BOUND);
+        slow.pointResult = Optional.of(stale);
+        if (kind.equals("EMPTY")) slow.beforeRead = pause;
+        else slow.beforeFetch = pause;
+        try (var peerEvents = new MetadataEventDispatcher()) {
+            var peer = new MetadataSyncService(new PostgresTableProjectionRepository(database),
+                    new PostgresMetadataProjectionTransactions(database), new PostgresMetadataSyncRepository(database),
+                    new TieredMetadataCache(), peerEvents);
+            var first = executor.submit(() -> {
+                switch (kind) {
+                    case "FULL" -> service.fullSync(deployment, slow);
+                    case "INCREMENTAL", "EMPTY" -> service.incrementalSync(deployment, slow);
+                    case "SAMPLE" -> service.validateSingleTable(scope, service.beginObservation(scope), slow, hint);
+                    case "PUSH" -> {
+                        service.subscribeToPushNotifications(deployment, slow);
+                        slow.listener.onChange(hint);
+                    }
+                    default -> throw new AssertionError(kind);
+                }
+            });
+            assertThat(captured.await(20, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var current = new Inventory(new MetadataChangeBatch(List.of(hint), Optional.empty()));
+            assertThat(peer.incrementalSync(deployment, current).errors()).isZero();
+            var afterNewer = publicationCounts();
+            resume.countDown();
+            assertThatThrownBy(() -> first.get(20, java.util.concurrent.TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(kind.equals("EMPTY")
+                            ? org.pangrova.persistence.catalog.api.exception.MetadataSyncConflictException.class
+                            : org.pangrova.persistence.workflow.api.exception.MetadataProjectionConflictException.class);
+            assertThat(publicationCounts()).isEqualTo(afterNewer);
+            assertThat(tables.loadTable("catalog", "schema", "one")).contains(hint.metadata());
+            assertThat(synchronization.loadCheckpoint(scope)).isEmpty();
+        } finally {
+            resume.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(20, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void delayedDeleteRechecksRecreatedTableAndLookupFailurePreservesIt() throws Exception {
+        var hint = new MetadataChange(MetadataChange.ChangeType.DELETE,
+                new QualifiedTableRef("catalog", "schema", "one"), null);
+        var source = new Inventory(new MetadataChangeBatch(List.of(hint), Optional.of(BOUND)));
+        var prior = new TableMetadata("catalog", "schema", "one", List.of(), Map.of(), List.of(),
+                Map.of("incarnation", "previous"), Instant.EPOCH, Instant.EPOCH);
+        projectionFixture.saveTable(prior);
+        service.subscribeToPushNotifications(deployment, source);
+        source.listener.onChange(hint);
+        assertThat(tables.loadTable("catalog", "schema", "one")).contains(change("one").metadata());
+        var afterRecreate = publicationCounts();
+        source.unavailable = "one";
+        assertThatThrownBy(() -> source.listener.onChange(hint)).hasMessage("Source lookup unavailable");
+        assertThat(publicationCounts()).isEqualTo(afterRecreate);
+        assertThat(service.incrementalSync(deployment, source).errors()).isOne();
+        assertThat(tables.loadTable("catalog", "schema", "one")).contains(change("one").metadata());
+        assertThat(synchronization.loadCheckpoint(scope)).isEmpty();
+    }
+
+    private List<Long> publicationCounts() throws java.sql.SQLException {
+        try (var connection = database.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT (SELECT count(*) FROM metadata_projection_mutations), "
+                        + "(SELECT count(*) FROM invalidation_log), (SELECT count(*) FROM metadata_sync_runs), "
+                        + "(SELECT count(*) FROM metadata_projection_intents), (SELECT count(*) FROM metadata_sync_intents)")) {
+            assertThat(rows.next()).isTrue();
+            return List.of(rows.getLong(1), rows.getLong(2), rows.getLong(3), rows.getLong(4), rows.getLong(5));
+        }
+    }
+
     private org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions uncertainProjections(
             boolean committed, boolean confirmationFails, java.util.concurrent.atomic.AtomicInteger writes) {
         return new org.pangrova.persistence.workflow.api.projection.MetadataProjectionTransactions() {
+            @Override public long beginObservation(CatalogDeploymentIdentity requestedScope) {
+                return projections.beginObservation(requestedScope);
+            }
             @Override public void recoverPending(CatalogDeploymentIdentity requestedScope) {
                 projections.recoverPending(requestedScope);
             }
             @Override public org.pangrova.persistence.workflow.api.projection.MetadataProjectionReceipt apply(
-                    org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation mutation) {
+                    long epoch, org.pangrova.persistence.workflow.api.projection.MetadataProjectionMutation mutation) {
                 writes.incrementAndGet();
-                if (committed) projections.apply(mutation);
+                if (committed) projections.apply(epoch, mutation);
                 throw new org.pangrova.persistence.workflow.api.exception.MetadataProjectionOutcomeUnknownException(
                         mutation.operationId(), new java.sql.SQLException("lost acknowledgment"));
             }
@@ -310,8 +407,8 @@ class MetadataSyncWatermarkTest {
             @Override public Optional<Instant> loadCheckpoint(CatalogDeploymentIdentity requestedScope) {
                 return synchronization.loadCheckpoint(requestedScope);
             }
-            @Override public void complete(org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion completion) {
-                if (committed) synchronization.complete(completion);
+            @Override public void complete(long epoch, org.pangrova.persistence.catalog.api.synchronization.MetadataSyncCompletion completion) {
+                if (committed) synchronization.complete(epoch, completion);
                 throw new org.pangrova.persistence.catalog.api.exception.MetadataSyncOutcomeUnknownException(
                         completion.runId(), new java.sql.SQLException("lost acknowledgment"));
             }
@@ -332,11 +429,22 @@ class MetadataSyncWatermarkTest {
         private final List<Instant> requested = new ArrayList<>();
         private Runnable beforeRead = () -> {};
         private Runnable beforeSchemas = () -> {};
+        private Optional<TableMetadata> pointResult;
+        private boolean absent;
+        private String unavailable;
         private Runnable beforeFetch = () -> {};
         private org.pangrova.metadata.api.catalog.ChangeListener listener;
         Inventory(MetadataChangeBatch batch) { this.batch = batch; }
         @Override public List<String> listSchemas() { beforeSchemas.run(); return List.of("schema"); }
         @Override public List<String> listTables(String schema) { return List.of("one"); }
+        @Override public Optional<TableMetadata> observeTable(String schema, String table) {
+            if (table.equals(unavailable)) throw new IllegalStateException("Source lookup unavailable");
+            if (pointResult != null) {
+                beforeFetch.run();
+                return pointResult;
+            }
+            return absent ? Optional.empty() : Optional.of(getTable(schema, table));
+        }
         @Override public TableMetadata getTable(String schema, String table) { beforeFetch.run(); return change(table).metadata(); }
         @Override public TableStatistics getTableStatistics(String schema, String table) { return TableStatistics.UNKNOWN; }
         @Override public MetadataChangeBatch readChangesSince(Instant since) {

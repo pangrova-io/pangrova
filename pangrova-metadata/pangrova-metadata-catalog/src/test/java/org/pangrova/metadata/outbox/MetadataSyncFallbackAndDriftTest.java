@@ -118,6 +118,10 @@ class MetadataSyncFallbackAndDriftTest {
         @Override public List<String> listTables(String schema) {
             return tablesBySchema.getOrDefault(schema, List.of());
         }
+        @Override public java.util.Optional<TableMetadata> observeTable(String schema, String table) {
+            return java.util.Optional.of(getTable(schema, table));
+        }
+
         @Override public TableMetadata getTable(String schema, String table) {
             TableMetadata meta = tableMetadata.get(schema + ":" + table);
             if (meta == null) throw new RuntimeException("Not found: " + schema + "." + table);

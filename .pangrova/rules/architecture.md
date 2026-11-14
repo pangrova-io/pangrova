@@ -555,3 +555,11 @@ and projection work before loading a source cursor or observing a new batch, inc
 Pending and unknown outcomes are terminal for the current invocation. Obsolete intents may be rejected
 only under the current deployment fence; receipt absence is never proof of failure. These per-operation
 guarantees do not imply a scan lease, source-version ordering or scan-wide exactly-once execution.
+
+For overlapping full scans, incremental batches and subscribed callbacks, obtain a durable
+observation epoch for the handle's exact deployment before the first external read. Sample
+repairs share the parent observation. Both persistence owners must compare this epoch under
+the deployment row lock when reserving new work. Advancing the epoch must exclude accepted,
+unresolved intents of either owner. Historical receipt confirmation remains valid after
+supersession. Unversioned source notifications identify lookup keys. Only authoritative
+point reads may establish current table contents or absence, including for delayed DELETE.

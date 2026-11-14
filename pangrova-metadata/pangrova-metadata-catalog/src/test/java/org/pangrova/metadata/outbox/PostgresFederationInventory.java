@@ -73,6 +73,12 @@ final class PostgresFederationInventory implements FederatedCatalog {
     }
 
     @Override
+    public java.util.Optional<TableMetadata> observeTable(String schema, String table) {
+        requireOpen();
+        return tables.loadTable(catalog, schema, table);
+    }
+
+    @Override
     public TableMetadata getTable(String schema, String table) {
         requireOpen();
         return tables.loadTable(catalog, schema, table)

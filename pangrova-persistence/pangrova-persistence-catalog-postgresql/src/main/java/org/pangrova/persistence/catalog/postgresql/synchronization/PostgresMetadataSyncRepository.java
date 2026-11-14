@@ -8,6 +8,7 @@ import org.pangrova.persistence.catalog.api.synchronization.MetadataSyncReposito
 import org.pangrova.persistence.catalog.api.exception.MetadataSyncPendingException;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
+import org.pangrova.persistence.catalog.postgresql.projection.CatalogProjectionSql;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -45,19 +46,19 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
     }
 
     @Override
-    public void complete(MetadataSyncCompletion completion) {
+    public void complete(long observationEpoch, MetadataSyncCompletion completion) {
         Objects.requireNonNull(completion, "completion");
-        transact(completion, true);
-        transact(completion, false);
+        transact(observationEpoch, completion, true);
+        transact(observationEpoch, completion, false);
     }
 
-    private void transact(MetadataSyncCompletion completion, boolean reserve) {
+    private void transact(long observationEpoch, MetadataSyncCompletion completion, boolean reserve) {
         boolean commitStarted = false;
         try (Connection connection = dataSource.getConnection()) {
             connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             try {
-                if (reserve) reserveOrReplay(connection, completion);
+                if (reserve) reserveOrReplay(connection, observationEpoch, completion);
                 else applyOrReplay(connection, completion);
                 commitStarted = true;
                 connection.commit();
@@ -114,7 +115,7 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
         }
     }
 
-    private static void reserveOrReplay(Connection connection, MetadataSyncCompletion completion) throws SQLException {
+    private static void reserveOrReplay(Connection connection, long observationEpoch, MetadataSyncCompletion completion) throws SQLException {
         if (lockUnlessReplay(connection, completion)) return;
         var existing = SyncCompletionRows.read(connection, completion.runId(), SyncCompletionRows.Relation.INTENT);
         if (existing.isPresent()) {
@@ -130,6 +131,9 @@ public final class PostgresMetadataSyncRepository implements MetadataSyncReposit
                     new IllegalStateException("Recover the existing catalog completion before submitting another run"));
         }
         requireCheckpoint(connection, completion);
+        if (!CatalogProjectionSql.isCurrentObservation(connection, completion.scope().catalogName(), observationEpoch)) {
+            throw new MetadataSyncConflictException("Catalog observation has been superseded");
+        }
         SyncCompletionRows.insert(connection, completion, SyncCompletionRows.Relation.INTENT);
     }
 

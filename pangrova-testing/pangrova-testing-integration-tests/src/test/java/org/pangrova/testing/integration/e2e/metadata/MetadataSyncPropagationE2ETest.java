@@ -99,9 +99,10 @@ class MetadataSyncPropagationE2ETest extends SqlE2ETestBase {
                     Map.of(), Instant.EPOCH, Instant.EPOCH);
             var mutation = new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), catalog.identity(), table);
             var projections = new PostgresMetadataProjectionTransactions(invalidationDs);
-            var receipt = projections.apply(mutation);
+            long epoch = projections.beginObservation(catalog.identity());
+            var receipt = projections.apply(epoch, mutation);
             assertThat(receipt.changed()).isTrue();
-            assertThat(projections.apply(mutation)).isEqualTo(receipt);
+            assertThat(projections.apply(epoch, mutation)).isEqualTo(receipt);
             assertThat(new PostgresTableProjectionRepository(invalidationDs).loadTable(CATALOG, SCHEMA, tableName))
                     .contains(table);
             String key = String.join(CACHE_KEY_SEPARATOR, CATALOG, SCHEMA, tableName);

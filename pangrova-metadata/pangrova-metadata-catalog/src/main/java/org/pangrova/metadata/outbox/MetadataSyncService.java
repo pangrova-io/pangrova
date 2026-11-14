@@ -86,8 +86,7 @@ public class MetadataSyncService {
         Instant start = Instant.now();
         CatalogDeploymentIdentity scope = scope(deployment);
         checkCancellation();
-        synchronization.recoverPending(scope);
-        projections.recoverPending(scope);
+        long epoch = beginObservation(scope);
         Optional<Instant> checkpoint = synchronization.loadCheckpoint(scope);
         var batch = adapter.readChangesSince(checkpoint.orElse(Instant.EPOCH));
         if (batch.completeThrough().isPresent()
@@ -95,9 +94,9 @@ public class MetadataSyncService {
             throw new IllegalArgumentException("Source coverage precedes the requested checkpoint");
         }
         validateChangeTargets(scope, batch.changes());
-        SyncAccumulator acc = applyChanges(scope, batch.changes());
-        validateSyncedSample(scope, adapter, batch.changes());
-        return finishSync(scope, checkpoint, acc.errors == 0 ? batch.completeThrough() : Optional.empty(),
+        SyncAccumulator acc = applyChanges(scope, epoch, adapter, batch.changes());
+        validateSyncedSample(scope, epoch, adapter, batch.changes());
+        return finishSync(scope, epoch, checkpoint, acc.errors == 0 ? batch.completeThrough() : Optional.empty(),
                 "INCREMENTAL", start, acc);
     }
 
@@ -106,13 +105,19 @@ public class MetadataSyncService {
         Instant start = Instant.now();
         CatalogDeploymentIdentity scope = scope(deployment);
         checkCancellation();
-        synchronization.recoverPending(scope);
-        projections.recoverPending(scope);
+        long epoch = beginObservation(scope);
         Optional<Instant> checkpoint = synchronization.loadCheckpoint(scope);
         List<String> schemas = adapter.listSchemas();
-        applyProjection(new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), scope, schemas));
-        SyncAccumulator acc = syncAllTables(scope, adapter, schemas);
-        return finishSync(scope, checkpoint, Optional.empty(), "FULL", start, acc);
+        applyProjection(epoch, new MetadataProjectionMutation.ObserveSchemas(UUID.randomUUID(), scope, schemas));
+        SyncAccumulator acc = syncAllTables(scope, epoch, adapter, schemas);
+        return finishSync(scope, epoch, checkpoint, Optional.empty(), "FULL", start, acc);
+    }
+
+    long beginObservation(CatalogDeploymentIdentity scope) {
+        checkCancellation();
+        projections.recoverPending(scope);
+        synchronization.recoverPending(scope);
+        return projections.beginObservation(scope);
     }
 
     private static CatalogDeploymentIdentity scope(CatalogDescriptor deployment) {
@@ -173,12 +178,12 @@ public class MetadataSyncService {
                 catalogName, attempt, MAX_RETRIES, e.getMessage(), e);
     }
 
-    private SyncAccumulator applyChanges(CatalogDeploymentIdentity scope, List<MetadataChange> changes) {
+    private SyncAccumulator applyChanges(CatalogDeploymentIdentity scope, long epoch, FederatedCatalog adapter, List<MetadataChange> changes) {
         SyncAccumulator acc = new SyncAccumulator();
         for (MetadataChange change : changes) {
             checkCancellation();
             try {
-                applyChange(scope, change);
+                applyChange(scope, epoch, adapter, change);
                 acc.applied++;
             } catch (MetadataProjectionConflictException | MetadataProjectionOutcomeUnknownException
                     | MetadataProjectionScopeException | MetadataProjectionPendingException | CancellationException terminal) {
@@ -199,7 +204,7 @@ public class MetadataSyncService {
      * <p>Only non-DELETE changes are sampled since deleted tables have no catalog-side
      * metadata to compare against.</p>
      */
-    void validateSyncedSample(CatalogDeploymentIdentity scope, FederatedCatalog adapter,
+    void validateSyncedSample(CatalogDeploymentIdentity scope, long epoch, FederatedCatalog adapter,
                               List<MetadataChange> changes) {
         for (MetadataChange change : changes) {
             checkCancellation();
@@ -209,25 +214,25 @@ public class MetadataSyncService {
             if (ThreadLocalRandom.current().nextDouble() >= DRIFT_SAMPLE_RATE) {
                 continue;
             }
-            validateSingleTable(scope, adapter, change);
+            validateSingleTable(scope, epoch, adapter, change);
         }
     }
 
     // The sampled path and deterministic component checks use this same actual drift detector.
-    void validateSingleTable(CatalogDeploymentIdentity scope, FederatedCatalog adapter,
+    void validateSingleTable(CatalogDeploymentIdentity scope, long epoch, FederatedCatalog adapter,
                              MetadataChange change) {
         String catalogName = scope.catalogName();
         validateChangeTargets(scope, List.of(change));
         QualifiedTableRef ref = change.tableRef();
         try {
-            TableMetadata actual = adapter.getTable(ref.schema(), ref.table());
+            TableMetadata actual = adapter.observeTable(ref.schema(), ref.table()).orElseThrow();
             validateTableTarget(scope, ref, actual);
             TableMetadata stored = tables.loadTable(catalogName, ref.schema(), ref.table())
                     .orElse(null);
             if (stored == null || !columnsMatch(actual, stored)) {
                 LOG.error("event=schema_drift_detected catalog={} table={}.{}",
                         catalogName, ref.schema(), ref.table());
-                applyProjection(new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), scope, actual));
+                applyProjection(epoch, new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), scope, actual));
                 cache.invalidateTable(catalogName, ref.schema(), ref.table());
                 schemaDriftDetectedCount.incrementAndGet();
             }
@@ -251,12 +256,12 @@ public class MetadataSyncService {
         return schemaDriftDetectedCount.get();
     }
 
-    private SyncAccumulator syncAllTables(CatalogDeploymentIdentity scope,
+    private SyncAccumulator syncAllTables(CatalogDeploymentIdentity scope, long epoch,
             FederatedCatalog adapter, List<String> schemas) {
         SyncAccumulator acc = new SyncAccumulator();
         for (String schema : schemas) {
             checkCancellation();
-            syncSchema(scope, adapter, schema, acc);
+            syncSchema(scope, epoch, adapter, schema, acc);
         }
         return acc;
     }
@@ -278,30 +283,25 @@ public class MetadataSyncService {
             QualifiedTableRef ref = change.tableRef();
             LOG.info("event=push_change_received catalog={} table={}.{} type={}",
                     scope.catalogName(), ref.schema(), ref.table(), change.type());
-            if (change.type() == MetadataChange.ChangeType.DELETE) {
-                applyChange(scope, change);
-            } else {
-                TableMetadata actual = adapter.getTable(ref.schema(), ref.table());
-                validateTableTarget(scope, ref, actual);
-                applyChange(scope, new MetadataChange(change.type(), ref, actual));
-            }
+            long epoch = beginObservation(scope);
+            applyChange(scope, epoch, adapter, change);
         });
     }
 
-    private void syncSchema(CatalogDeploymentIdentity scope, FederatedCatalog adapter,
+    private void syncSchema(CatalogDeploymentIdentity scope, long epoch, FederatedCatalog adapter,
             String schema, SyncAccumulator acc) {
         for (String table : adapter.listTables(schema)) {
             checkCancellation();
-            syncSingleTable(scope, adapter, schema, table, acc);
+            syncSingleTable(scope, epoch, adapter, schema, table, acc);
         }
     }
 
-    private void syncSingleTable(CatalogDeploymentIdentity scope, FederatedCatalog adapter, String schema, String table,
+    private void syncSingleTable(CatalogDeploymentIdentity scope, long epoch, FederatedCatalog adapter, String schema, String table,
             SyncAccumulator acc) {
         try {
-            TableMetadata metadata = adapter.getTable(schema, table);
+            TableMetadata metadata = adapter.observeTable(schema, table).orElseThrow();
             validateTableTarget(scope, new QualifiedTableRef(scope.catalogName(), schema, table), metadata);
-            applyProjection(new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), scope, metadata));
+            applyProjection(epoch, new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), scope, metadata));
             cache.invalidateTable(scope.catalogName(), schema, table);
             acc.applied++;
         } catch (MetadataProjectionConflictException | MetadataProjectionOutcomeUnknownException
@@ -313,12 +313,23 @@ public class MetadataSyncService {
         }
     }
 
-    private void applyChange(CatalogDeploymentIdentity scope, MetadataChange change) {
-        QualifiedTableRef ref = change.tableRef();
-        MetadataProjectionMutation mutation = change.type() == MetadataChange.ChangeType.DELETE
-                ? new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), scope, ref)
-                : new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), scope, change.metadata());
-        MetadataProjectionReceipt receipt = applyProjection(mutation);
+    private void applyChange(CatalogDeploymentIdentity scope, long epoch, FederatedCatalog adapter, MetadataChange hint) {
+        QualifiedTableRef ref = hint.tableRef();
+        Optional<TableMetadata> observed = adapter.observeTable(ref.schema(), ref.table());
+        observed.ifPresent(table -> validateTableTarget(scope, ref, table));
+        MetadataProjectionMutation mutation = observed.isPresent()
+                ? new MetadataProjectionMutation.UpsertTable(UUID.randomUUID(), scope, observed.orElseThrow())
+                : new MetadataProjectionMutation.DeleteTable(UUID.randomUUID(), scope, ref);
+        MetadataProjectionReceipt receipt = applyProjection(epoch, mutation);
+        MetadataChange.ChangeType effect = MetadataChange.ChangeType.DELETE;
+        if (observed.isPresent()) {
+            effect = receipt.previousTable().isPresent() ? MetadataChange.ChangeType.UPDATE : MetadataChange.ChangeType.ADD;
+        }
+        MetadataChange change = new MetadataChange(effect, ref, observed.orElse(null));
+        if (observed.isPresent() && hint.metadata() != null
+                && !columnsMatch(observed.orElseThrow(), hint.metadata())) {
+            schemaDriftDetectedCount.incrementAndGet();
+        }
         cache.invalidateTable(ref.catalog(), ref.schema(), ref.table());
         eventDispatcher.dispatch(new MetadataEvent.MetadataSyncedEvent(scope.catalogName(), change));
         if (change.type() == MetadataChange.ChangeType.UPDATE && receipt.previousTable().isPresent()) {
@@ -327,9 +338,10 @@ public class MetadataSyncService {
         }
     }
 
-    private MetadataProjectionReceipt applyProjection(MetadataProjectionMutation mutation) {
+    private MetadataProjectionReceipt applyProjection(long epoch, MetadataProjectionMutation mutation) {
+        checkCancellation();
         try {
-            return projections.apply(mutation);
+            return projections.apply(epoch, mutation);
         } catch (MetadataProjectionOutcomeUnknownException unknown) {
             try {
                 Optional<MetadataProjectionReceipt> receipt = projections.findReceipt(mutation.operationId());
@@ -465,7 +477,7 @@ public class MetadataSyncService {
         return result;
     }
 
-    private SyncResult finishSync(CatalogDeploymentIdentity scope, Optional<Instant> expected, Optional<Instant> next,
+    private SyncResult finishSync(CatalogDeploymentIdentity scope, long epoch, Optional<Instant> expected, Optional<Instant> next,
             String syncType, Instant start, SyncAccumulator acc) {
         checkCancellation();
         Instant end = Instant.now();
@@ -473,7 +485,7 @@ public class MetadataSyncService {
                 acc.errorMessages, Math.max(0, Duration.between(start, end).toMillis()));
         var completion = new MetadataSyncCompletion(UUID.randomUUID(), scope, expected, next, result);
         try {
-            synchronization.complete(completion);
+            synchronization.complete(epoch, completion);
         } catch (MetadataSyncOutcomeUnknownException unknown) {
             // Never launch another run to resolve an unconfirmed COMMIT.
             try {
