@@ -11,6 +11,46 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Actual HTTP failures and response races; identity ownership, not remote execution-drain proof. */
 class PangrovaStatementCancelIdentityTest {
     @Test
+    void cancelWaitsForIdentityWhenPostReachedServerButReplyHasNotArrived() throws Exception {
+        try (var peer = new StatementCancellationPeer()) {
+            var query = peer.query("submitted-awaiting-response", null);
+            try (var response = query.blockSubmission()) {
+                var execution = peer.executeAsync();
+                assertThat(response.entered.await(5, TimeUnit.SECONDS)).isTrue();
+                var cancel = peer.cancelAsync();
+                assertThatThrownBy(() -> cancel.get(200, TimeUnit.MILLISECONDS))
+                        .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                response.close();
+                cancel.get(5, TimeUnit.SECONDS);
+                assertThat(query.lastCancelled.get()).isEqualTo(query.id);
+                assertThat((Throwable) execution.get(5, TimeUnit.SECONDS))
+                        .isInstanceOf(SQLException.class).hasMessageContaining("cancelled");
+            }
+        }
+    }
+
+    @Test
+    void unconfirmedSubmissionCannotBeReportedAsSuccessfullyCancelled() throws Exception {
+        try (var peer = new StatementCancellationPeer()) {
+            var query = peer.query("unconfirmed-submission", null);
+            query.submissionFailure.set(new StatementCancellationPeer.Reply(503,
+                    "{\"error_code\":\"UNAVAILABLE\",\"message\":\"unconfirmed\"}"));
+            try (var response = query.blockSubmission()) {
+                var execution = peer.executeAsync();
+                assertThat(response.entered.await(5, TimeUnit.SECONDS)).isTrue();
+                var cancel = peer.cancelAsync();
+                assertThatThrownBy(() -> cancel.get(200, TimeUnit.MILLISECONDS))
+                        .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                response.close();
+                assertThatThrownBy(() -> cancel.get(5, TimeUnit.SECONDS)).hasRootCauseInstanceOf(SQLException.class)
+                        .hasStackTraceContaining("confirmed identity");
+                assertThat((Throwable) execution.get(5, TimeUnit.SECONDS)).isInstanceOf(SQLException.class);
+                assertThat(query.cancelRequests.get()).isZero();
+            }
+        }
+    }
+
+    @Test
     void failedRpcRetainsIdentityForExplicitRetry() throws Exception {
         retryAfterRejectedReply(new StatementCancellationPeer.Reply(403,
                 "{\"error_code\":\"FORBIDDEN\",\"message\":\"cancel denied\"}"));

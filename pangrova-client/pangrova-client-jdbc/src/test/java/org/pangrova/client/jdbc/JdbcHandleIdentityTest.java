@@ -12,6 +12,44 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Actual JDBC/HTTP/result handle contracts; not Coordinator or Native SQL execution. */
 class JdbcHandleIdentityTest {
     @Test
+    void closingConnectionReleasesItsPlainAndPreparedStatementsAndFetchedResults() throws Exception {
+        try (var endpoint = new TestResultEndpoint(42); var peer = new StatementCancellationPeer()) {
+            var connection = peer.statement().getConnection();
+            var statement = connection.createStatement();
+            var prepared = connection.prepareStatement("SELECT ?");
+            peer.query("parent-close-results", endpoint.endpoint());
+            var rows = statement.executeQuery("SELECT 42");
+
+            connection.close();
+            assertThat(connection.isClosed()).isTrue();
+            assertThat(statement.isClosed()).isTrue();
+            assertThat(prepared.isClosed()).isTrue();
+            assertThat(rows.isClosed()).isTrue();
+            assertThatThrownBy(() -> prepared.setInt(1, 42)).isInstanceOf(SQLException.class);
+            connection.close();
+        }
+    }
+
+    @Test
+    void aRefusedCancelDuringConnectionCloseRetainsTheHttpOwnerForRetry() throws Exception {
+        try (var peer = new StatementCancellationPeer()) {
+            var connection = peer.statement().getConnection();
+            var query = peer.query("close-in-flight", null);
+            query.replies.add(new StatementCancellationPeer.Reply(403,
+                    "{\"error_code\":\"FORBIDDEN\",\"message\":\"cancel denied\"}"));
+            var execution = peer.executeAsync();
+            assertThat(query.polled.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(connection::close).isInstanceOf(SQLException.class).hasMessageContaining(query.id);
+            assertThatThrownBy(connection::createStatement).isInstanceOf(SQLException.class);
+            peer.statement().cancel();
+            assertThat((Throwable) execution.get(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .isInstanceOf(SQLException.class).hasMessageContaining("cancelled");
+            connection.close();
+            assertThat(peer.statement().isClosed()).isTrue();
+        }
+    }
+
+    @Test
     void metadataKeepsItsProducingConnectionIdentityWithoutInventingClosedGetterRules() throws Exception {
         try (var peer = new StatementCancellationPeer()) {
             var connection = peer.statement().getConnection();
