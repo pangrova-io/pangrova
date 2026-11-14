@@ -1,6 +1,7 @@
 package org.pangrova.planner.property.substrait;
 
 import com.google.common.collect.ImmutableList;
+import io.substrait.expression.Expression;
 import io.substrait.relation.Rel;
 import io.substrait.relation.Sort;
 import io.substrait.relation.physical.MergeJoin;
@@ -103,6 +104,12 @@ class MergeJoinSelectionPropertyTest {
         assertThat(standardJoin.getRight())
                 .as("MergeJoin right input must make sorting explicit")
                 .isInstanceOf(Sort.class);
+
+        for (Rel input : standardJoin.getInputs()) {
+            Sort sort = (Sort) input;
+            assertThat(sort.getSortFields()).extracting(Expression.SortField::direction)
+                    .containsOnly(Expression.SortDirection.ASC_NULLS_FIRST);
+        }
 
         // Verify: join type is correctly mapped
         MergeJoin.JoinType expectedJoinType = mapExpectedJoinType(config.joinType());

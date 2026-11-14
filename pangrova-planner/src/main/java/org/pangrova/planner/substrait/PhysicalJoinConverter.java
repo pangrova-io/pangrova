@@ -20,8 +20,6 @@ import org.pangrova.planner.cost.join.PangrovaBroadcastJoin;
 import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.cost.join.PangrovaNestedLoopJoin;
 import org.pangrova.planner.cost.join.PangrovaSortMergeJoin;
-import org.apache.calcite.rel.RelCollation;
-import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinInfo;
 import org.apache.calcite.rel.core.JoinRelType;
@@ -69,10 +67,10 @@ final class PhysicalJoinConverter {
         List<Integer> leftKeys = joinInfo.leftKeys;
         List<Integer> rightKeys = joinInfo.rightKeys;
 
-        boolean inputsPreSorted = areInputsPreSortedOnKeys(
-                mergeJoin.getLeft(), mergeJoin.getRight(), leftKeys, rightKeys);
-        if (!inputsPreSorted) {
+        if (!PangrovaSortMergeJoin.hasMergeOrder(mergeJoin.getLeft(), leftKeys)) {
             left = sortOnKeys(left, leftKeys);
+        }
+        if (!PangrovaSortMergeJoin.hasMergeOrder(mergeJoin.getRight(), rightKeys)) {
             right = sortOnKeys(right, rightKeys);
         }
 
@@ -82,8 +80,8 @@ final class PhysicalJoinConverter {
                 .keys(comparisonKeys(left, right, leftKeys, rightKeys))
                 .joinType(mapMergeJoinType(mergeJoin.getJoinType()));
 
-        LOG.debug("event=convert_merge_join_standard joinType={} leftKeys={} rightKeys={} preSorted={}",
-                mergeJoin.getJoinType(), leftKeys, rightKeys, inputsPreSorted);
+        LOG.debug("event=convert_merge_join_standard joinType={} leftKeys={} rightKeys={}",
+                mergeJoin.getJoinType(), leftKeys, rightKeys);
         return StandardsCompliantMergeJoin.wrap(builder.build());
     }
 
@@ -233,38 +231,6 @@ final class PhysicalJoinConverter {
                         .build())
                 .toList();
         return ImmutableSort.builder().input(input).sortFields(fields).build();
-    }
-
-    /**
-     * Checks whether both join inputs are pre-sorted on the join key columns.
-     * An input is considered pre-sorted if it has a collation trait whose leading
-     * field indices match the join keys in order.
-     */
-    private static boolean areInputsPreSortedOnKeys(
-            RelNode left, RelNode right,
-            List<Integer> leftKeys, List<Integer> rightKeys) {
-        return hasMatchingCollation(left, leftKeys)
-                && hasMatchingCollation(right, rightKeys);
-    }
-
-    private static boolean hasMatchingCollation(RelNode input, List<Integer> keys) {
-        if (keys.isEmpty()) {
-            return false;
-        }
-        RelCollation collation = input.getTraitSet().getCollation();
-        if (collation == null || collation.getFieldCollations().isEmpty()) {
-            return false;
-        }
-        List<RelFieldCollation> fieldCollations = collation.getFieldCollations();
-        if (fieldCollations.size() < keys.size()) {
-            return false;
-        }
-        for (int i = 0; i < keys.size(); i++) {
-            if (fieldCollations.get(i).getFieldIndex() != keys.get(i)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static HashJoin.JoinType mapHashJoinType(JoinRelType joinType) {
