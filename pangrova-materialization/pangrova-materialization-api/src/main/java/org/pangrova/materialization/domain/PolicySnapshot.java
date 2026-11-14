@@ -1,5 +1,7 @@
 package org.pangrova.materialization.domain;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.util.Comparator;
 import java.util.Map;
 import java.util.TreeMap;
@@ -43,6 +45,6 @@ public record PolicySnapshot(Map<SourceRef, String> fingerprints) {
                         .append(entry.getKey().canonicalName())
                         .append('=')
                         .append(entry.getValue()));
-        return CanonicalHash.sha256(canonical.toString());
+        return DigestUtils.sha256Hex(canonical.toString());
     }
 }

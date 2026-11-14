@@ -1,5 +1,8 @@
 package org.pangrova.materialization.domain;
 
+import org.pangrova.common.util.DigestUtils;
+import org.pangrova.common.util.Utf8Order;
+
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
@@ -68,7 +71,7 @@ public record SourceVector(Map<SourceRef, SourceSnapshotRef> snapshots, long can
         StringBuilder canonical = new StringBuilder("vector:").append(canonicalVersion);
         snapshots.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(
-                        Comparator.comparing(SourceRef::canonicalName, CanonicalHash.UTF8_ORDER)))
+                        Comparator.comparing(SourceRef::canonicalName, Utf8Order.UNSIGNED)))
                 .forEach(entry -> {
                     SourceSnapshotRef snapshot = entry.getValue();
                     canonical.append('|')
@@ -80,7 +83,7 @@ public record SourceVector(Map<SourceRef, SourceSnapshotRef> snapshots, long can
                             .append(':')
                             .append(snapshot.policyFingerprint());
                 });
-        return CanonicalHash.sha256(canonical.toString());
+        return DigestUtils.sha256Hex(canonical.toString());
     }
 
     /**

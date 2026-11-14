@@ -1,5 +1,7 @@
 package org.pangrova.materialization.domain;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +54,6 @@ public record OutputSchema(List<ColumnDefinition> columns) {
                     .append(':')
                     .append(column.nullable());
         }
-        return CanonicalHash.sha256(canonical.toString());
+        return DigestUtils.sha256Hex(canonical.toString());
     }
 }

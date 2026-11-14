@@ -1,5 +1,7 @@
 package org.pangrova.materialization.domain;
 
+import org.pangrova.common.util.DigestUtils;
+
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.Map;
@@ -169,7 +171,7 @@ public record DefinitionRevision(
                         .append(dependency.upstream().canonicalName())
                         .append(':')
                         .append(dependency.kind()));
-        return CanonicalHash.sha256(canonical.toString());
+        return DigestUtils.sha256Hex(canonical.toString());
     }
 
     /**
