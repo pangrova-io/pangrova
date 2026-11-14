@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.property.index;
 
 import org.pangrova.coordinator.indexing.FilterPredicateExtractor;
+
 import org.pangrova.connector.api.index.predicate.ContainmentMode;
 import org.pangrova.connector.api.index.predicate.ContainsElement;
 import org.pangrova.connector.api.index.predicate.EqualTo;
@@ -468,6 +469,40 @@ class FilterPredicateExtractorPropertyTest {
         List<IndexPredicate> result = extract(condition);
 
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    void projectedAliasIsResolvedByInputOrdinalEvenWhenItShadowsAnotherSourceColumn() {
+        var projected = org.apache.calcite.rel.logical.LogicalProject.create(SCAN, List.of(),
+                List.of(REX.makeInputRef(SCAN, 1)), List.of("status"));
+        var condition = REX.makeCall(SqlStdOperatorTable.EQUALS, REX.makeInputRef(projected, 0),
+                REX.makeLiteral("ACTIVE"));
+        assertThat(FilterPredicateExtractor.extract(LogicalFilter.create(projected, condition)))
+                .containsExactly(new EqualTo("name", "ACTIVE"));
+    }
+
+    @Test
+    void aComputedAliasAndAFilterAboveLimitCannotPruneTheInputScan() {
+        var projected = org.apache.calcite.rel.logical.LogicalProject.create(SCAN, List.of(),
+                List.of(REX.makeCall(SqlStdOperatorTable.PLUS,
+                        REX.makeInputRef(SCAN, 0), REX.makeBigintLiteral(BigDecimal.ONE))), List.of("user_id"));
+        var condition = REX.makeCall(SqlStdOperatorTable.EQUALS, REX.makeInputRef(projected, 0),
+                REX.makeBigintLiteral(BigDecimal.ONE));
+        assertThat(FilterPredicateExtractor.extract(LogicalFilter.create(projected, condition))).isEmpty();
+        var limit = org.apache.calcite.rel.logical.LogicalSort.create(SCAN,
+                org.apache.calcite.rel.RelCollations.EMPTY, null, REX.makeExactLiteral(BigDecimal.ONE));
+        assertThat(FilterPredicateExtractor.extract(LogicalFilter.create(limit, condition))).isEmpty();
+        assertThat(FilterPredicateExtractor.extract(org.apache.calcite.rel.logical.LogicalSort.create(
+                LogicalFilter.create(SCAN, condition), org.apache.calcite.rel.RelCollations.EMPTY, null,
+                REX.makeExactLiteral(BigDecimal.ONE)))).containsExactly(new EqualTo("user_id", 1L));
+    }
+
+    @Test
+    void inListWithDynamicMemberCannotUseItsLiteralSubsetForPruning() {
+        var reference = REX.makeInputRef(SCAN, 0);
+        var dynamic = REX.makeDynamicParam(reference.getType(), 0);
+        assertThat(extract(REX.makeIn(reference,
+                List.of(REX.makeBigintLiteral(BigDecimal.ONE), dynamic)))).isEmpty();
     }
 
     // --- Helpers ---

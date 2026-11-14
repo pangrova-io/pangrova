@@ -13,11 +13,14 @@ import org.pangrova.connector.api.index.predicate.SpatialOp;
 import org.pangrova.connector.api.index.predicate.SpatialQuery;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
+import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -52,36 +55,33 @@ public final class FilterPredicateExtractor {
         return List.copyOf(predicates);
     }
 
-    private static final org.slf4j.Logger LOG =
-            org.slf4j.LoggerFactory.getLogger(FilterPredicateExtractor.class);
-
     private static void collectPredicates(RelNode node, List<IndexPredicate> out) {
         if (node instanceof Filter filter) {
-            RelNode scan = findTableScan(filter.getInput());
-            if (scan != null) {
-                RexNode cond = filter.getCondition();
-                LOG.debug("event=predicate_extract conditionKind={}",
-                        cond instanceof org.apache.calcite.rex.RexCall rc ? rc.getKind() : "N/A");
-                extractFromCondition(cond, filter.getInput(), out);
-                return;
-            }
+            extractScanCondition(filter.getInput(), filter.getCondition(), out);
         }
         for (RelNode input : node.getInputs()) {
             collectPredicates(input, out);
         }
     }
 
-    private static TableScan findTableScan(RelNode node) {
-        if (node instanceof TableScan ts) {
-            return ts;
+    /** Follow only operators across which filtering the underlying scan preserves SQL results. */
+    private static void extractScanCondition(RelNode input, RexNode condition, List<IndexPredicate> out) {
+        if (input instanceof TableScan scan) {
+            extractFromCondition(condition, scan, out);
+        } else if (input instanceof Filter filter) {
+            extractScanCondition(filter.getInput(), condition, out);
+        } else if (input instanceof Sort sort && sort.offset == null && sort.fetch == null) {
+            extractScanCondition(sort.getInput(), condition, out);
+        } else if (input instanceof Project project
+                && project.getProjects().stream().allMatch(RexInputRef.class::isInstance)) {
+            RexNode sourceCondition = condition.accept(new RexShuttle() {
+                @Override
+                public RexNode visitInputRef(RexInputRef reference) {
+                    return project.getProjects().get(reference.getIndex());
+                }
+            });
+            extractScanCondition(project.getInput(), sourceCondition, out);
         }
-        for (RelNode input : node.getInputs()) {
-            TableScan found = findTableScan(input);
-            if (found != null) {
-                return found;
-            }
-        }
-        return null;
     }
 
     private static void extractFromCondition(
@@ -243,12 +243,14 @@ public final class FilterPredicateExtractor {
         String column = scan.getRowType().getFieldList().get(ref.getIndex()).getName();
         List<Comparable<?>> values = new ArrayList<>();
         for (int i = 1; i < call.getOperands().size(); i++) {
-            if (call.getOperands().get(i) instanceof RexLiteral lit) {
-                Comparable<?> v = coerceLiteral(lit, ref);
-                if (v != null) {
-                    values.add(v);
-                }
+            if (!(call.getOperands().get(i) instanceof RexLiteral literal)) {
+                return;
             }
+            Comparable<?> value = coerceLiteral(literal, ref);
+            if (value == null) {
+                return;
+            }
+            values.add(value);
         }
         if (!values.isEmpty()) {
             out.add(new InList(column, values));
@@ -422,14 +424,18 @@ public final class FilterPredicateExtractor {
         }
         SqlTypeName columnType = ref.getType().getSqlTypeName();
         if (raw instanceof java.math.BigDecimal bd) {
-            return switch (columnType) {
-                case DOUBLE, FLOAT, REAL -> bd.doubleValue();
-                case BIGINT -> bd.longValue();
-                case INTEGER -> bd.intValue();
-                case SMALLINT -> bd.shortValue();
-                case TINYINT -> bd.byteValue();
-                default -> (Comparable<?>) raw;
-            };
+            try {
+                return switch (columnType) {
+                    case DOUBLE, FLOAT, REAL -> bd.doubleValue();
+                    case BIGINT -> bd.longValueExact();
+                    case INTEGER -> bd.intValueExact();
+                    case SMALLINT -> bd.shortValueExact();
+                    case TINYINT -> bd.byteValueExact();
+                    default -> bd;
+                };
+            } catch (ArithmeticException unrepresentableLiteral) {
+                return null;
+            }
         }
         return (Comparable<?>) raw;
     }
