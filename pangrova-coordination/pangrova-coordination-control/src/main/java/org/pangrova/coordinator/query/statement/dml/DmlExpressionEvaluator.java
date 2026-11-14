@@ -330,7 +330,7 @@ public final class DmlExpressionEvaluator {
             LiteralValue.BooleanValue.class, v -> new ColumnValue.BooleanValue(((LiteralValue.BooleanValue) v).value()),
             LiteralValue.NullValue.class, v -> new ColumnValue.NullValue(),
             LiteralValue.BinaryHexValue.class, v -> new ColumnValue.BytesValue(
-                    hexToBytes(((LiteralValue.BinaryHexValue) v).hexDigits()))
+                    ((LiteralValue.BinaryHexValue) v).bytes())
     );
 
     static ColumnValue convertToColumnValue(Literal lit) {
@@ -359,16 +359,6 @@ public final class DmlExpressionEvaluator {
             ColumnValue.DecimalValue.class,
                     v -> new ColumnValue.DecimalValue(((ColumnValue.DecimalValue) v).value().negate())
     );
-
-    private static byte[] hexToBytes(String hex) {
-        int len = hex.length();
-        byte[] data = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
-                    + Character.digit(hex.charAt(i + 1), 16));
-        }
-        return data;
-    }
 
     static ColumnValue negateColumnValue(ColumnValue cv) {
         var handler = NEGATE_DISPATCH.get(cv.getClass());

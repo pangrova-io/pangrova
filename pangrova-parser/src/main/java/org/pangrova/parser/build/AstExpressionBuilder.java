@@ -547,7 +547,13 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
     public Literal visitBinaryHexLiteral(PangrovaSqlParser.BinaryHexLiteralContext ctx) {
         String raw = ctx.HEX_LITERAL().getText();
         String hexDigits = raw.substring(2, raw.length() - 1);
-        return Literal.ofBinaryHex(hexDigits);
+        try {
+            return Literal.ofBinaryHex(hexDigits);
+        } catch (IllegalArgumentException invalid) {
+            var token = ctx.HEX_LITERAL().getSymbol();
+            throw new ParseException(org.pangrova.common.enums.PangrovaErrorCode.PARSER_SYNTAX_ERROR,
+                    invalid.getMessage(), token.getLine(), token.getCharPositionInLine());
+        }
     }
 
     @Override

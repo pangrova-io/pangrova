@@ -80,6 +80,23 @@ class ParserFindingsTest {
     }
 
     @Test
+    void malformedBinaryByteHasTheSameDiagnosticInStrictAndRecoveryParsing() {
+        String sql = "SELECT\n  X'ABC'";
+        assertThatThrownBy(() -> parser.parse(sql))
+                .isInstanceOf(org.pangrova.parser.api.exception.ParseException.class)
+                .hasMessageContaining("pairs of ASCII hexadecimal digits");
+        assertThat(parser.parseWithRecovery(sql).errors()).singleElement().satisfies(error -> {
+            assertThat(error.line()).isEqualTo(2);
+            assertThat(error.column()).isEqualTo(2);
+        });
+        assertThatThrownBy(() -> Literal.ofBinaryHex("0g")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Literal.ofBinaryHex("１２")).isInstanceOf(IllegalArgumentException.class);
+        var mixedCase = new LiteralValue.BinaryHexValue("00aF");
+        assertThat(mixedCase.bytes()).containsExactly((byte) 0, (byte) 0xaf);
+        assertThat(new LiteralValue.BinaryHexValue("").bytes()).isEmpty();
+    }
+
+    @Test
     void parseBinaryHexLiteralEmpty() {
         Statement stmt = parser.parse("SELECT X'' FROM t");
         assertThat(stmt).isInstanceOf(Query.class);

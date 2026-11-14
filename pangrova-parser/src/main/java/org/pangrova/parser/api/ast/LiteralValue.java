@@ -65,6 +65,14 @@ public sealed interface LiteralValue {
     record BinaryHexValue(String hexDigits) implements LiteralValue {
         public BinaryHexValue {
             Objects.requireNonNull(hexDigits, "hex literal value must not be null");
+            if ((hexDigits.length() & 1) != 0 || !hexDigits.chars().allMatch(java.util.HexFormat::isHexDigit)) {
+                throw new IllegalArgumentException("Binary literal requires pairs of ASCII hexadecimal digits");
+            }
+        }
+
+        /** Returns a fresh array containing the literal's bytes. */
+        public byte[] bytes() {
+            return java.util.HexFormat.of().parseHex(hexDigits);
         }
     }
 

@@ -14,7 +14,7 @@ Binary data types for raw bytes, fixed-size encodings, and universally unique id
 |----------|-------|
 | Storage | Variable-length binary data |
 | Aliases | `BLOB`, `VARBINARY` |
-| Literal | Hex literal `X'...'` |
+| Literal | `X'...'` with two ASCII hexadecimal digits per byte. `X''` represents zero bytes. |
 
 ```sql
 CREATE TABLE binaries (id BIGINT, data BLOB);
