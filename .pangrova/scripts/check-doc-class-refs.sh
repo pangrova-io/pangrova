@@ -26,6 +26,8 @@ fi
 # are the assertions that readers are most likely to interpret as repository types.
 # Pattern: starts with uppercase, contains at least one lowercase, length >= 4,
 # no spaces, no dots (excludes package names), no parens (excludes method calls).
+# Lines recording removed or migrated historical types (the disposition ledger's
+# original-class columns) are skipped: those names intentionally have no source.
 # Uses -E (extended regex) for portability across GNU and BSD grep.
 extract_class_refs() {
     for doc in "$DOCS_DIR"/*.md; do
