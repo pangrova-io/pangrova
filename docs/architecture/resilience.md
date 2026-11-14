@@ -790,6 +790,19 @@ class ShuffleOutputValidator:
 
 
 
+Query cancellation, stage dispatch and speculative attempts share a Coordinator
+queue for exact-attempt seals. The task timeout sweep retries the queue even
+when its timeout set is empty. An independently received and validated exit
+receipt retires the corresponding retry after request compaction.
+
+An OUTPUT task can report FINISHED before its result memory is released.
+If its query has retired, the Coordinator may already hold the actual Native
+release receipt from a concurrent seal. For that exact read-result attempt,
+the control response `RETIRED_RESULT_NOTICE` lets the Worker stop resending
+the older undrained notification. The subsequent physical-release report still
+requires its own matching `CONTINUE`. The control response performs no output
+publication, write commit, or query state transition.
+
 ## 13. Lineage-Based Recovery Mode (OPT-017)
 
 > Implementation status (2026-11-02): the previously unassembled FteStageHandler (retired) /

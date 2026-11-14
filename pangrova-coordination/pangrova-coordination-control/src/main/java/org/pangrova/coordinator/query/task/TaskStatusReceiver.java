@@ -134,6 +134,11 @@ public final class TaskStatusReceiver {
         }
     }
 
+    /** The response tells the Worker to advance to its actual release report without publishing the older result. */
+    public boolean supersedesResultNotice(TaskStatusReport report) {
+        return taskTracker.supersedesResultNotice(report);
+    }
+
     private void recordOperatorStats(TaskStatusReport report) {
         var registry = operatorStats;
         if (registry == null || report.stats() == null) {

@@ -66,23 +66,9 @@ public final class TaskCancelRetrier {
      */
     public void cancelWithRetry(String queryId, String taskId,
                                 String workerHost, int httpPort) {
-        try {
-            SchedulerCancelResult result = dispatcher.cancelTask(requireIssuedRequest(taskId), workerHost, httpPort);
-            if (result.isSuccess()) {
-                taskTracker.recordExecutionDrain(requireIssuedRequest(taskId), result.executionDrainReceipt());
-                pendingCancels.remove(taskId);
-                return;
-            }
-            LOG.warn("event=cancel_task_failed queryId={} taskId={} workerHost={} "
-                            + "httpPort={} status={} error={} retryable={}",
-                    queryId, taskId, workerHost, httpPort,
-                    result.status(), result.errorMessage(), result.retryable());
-        } catch (Exception e) {
-            LOG.warn("event=cancel_task_exception queryId={} taskId={} workerHost={} "
-                            + "httpPort={} error={}",
-                    queryId, taskId, workerHost, httpPort, e.getMessage());
-        }
-        pendingCancels.put(taskId, new CancelTarget(queryId, workerHost, httpPort));
+        var target = new CancelTarget(queryId, workerHost, httpPort);
+        pendingCancels.put(taskId, target);
+        retrySingleCancel(taskId, target);
     }
 
     /**
@@ -112,11 +98,18 @@ public final class TaskCancelRetrier {
 
     private boolean retrySingleCancel(String taskId, CancelTarget target) {
         try {
-            SchedulerCancelResult result = dispatcher.cancelTask(
-                    requireIssuedRequest(taskId), target.workerHost(), target.httpPort());
+            var retained = taskTracker.executionDrainReceipt(taskId);
+            if (retained.filter(report -> report.getAttempt().getQueryOrJobId().equals(target.queryId())).isPresent()) {
+                return pendingCancels.remove(taskId, target);
+            }
+            var request = requireIssuedRequest(taskId);
+            if (!request.taskRequest().getAttempt().getQueryOrJobId().equals(target.queryId())) {
+                throw new IllegalStateException("Cancellation belongs to another query");
+            }
+            SchedulerCancelResult result = dispatcher.cancelTask(request, target.workerHost(), target.httpPort());
             if (result.isSuccess()) {
-                taskTracker.recordExecutionDrain(requireIssuedRequest(taskId), result.executionDrainReceipt());
-                pendingCancels.remove(taskId);
+                taskTracker.recordExecutionDrain(request, result.executionDrainReceipt());
+                pendingCancels.remove(taskId, target);
                 LOG.info("event=cancel_retry_success queryId={} taskId={}", target.queryId(), taskId);
                 return true;
             }

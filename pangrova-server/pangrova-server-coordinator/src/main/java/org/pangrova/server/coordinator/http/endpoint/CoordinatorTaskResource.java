@@ -32,6 +32,9 @@ public final class CoordinatorTaskResource {
     public Response taskStatusReport(TaskStatusReport report) {
         boolean accepted = receiver.onTaskStatus(report);
         String directive = accepted ? "CONTINUE" : "STALE_REJECTED";
+        if (!accepted && receiver.supersedesResultNotice(report)) {
+            directive = org.pangrova.protocol.task.TerminalReportDeliveryPolicy.RETIRED_RESULT_NOTICE;
+        }
         TaskStatusReportResponse response = new TaskStatusReportResponse(
                 report.taskId(), directive);
         return Response.ok(response).build();

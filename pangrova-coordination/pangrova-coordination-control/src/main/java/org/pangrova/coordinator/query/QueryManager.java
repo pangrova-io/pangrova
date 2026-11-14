@@ -488,6 +488,11 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         queries.complete(context.queryId(), context.state());
     }
 
+    /** Advances exact-attempt seals even when their query is still running. */
+    public void retryPendingTaskCancellations() {
+        queryDispatcher.cancelRetrier().retryPendingCancels();
+    }
+
     void retryPendingTerminalCompletions() {
         readerPinRenewal.ifPresent(ReaderPinRenewal::renewDue);
         terminalCleanup.retryPending();

@@ -273,7 +273,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
                                 response.body(),
                                 org.pangrova.protocol.rest.task.TaskStatusReportResponse.class);
                 return report.taskId().equals(accepted.taskId())
-                        && "CONTINUE".equals(accepted.command());
+                        && ("CONTINUE".equals(accepted.command()) || retiredResultNotice(accepted.command(), report));
             } catch (IOException malformed) {
                 LOG.warn("event=status_report_ack_malformed taskId={}", report.taskId(), malformed);
                 return false;
@@ -291,6 +291,18 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
                 statusCode,
                 response.body());
         return false;
+    }
+
+    private static boolean retiredResultNotice(String command, TaskStatusReport report) throws IOException {
+        if (!org.pangrova.protocol.task.TerminalReportDeliveryPolicy.RETIRED_RESULT_NOTICE.equals(command)
+                || !"OUTPUT".equals(report.taskType()) || !"FINISHED".equals(report.state())
+                || report.writeResult() != null || report.canonicalTaskReport() == null) return false;
+        var actual = org.pangrova.protocol.v2.TaskReport.parseFrom(report.canonicalTaskReport());
+        return actual.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                && actual.getReportOrigin() == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                && actual.getExecutionDrainState() == org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_UNSPECIFIED
+                && !actual.hasError() && !actual.hasArtifactWork();
     }
 
     private void injectTraceContext(HttpRequest.Builder builder) {
