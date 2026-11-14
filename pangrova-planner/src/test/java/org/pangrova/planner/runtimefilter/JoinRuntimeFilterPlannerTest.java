@@ -28,7 +28,6 @@ import com.google.common.collect.ImmutableSet;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,37 +55,42 @@ class JoinRuntimeFilterPlannerTest {
     }
 
     @Test
-    void joinQuery_dppEnabled_registersFiltersInRegistry() {
-        PangrovaPlanner planner = buildPlannerWithTables(DynamicPartitionPruningConfig.ENABLED);
-
-        planner.plan(
-                "SELECT o.ID, c.NAME FROM ORDERS o "
-                        + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID");
-
-        RuntimeFilterRegistry registry = planner.getRuntimeFilterRegistry();
-        // Registry should have at least one filter registered
-        // (the plan() method calls analyzeForRuntimeFilters internally)
-        assertThat(registryHasFilters(registry, planner)).isTrue();
+    void planningEnabledProducesCandidatesWithoutInventingRuntimeValues() {
+        var planner = buildPlannerWithTables(DynamicPartitionPruningConfig.ENABLED);
+        var result = planner.plan("SELECT o.ID, c.NAME FROM ORDERS o "
+                + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID");
+        assertThat(result.runtimeFilterDescriptors()).isNotEmpty();
+        assertThat(planner.getRuntimeFilterRegistry().registeredStageIds()).isEmpty();
     }
 
     @Test
     void joinQuery_dppDisabled_noFiltersRegistered() {
         PangrovaPlanner planner = buildPlannerWithTables(DynamicPartitionPruningConfig.DISABLED);
 
-        planner.plan(
-                "SELECT o.ID, c.NAME FROM ORDERS o "
-                        + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID");
+        var query = planner.plan("SELECT o.ID, c.NAME FROM ORDERS o "
+                + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID");
+        assertThat(query.runtimeFilterDescriptors()).isEmpty();
+        assertThat(planner.getRuntimeFilterRegistry().registeredStageIds()).isEmpty();
+    }
 
-        // When DPP is disabled, analyzeJoinsForPartitionPruning still works (it's stateless)
-        // but the registry should be empty because plan() skips registration
-        RuntimeFilterRegistry registry = planner.getRuntimeFilterRegistry();
-        // Verify no filters were registered during plan()
-        List<RuntimeFilterDescriptor> descriptors = planner.analyzeJoinsForPartitionPruning(
-                planner.plan("SELECT o.ID, c.NAME FROM ORDERS o "
-                        + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID").plan());
-        // Descriptors exist (analysis works) but registry is empty (flag off)
-        assertThat(descriptors).isNotEmpty();
-        assertThat(registry.getFilter("any-id")).isEmpty();
+    @Test
+    void boundedLiteralBuildKeysFilterOnlyTheMatchingProbeScan() {
+        var planner = buildPlannerWithTables(DynamicPartitionPruningConfig.ENABLED);
+        String sql = "SELECT o.ID FROM ORDERS o JOIN (VALUES (1), (3), (3)) v(k) ON o.ID=v.k";
+        var plan = planner.plan(sql).plan();
+        var tree = org.apache.calcite.plan.RelOptUtil.toString(plan);
+        assertThat(tree).contains("SEARCH(", "1", "3");
+        assertThat(tree.indexOf("SEARCH(")).isLessThan(tree.indexOf("ORDERS"));
+        assertThat(tree).contains("LogicalValues");
+    }
+
+    @Test
+    void nullableBigintProbeAndCastValuesProduceABoundedPlan() {
+        var planner = buildPlannerWithTables(DynamicPartitionPruningConfig.ENABLED);
+        var plan = planner.plan("SELECT o.BIG_ID FROM ORDERS o JOIN "
+                + "(VALUES (CAST(1 AS BIGINT)), (CAST(3 AS BIGINT)), (CAST(3 AS BIGINT))) v(k) "
+                + "ON o.BIG_ID=v.k ORDER BY o.BIG_ID").plan();
+        assertThat(plan.explain().lines().count()).isLessThan(20);
     }
 
     @Test
@@ -147,21 +151,19 @@ class JoinRuntimeFilterPlannerTest {
     }
 
     @Test
-    void innerJoin_leftSmaller_selectsLeftAsBuild() {
+    void innerJoinWithSmallerLeftInputKeepsRightAsBuild() {
         RelDataTypeFactory typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
         RexBuilder rexBuilder = new RexBuilder(typeFactory);
         VolcanoPlanner volcanoPlanner = new VolcanoPlanner();
         volcanoPlanner.addRelTraitDef(ConventionTraitDef.INSTANCE);
         RelOptCluster cluster = RelOptCluster.create(volcanoPlanner, rexBuilder);
 
-        // Left: 100 rows (small side — should be build)
         RelNode left = buildValuesNode(cluster, typeFactory, rexBuilder, 100);
-        // Right: 1000 rows (large side — should be probe)
         RelNode right = buildValuesNode(cluster, typeFactory, rexBuilder, 1000);
 
         int leftFieldCount = left.getRowType().getFieldCount();
         RexNode leftRef = rexBuilder.makeInputRef(
-                left.getRowType().getFieldList().get(0).getType(), 0);
+                left.getRowType().getFieldList().get(1).getType(), 1);
         RexNode rightRef = rexBuilder.makeInputRef(
                 right.getRowType().getFieldList().get(0).getType(), leftFieldCount);
         RexNode condition = rexBuilder.makeCall(SqlStdOperatorTable.EQUALS, leftRef, rightRef);
@@ -170,13 +172,14 @@ class JoinRuntimeFilterPlannerTest {
                 condition, ImmutableSet.of(), JoinRelType.INNER);
 
         JoinRuntimeFilterPlanner planner = new JoinRuntimeFilterPlanner();
-        boolean leftIsBuild = planner.selectLeftAsBuild(join);
-
-        assertThat(leftIsBuild).isTrue();
+        assertThat(planner.analyze(join)).singleElement().satisfies(descriptor -> {
+            assertThat(descriptor.buildColumn()).isEqualTo("ID");
+            assertThat(descriptor.probeColumn()).isEqualTo("VALUE");
+        });
     }
 
     @Test
-    void innerJoin_rightSmaller_selectsRightAsBuild() {
+    void reversingEqualityOperandsKeepsRightAsBuild() {
         RelDataTypeFactory typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
         RexBuilder rexBuilder = new RexBuilder(typeFactory);
         VolcanoPlanner volcanoPlanner = new VolcanoPlanner();
@@ -190,22 +193,23 @@ class JoinRuntimeFilterPlannerTest {
 
         int leftFieldCount = left.getRowType().getFieldCount();
         RexNode leftRef = rexBuilder.makeInputRef(
-                left.getRowType().getFieldList().get(0).getType(), 0);
+                left.getRowType().getFieldList().get(1).getType(), 1);
         RexNode rightRef = rexBuilder.makeInputRef(
                 right.getRowType().getFieldList().get(0).getType(), leftFieldCount);
-        RexNode condition = rexBuilder.makeCall(SqlStdOperatorTable.EQUALS, leftRef, rightRef);
+        RexNode condition = rexBuilder.makeCall(SqlStdOperatorTable.EQUALS, rightRef, leftRef);
 
         LogicalJoin join = LogicalJoin.create(left, right, ImmutableList.of(),
                 condition, ImmutableSet.of(), JoinRelType.INNER);
 
         JoinRuntimeFilterPlanner planner = new JoinRuntimeFilterPlanner();
-        boolean leftIsBuild = planner.selectLeftAsBuild(join);
-
-        assertThat(leftIsBuild).isFalse();
+        assertThat(planner.analyze(join)).singleElement().satisfies(descriptor -> {
+            assertThat(descriptor.buildColumn()).isEqualTo("ID");
+            assertThat(descriptor.probeColumn()).isEqualTo("VALUE");
+        });
     }
 
     @Test
-    void leftJoin_alwaysSelectsRightAsBuild() {
+    void leftJoinCannotPruneThePreservedProbeSide() {
         RelDataTypeFactory typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
         RexBuilder rexBuilder = new RexBuilder(typeFactory);
         VolcanoPlanner volcanoPlanner = new VolcanoPlanner();
@@ -228,9 +232,7 @@ class JoinRuntimeFilterPlannerTest {
                 condition, ImmutableSet.of(), JoinRelType.LEFT);
 
         JoinRuntimeFilterPlanner planner = new JoinRuntimeFilterPlanner();
-        boolean leftIsBuild = planner.selectLeftAsBuild(join);
-
-        assertThat(leftIsBuild).isFalse();
+        assertThat(planner.analyze(join)).isEmpty();
     }
 
     private static RelNode buildValuesNode(RelOptCluster cluster, RelDataTypeFactory typeFactory,
@@ -250,26 +252,6 @@ class JoinRuntimeFilterPlannerTest {
 
     // -- Helpers --
 
-    private boolean registryHasFilters(RuntimeFilterRegistry registry, PangrovaPlanner planner) {
-        // Re-analyze to get descriptor IDs, then check registry
-        RelNode plan = planner.plan(
-                "SELECT o.ID, c.NAME FROM ORDERS o "
-                        + "JOIN CUSTOMERS c ON o.CUSTOMER_ID = c.ID").plan();
-        List<RuntimeFilterDescriptor> descriptors = planner.analyzeJoinsForPartitionPruning(plan);
-        for (RuntimeFilterDescriptor d : descriptors) {
-            // The registry uses filterId as key; check if any filter was registered
-            // by checking the registry after plan() was called
-            Optional<RuntimeFilter> filter = registry.getFilter(d.filterId());
-            if (filter.isPresent()) {
-                return true;
-            }
-        }
-        // The plan() call registered filters with its own generated IDs,
-        // which differ from the re-analysis IDs. Check registry is non-empty
-        // by verifying the DPP config is enabled and plan had joins.
-        return !descriptors.isEmpty() && planner.getDynamicPartitionPruningConfig().enabled();
-    }
-
     private static PangrovaPlanner buildPlannerWithTables(DynamicPartitionPruningConfig dynamicPartitionPruningConfig) {
         CalciteSchema rootSchema = CalciteSchema.createRootSchema(false);
 
@@ -279,6 +261,7 @@ class JoinRuntimeFilterPlannerTest {
                 return typeFactory.builder()
                         .add("ID", typeFactory.createJavaType(int.class))
                         .add("CUSTOMER_ID", typeFactory.createJavaType(int.class))
+                        .add("BIG_ID", typeFactory.createTypeWithNullability(typeFactory.createSqlType(SqlTypeName.BIGINT), true))
                         .add("AMOUNT", typeFactory.createJavaType(double.class))
                         .build();
             }

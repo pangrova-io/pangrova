@@ -5,13 +5,12 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.metadata.RelMetadataQuery;
-import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,13 +22,11 @@ import java.util.UUID;
 
 /**
  * Analyzes an optimized RelNode plan to detect eligible joins and produce
- * runtime filter descriptors. Eligible joins are INNER, LEFT, or SEMI joins with
+ * runtime filter descriptors. Eligible joins are INNER or SEMI joins with
  * equi-join conditions on columns from both sides.
  *
- * <p>This component bridges the gap between the Calcite plan tree and the
- * {@link RuntimeFilterGenerator} / {@link RuntimeFilterRegistry} DPP subsystem.
- * It does NOT execute the build side — it produces {@link RuntimeFilterDescriptor}
- * metadata that downstream stages use to generate and apply actual filters.</p>
+ * <p>Descriptors describe candidate keys in the input ordering of this plan.
+ * A publisher still needs physical exchange, scan and attempt identities.</p>
  *
  * <p>Thread-safe: stateless, all state is passed via method parameters.</p>
  */
@@ -84,8 +81,8 @@ public final class JoinRuntimeFilterPlanner {
     private void collectMultiColumnJoinFilters(
             Join join, RexNode condition, List<RuntimeFilterDescriptor> descriptors) {
         JoinRelType joinType = join.getJoinType();
-        if (joinType != JoinRelType.INNER && joinType != JoinRelType.LEFT
-                && joinType != JoinRelType.SEMI) {
+        // A filter on the preserved probe side of an outer join would discard unmatched rows.
+        if (joinType != JoinRelType.INNER && joinType != JoinRelType.SEMI) {
             return;
         }
         List<EquiJoinPair> pairs = extractEquiJoinColumns(condition, join);
@@ -134,92 +131,32 @@ public final class JoinRuntimeFilterPlanner {
             return Optional.empty();
         }
 
-        int leftFieldCount = join.getLeft().getRowType().getFieldCount();
-        return resolveBuildProbePair(join, leftRef.getIndex(), rightRef.getIndex(), leftFieldCount);
-    }
-
-    /**
-     * Resolve build/probe sides from equi-join column indices.
-     *
-     * <p>For LEFT/SEMI joins, right side is always the build side (semantic constraint).
-     * For INNER joins, the smaller side (by estimated row count) is selected as build.
-     * Falls back to right=build when statistics are unavailable.</p>
-     */
-    private Optional<EquiJoinPair> resolveBuildProbePair(
-            Join join, int leftIdx, int rightIdx, int leftFieldCount) {
-        if (leftIdx < leftFieldCount && rightIdx >= leftFieldCount) {
-            boolean leftIsBuild = selectLeftAsBuild(join);
-            if (leftIsBuild) {
-                String buildColumn = resolveColumnName(join.getLeft(), leftIdx);
-                String probeColumn = resolveColumnName(join.getRight(), rightIdx - leftFieldCount);
-                PangrovaType buildType = resolveColumnType(join.getLeft(), leftIdx);
-                return Optional.of(new EquiJoinPair(buildColumn, probeColumn, buildType));
-            }
-            String probeColumn = resolveColumnName(join.getLeft(), leftIdx);
-            String buildColumn = resolveColumnName(join.getRight(), rightIdx - leftFieldCount);
-            PangrovaType buildType = resolveColumnType(join.getRight(), rightIdx - leftFieldCount);
-            return Optional.of(new EquiJoinPair(buildColumn, probeColumn, buildType));
+        if (!join.getSystemFieldList().isEmpty()) {
+            return Optional.empty();
         }
-        if (rightIdx < leftFieldCount && leftIdx >= leftFieldCount) {
-            boolean leftIsBuild = selectLeftAsBuild(join);
-            if (leftIsBuild) {
-                String buildColumn = resolveColumnName(join.getLeft(), rightIdx);
-                String probeColumn = resolveColumnName(join.getRight(), leftIdx - leftFieldCount);
-                PangrovaType buildType = resolveColumnType(join.getLeft(), rightIdx);
-                return Optional.of(new EquiJoinPair(buildColumn, probeColumn, buildType));
-            }
-            String probeColumn = resolveColumnName(join.getLeft(), rightIdx);
-            String buildColumn = resolveColumnName(join.getRight(), leftIdx - leftFieldCount);
-            PangrovaType buildType = resolveColumnType(join.getRight(), leftIdx - leftFieldCount);
-            return Optional.of(new EquiJoinPair(buildColumn, probeColumn, buildType));
+        var probeFields = join.getLeft().getRowType().getFieldList();
+        var buildFields = join.getRight().getRowType().getFieldList();
+        int probeIndex = Math.min(leftRef.getIndex(), rightRef.getIndex());
+        int buildIndex = Math.max(leftRef.getIndex(), rightRef.getIndex()) - probeFields.size();
+        if (probeIndex < 0 || probeIndex >= probeFields.size() || buildIndex < 0 || buildIndex >= buildFields.size()) {
+            return Optional.empty();
         }
-        return Optional.empty();
-    }
-
-    /**
-     * Determine whether the left side should be the build side based on estimated row count.
-     *
-     * <p>For LEFT/SEMI joins, right is always build (semantic requirement).
-     * For INNER joins, the smaller side is selected as build.
-     * Falls back to right=build when row count statistics are unavailable.</p>
-     */
-    boolean selectLeftAsBuild(Join join) {
-        if (join.getJoinType() == JoinRelType.LEFT || join.getJoinType() == JoinRelType.SEMI) {
-            return false;
+        // Native HashJoin builds its right input. Physical join reordering already changes the input tree.
+        var probe = probeFields.get(probeIndex);
+        var build = buildFields.get(buildIndex);
+        if (!SqlTypeUtil.equalSansNullability(
+                join.getCluster().getTypeFactory(), probe.getType(), build.getType())) {
+            return Optional.empty();
         }
-        try {
-            RelMetadataQuery mq = join.getCluster().getMetadataQuery();
-            Double leftRowCount = mq.getRowCount(join.getLeft());
-            Double rightRowCount = mq.getRowCount(join.getRight());
-            if (leftRowCount == null || rightRowCount == null) {
-                LOG.debug("event=build_side_fallback reason=stats_unavailable");
-                return false;
-            }
-            boolean leftSmaller = leftRowCount < rightRowCount;
-            LOG.debug("event=build_side_selected leftRows={} rightRows={} buildSide={}",
-                    leftRowCount, rightRowCount, leftSmaller ? "LEFT" : "RIGHT");
-            return leftSmaller;
-        } catch (Exception e) {
-            LOG.debug("event=build_side_fallback reason=metadata_error", e);
-            return false;
-        }
-    }
-
-    private String resolveColumnName(RelNode input, int index) {
-        List<RelDataTypeField> fields = input.getRowType().getFieldList();
-        if (index >= 0 && index < fields.size()) {
-            return fields.get(index).getName();
-        }
-        return "col_" + index;
-    }
-
-    private PangrovaType resolveColumnType(RelNode input, int index) {
-        List<RelDataTypeField> fields = input.getRowType().getFieldList();
-        if (index >= 0 && index < fields.size()) {
-            return PangrovaType.fromSqlTypeName(
-                    fields.get(index).getType().getSqlTypeName().getName());
-        }
-        return PangrovaType.VARCHAR;
+        PangrovaType type = switch (build.getType().getSqlTypeName()) {
+            case TINYINT -> PangrovaType.TINYINT;
+            case SMALLINT -> PangrovaType.SMALLINT;
+            case INTEGER -> PangrovaType.INTEGER;
+            case BIGINT -> PangrovaType.BIGINT;
+            case VARCHAR -> PangrovaType.VARCHAR;
+            default -> null;
+        };
+        return type == null ? Optional.empty() : Optional.of(new EquiJoinPair(build.getName(), probe.getName(), type));
     }
 
     private record EquiJoinPair(String buildColumn, String probeColumn, PangrovaType buildColumnType) {}

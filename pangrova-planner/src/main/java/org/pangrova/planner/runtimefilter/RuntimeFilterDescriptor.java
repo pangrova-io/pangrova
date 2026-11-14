@@ -8,7 +8,7 @@ import org.pangrova.types.enums.PangrovaType;
  * @param filterId        unique identifier for this filter
  * @param buildColumn     column name on the build side (source of filter values)
  * @param probeColumn     column name on the probe side (target of filtering)
- * @param joinType        the join type (INNER, LEFT, SEMI)
+ * @param joinType        the join type of the candidate (INNER or SEMI)
  * @param buildColumnType declared type of the build column for binary encoding
  * @param targetStageId   stage ID of the probe side that this filter targets
  */
@@ -36,10 +36,10 @@ public record RuntimeFilterDescriptor(
         if (buildColumnType == null) {
             throw new IllegalArgumentException("buildColumnType must not be null");
         }
-        // targetStageId may be null during planning; resolved later during dispatch
+        // Logical analysis has no physical target stage.
     }
 
-    /** Convenience constructor without targetStageId (resolved later). */
+    /** Convenience constructor for a logical candidate without a target stage. */
     public RuntimeFilterDescriptor(String filterId, String buildColumn,
                                     String probeColumn, String joinType,
                                     PangrovaType buildColumnType) {

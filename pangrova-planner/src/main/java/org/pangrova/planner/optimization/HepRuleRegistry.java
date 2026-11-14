@@ -2,6 +2,12 @@ package org.pangrova.planner.optimization;
 
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.hep.HepProgramBuilder;
+import org.apache.calcite.plan.hep.HepRelVertex;
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.Calc;
+import org.apache.calcite.rel.core.Join;
+import org.apache.calcite.rel.core.Values;
+import org.apache.calcite.rel.rules.JoinPushTransitivePredicatesRule;
 import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
@@ -176,11 +182,26 @@ public final class HepRuleRegistry {
 
     static List<RelOptRule> joinRules() {
         return List.of(
-                CoreRules.JOIN_PUSH_TRANSITIVE_PREDICATES,
+                org.pangrova.planner.rule.LiteralJoinKeyFilterRule.INSTANCE,
+                // Re-inference across a literal input can repeatedly wrap the same Join with filters in HEP.
+                // The complete literal domain is handled by LiteralJoinKeyFilterRule.
+                JoinPushTransitivePredicatesRule.Config.DEFAULT.withOperandSupplier(b -> b.operand(Join.class)
+                        .predicate(join -> !isLiteralRelation(join.getLeft()) && !isLiteralRelation(join.getRight()))
+                        .anyInputs()).as(JoinPushTransitivePredicatesRule.Config.class).toRule(),
                 CoreRules.JOIN_CONDITION_PUSH,
                 CoreRules.JOIN_PUSH_EXPRESSIONS,
                 CoreRules.JOIN_TO_SEMI_JOIN
         );
+    }
+
+    private static boolean isLiteralRelation(RelNode node) {
+        if (node instanceof HepRelVertex vertex) {
+            return isLiteralRelation(vertex.getCurrentRel());
+        }
+        if (node instanceof Project || node instanceof Filter || node instanceof Calc) {
+            return isLiteralRelation(node.getInput(0));
+        }
+        return node instanceof Values;
     }
 
     // ---- Aggregate Rules (7 rules) ----
