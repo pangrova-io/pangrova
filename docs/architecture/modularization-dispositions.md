@@ -54,6 +54,10 @@ python3 .pangrova/scripts/export-class-inventory.py --base b51114d0 --output tar
 | 第 11–13 项 | Java 整合快照 914 个包无环。SQL 解析和诊断基线共用文本规范化。工作树还把 33 个生产消费者的 SHA-256 格式判断收敛到 Common，并修正多个模块的默认 Locale 依赖。 | 按调用方完成剩余逐类职责审阅，执行摘要、厂商协议与土耳其语环境的实际回归。 |
 | 第 16 项 | 早期 macOS Release 快照 4335/4335。对应 ASan 全量运行出现一次真实的 Shuffle mTLS 握手失败，原用例单独重复 24 次通过。 | 工作树已显式要求独占 gRPC 监听端口。原实现也能通过单端口冲突用例，尚不能以该用例断定握手根因。用新二进制重跑 Release、ASan、Java/Native 与各角色发行验证，并完成同源全量回归。 |
 
+截至本轮收尾，Cache 与 Coordination 工厂整合候选 `5cf0d2fa0` 已完成 148 个 Maven 项目的定向回归。Coordinator 租约初始化 5 项、后端选择与失败行为 5 项、SPI 装配 5 项、ServiceLoader 可达性 6 项全部通过。该候选基于 Metadata 观察版本变更之前的源码。含观察版本、Cache 和剩余可达性例外变更的整合候选 `991b7b07c` 仍在验证。
+
+macOS arm64 源码快照 `c61dc7785` 的 ASan 全量运行已结束。4335 项中 4334 项通过，唯一失败为 `NativeExchangeDataPlaneE2ETest.MutualTlsTraversesNativeConsumer`，客户端连接阶段返回 `SSL_ERROR_SSL: wrong version number`。同一快照 Release 4335 项通过。独占监听端口改动在后续检查点，须用重建后的二进制复验。Linux 镜像尚在构建，真实容器重启用例等待匹配的不可变镜像 ID。
+
 恢复从检查点建立独立工作树，先运行 `.pangrova/scripts/check-module-manifest.sh`。在 JDK 17、真实 PostgreSQL 和仓库规定的 Native 与 Iceberg 前置条件下，执行 `mvn -Pnative-runtime,full-regression -fae verify`。Linux 重启测试消费已构建镜像的不可变 ID，核对其 OCI 源码 revision，并验证真实 journal 和任务回执。不同源码快照的通过项分别保留。
 
 ## 11 月 14 日追加验证
