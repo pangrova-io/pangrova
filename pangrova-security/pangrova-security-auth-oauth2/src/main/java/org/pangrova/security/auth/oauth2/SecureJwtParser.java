@@ -4,10 +4,8 @@ import org.pangrova.security.api.exception.TokenValidationException;
 
 import java.security.Key;
 import java.time.Duration;
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -18,8 +16,6 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.Locator;
 import io.jsonwebtoken.ProtectedHeader;
 import io.jsonwebtoken.security.SecurityException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Secure JWT parser backed by JJWT library with enforced validation constraints.
@@ -38,8 +34,6 @@ import org.slf4j.LoggerFactory;
  * @ThreadSafe instances are immutable after construction
  */
 final class SecureJwtParser {
-
-    private static final Logger LOG = LoggerFactory.getLogger(SecureJwtParser.class);
 
     /**
      * Maximum decompressed payload size in bytes (256 KB).
@@ -71,17 +65,11 @@ final class SecureJwtParser {
      * @return parsed header and claims
      * @throws TokenValidationException on any validation failure
      */
-    ParsedJwt parseSignedToken(String token) {
+    JwtClaims parseSignedToken(String token) {
+        JwtAlgorithmValidator.validateRawToken(token);
         try {
             Jws<Claims> jws = signedParser.parseSignedClaims(token);
-            ProtectedHeader header = jws.getHeader();
-            Claims claims = jws.getPayload();
-            return new ParsedJwt(
-                    new JwtHeader(
-                            header.getAlgorithm(),
-                            header.getType(),
-                            header.getKeyId()),
-                    buildJwtClaims(claims));
+            return buildJwtClaims(jws.getPayload());
         } catch (SecurityException e) {
             throw new TokenValidationException(
                     "Token signature verification failed");
@@ -89,7 +77,7 @@ final class SecureJwtParser {
             throw new TokenValidationException("Token expired");
         } catch (io.jsonwebtoken.MalformedJwtException e) {
             throw new TokenValidationException(
-                    "Invalid JWT format: " + e.getMessage());
+                    "Invalid JWT format");
         } catch (io.jsonwebtoken.JwtException e) {
             throw new TokenValidationException(e.getMessage());
         }
@@ -97,6 +85,7 @@ final class SecureJwtParser {
 
     private static JwtParser buildSignedParser(JwksKeyResolver keyResolver) {
         Locator<Key> keyLocator = header -> {
+            JwtAlgorithmValidator.validateAlgorithm(header.getAlgorithm());
             String kid = (header instanceof ProtectedHeader ph) ? ph.getKeyId() : null;
             Key key = keyResolver.resolveSigningKey(kid);
             if (key == null) {
@@ -107,6 +96,10 @@ final class SecureJwtParser {
         };
         return Jwts.parser()
                 .keyLocator(keyLocator)
+                .sig().clear().add(Jwts.SIG.RS256).add(Jwts.SIG.ES256).and()
+                .zip().clear()
+                    .add(new BoundedJwtCompression(Jwts.ZIP.DEF))
+                    .add(new BoundedJwtCompression(Jwts.ZIP.GZIP)).and()
                 .clockSkewSeconds(CLOCK_SKEW_TOLERANCE.toSeconds())
                 .build();
     }
@@ -114,21 +107,10 @@ final class SecureJwtParser {
     private static JwtClaims buildJwtClaims(Claims claims) {
         String issuer = claims.getIssuer();
         String subject = claims.getSubject();
-        String audience = extractAudience(claims);
         long expiration = claims.getExpiration() != null
                 ? claims.getExpiration().toInstant().getEpochSecond()
                 : 0L;
-        Set<String> groups = extractGroups(claims);
-        Map<String, String> customClaims = extractCustomClaims(claims);
-        return new JwtClaims(issuer, subject, audience, expiration, groups, customClaims);
-    }
-
-    private static String extractAudience(Claims claims) {
-        Set<String> audience = claims.getAudience();
-        if (audience == null || audience.isEmpty()) {
-            return null;
-        }
-        return String.join(",", audience);
+        return new JwtClaims(issuer, subject, claims.getAudience(), expiration, extractGroups(claims));
     }
 
     private static Set<String> extractGroups(Claims claims) {
@@ -140,9 +122,14 @@ final class SecureJwtParser {
             return Set.of();
         }
         if (groups instanceof List<?> list) {
-            return list.stream()
-                    .map(Object::toString)
-                    .collect(Collectors.toUnmodifiableSet());
+            Set<String> names = new HashSet<>();
+            for (Object value : list) {
+                if (!(value instanceof String name)) {
+                    throw new TokenValidationException("Token group names must be strings");
+                }
+                names.add(name);
+            }
+            return names;
         }
         if (groups instanceof String s) {
             return java.util.stream.Stream.of(s.split(","))
@@ -150,24 +137,6 @@ final class SecureJwtParser {
                     .filter(g -> !g.isEmpty())
                     .collect(Collectors.toUnmodifiableSet());
         }
-        return Set.of();
+        throw new TokenValidationException("Token group names must be strings");
     }
-
-    private static final Set<String> KNOWN_CLAIMS = Set.of(
-            "iss", "sub", "aud", "exp", "iat", "nbf", "jti", "groups", "roles");
-
-    private static Map<String, String> extractCustomClaims(Claims claims) {
-        Map<String, String> custom = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> entry : claims.entrySet()) {
-            if (!KNOWN_CLAIMS.contains(entry.getKey()) && entry.getValue() != null) {
-                custom.put(entry.getKey(), entry.getValue().toString());
-            }
-        }
-        return Collections.unmodifiableMap(custom);
-    }
-
-    /**
-     * Parsed JWT result containing both header and claims.
-     */
-    record ParsedJwt(JwtHeader header, JwtClaims claims) {}
 }

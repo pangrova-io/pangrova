@@ -12,6 +12,8 @@ sidebar_label: "Security"
 
 > **Summary.** Authentication, authorization, row/column-level access control, data masking, and audit logging.
 
+The OAuth2 provider verifies signed tokens with issuer-scoped JWKS keys. It accepts RS256 and ES256 (P-256). A configured audience must match an entire case-sensitive `aud` member. Key rotation replaces the signing set. Encryption-only keys, conflicting key usages and ambiguous key IDs are excluded. A change of issuer publishes its discovery keys and validation policy together. A failed discovery for a new issuer leaves its signing set empty. Signed claims may occupy up to 256 KiB after decoding or DEF/GZIP expansion. The entire compact token is limited to 512 KiB.
+
 SQL privilege `GRANT`/`REVOKE` now has a parser → Server SQL adapter → atomic
 PostgreSQL authority path. It supports multiple privileges and roles, grant options,
 exact scope revocation, RESTRICT/CASCADE, and durable mutation receipts. The old

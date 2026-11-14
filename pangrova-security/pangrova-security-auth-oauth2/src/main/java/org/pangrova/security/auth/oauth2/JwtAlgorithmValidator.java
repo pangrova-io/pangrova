@@ -2,7 +2,14 @@ package org.pangrova.security.auth.oauth2;
 
 import org.pangrova.security.api.exception.TokenValidationException;
 
+import java.io.IOException;
+import java.util.Base64;
 import java.util.Set;
+
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 
 /**
  * Enforces a whitelist of allowed JWT signing algorithms.
@@ -36,18 +43,11 @@ final class JwtAlgorithmValidator {
     static final String ERROR_ALG_SYMMETRIC = "JWT_ALG_SYMMETRIC_REJECTED";
     static final String ERROR_ALG_NOT_ALLOWED = "JWT_ALG_NOT_ALLOWED";
 
-    private JwtAlgorithmValidator() {}
+    private static final ObjectReader HEADER = JsonMapper.builder()
+            .enable(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY, DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .build().readerFor(JsonNode.class);
 
-    /**
-     * Validates the JWT algorithm against the allowed whitelist.
-     *
-     * @param header the decoded JWT header containing the algorithm
-     * @throws TokenValidationException if the algorithm is not allowed
-     */
-    static void validate(JwtHeader header) {
-        String alg = header.alg();
-        validateAlgorithm(alg);
-    }
+    private JwtAlgorithmValidator() {}
 
     /**
      * Validates the algorithm from a raw JWT token string before JJWT parsing.
@@ -68,38 +68,37 @@ final class JwtAlgorithmValidator {
             throw new TokenValidationException(
                     ERROR_ALG_NONE + ": Invalid JWT structure");
         }
-        String headerSegment = token.substring(0, firstDot);
-        String alg = extractAlgorithmFromHeader(headerSegment);
-        validateAlgorithm(alg);
-    }
-
-    private static String extractAlgorithmFromHeader(String base64Header) {
+        int payloadEnd = token.indexOf('.', firstDot + 1);
+        if (payloadEnd < 0 || token.indexOf('.', payloadEnd + 1) >= 0) {
+            throw new TokenValidationException("Invalid JWT structure");
+        }
+        int limit = SecureJwtParser.MAX_PAYLOAD_DECOMPRESSION_BYTES;
+        // Bound all compact segments before allocating decoded arrays. Compressed data may include framing.
+        if (token.length() > 2L * limit) {
+            throw new TokenValidationException("JWT exceeds the size limit");
+        }
+        JsonNode header;
         try {
-            byte[] decoded = java.util.Base64.getUrlDecoder().decode(base64Header);
-            String json = new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
-            int algIdx = json.indexOf("\"alg\"");
-            if (algIdx < 0) {
-                return null;
+            header = HEADER.readTree(Base64.getUrlDecoder().decode(token.substring(0, firstDot)));
+        } catch (IllegalArgumentException | IOException e) {
+            throw new TokenValidationException("Invalid JWT header");
+        }
+        if (header == null || !header.isObject()) {
+            throw new TokenValidationException("Invalid JWT header");
+        }
+        validateAlgorithm(header.path("alg").textValue());
+        if (!header.hasNonNull("zip")) {
+            int last = payloadEnd;
+            while (last > firstDot + 1 && token.charAt(last - 1) == '=') {
+                last--;
             }
-            int colonIdx = json.indexOf(':', algIdx + 5);
-            if (colonIdx < 0) {
-                return null;
+            if ((last - firstDot - 1) * 3L / 4 > limit) {
+                throw new TokenValidationException("JWT payload exceeds the size limit");
             }
-            int valueStart = json.indexOf('"', colonIdx + 1);
-            if (valueStart < 0) {
-                return null;
-            }
-            int valueEnd = json.indexOf('"', valueStart + 1);
-            if (valueEnd < 0) {
-                return null;
-            }
-            return json.substring(valueStart + 1, valueEnd);
-        } catch (IllegalArgumentException e) {
-            return null;
         }
     }
 
-    private static void validateAlgorithm(String alg) {
+    static void validateAlgorithm(String alg) {
         if (alg == null || alg.isBlank() || "none".equalsIgnoreCase(alg)) {
             throw new TokenValidationException(
                     ERROR_ALG_NONE + ": Unsigned tokens (alg=none) are not accepted");

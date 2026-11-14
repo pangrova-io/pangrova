@@ -9,7 +9,6 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -19,6 +18,7 @@ import org.pangrova.security.api.authentication.AuthenticationRequest;
 import org.pangrova.security.api.authentication.AuthenticationResult;
 import org.pangrova.security.api.authentication.Authenticator;
 import org.pangrova.security.api.exception.TokenValidationException;
+import org.pangrova.security.auth.oauth2.exception.OAuth2AuthenticationException;
 
 /**
  * OAuth2/OIDC token-based authenticator with JJWT-backed JWT validation.
@@ -39,33 +39,23 @@ public class OAuth2Authenticator implements Authenticator {
     private static final int HTTP_SUCCESS_MINIMUM = 200;
     private static final int HTTP_REDIRECT_MINIMUM = 300;
 
-    private final AtomicReference<OAuth2Config> configRef = new AtomicReference<>();
-    private final AtomicReference<Boolean> lastHealthStatus = new AtomicReference<>(false);
     private final HttpClient httpClient;
-    final JwksKeyResolver keyResolver;
-    private final AtomicReference<SecureJwtParser> jwtParserRef = new AtomicReference<>();
+    private volatile IssuerSession session;
 
-    /**
-     * Immutable OAuth2 configuration snapshot.
-     */
-    record OAuth2Config(
-            String issuerUri,
-            String audience
-    ) {}
+    /** Keys and policy used by a single authentication always come from the same issuer. */
+    private record IssuerSession(String issuerUri, String audience, SecureJwtParser parser) {}
 
     /** Creates an OAuth2 authenticator with a default HTTP client. */
     public OAuth2Authenticator() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(HTTP_TIMEOUT)
                 .build();
-        this.keyResolver = new JwksKeyResolver(httpClient);
     }
 
     /** Allows injecting a custom HttpClient. */
     @org.pangrova.common.VisibleForTesting
     OAuth2Authenticator(HttpClient httpClient) {
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
-        this.keyResolver = new JwksKeyResolver(httpClient);
     }
 
     @Override
@@ -74,7 +64,7 @@ public class OAuth2Authenticator implements Authenticator {
     }
 
     @Override
-    public void init(Map<String, String> config) {
+    public synchronized void init(Map<String, String> config) {
         String uri = config.get("issuerUri");
         if (uri == null || uri.isBlank()) {
             throw new IllegalArgumentException("OAuth2 requires issuerUri");
@@ -84,11 +74,10 @@ public class OAuth2Authenticator implements Authenticator {
             throw new IllegalArgumentException("OAuth2 signatures are mandatory; no signature toggle is supported");
         }
 
-        OAuth2Config oauthConfig = new OAuth2Config(uri, audience);
-        configRef.set(oauthConfig);
-        jwtParserRef.set(new SecureJwtParser(keyResolver));
-
-        keyResolver.discoverJwksEndpoint(uri);
+        JwksKeyResolver keys = new JwksKeyResolver(httpClient);
+        SecureJwtParser parser = new SecureJwtParser(keys);
+        keys.discoverJwksEndpoint(uri);
+        session = new IssuerSession(uri, audience, parser);
 
         LOG.info("event=oauth2_init issuerUri={} audience={} signatureRequired=true", uri, audience);
     }
@@ -99,8 +88,8 @@ public class OAuth2Authenticator implements Authenticator {
             return AuthenticationResult.failure("Token required for OAuth2");
         }
 
-        OAuth2Config cfg = configRef.get();
-        if (cfg == null || cfg.issuerUri() == null || cfg.issuerUri().isBlank()) {
+        IssuerSession cfg = session;
+        if (cfg == null) {
             LOG.warn("event=oauth2_auth_failed reason=issuer_not_configured clientIp={}", request.clientIp());
             return AuthenticationResult.failure("OAuth2 issuer not configured");
         }
@@ -108,10 +97,9 @@ public class OAuth2Authenticator implements Authenticator {
         return authenticateConfigured(request, cfg);
     }
 
-    private AuthenticationResult authenticateConfigured(AuthenticationRequest request, OAuth2Config config) {
+    private AuthenticationResult authenticateConfigured(AuthenticationRequest request, IssuerSession config) {
         try {
-            SecureJwtParser.ParsedJwt parsed = parseToken(request.token());
-            JwtClaims claims = parsed.claims();
+            JwtClaims claims = config.parser().parseSignedToken(request.token());
 
             JwtClaimValidator.validateIssuer(claims, config.issuerUri());
             JwtClaimValidator.validateExpiration(claims);
@@ -136,20 +124,8 @@ public class OAuth2Authenticator implements Authenticator {
         } catch (Exception e) {
             LOG.debug("event=oauth2_internal_error clientIp={} errorType={}",
                     request.clientIp(), e.getClass().getSimpleName());
-            throw new AuthenticationException("OAuth2 authentication error", e);
+            throw new OAuth2AuthenticationException("OAuth2 authentication error", e);
         }
-    }
-
-    private SecureJwtParser.ParsedJwt parseToken(String token) {
-        SecureJwtParser parser = jwtParserRef.get();
-        if (parser == null) {
-            parser = new SecureJwtParser(keyResolver);
-            jwtParserRef.set(parser);
-        }
-        JwtAlgorithmValidator.validateRawToken(token);
-        SecureJwtParser.ParsedJwt parsed = parser.parseSignedToken(token);
-        JwtAlgorithmValidator.validate(parsed.header());
-        return parsed;
     }
 
     @Override
@@ -159,9 +135,8 @@ public class OAuth2Authenticator implements Authenticator {
 
     @Override
     public boolean isHealthy() {
-        OAuth2Config cfg = configRef.get();
-        if (cfg == null || cfg.issuerUri() == null || cfg.issuerUri().isBlank()) {
-            lastHealthStatus.set(false);
+        IssuerSession cfg = session;
+        if (cfg == null) {
             return false;
         }
         try {
@@ -172,32 +147,18 @@ public class OAuth2Authenticator implements Authenticator {
                     .GET()
                     .build();
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            boolean healthy = resp.statusCode() >= HTTP_SUCCESS_MINIMUM
+            return resp.statusCode() >= HTTP_SUCCESS_MINIMUM
                     && resp.statusCode() < HTTP_REDIRECT_MINIMUM;
-            lastHealthStatus.set(healthy);
-            return healthy;
         } catch (Exception e) {
             LOG.debug("event=oauth2_health_check_failed issuerUri={} error={}", cfg.issuerUri(), e.getMessage());
-            lastHealthStatus.set(false);
             return false;
         }
     }
 
     @Override
-    public void close() {
-        configRef.set(null);
-        jwtParserRef.set(null);
-        lastHealthStatus.set(false);
-        keyResolver.clear();
+    public synchronized void close() {
+        session = null;
         LOG.debug("event=oauth2_close");
     }
 
-    /**
-     * Exception for unexpected authentication errors (I/O, parsing, etc.).
-     */
-    static class AuthenticationException extends RuntimeException {
-        AuthenticationException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }

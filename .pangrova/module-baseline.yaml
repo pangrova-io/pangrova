@@ -3851,6 +3851,7 @@ artifacts:
     path: pangrova-security/pangrova-security-auth-oauth2
     mainPackages:
       - org.pangrova.security.auth.oauth2
+      - org.pangrova.security.auth.oauth2.exception
     pomDependencies:
       pangrova-common: compile
       pangrova-security-api: compile

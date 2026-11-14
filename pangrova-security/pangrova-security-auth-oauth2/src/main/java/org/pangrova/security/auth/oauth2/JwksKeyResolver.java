@@ -1,18 +1,16 @@
 package org.pangrova.security.auth.oauth2;
 
-import java.math.BigInteger;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.security.KeyFactory;
 import java.security.PublicKey;
-import java.security.spec.RSAPublicKeySpec;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -22,6 +20,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.jsonwebtoken.security.Jwk;
+import io.jsonwebtoken.security.Jwks;
+import io.jsonwebtoken.security.PublicJwk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * Discovers and caches JWKS public keys from an OIDC issuer.
  *
  * <p>Performs OIDC well-known discovery to locate the JWKS endpoint,
- * then fetches and caches RSA public keys by key ID (kid).</p>
+ * then fetches and caches RS256 and ES256 verification keys by key ID (kid).</p>
  *
  * <p>BUG-S02: Cache is replaced atomically on refresh — revoked keys are evicted.</p>
  * <p>BUG-S03: Concurrent cache-miss refreshes are coalesced via a shared CompletableFuture.</p>
@@ -125,7 +126,7 @@ final class JwksKeyResolver {
         }
     }
 
-    void parseAndCacheJwks(String jwksJson) {
+    synchronized void parseAndCacheJwks(String jwksJson) {
         Map<String, Object> jwks = parseJson(jwksJson);
         Object keysObj = jwks.get("keys");
         if (!(keysObj instanceof List<?> keys)) {
@@ -133,40 +134,44 @@ final class JwksKeyResolver {
         }
         // BUG-S02: Build a fresh map and replace atomically so revoked keys are evicted.
         Map<String, PublicKey> newEntries = new HashMap<>();
+        Set<String> ambiguous = new HashSet<>();
         for (Object keyObj : keys) {
-            buildIfRsaKey(keyObj, newEntries);
+            if (!(keyObj instanceof Map<?, ?> key) || !(key.get("kid") instanceof String kid)
+                    || kid.isBlank() || ambiguous.contains(kid)) {
+                continue;
+            }
+            PublicKey verified = verificationKey(key);
+            if (verified != null && newEntries.putIfAbsent(kid, verified) != null) {
+                ambiguous.add(kid);
+                newEntries.remove(kid);
+            }
         }
         jwksCache.invalidateAll();
         jwksCache.putAll(newEntries);
         LOG.info("event=oauth2_jwks_refreshed keyCount={}", newEntries.size());
     }
 
-    private void buildIfRsaKey(Object keyObj, Map<String, PublicKey> target) {
-        if (!(keyObj instanceof Map<?, ?> keyMap)) {
-            return;
+    private static PublicKey verificationKey(Map<?, ?> key) {
+        String algorithm;
+        if ("RSA".equals(key.get("kty"))) {
+            algorithm = "RS256";
+        } else if ("EC".equals(key.get("kty")) && "P-256".equals(key.get("crv"))) {
+            algorithm = "ES256";
+        } else {
+            return null;
         }
-        @SuppressWarnings("unchecked")
-        Map<String, Object> keyData = (Map<String, Object>) keyMap;
-        String kty = extractString(keyData, "kty");
-        String kid = extractString(keyData, "kid");
-        if (!"RSA".equals(kty) || kid == null) {
-            return;
+        if (key.containsKey("use") && !"sig".equals(key.get("use"))
+                || key.containsKey("alg") && !algorithm.equals(key.get("alg"))
+                || key.containsKey("key_ops") && (!(key.get("key_ops") instanceof List<?> operations)
+                        || !operations.contains("verify"))) {
+            return null;
         }
-        tryBuildAndCacheKey(keyData, kid, target);
-    }
-
-    private void tryBuildAndCacheKey(Map<String, Object> keyData, String kid, Map<String, PublicKey> target) {
         try {
-            String n = extractString(keyData, "n");
-            String e = extractString(keyData, "e");
-            if (n == null || e == null) {
-                return;
-            }
-            PublicKey publicKey = buildRsaPublicKey(n, e);
-            target.put(kid, publicKey);
-            LOG.debug("event=oauth2_jwk_cached kid={}", kid);
-        } catch (Exception ex) {
-            LOG.warn("event=oauth2_jwk_parse_failed kid={} error={}", kid, ex.getMessage());
+            Jwk<?> jwk = Jwks.parser().build().parse(JSON.writeValueAsString(key));
+            return jwk instanceof PublicJwk<?> publicJwk ? publicJwk.toKey() : null;
+        } catch (Exception e) {
+            LOG.warn("event=oauth2_jwk_parse_failed kid={} errorType={}", key.get("kid"), e.getClass().getSimpleName());
+            return null;
         }
     }
 
@@ -200,7 +205,7 @@ final class JwksKeyResolver {
             return null;
         }
         // No kid header — only safe to use single-key fallback
-        Map<String, PublicKey> snapshot = jwksCache.asMap();
+        Map<String, PublicKey> snapshot = snapshot();
         if (snapshot.size() == 1) {
             LOG.warn("event=oauth2_jwt_missing_kid fallback=single_key_provider"
                     + " hint=JWT has no kid header; using sole available key");
@@ -216,8 +221,16 @@ final class JwksKeyResolver {
         return null;
     }
 
+    private synchronized Map<String, PublicKey> snapshot() {
+        return Map.copyOf(jwksCache.asMap());
+    }
+
+    private synchronized PublicKey cachedKey(String kid) {
+        return jwksCache.getIfPresent(kid);
+    }
+
     private PublicKey resolveByKid(String kid) {
-        PublicKey cached = jwksCache.getIfPresent(kid);
+        PublicKey cached = cachedKey(kid);
         if (cached != null) {
             return cached;
         }
@@ -226,7 +239,7 @@ final class JwksKeyResolver {
             // BUG-S03: Coalesce concurrent refreshes — only one thread fetches,
             // others wait on the same future to avoid thundering herd.
             coalescedRefresh(jwksUri);
-            return jwksCache.getIfPresent(kid);
+            return cachedKey(kid);
         }
         return null;
     }
@@ -272,7 +285,7 @@ final class JwksKeyResolver {
         }
     }
 
-    void clear() {
+    synchronized void clear() {
         jwksCache.invalidateAll();
     }
 
@@ -280,16 +293,6 @@ final class JwksKeyResolver {
     @org.pangrova.common.VisibleForTesting
     long missingKidCount() {
         return missingKidCount.get();
-    }
-
-    private static PublicKey buildRsaPublicKey(String modulusB64, String exponentB64) throws Exception {
-        byte[] modulusBytes = Base64.getUrlDecoder().decode(modulusB64);
-        byte[] exponentBytes = Base64.getUrlDecoder().decode(exponentB64);
-        BigInteger modulus = new BigInteger(1, modulusBytes);
-        BigInteger exponent = new BigInteger(1, exponentBytes);
-        RSAPublicKeySpec spec = new RSAPublicKeySpec(modulus, exponent);
-        KeyFactory factory = KeyFactory.getInstance("RSA");
-        return factory.generatePublic(spec);
     }
 
     static String buildWellKnownUrl(String issuerUri) {

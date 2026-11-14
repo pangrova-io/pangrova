@@ -54,7 +54,7 @@ class SecureJwtParserVisibilityTest {
     }
 
     @Test
-    void noPublicMethodReturnsParsedJwt() throws Exception {
+    void noPublicMethodReturnsClaims() throws Exception {
         Class<?> clazz = Class.forName(FQCN);
         for (Method m : clazz.getDeclaredMethods()) {
             if (!Modifier.isPublic(m.getModifiers())) {
@@ -62,8 +62,8 @@ class SecureJwtParserVisibilityTest {
             }
             String returnTypeName = m.getReturnType().getName();
             assertThat(returnTypeName)
-                    .as("No public method on SecureJwtParser may expose ParsedJwt: found %s", m.getName())
-                    .doesNotContain("ParsedJwt");
+                    .as("No public method on SecureJwtParser may expose JwtClaims: found %s", m.getName())
+                    .doesNotContain("JwtClaims");
         }
     }
 

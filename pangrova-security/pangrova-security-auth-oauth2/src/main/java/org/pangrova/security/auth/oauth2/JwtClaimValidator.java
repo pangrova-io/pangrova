@@ -32,11 +32,10 @@ final class JwtClaimValidator {
         if (expectedAudience == null || expectedAudience.isBlank()) {
             return;
         }
-        String audience = claims.audience();
-        if (audience == null) {
+        if (claims.audiences().isEmpty()) {
             throw new TokenValidationException("Token missing audience claim");
         }
-        if (!audience.equals(expectedAudience) && !audience.contains(expectedAudience)) {
+        if (!claims.audiences().contains(expectedAudience)) {
             throw new TokenValidationException("Token audience mismatch");
         }
     }

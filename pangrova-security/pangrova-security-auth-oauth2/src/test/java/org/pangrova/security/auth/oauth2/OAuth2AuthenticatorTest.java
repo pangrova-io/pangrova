@@ -3,18 +3,24 @@ package org.pangrova.security.auth.oauth2;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.security.Signature;
+import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
+import java.security.spec.ECGenParameterSpec;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 
+import io.jsonwebtoken.security.Jwks;
+import io.jsonwebtoken.JwtBuilder;
+import io.jsonwebtoken.Jwts;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -32,10 +38,14 @@ class OAuth2AuthenticatorTest {
     private static final String KID = "test-kid";
 
     private static KeyPair rsaKeyPair;
+    private static KeyPair ecKeyPair;
 
     @BeforeAll
     static void generateKeys() throws Exception {
         rsaKeyPair = generateRsaKeyPair();
+        KeyPairGenerator ecGenerator = KeyPairGenerator.getInstance("EC");
+        ecGenerator.initialize(new ECGenParameterSpec("secp256r1"));
+        ecKeyPair = ecGenerator.generateKeyPair();
         identityServer = com.sun.net.httpserver.HttpServer.create(
                 new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         issuer = "http://127.0.0.1:" + identityServer.getAddress().getPort();
@@ -48,14 +58,9 @@ class OAuth2AuthenticatorTest {
             }
         });
         identityServer.createContext("/jwks", exchange -> {
-            RSAPublicKey key = (RSAPublicKey) rsaKeyPair.getPublic();
-            String modulus = Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(toUnsignedBytes(key.getModulus()));
-            String exponent = Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(toUnsignedBytes(key.getPublicExponent()));
-            byte[] body = ("{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"" + KID
-                    + "\",\"n\":\"" + modulus + "\",\"e\":\"" + exponent + "\"}]}")
-                    .getBytes(StandardCharsets.UTF_8);
+            String rsa = Jwks.json(Jwks.builder().key((RSAPublicKey) rsaKeyPair.getPublic()).id(KID).build());
+            String ec = Jwks.json(Jwks.builder().key((ECPublicKey) ecKeyPair.getPublic()).id("ec-key").build());
+            byte[] body = ("{\"keys\":[" + rsa + "," + ec + "]}").getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
             try (var output = exchange.getResponseBody()) {
                 output.write(body);
@@ -205,13 +210,11 @@ class OAuth2AuthenticatorTest {
 
     @Test
     void rsaSignedToken_authenticatesSuccessfully() throws Exception {
-        KeyPair keyPair = generateRsaKeyPair();
         try (OAuth2Authenticator auth = new OAuth2Authenticator()) {
             auth.init(signatureRequiredConfig());
-            injectJwksKey(auth, "sig-kid", keyPair.getPublic());
 
             String token = buildSignedJwt(issuer, "alice", Instant.now().plusSeconds(3600),
-                    "sig-kid", keyPair.getPrivate());
+                    KID, rsaKeyPair.getPrivate());
             AuthenticationRequest request = new AuthenticationRequest(
                     null, null, token, null, Map.of(), "10.0.0.1");
 
@@ -224,13 +227,11 @@ class OAuth2AuthenticatorTest {
     @Test
     void rsaSignedToken_wrongKey_isRejected() throws Exception {
         KeyPair signingKey = generateRsaKeyPair();
-        KeyPair wrongKey = generateRsaKeyPair();
         try (OAuth2Authenticator auth = new OAuth2Authenticator()) {
             auth.init(signatureRequiredConfig());
-            injectJwksKey(auth, "sig-kid", wrongKey.getPublic());
 
             String token = buildSignedJwt(issuer, "mallory", Instant.now().plusSeconds(3600),
-                    "sig-kid", signingKey.getPrivate());
+                    KID, signingKey.getPrivate());
             AuthenticationRequest request = new AuthenticationRequest(
                     null, null, token, null, Map.of(), "10.0.0.1");
 
@@ -363,7 +364,6 @@ class OAuth2AuthenticatorTest {
             auth.init(Map.of(
                     "issuerUri", issuer,
                     "audience", "my-app"));
-            injectJwksKey(auth, KID, rsaKeyPair.getPublic());
 
             long exp = Instant.now().plusSeconds(3600).getEpochSecond();
             String payload = String.format(
@@ -379,27 +379,51 @@ class OAuth2AuthenticatorTest {
         }
     }
 
-    @Test
-    void tokenWithWrongAudience_isRejected() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"\"other-app\"", "\"my-app-admin\"", "\"MY-APP\"",
+            "[\"other,my-app\"]", "[\"other\",\"not-my-app\"]"})
+    void tokenWithWrongAudience_isRejected(String audienceJson) throws Exception {
         try (OAuth2Authenticator auth = new OAuth2Authenticator()) {
-            auth.init(Map.of(
-                    "issuerUri", issuer,
-                    "audience", "my-app"));
-            injectJwksKey(auth, KID, rsaKeyPair.getPublic());
-
-            long exp = Instant.now().plusSeconds(3600).getEpochSecond();
+            auth.init(Map.of("issuerUri", issuer, "audience", "my-app"));
             String payload = String.format(
-                    "{\"sub\":\"alice\",\"iss\":\"%s\",\"exp\":%d,\"aud\":\"other-app\"}",
-                    issuer, exp);
+                    "{\"sub\":\"alice\",\"iss\":\"%s\",\"exp\":%d,\"aud\":%s}",
+                    issuer, Instant.now().plusSeconds(3600).getEpochSecond(), audienceJson);
             String token = buildSignedJwtFromPayload(payload, KID, rsaKeyPair.getPrivate());
-
-            AuthenticationRequest request = new AuthenticationRequest(
-                    null, null, token, null, Map.of(), "10.0.0.1");
-
-            AuthenticationResult result = auth.authenticate(request);
+            AuthenticationResult result = authenticate(auth, token);
             assertThat(result.success()).isFalse();
             assertThat(result.errorMessage()).contains("audience mismatch");
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"plain", "DEF", "GZIP"})
+    void signedClaimsUseTheSameExpandedByteLimit(String format) {
+        try (OAuth2Authenticator auth = createAuthWithKey()) {
+            String json = "{\"sub\":\"alice\",\"iss\":\"" + issuer + "\",\"exp\":"
+                    + Instant.now().plusSeconds(3600).getEpochSecond() + ",\"padding\":\"";
+            int limit = SecureJwtParser.MAX_PAYLOAD_DECOMPRESSION_BYTES;
+            String prefix = json + "x".repeat(limit - json.length() - 2);
+            for (int extraBytes = 0; extraBytes <= 1; extraBytes++) {
+                String payload = prefix + "x".repeat(extraBytes) + "\"}";
+                JwtBuilder builder = Jwts.builder().header().keyId(KID).and().content(payload);
+                if (format.equals("DEF")) {
+                    builder.compressWith(Jwts.ZIP.DEF);
+                } else if (format.equals("GZIP")) {
+                    builder.compressWith(Jwts.ZIP.GZIP);
+                }
+                String token = builder.signWith(rsaKeyPair.getPrivate(), Jwts.SIG.RS256).compact();
+                AuthenticationResult result = authenticate(auth, token);
+                assertThat(result.success()).as("%s, %s bytes: %s", format, payload.length(), result.errorMessage())
+                        .isEqualTo(extraBytes == 0);
+                if (extraBytes > 0) {
+                    assertThat(result.errorMessage()).contains("size limit");
+                }
+            }
+        }
+    }
+
+    private static AuthenticationResult authenticate(OAuth2Authenticator auth, String token) {
+        return auth.authenticate(new AuthenticationRequest(null, null, token, null, Map.of(), "127.0.0.1"));
     }
 
     @Test
@@ -408,7 +432,6 @@ class OAuth2AuthenticatorTest {
             auth.init(Map.of(
                     "issuerUri", issuer,
                     "audience", "my-app"));
-            injectJwksKey(auth, KID, rsaKeyPair.getPublic());
 
             long exp = Instant.now().plusSeconds(3600).getEpochSecond();
             String payload = String.format(
@@ -424,49 +447,48 @@ class OAuth2AuthenticatorTest {
         }
     }
 
-    // --- JWKS parsing test ---
-
     @Test
-    void parseAndCacheJwks_cachesRsaKeys() throws Exception {
-        KeyPair keyPair = generateRsaKeyPair();
-        RSAPublicKey rsaPub = (RSAPublicKey) keyPair.getPublic();
-        String n = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(toUnsignedBytes(rsaPub.getModulus()));
-        String e = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(toUnsignedBytes(rsaPub.getPublicExponent()));
-
-        String jwksJson = String.format(
-                "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"key-1\",\"n\":\"%s\",\"e\":\"%s\"}]}", n, e);
-
-        try (OAuth2Authenticator auth = new OAuth2Authenticator()) {
-            auth.init(signatureRequiredConfig());
-            auth.keyResolver.parseAndCacheJwks(jwksJson);
-
-            String token = buildSignedJwt(issuer, "alice", Instant.now().plusSeconds(3600),
-                    "key-1", keyPair.getPrivate());
-            AuthenticationRequest request = new AuthenticationRequest(
-                    null, null, token, null, Map.of(), "10.0.0.1");
-
-            AuthenticationResult result = auth.authenticate(request);
-            assertThat(result.success()).isTrue();
+    void nonStringGroupCannotBecomeAGroupName() throws Exception {
+        try (OAuth2Authenticator auth = createAuthWithKey()) {
+            String payload = "{\"sub\":\"alice\",\"iss\":\"" + issuer + "\",\"exp\":"
+                    + Instant.now().plusSeconds(60).getEpochSecond() + ",\"groups\":[7]}";
+            AuthenticationResult result = authenticate(auth, buildSignedJwtFromPayload(payload, KID, rsaKeyPair.getPrivate()));
+            assertThat(result.success()).isFalse();
+            assertThat(result.errorMessage()).contains("group names");
         }
     }
 
-    // --- Helper methods ---
+    @Test
+    void discoveredEcKeyVerifiesSignedClaims() {
+        try (OAuth2Authenticator auth = createAuthWithKey()) {
+            String token = Jwts.builder().header().keyId("ec-key").and().issuer(issuer).subject("ec-user")
+                    .expiration(java.util.Date.from(Instant.now().plus(Duration.ofMinutes(5))))
+                    .signWith(ecKeyPair.getPrivate(), Jwts.SIG.ES256).compact();
+            assertThat(authenticate(auth, token).userIdentity().principal()).isEqualTo("ec-user");
+        }
+    }
+
+    @Test
+    void unavailableReplacementIssuerCannotReusePreviousSigningKeys() throws Exception {
+        try (OAuth2Authenticator auth = createAuthWithKey()) {
+            String secondIssuer = issuer + "/unavailable";
+            auth.init(Map.of("issuerUri", secondIssuer));
+            String token = buildSignedJwt(secondIssuer, "attacker", Instant.now().plusSeconds(60),
+                    KID, rsaKeyPair.getPrivate());
+            AuthenticationResult result = authenticate(auth, token);
+            assertThat(result.success()).isFalse();
+            assertThat(result.errorMessage()).contains("No signing key");
+        }
+    }
 
     private static OAuth2Authenticator createAuthWithKey() {
         OAuth2Authenticator auth = new OAuth2Authenticator();
         auth.init(signatureRequiredConfig());
-        injectJwksKey(auth, KID, rsaKeyPair.getPublic());
         return auth;
     }
 
     private static Map<String, String> signatureRequiredConfig() {
         return Map.of("issuerUri", issuer);
-    }
-
-    private static void injectJwksKey(OAuth2Authenticator auth, String kid, PublicKey publicKey) {
-        auth.keyResolver.jwksCache.put(kid, publicKey);
     }
 
     private static KeyPair generateRsaKeyPair() throws Exception {
@@ -517,15 +539,5 @@ class OAuth2AuthenticatorTest {
         String encodedSignature = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(signatureBytes);
         return signingInput + "." + encodedSignature;
-    }
-
-    private static byte[] toUnsignedBytes(BigInteger bigInt) {
-        byte[] bytes = bigInt.toByteArray();
-        if (bytes[0] == 0) {
-            byte[] trimmed = new byte[bytes.length - 1];
-            System.arraycopy(bytes, 1, trimmed, 0, trimmed.length);
-            return trimmed;
-        }
-        return bytes;
     }
 }

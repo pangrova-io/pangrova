@@ -4,6 +4,11 @@ import java.net.http.HttpClient;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PublicKey;
+import java.security.interfaces.RSAPublicKey;
+
+import io.jsonwebtoken.security.Jwks;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -148,6 +153,24 @@ class JwksKeyResolverTest {
 
         assertThat(resolver.resolveSigningKey("kid-A")).isSameAs(keyA);
         assertThat(resolver.resolveSigningKey("kid-B")).isSameAs(keyB);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"use\":\"enc\"", "\"alg\":\"PS256\"", "\"key_ops\":[\"encrypt\"]"})
+    void discoveryHonorsDeclaredKeyUsage(String restriction) throws Exception {
+        RSAPublicKey key = (RSAPublicKey) generateRsaPublicKey();
+        String json = Jwks.json(Jwks.builder().key(key).id("restricted").build());
+        resolver.parseAndCacheJwks("{\"keys\":[" + json.substring(0, json.length() - 1) + "," + restriction + "}]}");
+        assertThat(resolver.resolveSigningKey("restricted")).isNull();
+    }
+
+    @Test
+    void duplicateSigningKeyIdsCannotSelectOneOfSeveralAuthorities() throws Exception {
+        String first = Jwks.json(Jwks.builder().key((RSAPublicKey) generateRsaPublicKey()).id("duplicate").build());
+        String second = Jwks.json(Jwks.builder().key((RSAPublicKey) generateRsaPublicKey()).id("duplicate").build());
+        resolver.parseAndCacheJwks("{\"keys\":[" + first + "," + second + "," + first + "]}");
+        assertThat(resolver.resolveSigningKey("duplicate")).isNull();
+        assertThat(resolver.resolveSigningKey(null)).isNull();
     }
 
     private static PublicKey generateRsaPublicKey() throws Exception {
