@@ -34,6 +34,11 @@ Java module policy tests, including qualified code references and wildcard impor
 The unconditional CI lint job provisions Java before tooling tests and the manifest
 check. Policy enforcement itself remains in the Maven architecture tests.
 
+Run `.pangrova/scripts/export-class-inventory.py --base <commit> --output target/architecture/class-dispositions.tsv`
+to compare production Java top-level and member type identities in that commit with the working tree, including
+new untracked sources. The JDK parser reports named member types and additional top-level types in the same file. Same-name candidates require review against callers, wiring and
+resource ownership. Review those candidates against the real declarations and lifecycle.
+
 | File | Decision | Purpose | Consumer or discovery evidence |
 |---|---|---|---|
 | `.pangrova/scripts/build-iceberg-sdk-candidate.sh` | Keep | Build and verify the pinned patched Iceberg SDK in Maven Local. | `.github/actions/setup-iceberg-sdk/action.yml`; `.pangrova/scripts/ci_change_scope.py` |
