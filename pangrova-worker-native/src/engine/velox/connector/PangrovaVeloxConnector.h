@@ -346,6 +346,10 @@ class PangrovaVeloxConnector : public facebook::velox::connector::Connector {
       const std::string& id,
       std::shared_ptr<const facebook::velox::config::ConfigBase> config);
 
+  bool canAddDynamicFilter() const override {
+    return true;
+  }
+
   std::unique_ptr<facebook::velox::connector::DataSource> createDataSource(
       const facebook::velox::RowTypePtr& outputType,
       const facebook::velox::connector::ConnectorTableHandlePtr& tableHandle,

@@ -1,6 +1,8 @@
 // Exact connector column assignments bridge execution aliases to source names.
-// Only the RowVector root is renamed; children, nulls and their pool stay owned.
+// Velox join predicates address output ordinals before aliases are restored.
 #pragma once
+
+#include <vector>
 
 #include "velox/connectors/Connector.h"
 #include "velox/core/Expressions.h"
@@ -43,6 +45,8 @@ class ColumnAssignmentDataSource final
   std::unique_ptr<facebook::velox::connector::DataSource> source_;
   facebook::velox::RowTypePtr output_type_;
   facebook::velox::RowTypePtr source_type_;
+  // Velox delivers the complete, merged filter for an output ordinal under the scan driver lock.
+  std::vector<std::shared_ptr<facebook::velox::common::Filter>> join_filters_;
 };
 
 }  // namespace pangrova::velox

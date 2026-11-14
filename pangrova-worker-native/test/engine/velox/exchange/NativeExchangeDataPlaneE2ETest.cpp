@@ -1,4 +1,12 @@
 #include <gtest/gtest.h>
+#include <folly/ScopeGuard.h>
+
+#include "engine/velox/connector/PangrovaTableHandle.h"
+#include "engine/velox/connector/PangrovaVeloxConnector.h"
+#include "pangrova/protocol/v2/result.pb.h"
+#include "velox/dwio/common/FileSink.h"
+#include "velox/dwio/parquet/writer/Writer.h"
+#include "velox/vector/DecodedVector.h"
 #include "CanonicalTestPlan.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
@@ -145,11 +153,23 @@ std::filesystem::path tlsResource(const char* filename) {
 }
 
 std::shared_ptr<VeloxTaskRunner> makeConsumer(
-    executor::OutputQueue* output_queue) {
+    executor::OutputQueue* output_queue,
+    const facebook::velox::core::PlanNodePtr& probe = nullptr,
+    std::vector<split::SplitConfig> splits = {}) {
   const auto converter_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(exchangePlan(), {});
+  if (probe) {
+    using namespace facebook::velox;
+    auto key = [](const RowTypePtr& type) {
+      return std::vector<core::FieldAccessTypedExprPtr>{
+          std::make_shared<core::FieldAccessTypedExpr>(type->childAt(0), type->nameOf(0))};
+    };
+    plan = std::make_shared<core::HashJoinNode>(
+        "join-published-build", core::JoinType::kInner, false,
+        key(probe->outputType()), key(plan->outputType()), nullptr, probe, plan, probe->outputType());
+  }
   VeloxTaskRunnerConfig config;
   config.function_registry = converter_registry;
   config.canonical_output_schema = std::make_shared<const substrait::NamedStruct>(converter.canonicalOutputSchema());
@@ -159,7 +179,7 @@ std::shared_ptr<VeloxTaskRunner> makeConsumer(
   config.query_id = "query-native-e2e";
   config.max_drivers = 2;
   return std::make_shared<VeloxTaskRunner>(
-      config, plan, std::vector<split::SplitConfig>{}, output_queue);
+      config, plan, std::move(splits), output_queue);
 }
 
 std::shared_ptr<PangrovaExchangeSource> makeDirectSource(
@@ -321,6 +341,82 @@ TEST_F(NativeExchangeDataPlaneE2ETest, NonEmptyBatchTraversesFlightAndVelox) {
   EXPECT_EQ(server.lingeringHandleCount(), 0);
   server.stop();
   registry.discardExecutor(kConsumerHandle);
+}
+
+TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
+  namespace sdk = facebook::velox;
+  auto root = pangrova::test::testRootPool("PublishedBuildFilter");
+  auto pool = root->addLeafChild("files");
+  sdk::test::VectorMaker maker(pool.get());
+  auto input = maker.rowVector({"probe_key"}, {maker.flatVector<int64_t>({1, 2, 3, 4})});
+  const auto path = std::filesystem::temp_directory_path() /
+      ("pangrova-published-build-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".parquet");
+  auto remove = folly::makeGuard([&] { std::filesystem::remove(path); });
+  auto properties = std::make_shared<const sdk::config::ConfigBase>(
+      std::unordered_map<std::string, std::string>{});
+  sdk::parquet::WriterOptions writerOptions;
+  writerOptions.memoryPool = root.get();
+  sdk::dwio::common::FileSink::Options sinkOptions{.connectorProperties = properties, .pool = pool.get()};
+  sdk::parquet::Writer writer(std::make_unique<sdk::dwio::common::LocalFileSink>(path.string(), sinkOptions),
+      writerOptions, input->rowType());
+  writer.write(input);
+  writer.close();
+  const auto connector = PangrovaVeloxConnector::kConnectorId;
+  const auto handle = std::make_shared<PangrovaTableHandle>(connector, "probe", "probe-scan", input->rowType());
+  sdk::connector::ColumnHandleMap assignments{
+      {"local_alias", std::make_shared<PangrovaColumnHandle>("probe_key")}};
+  auto probe = std::make_shared<sdk::core::TableScanNode>("probe-scan",
+      sdk::ROW({"local_alias"}, {sdk::BIGINT()}), handle, assignments);
+  split::SplitConfig file;
+  file.split_id = "probe-0";
+  file.table_name = "probe";
+  file.connector_id = connector;
+  file.file_format = split::FileFormatType::PARQUET;
+  file.file_path = path.string();
+  file.length = std::filesystem::file_size(path);
+
+  auto values = maker.rowVector({physicalFieldAlias(0)}, {maker.flatVector<int64_t>({2, 4, 4})});
+  shuffle::ShuffleBatchSerializer serializer(serializerConfig());
+  shuffle::SerializedShuffleQueue queue(8);
+  shuffle::ShuffleBatch batch;
+  batch.partition_id = 0;
+  batch.data = serializer.serialize(values, pool.get());
+  batch.row_count = values->size();
+  ASSERT_TRUE(queue.push(std::move(batch), std::chrono::seconds(1)));
+  ASSERT_TRUE(queue.commit());
+  shuffle::FlightShuffleServerConfig config;
+  config.port = 0;
+  shuffle::FlightShuffleServer server(config);
+  const auto port = server.start();
+  ASSERT_GT(port, 0);
+  server.registerHandle(kProducerHandle, &queue, "query-native-e2e", 1, 1,
+                        kPlanEpoch, kAttemptId, kFencingToken);
+  server.unregisterHandle(kProducerHandle);
+  auto releaseServer = folly::makeGuard([&] { server.unregisterHandle(kProducerHandle); server.stop(); });
+  auto& registry = PendingEndpointRegistry::instance();
+  auto discard = folly::makeGuard([&] { registry.discardExecutor(kConsumerHandle); });
+  registry.registerSource(kConsumerHandle, kPlanNodeId, kExchangeId, localEndpoint(port));
+  registry.sealInput(kConsumerHandle, kPlanNodeId, kExchangeId, 1);
+  executor::OutputQueue output(8);
+  auto runner = makeConsumer(&output, probe, {file});
+  runner->start();
+  ASSERT_TRUE(runner->waitForCompletion()) << runner->errorMessage();
+  auto rawStats = runner->collectTaskStats();
+  pangrova::protocol::v2::NativeTaskStats stats;
+  ASSERT_TRUE(stats.ParseFromArray(rawStats.data(), rawStats.size()));
+  const auto scan = std::find_if(stats.operator_stats().begin(), stats.operator_stats().end(),
+      [](const auto& op) { return op.plan_node_id() == "probe-scan"; });
+  ASSERT_NE(scan, stats.operator_stats().end());
+  EXPECT_EQ(scan->output_rows(), 2);
+  std::vector<int64_t> actual;
+  sdk::RowVectorPtr result;
+  while (output.pop(result, std::chrono::seconds(1)) == executor::PopResult::DATA) {
+    sdk::DecodedVector decoded(*result->childAt(0));
+    for (sdk::vector_size_t row = 0; row < result->size(); ++row) actual.push_back(decoded.valueAt<int64_t>(row));
+  }
+  runner->cleanup();
+  std::sort(actual.begin(), actual.end());
+  EXPECT_EQ(actual, std::vector<int64_t>({2, 4, 4}));
 }
 
 TEST_F(NativeExchangeDataPlaneE2ETest, CompressedBatchTraversesFlightAndVelox) {
