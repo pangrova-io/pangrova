@@ -352,8 +352,10 @@ final class CoordinatorShutdownSequence {
                                    QueryManager queryManager) {
         if (taskTracker == null || queryManager == null) return;
         Map<String, String> timedOut = taskTracker.getTimedOutTasks(java.time.Instant.now());
-        if (timedOut.isEmpty()) return;
-        failTimedOutTasks(timedOut, taskTracker, queryManager);
+        if (!timedOut.isEmpty()) {
+            failTimedOutTasks(timedOut, taskTracker, queryManager);
+        }
+        queryManager.retryPendingTaskCancellations();
     }
 
     private static void failTimedOutTasks(Map<String, String> timedOut,

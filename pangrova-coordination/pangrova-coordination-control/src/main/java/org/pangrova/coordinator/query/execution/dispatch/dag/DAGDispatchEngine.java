@@ -46,6 +46,7 @@ import org.slf4j.LoggerFactory;
 public final class DAGDispatchEngine implements StageCompletionCallback {
     private static final Logger LOG = LoggerFactory.getLogger(DAGDispatchEngine.class);
 
+    private final org.pangrova.coordinator.task.TaskCancelRetrier cancelRetrier;
     private final PipelineConfig pipelineConfig;
     private final LeafStageDispatcher leafStageDispatcher;
     private final AdaptiveStagePlanResolver adaptivePlanResolver;
@@ -74,6 +75,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             org.pangrova.planner.analysis.SubPlanReoptimizer subPlanReoptimizer) {
         DispatchCanceller canceller = new DispatchCanceller(
                 dependencies.dispatcher(), dependencies.taskTracker());
+        this.cancelRetrier = canceller.cancelRetrier();
         this.pipelineConfig = dependencies.pipelineConfig();
         var externalShuffle = dependencies.shuffleLifecycleManager()
                 instanceof RecoverableShuffleControl control ? control : null;
@@ -106,7 +108,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                 lifecycle, externalShuffle);
     }
 
-    /** Replays through this engine's same listener and ordinary root scheduling. */
+    /** The same exact-attempt cancellation queue is used by stage, query and speculative cleanup. */
+    public org.pangrova.coordinator.task.TaskCancelRetrier cancelRetrier() {
+        return cancelRetrier;
+    }
+
     /**
      * Admits a task-level retry before its replacement is dispatched.
      * See {@link org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycleController#tryPrepareTaskRetry}.
@@ -121,6 +127,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         lifecycle.rollbackTaskRetry(queryId, failedTaskId, retryTaskId);
     }
 
+    /** Replays through this engine's same listener and ordinary root scheduling. */
     public CompletableFuture<DispatchResult> startDurable(DurableStageRuntime runtime) {
         return durableControl.start(runtime, state -> {
             registerListeners(state);

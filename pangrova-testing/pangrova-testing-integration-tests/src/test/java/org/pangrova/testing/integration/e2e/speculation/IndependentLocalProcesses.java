@@ -265,6 +265,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     ProcessStatusReportRelay reports() { return reports; }
     Path warehouse() { return warehouse; }
     String hostJdbcUrl() { return security.hostJdbcUrl(); }
+    javax.sql.DataSource metadataDataSource() { return security.dataSource(); }
     int coordinatorPort() { return coordinatorPort; }
     HttpResponse<byte[]> replayReport(ProcessStatusReportRelay.Delivery actual) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + coordinatorPort
@@ -322,7 +323,21 @@ final class IndependentLocalProcesses implements AutoCloseable {
         return new QueryResult(queryId, outcome.output());
     }
 
+    java.sql.Connection openJdbc() throws java.sql.SQLException {
+        var settings = new java.util.Properties();
+        settings.setProperty("user", ProcessSecurityAuthority.USER);
+        settings.setProperty("password", ProcessSecurityAuthority.PASSWORD);
+        settings.setProperty("resultTlsRootCa", tls.root().toString());
+        settings.setProperty("resultTlsCertificateChain", clientIdentity.certificateChain().toString());
+        settings.setProperty("resultTlsPrivateKey", clientIdentity.privateKey().toString());
+        return java.sql.DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + coordinatorPort + "/spec_catalog", settings);
+    }
+
     CliOutcome executeSql(String sql, ResultProtocol expectedProtocol) throws Exception {
+        return executeSql(sql, expectedProtocol, Duration.ofMinutes(5));
+    }
+
+    CliOutcome executeSql(String sql, ResultProtocol expectedProtocol, Duration queryTimeout) throws Exception {
         String suffix = UUID.randomUUID().toString();
         Path source = privateFile("query-" + suffix, ".sql");
         Path output = workspace.resolve("query-" + suffix + ".out");
@@ -339,7 +354,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 "--host", "127.0.0.1", "--port", Integer.toString(coordinatorPort),
                 "--user", ProcessSecurityAuthority.USER,
                 "--password", ProcessSecurityAuthority.PASSWORD,
-                "--query-timeout", "5m"));
+                "--query-timeout", queryTimeout.toSeconds() + "s"));
         if (expectedProtocol == ResultProtocol.GRPC_TLS) {
             command.addAll(List.of("--result-tls-root-ca", tls.root().toString(),
                     "--result-tls-certificate-chain", clientIdentity.certificateChain().toString(),

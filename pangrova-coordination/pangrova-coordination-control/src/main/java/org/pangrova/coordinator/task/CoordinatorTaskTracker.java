@@ -486,6 +486,10 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         queryRetirementListeners.add(java.util.Objects.requireNonNull(listener));
     }
 
+    public boolean supersedesResultNotice(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        return taskIdentityStore.supersedesResultNotice(report);
+    }
+
     /** Reacknowledges only an already validated exact exit receipt, never outputs or a new winner. */
     public boolean acknowledgesExecutionDrain(org.pangrova.protocol.rest.task.TaskStatusReport report) {
         return taskIdentityStore.acknowledgesDrain(report);

@@ -167,6 +167,33 @@ class TaskIdentityRegistryDrainContractTest {
     }
 
     @Test
+    void anIndependentReleaseCanSupersedeOnlyTheRetiredUndrainedResultNotice() {
+        var registry = new TaskIdentityRegistry();
+        var result = request().taskRequest().toBuilder();
+        result.getExecutionOptionsBuilder().setDirectResultOutput(true);
+        var request = SubmitTaskRequest.from(result.build());
+        issue(registry, request);
+        registry.enterDispatch(request);
+        var released = receipt(request);
+        var notice = released.toBuilder().clearExecutionDrainState().build();
+        var envelope = projection(request, notice);
+        registry.recordExecutionDrain(request, released);
+        assertThat(registry.supersedesResultNotice(envelope)).isFalse();
+        registry.sealQuery("query");
+        registry.retireQuery("query");
+
+        assertThat(registry.supersedesResultNotice(envelope)).isTrue();
+        assertThat(registry.acknowledgesDrain(envelope)).isFalse();
+        assertThat(registry.supersedesResultNotice(projection(request, released))).isFalse();
+        assertThat(registry.supersedesResultNotice(projection(request,
+                notice.toBuilder().setAttempt(notice.getAttempt().toBuilder().setFencingToken(123456)).build())))
+                .isFalse();
+        assertThat(registry.supersedesResultNotice(projection(request,
+                notice.toBuilder().setArtifactWork(org.pangrova.protocol.v2.ArtifactWorkReport.getDefaultInstance())
+                        .build()))).isFalse();
+    }
+
+    @Test
     void retiredNativeFailureAcknowledgesOnlyItsMatchingWorkerReconciliation() {
         var registry = new TaskIdentityRegistry();
         var request = request();

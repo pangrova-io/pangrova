@@ -335,6 +335,38 @@ final class TaskIdentityRegistry {
         }
     }
 
+    /** A retired read-result owner can discard its earlier undrained FINISHED notification. */
+    synchronized boolean supersedesResultNotice(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        Identity identity = identities.get(report.taskId());
+        if (!hasLiveDrainReceipt(report, identity) || identity.request() != null || !identity.directReadResult()
+                || !"OUTPUT".equals(report.taskType()) || !"FINISHED".equals(report.state())
+                || report.writeResult() != null || report.error() != null
+                || !identity.attempt().equals(report.attempt())) {
+            return false;
+        }
+        var scope = scopes.get(report.queryId());
+        if (scope == null || !scope.retired) return false;
+        var retained = identity.drainReceipt();
+        var attempt = retained.getAttempt();
+        if (retained.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                || retained.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
+                || !report.queryId().equals(attempt.getQueryOrJobId())
+                || report.stageId() != attempt.getStageId() || report.partitionId() != attempt.getPartitionId()) {
+            return false;
+        }
+        try {
+            var notice = org.pangrova.protocol.v2.TaskReport.parseFrom(report.canonicalTaskReport());
+            return notice.getAttempt().equals(attempt) && notice.getState() == retained.getState()
+                    && notice.getReportOrigin() == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                    && !notice.hasArtifactWork() && !notice.hasError() && notice.getUnknownFields().asMap().isEmpty()
+                    && notice.getExecutionDrainState() == org.pangrova.protocol.v2.ExecutionDrainState
+                            .EXECUTION_DRAIN_STATE_UNSPECIFIED;
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            return false;
+        }
+    }
+
     private boolean hasLiveDrainReceipt(org.pangrova.protocol.rest.task.TaskStatusReport report, Identity identity) {
         return identity != null && identity.drainReceipt() != null
                 && identity.ackDeadline() - clock.getAsLong() > 0
@@ -501,7 +533,7 @@ final class TaskIdentityRegistry {
             long ackDeadline = clock.getAsLong()
                     + org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos();
             return new Identity(existing.attempt(), existing.request(), report, existing.worker(), existing.entered(),
-                    existing.workerId(), existing.deadline(), ackDeadline);
+                    existing.workerId(), existing.deadline(), ackDeadline, existing.directReadResult());
         });
     }
 
@@ -548,18 +580,22 @@ final class TaskIdentityRegistry {
 
     private record Identity(TaskAttemptDescriptor attempt, SubmitTaskRequest request,
                             org.pangrova.protocol.v2.TaskReport drainReceipt, WorkerInfo worker, boolean entered,
-                            String workerId, long deadline, long ackDeadline) {
+                            String workerId, long deadline, long ackDeadline, boolean directReadResult) {
         private Identity(TaskAttemptDescriptor attempt, SubmitTaskRequest request,
                          org.pangrova.protocol.v2.TaskReport drainReceipt, WorkerInfo worker, boolean entered) {
             this(attempt, request, drainReceipt, worker, entered,
                     worker == null ? null : worker.workerId(),
-                    request == null ? 0L : request.taskRequest().getDeadlineEpochMs(), 0L);
+                    request == null ? 0L : request.taskRequest().getDeadlineEpochMs(), 0L,
+                    request != null && request.taskRequest().getExecutionOptions().getDirectResultOutput()
+                            && !request.taskRequest().getExecutionOptions().hasWrite()
+                            && (request.taskRequest().getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ
+                            || request.taskRequest().getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_SHUFFLE_READ));
         }
 
         private Identity compact() {
             return new Identity(attempt, null,
                     org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(drainReceipt),
-                    null, entered, workerId, deadline, ackDeadline);
+                    null, entered, workerId, deadline, ackDeadline, directReadResult);
         }
     }
 

@@ -74,6 +74,23 @@ class TaskCancelRetrierTest extends TaskCancellationTestBase {
     }
 
     @Test
+    void independentReceiptResolvesAPendingCancelAfterRequestCompaction() throws Exception {
+        try (var scenario = scenario(); var control = new CancellationControl(scenario)) {
+            failInitialCancel(control, scenario);
+            var request = scenario.submission.request();
+            var actual = receipt(sealAt(request, workerUri()), request);
+            control.tracker.recordExecutionDrain(request, actual);
+            control.tracker.unregisterDrainedTask(actual);
+            int attempts = scenario.transport.deleteAttempts();
+
+            assertThat(control.tracker.getTaskRequest(taskId(scenario))).isNull();
+            assertThat(control.retrier.retryPendingCancels()).isEqualTo(1);
+            assertThat(control.retrier.pendingCount()).isZero();
+            assertThat(scenario.transport.deleteAttempts()).isEqualTo(attempts);
+        }
+    }
+
+    @Test
     void retryPendingCancels_stillFailing_keepsPending() throws Exception {
         try (var scenario = scenario(); var control = new CancellationControl(scenario)) {
             failInitialCancel(control, scenario);

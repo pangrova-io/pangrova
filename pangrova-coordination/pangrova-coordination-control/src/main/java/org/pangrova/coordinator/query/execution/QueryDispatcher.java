@@ -116,11 +116,9 @@ public class QueryDispatcher implements org.pangrova.query.api.lifecycle.QueryEx
                 schedulingEngine,
                 deps.catalogRegistry());
 
-        var cancelRetrier = new TaskCancelRetrier(
-                deps.dispatcher(), deps.taskTracker());
         this.ownershipTracker = new QueryOwnershipTracker(
                 deps.taskTracker(), deps.workerManager(),
-                deps.catalogRegistry(), splitMgr, cancelRetrier);
+                deps.catalogRegistry(), splitMgr, dagEngine.cancelRetrier());
         this.ownershipTracker.initFromContext(
                 deps.haService(), deps.coordinatorId());
     }
