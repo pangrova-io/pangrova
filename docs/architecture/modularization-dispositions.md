@@ -385,6 +385,44 @@ StrategyId 的具名值、IndexSerializer 的 wire 版本、RetryBudget 和 Spec
 
 [复现命令与各轮分布](../testing/speculative-process-e2e.md#measuring-public-sql-latency-across-two-builds) · [原始查询记录、RSS 与摘要](../../pangrova-testing/pangrova-testing-benchmark/results/2026-11-14-sql-process)
 
+### 双 Worker 资源、回收与 Shuffle 背压补测
+
+资源对照沿用上述 macOS 机器、两个源码版本、发行清单、JNI 和三文件 Iceberg 数据。四轮按历史、本轮、本轮、历史的顺序启动。每轮各条 SQL 先预热一次，再测三次，共 24 个正式查询。客户端已取回 42 后，采样程序等待同一查询观测到的所有 Worker 任务都返回 Native owner-released 回执，并向 PostgreSQL 核对租户并发槽为零，再接受样本。四轮均正常关闭进程、连接及容器。下表的延迟是从客户端校验结束到观察到上述条件的中位数，含读取数据库的开销。
+
+| SQL / 版本 | 任务数/查询 | 最大 Velox 算子内存预留（字节） | 释放观察延迟 ms | Worker 状态 HTTP 请求体 / 响应体总字节（每查询） |
+|---|---:|---:|---:|---:|
+| 常量 / 历史 | 1 | 9,280 | 73.7 | 4,102–4,105 / 213 |
+| 常量 / 本轮 | 1 | 9,280 | 138.0 | 4,104–4,110 / 213 |
+| Iceberg SUM / 历史 | 4 | 75,648 | 148.6 | 16,316–16,363 / 639 |
+| Iceberg SUM / 本轮 | 4 | 75,648 | 126.0 | 16,332–16,350 / 639 |
+
+60 个实际任务的最终统计均可读取，Velox 报告的 consumer wait 均为 0 毫秒，spill 均为 0 字节。两种 SQL 产生的单行结果没有形成可观测的毫秒级阻塞。请求体和响应体由 HTTP relay 对收发字节计数，口径限于任务状态端点。
+
+通过 macOS libproc 采集同一角色 JVM 的 RSS、线程、打开的描述符和 socket 描述符，通过 JDK 17 的 `jstat -gc` 独立采集堆使用量。共保存 309 条 OS 观测。比较窗口为各轮第一个正式查询结束至最后一个正式查询完成前，排除启动和进程退出，保留其中 90 条带堆数据的采样。下表值为每类单个进程各指标分别观测到的最大值，线程和 socket 数含服务进程自身的后台工作。
+
+| 版本 / 角色 | 采样数 | 堆 MiB | RSS MiB | 线程数 | 文件描述符数 | Socket 描述符数 |
+|---|---:|---:|---:|---:|---:|---:|
+| 历史 / Coordinator | 14 | 201.2 | 348.6 | 110 | 546 | 19 |
+| 本轮 / Coordinator | 16 | 213.8 | 257.1 | 109 | 442 | 17 |
+| 历史 / 单 Worker | 28 | 96.3 | 179.3 | 115 | 533 | 16 |
+| 本轮 / 单 Worker | 32 | 95.2 | 188.8 | 123 | 377 | 15 |
+
+另开两轮，通过 JVMTI NativeMethodBind 在实际任务状态、统计和释放 JNI 方法返回时读取所复制的数组长度。两轮均建相同表并执行两个常量查询及两个 Iceberg 求和，两个 Worker 的 PID 均与角色日志核对。历史版的释放方法 14 次 / 6,224 字节、状态方法 186 次 / 85,680 字节；本轮释放方法 14 次 / 6,232 字节、状态方法 318 次 / 127,521 字节。两轮均未调用独立统计方法。轮询次数受进程停留时间影响。该观测覆盖 Worker 从启动到退出期间三个 Native 方法的返回拷贝，其他 JNI 接口、进程总 Native 内存和整机网络线路流量未计量。
+
+另对同版本生产 `ShuffleBufferStore` 建立可重复的慢读者负载。容量为一个记录，驻留预算 0 字节，第一个批次占用 65,536 字节和一个实际 spill 文件。第二个生产者调用 store，消费方至少 40 毫秒后释放第一个记录。历史版 12/12 次返回容量错误，调用时长中位 0.012 毫秒；本轮版 12/12 次等待到消费者归还额度，完整重放第二份 65,536 字节，中位 44.12 毫秒，范围 40.96–45.75 毫秒。24 次运行结束后记录数、spill 字节和文件数均归零。这组测量复用相同 C++ 工具链与 SDK，并分别编译两版本的真实存储源和头文件。它单独覆盖存储层背压，SQL 测量覆盖包含客户端的完整路径。
+
+四轮 SQL、两轮 JNI、存储层对照各自使用独立进程。同期运行的 Linux Native 编译以及部分重叠的其他隔离 SQL 进程都会影响时序。这批资源样本用于界定每条路径的成本和释放行为。历史查询延迟、远端 Shuffle 吞吐与本批数据分别保留原采样口径。[原始 CSV](../../pangrova-testing/pangrova-testing-benchmark/results/2026-11-14-sql-resources) · [复现命令](../testing/speculative-process-e2e.md#measuring-public-sql-latency-across-two-builds) · [远端 Shuffle 吞吐](../testing/shuffle-read-comparison.md)
+
+### 双 Worker 的 JDBC 与 CLI 取消
+
+2026-11-14 在 macOS arm64、JDK 17 上使用提交 `32b3d02b36b205bf958ccda9771589c27eb595d2` 的同批发行物运行 `IndependentClientCancellationE2ETest`。一个 Coordinator、两个独立 Native Worker、PostgreSQL 和 LDAP 使用真实网络端口。发行清单 SHA-256 为 `66cc08c640c9d5d0619b52f7cf2705a391f99e4be61feaf26937ccb311ce2a41`，Native 为 `1197e854373d45f6ee137cd6c495fba67bdc26252517b6014c3c497f74c22392`。JDBC 运行 classpath 的 22 个 class 和服务描述符条目逐个与冻结 JAR 核对一致。首次运行揭示前一个查询重发的任务报告也会命中测试屏障。改为排除已观测的查询，并在公开 HTTP 确认相同查询已取消后放行回报，复测一项通过、零跳过，耗时 100.8 秒。两个场景分别由 JDBC `Statement.cancel()` 和打包 CLI 的 15 秒期限触发；随后同一 JDBC 连接和新 CLI 进程都用 gRPC TLS 取回结果 42。JDBC 会将收到的 Arrow 数据缓冲后创建 ResultSet。运行方法见[独立进程测试](../contributing/testing.md)。
+
+后续 JDBC 生命周期修复覆盖了服务器已创建查询、客户端尚未收到提交响应时的取消。每个 Statement 发布本次请求的查询 ID，Connection 关闭时先取消并关闭它拥有的 Statement，再释放 HTTP 客户端。独立 Maven 运行的 JDBC 套件 241 项全部通过。Coordinator 的查询、DAG 和推测尝试共用一个精确取消重试队列。断开实际 HTTP 连接、验证相同尝试的释放回执并回收队列的 `TaskCancelRetrierTest` 套件通过 11 项。`TaskIdentityRegistryDrainContractTest` 通过 11 项，覆盖退休读取尝试的迟到结果通知、真正的 Native 释放回执以及错误权限或携带写入产物时的拒绝。以上运行均为零跳过。
+
+在上述 `32b3d02b` 的 macOS 发行物副本中，使用同一源码树加本批取消和回执修订对 11 个源码单元重编，更新 Protocol、Coordination、Server Coordinator 和 Worker 四个 JAR。新角色清单为 `780f9d7734b48d25dd3c331bad915024c44513a4919924551804cbbd500622e3`，Native 沿用上述哈希。独立进程 E2E 延迟首次 FINISHED 直至同一 Worker 的实际重发抵达，检查 PostgreSQL 的租户并发槽由占用变为空闲，随后交付迟到的报文。Coordinator 对该未释放通知返回 `RETIRED_RESULT_NOTICE`，对真实 Native 释放回执返回 `CONTINUE`。JDBC 和打包 CLI 恢复查询及 TLS 读取均通过，套件一项、零跳过，耗时 123.9 秒。此前同时拦截所有重试的测试使仍持有 dispatch 操作的查询无法在屏障打开前退休，已改为仅延迟原始报文。这是对四个变更 JAR 的针对性验证，最终整仓发行仍需重新构建并核对清单。
+
+取消审计的复测在上一次角色清单上更新了 Query 制品的 `QueryAuditEmitter`，移除 Coordination 中的旧类，并重编 Dispatcher 及调用其工厂的 QueryManager。新清单 SHA-256 为 `9cb36ae9e40843933bfc3faa0db1f9b994b315c5602b28c5c0c2c749489b0362`，Native 哈希沿用上述值。同一独立进程测试通过一项，零跳过，耗时 108.2 秒。JDBC 与 CLI 各自按本次实际 query ID 查询 PostgreSQL，校验历史记录的原 SQL、LDAP 用户、解析后的租户、完成时间及失败标志，并核对安全日志中提交与取消各一次、顺序一致。首次断言要求提交审计也带租户，实测提交早于准入阶段的租户解析。复测分别验证提交时已认证的用户与 SQL，以及终态时已经解析的租户与取消结果。 随后使用真实 Arrow IPC 的 UUID ResultSet 在土耳其语默认 Locale 下验证按列名读取，列名 `ID` 和 `iD` 均读出原值。独立 JDBC 套件 242 项通过，零跳过。
+
 ## 2026-11-14 macOS 发行角色实物核验
 
 Corretto 17 在 Apple M2 上完成 149 个 reactor 模块的安装后，按 Maven 运行依赖顺序冻结 Coordinator 的 363 个 JAR、Worker 的 309 个 JAR 和 Standalone 的 421 个 JAR。三个独立 JVM 使用生产启动器选择各自的 classpath。Coordinator 加载了 `SqlCompiler`，加载 WorkerMain 和 `NativeRuntime` 时返回 ClassNotFoundException。Worker 加载了 WorkerMain 和 `NativeRuntime`，加载 CoordinatorMain 和 `SqlCompiler` 时返回 ClassNotFoundException。Standalone 加载了这四个类型及自己的 main 方法。每个角色中的 Pangrova 主制品均与本批 target 中对应 JAR 逐字节匹配。
